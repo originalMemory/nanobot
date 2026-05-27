@@ -38,6 +38,7 @@ from nanobot.session.goal_state import (
     runner_wall_llm_timeout_s,
     sustained_goal_active,
 )
+from nanobot.session import UNIFIED_SESSION_KEY
 from nanobot.session.manager import Session, SessionManager
 from nanobot.session.webui_turns import (
     WebuiTurnCoordinator,
@@ -63,7 +64,6 @@ if TYPE_CHECKING:
     from nanobot.cron.service import CronService
 
 
-UNIFIED_SESSION_KEY = "unified:default"
 
 class TurnState(Enum):
     RESTORE = auto()
@@ -871,6 +871,27 @@ class AgentLoop:
             msg = dataclasses.replace(msg, session_key_override=session_key)
         lock = self._session_locks.setdefault(session_key, asyncio.Lock())
         gate = self._concurrency_gate or nullcontext()
+
+        # 统一会话模式下，将非 WebSocket 通道的入站用户消息通知 WebSocket 通道，
+        # 使 Electron 的 inbox:unified 视图能展示所有通道的对话记录。
+        if (
+            self._unified_session
+            and msg.channel not in ("websocket", "cli")
+            and msg.content
+        ):
+            try:
+                await self.bus.publish_outbound(OutboundMessage(
+                    channel="websocket",
+                    chat_id="inbox:unified",
+                    content=msg.content,
+                    metadata={
+                        "_unified_inbox_inbound": True,
+                        "source_channel": msg.channel,
+                        "source_chat_id": msg.chat_id,
+                    },
+                ))
+            except Exception:
+                logger.warning("unified inbox inbound shadow failed for {}:{}", msg.channel, msg.chat_id)
 
         # Register a pending queue so follow-up messages for this session are
         # routed here (mid-turn injection) instead of spawning a new task.

@@ -65,6 +65,10 @@ class ChannelManager:
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
         self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
+        self._unified_session: bool = bool(
+            getattr(getattr(config, "agents", None), "defaults", None)
+            and config.agents.defaults.unified_session
+        )
 
         self._init_channels()
 
@@ -113,6 +117,7 @@ class ChannelManager:
                     kwargs["workspace_path"] = self.config.workspace_path
                     if self._webui_runtime_model_name is not None:
                         kwargs["runtime_model_name"] = self._webui_runtime_model_name
+                    kwargs["unified_session"] = self._unified_session
                 channel = cls(section, self.bus, **kwargs)
                 channel.transcription_provider = transcription_provider
                 channel.transcription_api_key = transcription_key
@@ -360,6 +365,40 @@ class ChannelManager:
                             logger.info("Suppressing duplicate outbound message to {}:{}", msg.channel, msg.chat_id)
                             continue
                     await self._send_with_retry(channel, msg)
+                    # 统一会话模式下，将非 WebSocket 通道的出站消息也路由给 WebSocket 通道，
+                    # 使 Electron 的 inbox:unified 订阅能收到，同时写入统一 transcript。
+                    # NOTE: 黑名单须与 websocket.send() 中的早期 return 保持同步——
+                    # 新增系统元数据类型时需在此处同步排除。
+                    if (
+                        self._unified_session
+                        and msg.channel != "websocket"
+                        and not msg.metadata.get("_unified_inbox_write")
+                        and msg.content
+                        and not msg.metadata.get("_progress")
+                        and not msg.metadata.get("_stream_delta")
+                        and not msg.metadata.get("_session_updated")
+                        and not msg.metadata.get("_turn_end")
+                        and not msg.metadata.get("_goal_status")
+                        and not msg.metadata.get("_goal_state_sync")
+                    ):
+                        ws_channel = self.channels.get("websocket")
+                        if ws_channel is not None:
+                            shadow = OutboundMessage(
+                                channel="websocket",
+                                chat_id="inbox:unified",
+                                content=msg.content,
+                                media=msg.media,
+                                metadata={
+                                    **dict(msg.metadata),
+                                    "_unified_inbox_write": True,
+                                    "source_channel": msg.channel,
+                                    "source_chat_id": msg.chat_id,
+                                },
+                            )
+                            try:
+                                await self._send_once(ws_channel, shadow)
+                            except Exception:
+                                logger.warning("unified inbox shadow send failed for {}:{}", msg.channel, msg.chat_id)
                 else:
                     logger.warning("Unknown channel: {}", msg.channel)
 
