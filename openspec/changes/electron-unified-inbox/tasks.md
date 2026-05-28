@@ -29,11 +29,11 @@
 
 ## 5. Electron 应用基础架构
 
-- [ ] 5.1 创建 `electron/` 目录结构：`main/`（主进程）、`renderer/`（渲染进程）、`package.json`、构建配置
-- [ ] 5.2 配置 Electron 构建工具链（electron-builder 或 electron-forge）
+- [x] 5.1 创建 `electron/` 目录结构：入口文件（`src/main.ts`、`src/preload.ts`、`src/renderer.ts`）保持在 `src/` 根，功能模块在 `src/main/`（主进程）和 `src/renderer/`（渲染进程）内按功能拆子目录
+- [x] 5.2 配置 Electron 构建工具链：使用 Electron Forge（`create-electron-app --template=vite-typescript`），内置 Vite 插件、makers（zip/deb/rpm/squirrel）和 fuses 安全配置，无需额外 electron-builder
 - [ ] 5.3 实现主进程：窗口管理、系统托盘、本地配置持久化（`electron-store`）
 - [ ] 5.4 实现 WebSocket 连接管理：自动连接、断线重连（指数退避）、使用持久化 chat_id attach
-- [ ] 5.5 配置开发环境：热重载、调试工具
+- [x] 5.5 配置开发环境：Forge+Vite 已提供热重载（`npm start`），`main.ts` 默认开启 DevTools
 
 ## 6. Electron 统一 Inbox 视图
 

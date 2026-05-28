@@ -62,7 +62,9 @@ nanobot 采用 `MessageBus` 解耦通道与 Agent 核心。`unifiedSession: true
 
 ### D5: Electron 应用架构
 
-**选择**：放在 `electron/` 目录，使用 Electron + 现有 WebUI 技术栈（React + TypeScript + Vite）。通过 WebSocket 连接本地 nanobot gateway，复用 `webui/` 的组件和类型定义。
+**选择**：放在 `electron/` 目录，使用 Electron Forge（vite-typescript 模板）+ React + TypeScript。通过 WebSocket 连接本地 nanobot gateway，复用 `webui/` 的组件和类型定义。
+
+**目录结构**：三个 Forge 入口文件（`src/main.ts`、`src/preload.ts`、`src/renderer.ts`）保持在 `src/` 根以匹配 vite config 的 input 路径；功能模块在 `src/main/`（window、tray、store、ws-client）和 `src/renderer/`（components、hooks）内按功能拆分，不把入口文件挪进子目录。
 
 **主进程职责**：窗口管理、系统托盘、截屏（`desktopCapturer`）、本地存储（persisted chat_id）
 **渲染进程**：统一 Inbox 视图，基于 WebSocket 实时更新
