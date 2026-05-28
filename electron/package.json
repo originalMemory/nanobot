@@ -52,6 +52,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron-squirrel-startup": "^1.0.1",
+    "electron-store": "^8.2.0",
     "i18next": "^26.3.0",
     "katex": "^0.17.0",
     "lucide-react": "^1.16.0",

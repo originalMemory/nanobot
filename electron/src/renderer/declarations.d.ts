@@ -1,3 +1,27 @@
+// ---------------------------------------------------------------------------
+// Electron IPC bridge (injected by preload.ts via contextBridge)
+// ---------------------------------------------------------------------------
+
+interface ElectronAPI {
+  config: {
+    get(key: string): Promise<unknown>;
+    set(key: string, value: unknown): Promise<void>;
+  };
+  screenshot: {
+    capture(): Promise<string | null>;
+  };
+}
+
+declare global {
+  interface Window {
+    electronAPI: ElectronAPI;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// react-syntax-highlighter sub-module declarations
+// ---------------------------------------------------------------------------
+
 declare module "react-syntax-highlighter/dist/esm/prism-async-light" {
   import { ComponentType } from "react";
   interface SyntaxHighlighterProps {
@@ -22,3 +46,5 @@ declare module "react-syntax-highlighter/dist/esm/styles/prism/one-light" {
   const style: Record<string, unknown>;
   export default style;
 }
+
+export {};

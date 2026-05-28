@@ -40,13 +40,13 @@
 
 ## 6. Electron 主进程
 
-- [ ] 6.1 窗口管理：合理的初始尺寸（1200×800）、窗口位置/大小记忆、macOS dock 行为
-- [ ] 6.2 系统托盘：关闭窗口最小化到托盘，托盘图标提供「显示」/「退出」菜单
-- [ ] 6.3 `electron-store` 配置持久化：使用**有层级的 schema**，为后续设置页移植预留扩展空间
+- [x] 6.1 窗口管理：合理的初始尺寸（1200×800）、窗口位置/大小记忆、macOS dock 行为
+- [x] 6.2 系统托盘：关闭窗口最小化到托盘，托盘图标提供「显示」/「退出」菜单
+- [x] 6.3 `electron-store` 配置持久化：使用**有层级的 schema**，为后续设置页移植预留扩展空间
   - `gateway.url`（默认 `http://localhost:8765`）、`gateway.token`、`gateway.chatId`（默认 `electron-main`）
   - `appearance.theme`
   - 预留 `providers`、`models` 命名空间（后续设置页扩展，本期留空）
-- [ ] 6.4 `preload.ts` IPC 桥：使用**分组命名空间**设计，避免后续 API 混乱
+- [x] 6.4 `preload.ts` IPC 桥：使用**分组命名空间**设计，避免后续 API 混乱
   - `window.electronAPI.config.get(key)` / `window.electronAPI.config.set(key, value)`
   - `window.electronAPI.screenshot.capture()`
   - 后续设置页直接复用 `config` 命名空间，无需重构
