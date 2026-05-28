@@ -27,23 +27,33 @@
 - [x] 4.3 添加认证检查（复用现有 `_check_api_token`）
 - [x] 4.4 为 inbox thread 端点编写单元测试
 
-## 5. Electron 应用基础架构
+## 5. Electron 渲染层基础设施（移植 webui）
 
-- [x] 5.1 创建 `electron/` 目录结构：入口文件（`src/main.ts`、`src/preload.ts`、`src/renderer.ts`）保持在 `src/` 根，功能模块在 `src/main/`（主进程）和 `src/renderer/`（渲染进程）内按功能拆子目录
-- [x] 5.2 配置 Electron 构建工具链：使用 Electron Forge（`create-electron-app --template=vite-typescript`），内置 Vite 插件、makers（zip/deb/rpm/squirrel）和 fuses 安全配置，无需额外 electron-builder
-- [ ] 5.3 实现主进程：窗口管理、系统托盘、本地配置持久化（`electron-store`）
-- [ ] 5.4 实现 WebSocket 连接管理：自动连接、断线重连（指数退避）、使用持久化 chat_id attach
-- [x] 5.5 配置开发环境：Forge+Vite 已提供热重载（`npm start`），`main.ts` 默认开启 DevTools
+- [x] 5.1 创建 `electron/` 目录结构（Electron Forge + vite-typescript 模板）
+- [x] 5.2 配置构建工具链（Forge + Vite，热重载开箱即用）
+- [x] 5.3 引入 React + Tailwind CSS + shadcn/ui 依赖，配置 PostCSS / tailwind.config / globals.css
+- [ ] 5.4 移植核心 lib：`types.ts`、`nanobot-client.ts`、`tool-traces.ts`、`media.ts`、`format.ts`、`thread-display-compat.ts`、`subagent-channel-display.ts`
+- [ ] 5.5 改造 `bootstrap.ts` / `api.ts`：baseUrl 参数化（`http://localhost:{port}`），token/secret 持久化用 `electron-store` 或 renderer localStorage
+- [ ] 5.6 移植 `useNanobotStream` hook（含流式状态机完整逻辑）
+- [ ] 5.7 移植消息渲染组件：`MessageBubble`、`MarkdownText`、`CodeBlock`、`ImageLightbox`、`AgentActivityCluster`、`ThreadMessages`、`ThreadViewport`
+- [ ] 5.8 移植 `ThreadComposer`（输入框、Slash 命令、图片附件）及相关 hooks（`useAttachedImages`、`useClipboardAndDrop`）
 
-## 6. Electron 统一 Inbox 视图
+## 6. Electron 主进程
 
-- [ ] 6.1 实现消息列表组件：渲染统一时间线，支持 `source_channel` 标签
-- [ ] 6.2 实现消息输入组件：文本输入、发送按钮
-- [ ] 6.3 实现历史加载：启动时通过 `GET /api/inbox/thread` 拉取历史
-- [ ] 6.4 实现实时消息更新：通过 WebSocket 接收 fan-out 推送，追加到视图
-- [ ] 6.5 实现侧边栏导航：统一收件箱 + 各通道视图切换（基于 `source_channel` 过滤）
+- [ ] 6.1 窗口管理：合理的初始尺寸（1200×800）、窗口位置/大小记忆、macOS dock 行为
+- [ ] 6.2 系统托盘：关闭窗口最小化到托盘，托盘图标提供「显示」/「退出」菜单
+- [ ] 6.3 `electron-store` 配置持久化：gateway 地址（默认 `localhost:8765`）、持久化 `chat_id`（默认 `electron-main`）、主题偏好
+- [ ] 6.4 `preload.ts` IPC 桥：向 renderer 暴露配置读写接口和截屏触发接口
 
-## 7. 截屏集成
+## 7. Electron 统一 Inbox 视图
 
-- [ ] 7.1 实现 `desktopCapturer` 截屏功能：快捷键触发、截图预览
-- [ ] 7.2 截图作为 `media` 附件通过 WebSocket 发送到 gateway
+- [ ] 7.1 App 引导层：从 `electron-store` 读取 gateway 地址和 token，初始化 `NanobotClient`，使用持久化 `chat_id` connect 并 attach `inbox:unified`
+- [ ] 7.2 历史加载：连接成功后调用 `GET /api/inbox/thread`，将结果作为 `initialMessages` 传入 `useNanobotStream`
+- [ ] 7.3 实时消息：`inbox:unified` fan-out 推送经由 `useNanobotStream` 驱动视图更新
+- [ ] 7.4 `source_channel` 标签渲染：在消息气泡旁显示来源通道徽章（`[Telegram]`、`[Discord]` 等）
+- [ ] 7.5 侧边栏导航：「统一收件箱」固定入口 + 从 transcript 聚合的各通道入口，点击通道按 `source_channel` 过滤消息列表
+
+## 8. 截屏集成
+
+- [ ] 8.1 主进程实现 `desktopCapturer` 截屏：注册全局快捷键，截图数据经 IPC 发送到 renderer
+- [ ] 8.2 renderer 截图预览 + 确认发送：截图作为 `media` 附件复用现有 `useAttachedImages` 发送路径
