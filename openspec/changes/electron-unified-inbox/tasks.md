@@ -32,7 +32,7 @@
 - [x] 5.1 创建 `electron/` 目录结构（Electron Forge + vite-typescript 模板）
 - [x] 5.2 配置构建工具链（Forge + Vite，热重载开箱即用）
 - [x] 5.3 引入 React + Tailwind CSS + shadcn/ui 依赖，配置 PostCSS / tailwind.config / globals.css
-- [ ] 5.4 移植核心 lib：`types.ts`、`nanobot-client.ts`、`tool-traces.ts`、`media.ts`、`format.ts`、`thread-display-compat.ts`、`subagent-channel-display.ts`
+- [x] 5.4 移植核心 lib：`types.ts`、`nanobot-client.ts`、`tool-traces.ts`、`media.ts`、`format.ts`、`thread-display-compat.ts`、`subagent-channel-display.ts`
 - [ ] 5.5 改造 `bootstrap.ts` / `api.ts`：baseUrl 参数化（`http://localhost:{port}`），token/secret 持久化用 `electron-store` 或 renderer localStorage
 - [ ] 5.6 移植 `useNanobotStream` hook（含流式状态机完整逻辑）
 - [ ] 5.7 移植消息渲染组件：`MessageBubble`、`MarkdownText`、`CodeBlock`、`ImageLightbox`、`AgentActivityCluster`、`ThreadMessages`、`ThreadViewport`
