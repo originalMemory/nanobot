@@ -42,8 +42,14 @@
 
 - [ ] 6.1 窗口管理：合理的初始尺寸（1200×800）、窗口位置/大小记忆、macOS dock 行为
 - [ ] 6.2 系统托盘：关闭窗口最小化到托盘，托盘图标提供「显示」/「退出」菜单
-- [ ] 6.3 `electron-store` 配置持久化：gateway 地址（默认 `localhost:8765`）、持久化 `chat_id`（默认 `electron-main`）、主题偏好
-- [ ] 6.4 `preload.ts` IPC 桥：向 renderer 暴露配置读写接口和截屏触发接口
+- [ ] 6.3 `electron-store` 配置持久化：使用**有层级的 schema**，为后续设置页移植预留扩展空间
+  - `gateway.url`（默认 `http://localhost:8765`）、`gateway.token`、`gateway.chatId`（默认 `electron-main`）
+  - `appearance.theme`
+  - 预留 `providers`、`models` 命名空间（后续设置页扩展，本期留空）
+- [ ] 6.4 `preload.ts` IPC 桥：使用**分组命名空间**设计，避免后续 API 混乱
+  - `window.electronAPI.config.get(key)` / `window.electronAPI.config.set(key, value)`
+  - `window.electronAPI.screenshot.capture()`
+  - 后续设置页直接复用 `config` 命名空间，无需重构
 
 ## 7. Electron 统一 Inbox 视图
 
@@ -51,9 +57,23 @@
 - [ ] 7.2 历史加载：连接成功后调用 `GET /api/inbox/thread`，将结果作为 `initialMessages` 传入 `useNanobotStream`
 - [ ] 7.3 实时消息：`inbox:unified` fan-out 推送经由 `useNanobotStream` 驱动视图更新
 - [ ] 7.4 `source_channel` 标签渲染：在消息气泡旁显示来源通道徽章（`[Telegram]`、`[Discord]` 等）
-- [ ] 7.5 侧边栏导航：「统一收件箱」固定入口 + 从 transcript 聚合的各通道入口，点击通道按 `source_channel` 过滤消息列表
+- [ ] 7.5 侧边栏导航：「统一收件箱」固定入口 + 从 transcript 聚合的各通道入口，点击通道按 `source_channel` 过滤消息列表；**底部预留「设置」齿轮图标占位**（本期点击无响应，后续设置页接入时激活）
 
 ## 8. 截屏集成
 
 - [ ] 8.1 主进程实现 `desktopCapturer` 截屏：注册全局快捷键，截图数据经 IPC 发送到 renderer
 - [ ] 8.2 renderer 截图预览 + 确认发送：截图作为 `media` 附件复用现有 `useAttachedImages` 发送路径
+
+---
+
+## 后续：设置页移植（独立需求，本期不做）
+
+> 本期完成后另开 openspec 变更（建议命名 `electron-settings`）覆盖以下内容。
+> 6.3 的 store schema 和 6.4 的 IPC 命名空间已为此预留扩展口。
+
+- [ ] S.1 移植 `SettingsView.tsx` 及子面板：Overview、Appearance、Models、Providers、
+      ImageGeneration、Web、AppsCatalog、Runtime、Advanced（共 ~4600 行）
+- [ ] S.2 补充设置相关 API：`/api/settings` 系列读写接口对接（`fetchSettings`、`updateSettings` 等加入 `api.ts`）
+- [ ] S.3 `electron-store` 中 `providers` / `models` 命名空间落地（与 S.2 联动）
+- [ ] S.4 侧边栏「设置」齿轮图标激活，跳转设置视图
+- [ ] S.5 `LanguageSwitcher`、主题切换在 Electron 中的持久化（读写 `appearance.theme`）
