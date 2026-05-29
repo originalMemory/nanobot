@@ -106,11 +106,13 @@ function Shell({
   token,
   modelName,
   initialMessages,
+  gatewayUrl,
 }: {
   client: NanobotClient;
   token: string;
   modelName: string | null;
   initialMessages: UIMessage[];
+  gatewayUrl: string;
 }) {
   const { theme, toggle } = useTheme();
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
@@ -149,7 +151,7 @@ function Shell({
 
   return (
     <ThemeProvider theme={theme}>
-      <ClientProvider client={client} token={token} modelName={modelName}>
+      <ClientProvider client={client} token={token} modelName={modelName} apiBase={gatewayUrl}>
         <div className="flex h-full w-full overflow-hidden bg-background text-foreground">
           {/* Sidebar */}
           <InboxSidebar
@@ -365,6 +367,7 @@ export default function App() {
       token={state.token}
       modelName={state.modelName}
       initialMessages={state.initialMessages}
+      gatewayUrl={state.gatewayUrl}
     />
   );
 }

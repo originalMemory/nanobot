@@ -13,6 +13,7 @@ import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import { cn } from "@/lib/utils";
+import { useClient } from "@/providers/ClientProvider";
 import { formatTurnLatency } from "@/lib/format";
 import type {
   CliAppInfo,
@@ -24,12 +25,44 @@ import type {
   UIMessage,
 } from "@/lib/types";
 
+/**
+ * Electron 渲染进程是 file:// origin，/api/... 相对路径需要拼上网关绝对地址才能发起 HTTP 请求。
+ * data: URL 和已经是绝对地址的 URL 原样返回。
+ */
+function resolveMediaUrl(url: string | undefined, apiBase: string): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("data:") || url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
+  }
+  const base = apiBase.replace(/\/$/, "");
+  return `${base}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
 interface MessageBubbleProps {
   message: UIMessage;
   /** When false, hide the assistant reply copy button (mid-turn text before more agent activity). Default true. */
   showAssistantCopyAction?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
+}
+
+/** 与后端 _VISION_CAPTION_SENTINEL 保持一致。 */
+const VISION_CAPTION_SENTINEL = "\n\u200b[vision-caption]\u200b\n";
+
+/**
+ * 从用户消息 content 中分离出 caption 段。
+ * caption 段由后端在 _state_caption 中用 sentinel 拼接到原文末尾。
+ */
+function extractCaptionBlocks(content: string): {
+  displayText: string;
+  captionText: string | null;
+} {
+  const idx = content.indexOf(VISION_CAPTION_SENTINEL);
+  if (idx === -1) return { displayText: content, captionText: null };
+  return {
+    displayText: content.slice(0, idx),
+    captionText: content.slice(idx + VISION_CAPTION_SENTINEL.length) || null,
+  };
 }
 
 /**
@@ -91,7 +124,8 @@ export function MessageBubble({
     const media = message.media ?? [];
     const hasImages = images.length > 0;
     const hasMedia = media.length > 0;
-    const hasText = message.content.trim().length > 0;
+    const { displayText, captionText } = extractCaptionBlocks(message.content);
+    const hasText = displayText.trim().length > 0;
     return (
       <div
         className={cn(
@@ -111,12 +145,13 @@ export function MessageBubble({
             )}
           >
             <CliAppMentionText
-              text={message.content}
+              text={displayText}
               cliApps={mentionCliApps}
               mcpPresets={mentionMcpPresets}
             />
           </p>
         ) : null}
+        {captionText ? <CaptionBubble text={captionText} /> : null}
       </div>
     );
   }
@@ -367,6 +402,7 @@ function UserImages({
   size?: "compact" | "large";
 }) {
   const { t } = useTranslation();
+  const { apiBase } = useClient();
   // Only real-URL images can open in the lightbox; historical-replay
   // placeholders (no URL) have nothing to zoom into.
   const viewableImages: UIImage[] = [];
@@ -375,7 +411,7 @@ function UserImages({
     const img = images[i];
     if (typeof img.url !== "string" || img.url.length === 0) continue;
     originalToViewable.set(i, viewableImages.length);
-    viewableImages.push(img);
+    viewableImages.push({ ...img, url: resolveMediaUrl(img.url, apiBase) });
   }
 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -429,7 +465,10 @@ function UserImageCell({
   openLabel: string;
   onOpen?: () => void;
 }) {
-  const hasUrl = typeof image.url === "string" && image.url.length > 0;
+  const { apiBase } = useClient();
+  // Electron 渲染进程是 file:// origin，相对路径 /api/... 需要拼上网关绝对地址。
+  const resolvedUrl = resolveMediaUrl(image.url, apiBase);
+  const hasUrl = typeof resolvedUrl === "string" && resolvedUrl.length > 0;
   const tileClasses = cn(
     "relative overflow-hidden border border-border/60 bg-muted/40",
     size === "large"
@@ -452,7 +491,7 @@ function UserImageCell({
         )}
       >
         <img
-          src={image.url}
+          src={resolvedUrl}
           alt={image.name ?? ""}
           loading="lazy"
           decoding="async"
@@ -635,6 +674,57 @@ export function ReasoningBubble({
             )}
           >
             {text}
+          </MarkdownText>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 用户消息中的图片识别结果折叠块。
+ * 默认收起，避免与图片缩略图重复展示。
+ * 单图时后端加了 `图片描述：\n` 前缀供 LLM 理解，展示前剥掉。
+ */
+function CaptionBubble({ text }: { text: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const SINGLE_PREFIX = "图片描述：";
+  const displayText = text.trimStart().startsWith(SINGLE_PREFIX)
+    ? text.trimStart().slice(SINGLE_PREFIX.length)
+    : text;
+  return (
+    <div className="w-full animate-in fade-in-0 slide-in-from-top-1 duration-200">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "group flex w-full items-center gap-2 rounded-md px-2 py-1.5",
+          "text-xs text-muted-foreground transition-colors hover:bg-muted/45",
+        )}
+        aria-expanded={open}
+      >
+        <ImageIcon className="h-3.5 w-3.5" aria-hidden />
+        <span className="min-w-0 flex-1 text-left">
+          {t("message.visionCaption", { defaultValue: "图片识别结果" })}
+        </span>
+        <ChevronRight
+          aria-hidden
+          className={cn(
+            "ml-auto h-3.5 w-3.5 transition-transform duration-200",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="mt-1 min-w-0 animate-in fade-in-0 slide-in-from-top-1 duration-200 border-l border-muted-foreground/20 pl-3">
+          <MarkdownText
+            className={cn(
+              "text-[12.5px] italic text-muted-foreground/88",
+              "prose-p:my-1.5 prose-li:my-0.5",
+            )}
+          >
+            {displayText}
           </MarkdownText>
         </div>
       )}

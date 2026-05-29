@@ -65,6 +65,10 @@ if TYPE_CHECKING:
 
 
 
+# 用于前端识别并折叠展示 caption 段的分隔符；零宽空格确保用户输入不可能包含此字符串
+_VISION_CAPTION_SENTINEL = "\n\u200b[vision-caption]\u200b\n"
+
+
 class TurnState(Enum):
     RESTORE = auto()
     COMPACT = auto()
@@ -1388,7 +1392,8 @@ class AgentLoop:
 
         caption_text = format_captions(results)
         if caption_text:
-            new_content = (ctx.msg.content + "\n" + caption_text).strip()
+            # sentinel 让前端可以可靠地将 caption 块从用户消息正文中分离出来单独渲染
+            new_content = ctx.msg.content.rstrip() + _VISION_CAPTION_SENTINEL + caption_text
         else:
             new_content = ctx.msg.content
         ctx.msg = dataclasses.replace(ctx.msg, content=new_content, media=[])

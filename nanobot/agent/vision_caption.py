@@ -116,9 +116,9 @@ async def caption_images(
 def format_captions(results: list[CaptionResult]) -> str:
     """将 caption 结果格式化为追加到用户消息的文本。
 
-    单图：``[图片描述: <text>]``
-    多图：``[图片 1 描述: <text>]`` 等
-    失败：``[图片 N: 描述获取失败 - <原因>]``
+    单图成功：``图片描述：<text>``（前缀供 LLM 理解，前端展示时剥掉）
+    多图成功：``**图片 N**\\n<text>``，段落间空行分隔
+    失败：``（描述获取失败 - <原因>）``
     """
     if not results:
         return ""
@@ -129,11 +129,9 @@ def format_captions(results: list[CaptionResult]) -> str:
     for r in results:
         n = r.index + 1
         if r.success:
-            if multi:
-                parts.append(f"[图片 {n} 描述: {r.text}]")
-            else:
-                parts.append(f"[图片描述: {r.text}]")
+            parts.append(f"**图片 {n}**\n{r.text}" if multi else f"图片描述：{r.text}")
         else:
-            parts.append(f"[图片 {n}: 描述获取失败 - {r.error}]")
+            reason = f"（描述获取失败 - {r.error}）"
+            parts.append(f"**图片 {n}**\n{reason}" if multi else f"图片描述：{reason}")
 
-    return "\n".join(parts)
+    return "\n\n".join(parts)
