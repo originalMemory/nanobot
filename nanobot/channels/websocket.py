@@ -71,6 +71,7 @@ from nanobot.webui.sidebar_state import (
 from nanobot.webui.thread_disk import delete_webui_thread
 from nanobot.webui.transcript import (
     append_transcript_object,
+    build_inbox_thread_from_session,
     build_webui_thread_response,
     rewrite_local_markdown_images,
 )
@@ -1078,20 +1079,24 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response(data)
 
     def _handle_inbox_thread(self, request: WsRequest) -> Response:
-        """返回统一 transcript 重放后的 UI 消息列表（``GET /api/inbox/thread``）。
+        """返回统一 session 转换后的 UI 消息列表（``GET /api/inbox/thread``）。
 
-        读取 ``unified:default`` transcript 并通过 ``build_webui_thread_response``
-        重放为 UI 格式。transcript 为空或不存在时返回 ``{"messages": []}``。
+        直接读取 ``unified:default`` Session（文件 1），经转换器转为 wire events
+        再重放为 UI 格式。Session 不存在或为空时返回 ``{"messages": []}``。
         """
         if not self._check_api_token(request):
             return _http_error(401, "Unauthorized")
-        data = build_webui_thread_response(
-            UNIFIED_SESSION_KEY,
+        empty = {"messages": [], "schemaVersion": 3, "sessionKey": UNIFIED_SESSION_KEY}
+        if self._session_manager is None:
+            return _http_json_response(empty)
+        session = self._session_manager.get_or_create(UNIFIED_SESSION_KEY)
+        if not session.messages:
+            return _http_json_response(empty)
+        data = build_inbox_thread_from_session(
+            session,
             augment_user_media=self._augment_transcript_user_media,
             augment_assistant_text=self._rewrite_local_markdown_images,
         )
-        if data is None:
-            return _http_json_response({"messages": [], "schemaVersion": 3, "sessionKey": UNIFIED_SESSION_KEY})
         return _http_json_response(data)
 
     def _try_append_webui_transcript(self, chat_id: str, wire: dict[str, Any]) -> None:
@@ -1101,23 +1106,6 @@ class WebSocketChannel(BaseChannel):
             append_transcript_object(sk, dup)
         except (ValueError, TypeError) as e:
             self.logger.warning("webui transcript append failed: {}", e)
-
-    def _try_append_unified_transcript(
-        self,
-        wire: dict[str, Any],
-        source_channel: str,
-        source_chat_id: str,
-    ) -> None:
-        """将 *wire* 双写到统一 transcript（session key = ``unified:default``）。
-
-        附加 ``source_channel`` 和 ``source_chat_id`` 字段，
-        供 Electron 客户端识别每条消息的来源通道。
-        """
-        try:
-            obj = {**wire, "source_channel": source_channel, "source_chat_id": source_chat_id}
-            append_transcript_object(UNIFIED_SESSION_KEY, obj)
-        except (ValueError, TypeError) as e:
-            self.logger.warning("unified transcript append failed: {}", e)
 
     def _augment_transcript_user_media(self, paths: list[str]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -1159,9 +1147,6 @@ class WebSocketChannel(BaseChannel):
             if isinstance(mcp_presets, list) and mcp_presets:
                 user_obj["mcp_presets"] = mcp_presets
             self._try_append_webui_transcript(chat_id, user_obj)
-            # 统一会话模式下，将 WebSocket 入站消息同步双写到统一 transcript。
-            if self._unified_session:
-                self._try_append_unified_transcript(user_obj, "websocket", chat_id)
         await super()._handle_message(
             sender_id,
             chat_id,
@@ -1748,15 +1733,11 @@ class WebSocketChannel(BaseChannel):
                         urls.append(signed)
                 if urls:
                     payload["media_urls"] = urls
-            # 与 per-chat transcript 保持一致：存签名 URL，覆写 text 为原始文本。
-            # 进程重启后历史图片失效是现有的已知限制，不在此处单独处理。
-            transcript_obj = dict(payload)
-            transcript_obj["text"] = text
-            self._try_append_unified_transcript(transcript_obj, source_ch, source_cid)
+            # 进程重启后历史图片失效是现有的已知限制（签名 URL 绑定进程生命周期）。
             await self._fan_out_to_unified_inbox(payload, source_ch, source_cid)
             return
 
-        # 非 WebSocket 通道的入站用户消息，写入统一 transcript 并推送给订阅者。
+        # 非 WebSocket 通道的入站用户消息，推送给 inbox:unified 订阅者。
         if msg.metadata.get("_unified_inbox_inbound"):
             source_ch = str(msg.metadata.get("source_channel") or "unknown")
             source_cid = str(msg.metadata.get("source_chat_id") or "")
@@ -1765,7 +1746,6 @@ class WebSocketChannel(BaseChannel):
                 "chat_id": _INBOX_UNIFIED_CHAT_ID,
                 "text": msg.content,
             }
-            self._try_append_unified_transcript(user_obj, source_ch, source_cid)
             await self._fan_out_to_unified_inbox(user_obj, source_ch, source_cid)
             return
 
@@ -1860,13 +1840,11 @@ class WebSocketChannel(BaseChannel):
         transcript_payload = dict(payload)
         transcript_payload["text"] = text
         self._try_append_webui_transcript(msg.chat_id, transcript_payload)
-        # 统一会话模式下，将 WebSocket 出站消息双写到统一 transcript。
-        if self._unified_session and not msg.metadata.get("_progress"):
-            self._try_append_unified_transcript(transcript_payload, "websocket", msg.chat_id)
         raw = json.dumps(payload, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" ")
-        # 统一会话模式下，将消息额外推送给 inbox:unified 订阅者；
+        # 统一会话模式下，将消息额外推送给 inbox:unified 订阅者（实时 fan-out）；
+        # 历史数据由 Session 直接提供，无需再写入 unified transcript 文件。
         # 排除已通过 chat_id 订阅收到本消息的连接（去重）。
         if self._unified_session and not msg.metadata.get("_progress"):
             await self._fan_out_to_unified_inbox(
@@ -1934,6 +1912,7 @@ class WebSocketChannel(BaseChannel):
             return
         meta = metadata or {}
         stream_key = (chat_id, str(meta.get("_stream_id") or ""))
+        full_text: str | None = None
         if meta.get("_stream_end"):
             body: dict[str, Any] = {"event": "stream_end", "chat_id": chat_id}
             buffered = self._stream_text_buffers.pop(stream_key, [])
@@ -1953,6 +1932,17 @@ class WebSocketChannel(BaseChannel):
         if meta.get("_stream_id") is not None:
             body["stream_id"] = meta["_stream_id"]
         self._try_append_webui_transcript(chat_id, body)
+        if self._unified_session and full_text is not None:
+            fan_payload: dict[str, Any] = {
+                "event": "message",
+                "chat_id": chat_id,
+                "text": full_text,
+            }
+            if meta.get("_stream_id") is not None:
+                fan_payload["stream_id"] = meta["_stream_id"]
+            await self._fan_out_to_unified_inbox(
+                fan_payload, "websocket", chat_id, exclude_conns=set(conns)
+            )
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" stream ")

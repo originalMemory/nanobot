@@ -14,7 +14,7 @@ from urllib.parse import unquote, urlparse
 from loguru import logger
 
 from nanobot.config.paths import get_webui_dir
-from nanobot.session.manager import SessionManager
+from nanobot.session.manager import Session, SessionManager
 
 WEBUI_TRANSCRIPT_SCHEMA_VERSION = 3
 _MAX_TRANSCRIPT_FILE_BYTES = 8 * 1024 * 1024
@@ -738,5 +738,141 @@ def build_webui_thread_response(
     return {
         "schemaVersion": WEBUI_TRANSCRIPT_SCHEMA_VERSION,
         "sessionKey": session_key,
+        "messages": msgs,
+    }
+
+
+def session_messages_to_wire_events(
+    messages: list[dict[str, Any]],
+    chat_id: str = "inbox:unified",
+) -> list[dict[str, Any]]:
+    """将 OpenAI 格式的 Session 消息转换为 ``replay_transcript_to_ui_messages`` 所需的 wire events。
+
+    处理 user、assistant（纯文本 + tool_calls）和 tool result 消息，
+    保留 ``source_channel`` 和 ``source_chat_id`` 字段。
+
+    Tool call 策略：assistant 的 tool_calls 按 call_id 缓冲；等到对应的 tool result
+    到达时，才生成一条合并的 ``phase: "end"`` 事件（与 wire 日志格式一致），避免
+    同时发 start/end 两条事件导致 UI 出现重复 trace 行。
+    """
+    events: list[dict[str, Any]] = []
+    # call_id → {name, arguments}：从 assistant tool_calls 填充，
+    # 收到匹配的 tool result 时消费。
+    pending_tool_calls: dict[str, dict[str, Any]] = {}
+
+    for msg in messages:
+        if msg.get("_type") == "metadata":
+            continue
+        role = msg.get("role")
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            text_parts = [
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
+            content = "\n".join(text_parts)
+        if not isinstance(content, str):
+            content = str(content) if content else ""
+
+        base: dict[str, Any] = {"chat_id": chat_id}
+        sc = msg.get("source_channel")
+        if sc:
+            base["source_channel"] = sc
+        scid = msg.get("source_chat_id")
+        if scid:
+            base["source_chat_id"] = scid
+
+        if role == "user":
+            ev: dict[str, Any] = {**base, "event": "user", "text": content}
+            media = msg.get("media")
+            if isinstance(media, list) and media:
+                ev["media_paths"] = [p for p in media if isinstance(p, str)]
+            events.append(ev)
+
+        elif role == "assistant":
+            tool_calls = msg.get("tool_calls")
+            if tool_calls and isinstance(tool_calls, list):
+                # 缓冲 tool calls，等 tool result 到达时生成合并的 end 事件，
+                # 与 wire 日志的单事件格式保持一致。
+                for tc in tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    call_id = tc.get("id", "")
+                    fn = tc.get("function") or {}
+                    pending_tool_calls[call_id] = {
+                        "name": fn.get("name", ""),
+                        "arguments": _safe_parse_args(fn.get("arguments", "")),
+                    }
+            elif content:
+                ev = {**base, "event": "message", "text": content}
+                lat = msg.get("latency_ms")
+                if isinstance(lat, (int, float)):
+                    ev["latency_ms"] = int(lat)
+                events.append(ev)
+
+        elif role == "tool":
+            call_id = msg.get("tool_call_id", "")
+            pending = pending_tool_calls.pop(call_id, {})
+            name = pending.get("name") or msg.get("name", "")
+            tool_ev: dict[str, Any] = {
+                "version": 1,
+                "phase": "end",
+                "call_id": call_id,
+                "name": name,
+                "result": content or "",
+            }
+            # 带上 arguments，使 _format_tool_call_trace 在 start/end 两阶段
+            # 生成相同文本，避免 UI 出现重复 trace 行。
+            if pending.get("arguments") is not None:
+                tool_ev["arguments"] = pending["arguments"]
+            events.append({
+                **base,
+                "event": "message",
+                "text": "",
+                "kind": "tool_hint",
+                "tool_events": [tool_ev],
+            })
+
+    if events:
+        events.append({"event": "turn_end", "chat_id": chat_id})
+
+    return events
+
+
+def _safe_parse_args(raw: Any) -> Any:
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return raw
+    return raw
+
+
+def build_inbox_thread_from_session(
+    session: Session,
+    *,
+    augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
+    augment_assistant_text: Callable[[str], str] | None = None,
+) -> dict[str, Any]:
+    """直接从 Session 对象构建 inbox thread 响应。
+
+    将 OpenAI 格式的 Session 消息转换为 wire events → UI 消息，
+    完全绕过独立的 unified transcript 文件。
+    """
+    wire_events = session_messages_to_wire_events(session.messages)
+    if not wire_events:
+        return {
+            "schemaVersion": WEBUI_TRANSCRIPT_SCHEMA_VERSION,
+            "sessionKey": session.key,
+            "messages": [],
+        }
+    msgs = replay_transcript_to_ui_messages(
+        wire_events,
+        augment_user_media=augment_user_media,
+        augment_assistant_text=augment_assistant_text,
+    )
+    return {
+        "schemaVersion": WEBUI_TRANSCRIPT_SCHEMA_VERSION,
+        "sessionKey": session.key,
         "messages": msgs,
     }

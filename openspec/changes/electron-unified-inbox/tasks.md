@@ -5,12 +5,14 @@
 - [x] 1.3 增强 `_is_valid_chat_id` 校验函数：拒绝路径遍历字符、限制长度 ≤ 128、只允许字母数字连字符下划线
 - [x] 1.4 为稳定 chat_id 编写单元测试：覆盖 URL param 指定、attach 恢复、非法 ID 拒绝场景
 
-## 2. 统一 Transcript 写入
+## 2. 统一会话消息来源写入（Plan B：Session 权威数据源）
 
-- [x] 2.1 在 `WebSocketChannel.send()` 中增加统一 transcript 双写：`unifiedSession: true` 时，消息同时 append 到 `unified:default` transcript，携带 `source_channel` 和 `source_chat_id`
-- [x] 2.2 处理非 WebSocket 通道的出站消息双写：在 `AgentLoop` 或 bus outbound handler 中，当 `unifiedSession: true` 时拦截所有通道出站消息写入统一 transcript
-- [x] 2.3 处理入站消息的统一 transcript 写入：在消息进入 Agent 处理之前（或之后），将入站 user 消息也写入统一 transcript
-- [x] 2.4 为统一 transcript 双写编写单元测试
+> **架构变更（Plan A → Plan B）**：初始设计为双写独立 transcript 文件（`unified_default.jsonl`）。实现后重构为直接以 Session 为权威数据源：`source_channel` / `source_chat_id` 写入 Session 消息，`GET /api/inbox/thread` 通过 `session_messages_to_wire_events()` 转换后返回，无需额外文件。
+
+- [x] 2.1 新增 `AgentLoop._source_extras(msg)` 辅助方法：`unifiedSession: true` 时返回 `source_channel` / `source_chat_id` 字段，否则返回空 dict，消除三处重复代码
+- [x] 2.2 在 `_persist_user_message_early()` 中注入 `source_extras`：用户消息进 Session 时携带来源通道信息
+- [x] 2.3 在 `_save_turn()` 和 `_state_command()` 中注入 `source_extras`：所有出站 assistant/tool 消息进 Session 时携带来源通道信息
+- [x] 2.4 更新单元测试：断言 unified transcript 文件不再写入，历史由 Session 直接提供
 
 ## 3. WebSocket Fan-out
 
@@ -23,7 +25,7 @@
 ## 4. Inbox HTTP 端点
 
 - [x] 4.1 在 WebSocket channel 的 HTTP 路由中新增 `GET /api/inbox/thread` 端点
-- [x] 4.2 实现端点逻辑：读取 `unified:default` transcript，调用 `build_webui_thread_response` 返回 UI 消息列表
+- [x] 4.2 实现端点逻辑：读取 `unified:default` Session，经 `session_messages_to_wire_events()` 转换后调用 `build_inbox_thread_from_session()` 返回 UI 消息列表
 - [x] 4.3 添加认证检查（复用现有 `_check_api_token`）
 - [x] 4.4 为 inbox thread 端点编写单元测试
 

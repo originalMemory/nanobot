@@ -369,14 +369,14 @@ async def test_non_ws_outbound_fan_out_to_inbox_unified(bus: MagicMock, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_ws_outbound_writes_to_unified_transcript(
+async def test_ws_outbound_no_longer_writes_unified_transcript(
     bus: MagicMock, tmp_path: Path
 ) -> None:
-    """Task 2.1: when unified_session=True, send() writes to unified:default transcript."""
+    """After Plan B refactor, send() no longer writes to unified:default transcript file.
+    History is served from the Session object directly."""
     from nanobot.webui.transcript import read_transcript_lines
 
     ch = _ch(bus, _PORT_BASE + 9, unified_session=True)
-    # Patch the webui dir to tmp_path so transcripts land there
     with patch("nanobot.webui.transcript.get_webui_dir", return_value=tmp_path):
         t = asyncio.create_task(ch.start())
         await asyncio.sleep(0.3)
@@ -392,28 +392,22 @@ async def test_ws_outbound_writes_to_unified_transcript(
                     chat_id=chat_id,
                     content="hello unified",
                 ))
-                # Consume the message
                 await asyncio.wait_for(c.ws.recv(), timeout=2.0)
 
-            # Wait a bit for async transcript write
             await asyncio.sleep(0.1)
             lines = read_transcript_lines("unified:default")
-            message_events = [ln for ln in lines if ln.get("event") == "message"]
-            assert any(
-                ln.get("text") == "hello unified" and ln.get("source_channel") == "websocket"
-                for ln in message_events
-            )
+            assert lines == [], "unified transcript file should no longer be written"
         finally:
             await ch.stop()
             await t
 
 
 @pytest.mark.asyncio
-async def test_ws_inbound_writes_to_unified_transcript(
+async def test_ws_inbound_no_longer_writes_unified_transcript(
     bus: MagicMock, tmp_path: Path
 ) -> None:
-    """Task 2.3: unified_session=True writes WebSocket inbound webui messages to
-    unified:default transcript."""
+    """After Plan B refactor, inbound WebSocket messages no longer write to
+    unified:default transcript file."""
     from nanobot.webui.transcript import read_transcript_lines
 
     ch = _ch(bus, _PORT_BASE + 10, unified_session=True)
@@ -426,7 +420,6 @@ async def test_ws_inbound_writes_to_unified_transcript(
             ) as c:
                 ready = await c.recv_ready()
                 chat_id = ready.chat_id
-                # Send a webui-style envelope
                 await c.ws.send(json.dumps({
                     "type": "message",
                     "chat_id": chat_id,
@@ -436,12 +429,7 @@ async def test_ws_inbound_writes_to_unified_transcript(
                 await asyncio.sleep(0.2)
 
             lines = read_transcript_lines("unified:default")
-            user_events = [ln for ln in lines if ln.get("event") == "user"]
-            assert any(
-                ln.get("text") == "hello from electron"
-                and ln.get("source_channel") == "websocket"
-                for ln in user_events
-            )
+            assert lines == [], "unified transcript file should no longer be written"
         finally:
             await ch.stop()
             await t
@@ -467,91 +455,75 @@ async def test_inbox_thread_requires_auth(bus: MagicMock, tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_inbox_thread_returns_empty_when_no_transcript(
+async def test_inbox_thread_returns_empty_when_no_session(
     bus: MagicMock, tmp_path: Path
 ) -> None:
-    """Task 4.2: /api/inbox/thread returns empty messages when transcript is absent."""
-    ch = _ch(bus, _PORT_BASE + 12, workspace_path=tmp_path)
-    with patch("nanobot.webui.transcript.get_webui_dir", return_value=tmp_path):
-        t = asyncio.create_task(ch.start())
-        await asyncio.sleep(0.3)
-        try:
-            # Bootstrap to get an API token
-            resp_bs = await asyncio.to_thread(
-                functools.partial(
-                    httpx.get,
-                    f"http://127.0.0.1:{_PORT_BASE + 12}/webui/bootstrap",
-                    timeout=5.0,
-                )
+    """Plan B: /api/inbox/thread returns empty messages when session has no messages."""
+    sm = SessionManager(workspace=tmp_path)
+    ch = _ch(bus, _PORT_BASE + 12, session_manager=sm, workspace_path=tmp_path)
+    t = asyncio.create_task(ch.start())
+    await asyncio.sleep(0.3)
+    try:
+        resp_bs = await asyncio.to_thread(
+            functools.partial(
+                httpx.get,
+                f"http://127.0.0.1:{_PORT_BASE + 12}/webui/bootstrap",
+                timeout=5.0,
             )
-            # Bootstrap requires localhost (is localhost in tests), no secret configured
-            assert resp_bs.status_code == 200
-            token = resp_bs.json()["token"]
+        )
+        assert resp_bs.status_code == 200
+        token = resp_bs.json()["token"]
 
-            resp = await _http_get(
-                f"http://127.0.0.1:{_PORT_BASE + 12}/api/inbox/thread",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["messages"] == []
-        finally:
-            await ch.stop()
-            await t
+        resp = await _http_get(
+            f"http://127.0.0.1:{_PORT_BASE + 12}/api/inbox/thread",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["messages"] == []
+    finally:
+        await ch.stop()
+        await t
 
 
 @pytest.mark.asyncio
-async def test_inbox_thread_returns_messages_from_unified_transcript(
+async def test_inbox_thread_returns_messages_from_session(
     bus: MagicMock, tmp_path: Path
 ) -> None:
-    """Task 4.2: /api/inbox/thread returns replayed UI messages from unified:default transcript."""
-    from nanobot.webui.transcript import append_transcript_object
+    """Plan B: /api/inbox/thread reads from Session (file 1) via converter."""
+    sm = SessionManager(workspace=tmp_path)
+    session = sm.get_or_create("unified:default")
+    session.add_message("user", "hey telegram",
+                        source_channel="telegram", source_chat_id="tg-1")
+    session.add_message("assistant", "hello back",
+                        source_channel="telegram", source_chat_id="tg-1",
+                        latency_ms=500)
+    sm.save(session)
 
-    with patch("nanobot.webui.transcript.get_webui_dir", return_value=tmp_path):
-        # Seed the unified transcript
-        append_transcript_object("unified:default", {
-            "event": "user",
-            "chat_id": "inbox:unified",
-            "text": "hey telegram",
-            "source_channel": "telegram",
-            "source_chat_id": "tg-1",
-        })
-        append_transcript_object("unified:default", {
-            "event": "message",
-            "chat_id": "inbox:unified",
-            "text": "hello back",
-            "source_channel": "telegram",
-            "source_chat_id": "tg-1",
-        })
-        append_transcript_object("unified:default", {
-            "event": "turn_end",
-            "chat_id": "inbox:unified",
-        })
-
-        ch = _ch(bus, _PORT_BASE + 13, workspace_path=tmp_path)
-        t = asyncio.create_task(ch.start())
-        await asyncio.sleep(0.3)
-        try:
-            resp_bs = await asyncio.to_thread(
-                functools.partial(
-                    httpx.get,
-                    f"http://127.0.0.1:{_PORT_BASE + 13}/webui/bootstrap",
-                    timeout=5.0,
-                )
+    ch = _ch(bus, _PORT_BASE + 13, session_manager=sm, workspace_path=tmp_path)
+    t = asyncio.create_task(ch.start())
+    await asyncio.sleep(0.3)
+    try:
+        resp_bs = await asyncio.to_thread(
+            functools.partial(
+                httpx.get,
+                f"http://127.0.0.1:{_PORT_BASE + 13}/webui/bootstrap",
+                timeout=5.0,
             )
-            assert resp_bs.status_code == 200
-            token = resp_bs.json()["token"]
+        )
+        assert resp_bs.status_code == 200
+        token = resp_bs.json()["token"]
 
-            resp = await _http_get(
-                f"http://127.0.0.1:{_PORT_BASE + 13}/api/inbox/thread",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            assert resp.status_code == 200
-            data = resp.json()
-            assert len(data["messages"]) >= 2
-            roles = [m["role"] for m in data["messages"]]
-            assert "user" in roles
-            assert "assistant" in roles
-        finally:
-            await ch.stop()
-            await t
+        resp = await _http_get(
+            f"http://127.0.0.1:{_PORT_BASE + 13}/api/inbox/thread",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["messages"]) >= 2
+        roles = [m["role"] for m in data["messages"]]
+        assert "user" in roles
+        assert "assistant" in roles
+    finally:
+        await ch.stop()
+        await t

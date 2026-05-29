@@ -545,6 +545,12 @@ class AgentLoop:
 
         return _on_retry_wait
 
+    def _source_extras(self, msg: InboundMessage) -> dict[str, Any]:
+        """统一会话模式下返回 source_channel/source_chat_id 字段，否则返回空 dict。"""
+        if self._unified_session:
+            return {"source_channel": msg.channel, "source_chat_id": msg.chat_id}
+        return {}
+
     def _persist_user_message_early(
         self,
         msg: InboundMessage,
@@ -560,6 +566,7 @@ class AgentLoop:
         if has_text or media_paths:
             extra: dict[str, Any] = ({"media": list(media_paths)} if media_paths else {}) | agent_context.session_extra(msg.metadata)
             extra.update(kwargs)
+            extra.update(self._source_extras(msg))
             text = msg.content if isinstance(msg.content, str) else ""
             session.add_message("user", text, **extra)
             self._mark_pending_user_turn(session)
@@ -1094,7 +1101,10 @@ class AgentLoop:
         )
         wall_done = time.time()
         latency_ms = max(0, int((wall_done - t_wall) * 1000))
-        self._save_turn(session, all_msgs, 1 + len(history), turn_latency_ms=latency_ms)
+        self._save_turn(
+            session, all_msgs, 1 + len(history), turn_latency_ms=latency_ms,
+            **self._source_extras(msg),
+        )
         if channel == "websocket":
             self._pending_turn_latency_ms[key] = latency_ms
         session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
@@ -1289,7 +1299,8 @@ class AgentLoop:
                     ctx.msg, ctx.session, _command=True
                 )
                 ctx.session.add_message(
-                    "assistant", result.content, _command=True
+                    "assistant", result.content,
+                    _command=True, **self._source_extras(ctx.msg),
                 )
                 self.sessions.save(ctx.session)
                 self._clear_pending_user_turn(ctx.session)
@@ -1372,6 +1383,7 @@ class AgentLoop:
         self._save_turn(
             ctx.session, ctx.all_messages, ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
+            **self._source_extras(ctx.msg),
         )
         if ctx.msg.channel == "websocket":
             self._pending_turn_latency_ms[ctx.session_key] = ctx.turn_latency_ms
@@ -1446,6 +1458,8 @@ class AgentLoop:
         skip: int,
         *,
         turn_latency_ms: int | None = None,
+        source_channel: str | None = None,
+        source_chat_id: str | None = None,
     ) -> None:
         """Save new-turn messages into session, truncating large tool results."""
         from datetime import datetime
@@ -1478,6 +1492,10 @@ class AgentLoop:
                     if not filtered:
                         continue
                     entry["content"] = filtered
+            if source_channel:
+                entry.setdefault("source_channel", source_channel)
+            if source_chat_id:
+                entry.setdefault("source_chat_id", source_chat_id)
             entry.setdefault("timestamp", datetime.now().isoformat())
             session.messages.append(entry)
             if role == "assistant":

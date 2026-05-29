@@ -151,13 +151,63 @@ Phase 3  Electron 前端
 Phase 4  跨通道回复路由（后续优化）
 ```
 
+## Transcript 文件架构
+
+`unifiedSession: true` 模式下，对话数据写入两个文件：
+
+| 文件 | Session Key | 用途 | 格式 |
+|------|-------------|------|------|
+| `~/.nanobot/workspace/sessions/unified_default.jsonl` | `unified:default` | **权威数据源**：AI 上下文 + Electron 启动历史的唯一数据来源。包含完整的 user/assistant/tool 消息，附带 `source_channel` 和 `source_chat_id` | `{role, content, source_channel?, timestamp}` |
+| `~/.nanobot/webui/websocket_inbox_unified.jsonl` | `websocket:inbox:unified` | **WebSocket wire 日志**：每帧协议事件（delta 分片、stream_end、turn_end 等），仅供调试 | `{event, text, stream_id, ...}` |
+
+> **已废弃**：`~/.nanobot/webui/unified_default.jsonl`（原文件 2）不再写入。历史数据由 `GET /api/inbox/thread` 直接从 Session 转换生成。
+
+### 数据流
+
+```
+用户发消息
+    │
+    ├─→ Session (文件 1)：agent loop 写入 user/assistant/tool 消息（含 source_channel）
+    │     ↓
+    │   GET /api/inbox/thread → session_messages_to_wire_events() → replay_transcript_to_ui_messages()
+    │     ↓
+    │   返回 UI 格式消息给 Electron（含 tool trace、source_channel 标签）
+    │
+    └─→ WebSocket wire 日志 (文件 2)：_try_append_webui_transcript() 逐帧写入
+```
+
+### `source_channel` 字段
+
+在 `unifiedSession: true` 模式下，`AgentLoop._source_extras(msg)` 统一生成 `{"source_channel": msg.channel, "source_chat_id": msg.chat_id}`，由以下三处注入 Session 消息：
+
+- `_persist_user_message_early()`：用户消息提前持久化时
+- `_save_turn()`：每轮 agent loop 结束保存 assistant/tool 消息时
+- `_state_command()`：命令快捷路径的 assistant 回复时
+
+这使得 Electron 能在重启后从 Session 恢复每条消息的来源通道信息。
+
+### 生命周期与清理
+
+| 操作 | Session (文件 1) | Wire 日志 (文件 2) |
+|------|-----------------|-------------------|
+| `/new` 命令 | ✅ 清空（session.clear()） | ❌ 不清 |
+| AutoCompact（自动压缩） | ✅ 旧消息替换为摘要 | ❌ 不受影响 |
+| REST API 删除 session | ✅ 删除 | ❌ 不清 |
+| 文件超过 8 MB | 不适用 | ⚠️ 读取被跳过（不自动截断） |
+
+**注意**：wire 日志只追加、不自动清理，因记录每条 delta 分片增长较快，长期运行需关注大小。
+
 ## 相关代码位置
 
 | 改动点 | 文件 |
 |--------|------|
 | session_key 生成 | `nanobot/bus/events.py` |
 | unifiedSession 路由 | `nanobot/agent/loop.py` → `_effective_session_key()` |
-| WebUI transcript 写入 | `nanobot/webui/transcript.py` |
+| source_channel 写入 Session | `nanobot/agent/loop.py` → `_source_extras()`, `_persist_user_message_early()`, `_save_turn()`, `_state_command()` |
+| Session → wire events 转换器 | `nanobot/webui/transcript.py` → `session_messages_to_wire_events()` |
+| Inbox thread 构建 | `nanobot/webui/transcript.py` → `build_inbox_thread_from_session()` |
+| WebUI transcript 写入 | `nanobot/webui/transcript.py` → `append_transcript_object()` |
+| 实时 fan-out 推送 | `nanobot/channels/websocket.py` → `_fan_out_to_unified_inbox()` |
 | Sessions API 过滤 | `nanobot/channels/websocket.py` → `_handle_sessions_list` |
 | WebSocket envelope 路由 | `nanobot/channels/websocket.py` → `_dispatch_envelope` |
 | 稳定主会话 ID（attach 自动创建） | `nanobot/channels/websocket.py` → `_dispatch_envelope` attach 分支 |
