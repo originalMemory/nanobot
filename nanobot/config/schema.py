@@ -99,6 +99,8 @@ class ModelPresetConfig(Base):
     context_window_tokens: int = 65_536
     temperature: float = 0.1
     reasoning_effort: str | None = None
+    vision_model: str | None = None  # preset 级辅助视觉模型名称覆盖
+    vision_provider: str | None = None  # preset 级辅助视觉 provider 名称覆盖
 
     def to_generation_settings(self) -> Any:
         from nanobot.providers.base import GenerationSettings
@@ -139,6 +141,8 @@ class AgentDefaults(Base):
     bot_name: str = "nanobot"  # Display name shown in CLI prompts (e.g. "{name} is thinking...")
     bot_icon: str = "🐈"  # Short icon (emoji or text) shown next to the bot name in CLI; "" to omit
     unified_session: bool = False  # Share one session across all channels (single-user multi-device)
+    vision_model: str | None = None  # 辅助视觉模型名称（如 "gemini-2.5-flash"）；None 表示不启用 caption 步骤
+    vision_provider: str | None = None  # 辅助视觉 provider 名称（如 "gemini"）；None 表示自动检测
     disabled_skills: list[str] = Field(default_factory=list)  # Skill names to exclude from loading (e.g. ["summarize", "skill-creator"])
     session_ttl_minutes: int = Field(
         default=0,

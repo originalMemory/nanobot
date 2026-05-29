@@ -743,6 +743,12 @@ class LLMProvider(ABC):
                     logger.warning(
                         "Non-transient LLM error with image content, retrying without images"
                     )
+                    if on_retry_wait:
+                        await on_retry_wait(
+                            "⚠️ 图片无法处理：当前主模型不支持视觉能力，已自动去除图片重试。\n"
+                            "可在 config.json 中配置 agents.defaults.vision_model 来启用辅助视觉模型。\n"
+                            '示例：{"agents": {"defaults": {"vision_model": "gemini-2.5-flash", "vision_provider": "gemini"}}}'
+                        )
                     retry_kw = dict(kw)
                     retry_kw["messages"] = stripped
                     result = await call(**retry_kw)

@@ -163,6 +163,74 @@ def make_provider(
     return provider
 
 
+def _resolve_vision_config(config: Config) -> tuple[str | None, str | None]:
+    """解析辅助视觉模型配置，返回 (vision_model, vision_provider)。
+
+    优先级：当前活跃 preset 覆盖值 > agents.defaults 默认值。
+    """
+    defaults = config.agents.defaults
+    active_preset_name = defaults.model_preset
+
+    vision_model: str | None = None
+    vision_provider_name: str | None = None
+
+    if active_preset_name and active_preset_name != "default":
+        preset = config.model_presets.get(active_preset_name)
+        if preset:
+            vision_model = preset.vision_model
+            vision_provider_name = preset.vision_provider
+
+    if vision_model is None:
+        vision_model = defaults.vision_model
+    if vision_provider_name is None:
+        vision_provider_name = defaults.vision_provider
+
+    return vision_model, vision_provider_name
+
+
+def get_vision_model(config: Config) -> str | None:
+    """返回当前生效的辅助视觉模型名称；未配置时返回 None。"""
+    model, _ = _resolve_vision_config(config)
+    return model
+
+
+def make_vision_provider(config: Config) -> LLMProvider | None:
+    """根据配置创建辅助视觉 provider；未配置 vision_model 时返回 None。"""
+    vision_model, vision_provider_name = _resolve_vision_config(config)
+    if not vision_model:
+        return None
+
+    from nanobot.config.schema import ModelPresetConfig
+
+    vision_preset = ModelPresetConfig(
+        model=vision_model,
+        provider=vision_provider_name or "auto",
+        max_tokens=4096,
+        context_window_tokens=65_536,
+        temperature=0.1,
+    )
+    return _make_provider_core(config, preset=vision_preset)
+
+
+def make_vision_provider_for_model(
+    config: Config, vision_model: str, vision_provider_name: str | None = None,
+) -> LLMProvider:
+    """根据指定的 vision_model/provider 创建辅助视觉 provider 实例。
+
+    供 preset 切换时动态重建 vision provider 使用。
+    """
+    from nanobot.config.schema import ModelPresetConfig
+
+    vision_preset = ModelPresetConfig(
+        model=vision_model,
+        provider=vision_provider_name or "auto",
+        max_tokens=4096,
+        context_window_tokens=65_536,
+        temperature=0.1,
+    )
+    return _make_provider_core(config, preset=vision_preset)
+
+
 def provider_signature(
     config: Config,
     *,
