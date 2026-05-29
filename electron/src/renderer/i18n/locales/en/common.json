@@ -7,7 +7,8 @@
     },
     "error": {
       "title": "Couldn't reach nanobot",
-      "gatewayHint": "Make sure the gateway is running (`nanobot gateway`) and that this page is open on the same machine."
+      "gatewayHint": "Make sure the gateway is running (`nanobot gateway`) and that this page is open on the same machine.",
+      "retry": "Retry"
     },
     "auth": {
       "title": "Authentication required",
@@ -691,5 +692,12 @@
       "title": "Message too large",
       "body": "The server rejected your last message because it exceeded the size limit. Remove some images or try smaller files, then send again."
     }
+  },
+  "inbox": {
+    "unified": "Unified Inbox",
+    "sidebarNav": "Sidebar navigation",
+    "settings": "Settings (coming soon)",
+    "themeDark": "Switch to light",
+    "themeLight": "Switch to dark"
   }
 }

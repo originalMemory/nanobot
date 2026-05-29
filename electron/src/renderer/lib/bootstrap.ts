@@ -1,6 +1,6 @@
 import type { BootstrapResponse } from "./types";
 
-export const DEFAULT_GATEWAY_HTTP = "http://localhost:8765";
+export const DEFAULT_GATEWAY_HTTP = "http://127.0.0.1:8765";
 
 const SECRET_STORAGE_KEY = "nanobot-electron.bootstrap-secret";
 
@@ -43,7 +43,9 @@ export async function fetchBootstrap(
     headers,
   });
   if (!res.ok) {
-    throw new Error(`bootstrap failed: HTTP ${res.status}`);
+    const err = new Error(`bootstrap failed: HTTP ${res.status}`);
+    (err as Error & { httpStatus: number }).httpStatus = res.status;
+    throw err;
   }
   const body = (await res.json()) as BootstrapResponse;
   if (!body.token || !body.ws_path) {

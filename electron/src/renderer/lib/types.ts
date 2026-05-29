@@ -37,6 +37,8 @@ export interface UIMessage {
   kind?: MessageKind;
   isStreaming?: boolean;
   createdAt: number;
+  /** Electron inbox only: originating channel, e.g. "telegram", "discord". */
+  sourceChannel?: string;
   /** For trace rows: each individual hint line, so consecutive hints can
    * render as a single collapsible group. */
   traces?: string[];
@@ -512,6 +514,8 @@ export type InboundEvent =
       latency_ms?: number;
       /** Optional structured payload on progress frames (channel-specific). */
       agent_ui?: AgentUIBlob;
+      /** Electron inbox only: originating channel for inbox:unified fan-out. */
+      source_channel?: string;
     }
   | {
       event: "file_edit";

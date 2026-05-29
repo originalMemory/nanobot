@@ -43,7 +43,7 @@ interface AppConfig {
 const store = new Store<AppConfig>({
   defaults: {
     gateway: {
-      url: 'http://localhost:8765',
+      url: 'http://127.0.0.1:8765',
       token: '',
       chatId: 'electron-main',
     },
@@ -124,6 +124,9 @@ function createWindow(): void {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // 关闭同源策略：renderer 是 file:// origin，需要向本地 gateway 发送请求。
+      // 这是纯本地桌面应用的有意选择，风险面等同于直接在浏览器中打开 localhost webui。
+      webSecurity: false,
     },
   });
 
@@ -230,6 +233,9 @@ function createTray(): void {
 app.isQuitting = false;
 
 app.whenReady().then(() => {
+  // BrowserWindow 的 webSecurity: false 已关闭 renderer 的 CORS 检查，
+  // 无需在 session 层面额外处理 CORS。
+
   createTray();
   createWindow();
 

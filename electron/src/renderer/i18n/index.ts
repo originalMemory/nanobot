@@ -14,24 +14,10 @@ import {
 
 import enCommon from "./locales/en/common.json";
 import zhCNCommon from "./locales/zh-CN/common.json";
-import zhTWCommon from "./locales/zh-TW/common.json";
-import frCommon from "./locales/fr/common.json";
-import jaCommon from "./locales/ja/common.json";
-import koCommon from "./locales/ko/common.json";
-import esCommon from "./locales/es/common.json";
-import viCommon from "./locales/vi/common.json";
-import idCommon from "./locales/id/common.json";
 
 export const resources = {
   en: { common: enCommon },
   "zh-CN": { common: zhCNCommon },
-  "zh-TW": { common: zhTWCommon },
-  fr: { common: frCommon },
-  ja: { common: jaCommon },
-  ko: { common: koCommon },
-  es: { common: esCommon },
-  vi: { common: viCommon },
-  id: { common: idCommon },
 } as const;
 
 export function currentLocale(): SupportedLocale {

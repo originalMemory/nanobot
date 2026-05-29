@@ -1,0 +1,328 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+
+import { InboxSidebar } from "@/components/InboxSidebar";
+import { InboxView } from "@/components/InboxView";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ThemeProvider, useTheme } from "@/hooks/useTheme";
+import {
+  clearSavedSecret,
+  DEFAULT_GATEWAY_HTTP,
+  deriveWsUrl,
+  fetchBootstrap,
+  loadSavedSecret,
+  saveSecret,
+} from "@/lib/bootstrap";
+import { fetchInboxThread } from "@/lib/api";
+import { NanobotClient } from "@/lib/nanobot-client";
+import { ClientProvider } from "@/providers/ClientProvider";
+import type { UIMessage } from "@/lib/types";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type BootState =
+  | { status: "loading" }
+  | { status: "auth"; failed?: boolean }
+  | { status: "error"; message: string; gatewayUrl: string }
+  | {
+      status: "ready";
+      client: NanobotClient;
+      token: string;
+      modelName: string | null;
+      initialMessages: UIMessage[];
+      gatewayUrl: string;
+    };
+
+// ---------------------------------------------------------------------------
+// Auth form
+// ---------------------------------------------------------------------------
+
+function AuthForm({
+  failed,
+  onSecret,
+}: {
+  failed: boolean;
+  onSecret: (secret: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [value, setValue] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const secret = value.trim();
+    if (!secret) return;
+    setSubmitting(true);
+    onSecret(secret);
+  };
+
+  return (
+    <div className="flex h-full w-full items-center justify-center px-6 bg-background">
+      <form
+        onSubmit={handleSubmit}
+        className="flex w-full max-w-sm flex-col gap-4"
+      >
+        <div className="flex flex-col items-center gap-1 text-center">
+          <p className="text-lg font-semibold text-foreground">
+            {t("app.auth.title")}
+          </p>
+          <p className="text-sm text-muted-foreground">{t("app.auth.hint")}</p>
+        </div>
+        {failed && (
+          <p className="text-center text-sm text-destructive">
+            {t("app.auth.invalid")}
+          </p>
+        )}
+        <Input
+          type="password"
+          placeholder={t("app.auth.placeholder")}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          disabled={submitting}
+          autoFocus
+        />
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={!value.trim() || submitting}
+        >
+          {t("app.auth.submit")}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inner shell (rendered after successful boot)
+// ---------------------------------------------------------------------------
+
+function Shell({
+  client,
+  token,
+  modelName,
+  initialMessages,
+}: {
+  client: NanobotClient;
+  token: string;
+  modelName: string | null;
+  initialMessages: UIMessage[];
+}) {
+  const { theme, toggle } = useTheme();
+  const [activeChannel, setActiveChannel] = useState<string | null>(null);
+  const [channels, setChannels] = useState<string[]>([]);
+
+  return (
+    <ThemeProvider theme={theme}>
+      <ClientProvider client={client} token={token} modelName={modelName}>
+        <div className="flex h-full w-full overflow-hidden bg-background text-foreground">
+          {/* Sidebar */}
+          <InboxSidebar
+            activeChannel={activeChannel}
+            onSelectChannel={setActiveChannel}
+            channels={channels}
+            theme={theme}
+            onToggleTheme={toggle}
+          />
+
+          {/* Main area */}
+          <main className="relative flex h-full min-w-0 flex-1 flex-col">
+            <InboxView
+              initialMessages={initialMessages}
+              activeChannel={activeChannel}
+              onChannelsChange={setChannels}
+            />
+          </main>
+        </div>
+      </ClientProvider>
+    </ThemeProvider>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Root app
+// ---------------------------------------------------------------------------
+
+export default function App() {
+  const { t } = useTranslation();
+  const [state, setState] = useState<BootState>({ status: "loading" });
+  const bootstrapSecretRef = useRef("");
+  const gatewayUrlRef = useRef(DEFAULT_GATEWAY_HTTP);
+
+  const bootstrapWithSecret = useCallback(
+    (secret: string, gatewayUrl?: string) => {
+      let cancelled = false;
+
+      (async () => {
+        // Close any existing client before transitioning to loading
+        setState((prev) => {
+          if (prev.status === "ready") {
+            queueMicrotask(() => prev.client.close());
+          }
+          return { status: "loading" };
+        });
+
+        // Resolve URL: prefer explicit arg, then last known gateway (#6)
+        const url = gatewayUrl !== undefined ? gatewayUrl : gatewayUrlRef.current;
+
+        try {
+          const boot = await fetchBootstrap(url, secret);
+          if (cancelled) return;
+
+          // Only persist non-empty secrets (#5)
+          if (secret) {
+            saveSecret(secret);
+            bootstrapSecretRef.current = secret;
+          }
+          gatewayUrlRef.current = url;
+
+          // Load inbox thread before connecting so initial messages are available
+          // before any real-time events arrive (#3)
+          let initialMessages: UIMessage[] = [];
+          try {
+            const thread = await fetchInboxThread(boot.token, url);
+            if (!cancelled) {
+              initialMessages = thread?.messages ?? [];
+            }
+          } catch (histErr) {
+            console.warn("[nanobot] fetchInboxThread failed, starting with empty history:", histErr);
+          }
+
+          if (cancelled) return;
+
+          const wsUrl = deriveWsUrl(boot.ws_path, boot.token, url);
+          const client = new NanobotClient({
+            url: wsUrl,
+            onReauth: async () => {
+              try {
+                const refreshed = await fetchBootstrap(url, bootstrapSecretRef.current);
+                const refreshedUrl = deriveWsUrl(refreshed.ws_path, refreshed.token, url);
+                setState((current) =>
+                  current.status === "ready"
+                    ? { ...current, token: refreshed.token }
+                    : current,
+                );
+                return refreshedUrl;
+              } catch {
+                return null;
+              }
+            },
+          });
+          client.connect();
+
+          setState({
+            status: "ready",
+            client,
+            token: boot.token,
+            modelName: boot.model_name ?? null,
+            initialMessages,
+            gatewayUrl: url,
+          });
+        } catch (e) {
+          if (cancelled) return;
+          const httpStatus = (e as Error & { httpStatus?: number }).httpStatus;
+          const msg = (e as Error).message;
+          // Check numeric status code first, fall back to message string (#7)
+          if (httpStatus === 401 || httpStatus === 403 || msg.includes("401") || msg.includes("403")) {
+            setState({ status: "auth", failed: true });
+          } else {
+            setState({ status: "error", message: msg, gatewayUrl: url });
+          }
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    (async () => {
+      let url = DEFAULT_GATEWAY_HTTP;
+      let secret = "";
+
+      if (typeof window !== "undefined" && window.electronAPI) {
+        try {
+          const gateway = await window.electronAPI.config.get("gateway") as {
+            url?: string;
+            token?: string;
+          } | undefined;
+          url = gateway?.url ?? DEFAULT_GATEWAY_HTTP;
+          secret = gateway?.token ?? "";
+        } catch {
+          // fall back to localStorage / defaults
+        }
+      }
+
+      if (!secret) {
+        secret = loadSavedSecret();
+      }
+
+      cleanup = bootstrapWithSecret(secret, url);
+    })();
+    return () => cleanup?.();
+  }, [bootstrapWithSecret]);
+
+  const handleLogout = useCallback(() => {
+    if (state.status === "ready") {
+      state.client.close();
+    }
+    clearSavedSecret();
+    setState({ status: "auth" });
+  }, [state]);
+
+  if (state.status === "loading") {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-background">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground animate-in fade-in-0 duration-300">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground/40" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-foreground/60" />
+          </span>
+          {t("app.loading.connecting")}
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === "auth") {
+    return (
+      <AuthForm
+        failed={!!state.failed}
+        onSecret={(s) => bootstrapWithSecret(s)}
+      />
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="flex h-full w-full items-center justify-center px-4 text-center bg-background">
+        <div className="flex max-w-md flex-col items-center gap-3">
+          <p className="text-lg font-semibold text-foreground">{t("app.error.title")}</p>
+          <p className="text-sm text-muted-foreground">{state.message}</p>
+          <p className="text-xs text-muted-foreground">
+            {t("app.error.gatewayHint")}
+          </p>
+          <Button variant="outline" onClick={() => bootstrapWithSecret(bootstrapSecretRef.current, state.gatewayUrl ?? DEFAULT_GATEWAY_HTTP)}>
+            {t("app.error.retry")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Shell
+      client={state.client}
+      token={state.token}
+      modelName={state.modelName}
+      initialMessages={state.initialMessages}
+    />
+  );
+}

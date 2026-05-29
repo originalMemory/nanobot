@@ -53,11 +53,11 @@
 
 ## 7. Electron 统一 Inbox 视图
 
-- [ ] 7.1 App 引导层：从 `electron-store` 读取 gateway 地址和 token，初始化 `NanobotClient`，使用持久化 `chat_id` connect 并 attach `inbox:unified`
-- [ ] 7.2 历史加载：连接成功后调用 `GET /api/inbox/thread`，将结果作为 `initialMessages` 传入 `useNanobotStream`
-- [ ] 7.3 实时消息：`inbox:unified` fan-out 推送经由 `useNanobotStream` 驱动视图更新
-- [ ] 7.4 `source_channel` 标签渲染：在消息气泡旁显示来源通道徽章（`[Telegram]`、`[Discord]` 等）
-- [ ] 7.5 侧边栏导航：「统一收件箱」固定入口 + 从 transcript 聚合的各通道入口，点击通道按 `source_channel` 过滤消息列表；**底部预留「设置」齿轮图标占位**（本期点击无响应，后续设置页接入时激活）
+- [x] 7.1 App 引导层：从 `electron-store` 读取 gateway 地址和 token，初始化 `NanobotClient`，使用持久化 `chat_id` connect 并 attach `inbox:unified`
+- [x] 7.2 历史加载：连接成功后调用 `GET /api/inbox/thread`，将结果作为 `initialMessages` 传入 `useNanobotStream`
+- [x] 7.3 实时消息：`inbox:unified` fan-out 推送经由 `useNanobotStream` 驱动视图更新
+- [x] 7.4 `source_channel` 标签渲染：在消息气泡旁显示来源通道徽章（`[Telegram]`、`[Discord]` 等）
+- [x] 7.5 侧边栏导航：「统一收件箱」固定入口 + 从 transcript 聚合的各通道入口，点击通道按 `source_channel` 过滤消息列表；**底部预留「设置」齿轮图标占位**（本期点击无响应，后续设置页接入时激活）
 
 ## 8. 截屏集成
 

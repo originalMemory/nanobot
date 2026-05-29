@@ -3,13 +3,6 @@ export const LOCALE_STORAGE_KEY = "nanobot.locale";
 export const supportedLocales = [
   { code: "en", label: "English", nativeLabel: "English" },
   { code: "zh-CN", label: "Chinese (Simplified)", nativeLabel: "简体中文" },
-  { code: "zh-TW", label: "Chinese (Traditional)", nativeLabel: "繁體中文" },
-  { code: "fr", label: "French", nativeLabel: "Français" },
-  { code: "ja", label: "Japanese", nativeLabel: "日本語" },
-  { code: "ko", label: "Korean", nativeLabel: "한국어" },
-  { code: "es", label: "Spanish", nativeLabel: "Español" },
-  { code: "vi", label: "Vietnamese", nativeLabel: "Tiếng Việt" },
-  { code: "id", label: "Indonesian", nativeLabel: "Bahasa Indonesia" },
 ] as const;
 
 export type SupportedLocale = (typeof supportedLocales)[number]["code"];
@@ -28,16 +21,8 @@ export function normalizeLocale(
   if (exact) return exact.code;
 
   const lower = trimmed.toLowerCase();
-  if (lower === "zh" || lower.startsWith("zh-cn") || lower.startsWith("zh-sg")) {
+  if (lower === "zh" || lower.startsWith("zh-")) {
     return "zh-CN";
-  }
-  if (
-    lower.startsWith("zh-tw") ||
-    lower.startsWith("zh-hk") ||
-    lower.startsWith("zh-mo") ||
-    lower.startsWith("zh-hant")
-  ) {
-    return "zh-TW";
   }
 
   const base = lower.split("-")[0];

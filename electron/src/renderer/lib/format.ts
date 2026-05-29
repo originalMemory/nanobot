@@ -1,3 +1,5 @@
+import i18n, { currentLocale } from "@/i18n";
+
 const LOW_INFORMATION_TITLE_PREVIEWS = new Set([
   "hi",
   "hello",
@@ -51,9 +53,8 @@ const RELATIVE_THRESHOLDS: [number, Intl.RelativeTimeFormatUnit][] = [
 const relativeTimeFormatters = new Map<string, Intl.RelativeTimeFormat>();
 const dateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
 
-// TODO: 当 Electron 加入应用内语言切换后，改为读取 i18n.resolvedLanguage（同 webui/src/lib/format.ts）
 function activeLocale(locale?: string): string {
-  return locale || (typeof navigator !== "undefined" ? navigator.language : "en") || "en";
+  return locale || i18n.resolvedLanguage || i18n.language || currentLocale();
 }
 
 function relativeTimeFormatter(locale: string): Intl.RelativeTimeFormat {

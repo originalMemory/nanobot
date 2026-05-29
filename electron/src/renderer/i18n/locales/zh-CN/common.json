@@ -7,7 +7,8 @@
     },
     "error": {
       "title": "无法连接到 nanobot",
-      "gatewayHint": "请确认 gateway 已启动（`nanobot gateway`），并且当前页面与 gateway 运行在同一台机器上。"
+      "gatewayHint": "请确认 gateway 已启动（`nanobot gateway`），并且当前页面与 gateway 运行在同一台机器上。",
+      "retry": "重试"
     },
     "auth": {
       "title": "需要验证",
@@ -691,5 +692,12 @@
       "title": "消息过大",
       "body": "服务端因超过大小限制拒收了上一条消息。可移除部分图片或使用更小的图片后重试。"
     }
+  },
+  "inbox": {
+    "unified": "统一收件箱",
+    "sidebarNav": "侧边栏导航",
+    "settings": "设置（即将推出）",
+    "themeDark": "切换到浅色",
+    "themeLight": "切换到深色"
   }
 }
