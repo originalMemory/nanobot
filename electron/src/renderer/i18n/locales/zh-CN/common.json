@@ -699,5 +699,13 @@
     "settings": "设置（即将推出）",
     "themeDark": "切换到浅色",
     "themeLight": "切换到深色"
+  },
+  "screenshot": {
+    "previewTitle": "截图预览",
+    "previewHint": "将此截图作为附件发送？",
+    "confirm": "使用截图",
+    "cancel": "取消",
+    "shortcutHint": "按 Ctrl+Shift+S（Mac 用 Cmd+Shift+S）截取屏幕",
+    "capture": "截取屏幕"
   }
 }

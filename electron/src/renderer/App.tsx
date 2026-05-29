@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { InboxSidebar } from "@/components/InboxSidebar";
 import { InboxView } from "@/components/InboxView";
+import { ScreenshotPreviewModal } from "@/components/ScreenshotPreviewModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeProvider, useTheme } from "@/hooks/useTheme";
@@ -115,6 +116,37 @@ function Shell({
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
   const [channels, setChannels] = useState<string[]>([]);
 
+  // 截图流程（8.2）：
+  // pendingPreview = 等待用户在 Modal 中确认的截图
+  // pendingAttach  = 用户已确认、等待 ThreadComposer 消费的截图
+  const [pendingPreview, setPendingPreview] = useState<string | null>(null);
+  const [pendingAttach, setPendingAttach] = useState<string | null>(null);
+
+  // 订阅主进程全局快捷键推送的截图事件（8.1）
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.electronAPI?.screenshot?.onCapture) return;
+    const cleanup = window.electronAPI.screenshot.onCapture((dataUrl) => {
+      setPendingPreview(dataUrl);
+    });
+    return cleanup;
+  }, []);
+
+  const handleScreenshotConfirm = useCallback((dataUrl: string) => {
+    setPendingPreview(null);
+    setPendingAttach(dataUrl);
+  }, []);
+
+  const handleScreenshotCancel = useCallback(() => {
+    setPendingPreview(null);
+  }, []);
+
+  // 用户点击 Composer 截图按钮时主动调用 capture（与快捷键触发的弹窗走同一条路径）
+  const handleCaptureScreenshot = useCallback(async () => {
+    if (typeof window === "undefined" || !window.electronAPI?.screenshot?.capture) return;
+    const dataUrl = await window.electronAPI.screenshot.capture();
+    if (dataUrl) setPendingPreview(dataUrl);
+  }, []);
+
   return (
     <ThemeProvider theme={theme}>
       <ClientProvider client={client} token={token} modelName={modelName}>
@@ -134,9 +166,19 @@ function Shell({
               initialMessages={initialMessages}
               activeChannel={activeChannel}
               onChannelsChange={setChannels}
+              pendingScreenshot={pendingAttach}
+              onScreenshotConsumed={() => setPendingAttach(null)}
+              onCaptureScreenshot={handleCaptureScreenshot}
             />
           </main>
         </div>
+
+        {/* Screenshot preview / confirm modal */}
+        <ScreenshotPreviewModal
+          dataUrl={pendingPreview}
+          onConfirm={handleScreenshotConfirm}
+          onCancel={handleScreenshotCancel}
+        />
       </ClientProvider>
     </ThemeProvider>
   );

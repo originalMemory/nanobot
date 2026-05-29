@@ -22,9 +22,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   screenshot: {
-    /** Trigger a screen capture. Returns a data URL string or null.
-     *  Full implementation in task 8.1 (desktopCapturer). */
+    /** 主动触发一次截屏，返回 data URL 或 null。 */
     capture: (): Promise<string | null> =>
       ipcRenderer.invoke('screenshot:capture'),
+
+    /** 订阅主进程通过全局快捷键推送的截图事件，返回取消监听的清理函数。 */
+    onCapture: (cb: (dataUrl: string) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, dataUrl: string) =>
+        cb(dataUrl);
+      ipcRenderer.on('screenshot:captured', handler);
+      return () => ipcRenderer.removeListener('screenshot:captured', handler);
+    },
   },
 });

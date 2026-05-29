@@ -699,5 +699,13 @@
     "settings": "Settings (coming soon)",
     "themeDark": "Switch to light",
     "themeLight": "Switch to dark"
+  },
+  "screenshot": {
+    "previewTitle": "Screenshot Preview",
+    "previewHint": "Use this screenshot as an attachment?",
+    "confirm": "Use Screenshot",
+    "cancel": "Cancel",
+    "shortcutHint": "Press Ctrl+Shift+S (Cmd+Shift+S on Mac) to capture a screenshot",
+    "capture": "Capture screenshot"
   }
 }

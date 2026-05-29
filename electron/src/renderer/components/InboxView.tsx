@@ -15,12 +15,20 @@ interface InboxViewProps {
   /** null = 统一收件箱（all channels），string = filter to that channel */
   activeChannel: string | null;
   onChannelsChange?: (channels: string[]) => void;
+  /** 待附加到 Composer 的截图 data URL（8.2） */
+  pendingScreenshot?: string | null;
+  onScreenshotConsumed?: () => void;
+  /** 点击截图按钮时触发，由 Shell 负责调用 electronAPI 并展示确认弹窗。 */
+  onCaptureScreenshot?: () => void;
 }
 
 export function InboxView({
   initialMessages,
   activeChannel,
   onChannelsChange,
+  pendingScreenshot,
+  onScreenshotConsumed,
+  onCaptureScreenshot,
 }: InboxViewProps) {
   const { t } = useTranslation();
   const {
@@ -83,6 +91,9 @@ export function InboxView({
               isStreaming={isStreaming}
               runStartedAt={runStartedAt}
               goalState={goalState}
+              pendingScreenshot={pendingScreenshot}
+              onScreenshotConsumed={onScreenshotConsumed}
+              onCaptureScreenshot={onCaptureScreenshot}
             />
           }
         />

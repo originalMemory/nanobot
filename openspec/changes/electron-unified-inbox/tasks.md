@@ -63,8 +63,8 @@
 
 ## 8. 截屏集成
 
-- [ ] 8.1 主进程实现 `desktopCapturer` 截屏：注册全局快捷键，截图数据经 IPC 发送到 renderer
-- [ ] 8.2 renderer 截图预览 + 确认发送：截图作为 `media` 附件复用现有 `useAttachedImages` 发送路径
+- [x] 8.1 主进程实现 `desktopCapturer` 截屏：注册全局快捷键，截图数据经 IPC 发送到 renderer
+- [x] 8.2 renderer 截图预览 + 确认发送：截图作为 `media` 附件复用现有 `useAttachedImages` 发送路径
 
 ---
 

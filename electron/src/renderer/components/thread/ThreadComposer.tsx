@@ -22,6 +22,7 @@ import {
   ArrowUp,
   BookOpen,
   Brain,
+  Camera,
   Check,
   ChevronDown,
   ChevronUp,
@@ -95,6 +96,15 @@ interface ThreadComposerProps {
   runStartedAt?: number | null;
   /** Sustained objective for this chat (WebSocket ``goal_state``). */
   goalState?: GoalStateWsPayload;
+  /**
+   * 待自动附加的截图 data URL（8.2）。
+   * 值变化时自动入队；父组件应在收到 onScreenshotConsumed 回调后将其置为 null。
+   */
+  pendingScreenshot?: string | null;
+  /** 截图被消费后回调，父组件据此清空状态，避免重复入队。 */
+  onScreenshotConsumed?: () => void;
+  /** 点击截图按钮时触发，父组件负责调用 electronAPI 并展示确认弹窗。 */
+  onCaptureScreenshot?: () => void;
 }
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
@@ -476,6 +486,9 @@ export function ThreadComposer({
   onStop,
   runStartedAt = null,
   goalState,
+  pendingScreenshot,
+  onScreenshotConsumed,
+  onCaptureScreenshot,
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
@@ -513,6 +526,22 @@ export function ThreadComposer({
 
   const { images, enqueue, remove, clear, encoding, full } =
     useAttachedImages();
+
+  // 外部注入截图时自动入队（8.2）
+  useEffect(() => {
+    if (!pendingScreenshot) return;
+    let cancelled = false;
+    fetch(pendingScreenshot)
+      .then((r) => r.blob())
+      .then((blob) => {
+        if (cancelled) return;
+        const file = new File([blob], 'screenshot.png', { type: blob.type || 'image/png' });
+        enqueue([file]);
+        onScreenshotConsumed?.();
+      });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingScreenshot]);
 
   const formatRejection = useCallback(
     (reason: AttachmentError): string => {
@@ -1213,6 +1242,23 @@ export function ThreadComposer({
             >
               <Plus className={cn(isHero ? "h-5 w-5" : "h-4 w-4")} />
             </Button>
+            {onCaptureScreenshot ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={attachButtonDisabled}
+                aria-label={t("screenshot.capture")}
+                title={t("screenshot.shortcutHint")}
+                onClick={onCaptureScreenshot}
+                className={cn(
+                  "rounded-full text-muted-foreground hover:text-foreground",
+                  "h-9 w-9 border border-border/55 bg-card shadow-[0_2px_8px_rgba(15,23,42,0.05)] hover:bg-card",
+                )}
+              >
+                <Camera className={cn(isHero ? "h-4 w-4" : "h-3.5 w-3.5")} />
+              </Button>
+            ) : null}
             <div ref={aspectControlRef} className="relative flex items-center gap-1">
               <Button
                 type="button"

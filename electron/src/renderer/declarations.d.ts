@@ -9,6 +9,8 @@ interface ElectronAPI {
   };
   screenshot: {
     capture(): Promise<string | null>;
+    /** 订阅全局快捷键触发的截图事件，返回取消监听的清理函数。 */
+    onCapture(cb: (dataUrl: string) => void): () => void;
   };
 }
 

@@ -1,6 +1,8 @@
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
+  globalShortcut,
   ipcMain,
   Menu,
   nativeImage,
@@ -9,6 +11,8 @@ import {
 } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
+
+const SCREENSHOT_ACCELERATOR = 'CmdOrCtrl+Shift+S';
 import Store from 'electron-store';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -71,9 +75,32 @@ ipcMain.handle('config:set', (_event, key: string, value: unknown) => {
   store.set(key, value);
 });
 
-// screenshot:capture is registered in 8.1 when desktopCapturer is wired up.
-// Placeholder so renderer calls don't throw if invoked early.
-ipcMain.handle('screenshot:capture', () => null);
+// ---------------------------------------------------------------------------
+// Screenshot (8.1)
+// ---------------------------------------------------------------------------
+
+async function captureScreen(): Promise<string | null> {
+  try {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width, height } = primaryDisplay.size;
+
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width, height },
+    });
+
+    const primary =
+      sources.find((s) => s.display_id === String(primaryDisplay.id)) ??
+      sources[0];
+
+    return primary?.thumbnail.toDataURL() ?? null;
+  } catch (err) {
+    console.error('[screenshot] captureScreen failed:', err);
+    return null;
+  }
+}
+
+ipcMain.handle('screenshot:capture', () => captureScreen());
 
 // ---------------------------------------------------------------------------
 // Window factory (6.1)
@@ -153,6 +180,20 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  // 截屏快捷键：仅窗口获焦时生效（8.1）
+  const screenshotHandler = async () => {
+    const dataUrl = await captureScreen();
+    if (dataUrl && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('screenshot:captured', dataUrl);
+    }
+  };
+  mainWindow.on('focus', () => {
+    globalShortcut.register(SCREENSHOT_ACCELERATOR, screenshotHandler);
+  });
+  mainWindow.on('blur', () => {
+    globalShortcut.unregister(SCREENSHOT_ACCELERATOR);
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
