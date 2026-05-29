@@ -329,6 +329,7 @@ class AgentLoop:
             self.set_model_preset(model_preset, publish_update=False)
         self._vision_provider: LLMProvider | None = vision_provider
         self._vision_model: str | None = vision_model
+        self._vision_provider_name: str | None = None
         self._vision_provider_factory = vision_provider_factory
         self._register_default_tools()
         self._runtime_vars: dict[str, Any] = {}
@@ -488,12 +489,15 @@ class AgentLoop:
         if not new_model:
             return
         new_provider_name = (preset.vision_provider if preset else None)
-        if self._vision_provider_factory and new_model != self._vision_model:
+        model_changed = new_model != self._vision_model
+        provider_changed = new_provider_name != self._vision_provider_name
+        if self._vision_provider_factory and (model_changed or provider_changed):
             try:
                 self._vision_provider = self._vision_provider_factory(
                     new_model, new_provider_name,
                 )
                 self._vision_model = new_model
+                self._vision_provider_name = new_provider_name
             except Exception:
                 logger.warning("刷新辅助视觉 provider 失败，保持原配置", exc_info=True)
 

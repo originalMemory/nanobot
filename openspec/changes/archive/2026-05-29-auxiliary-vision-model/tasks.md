@@ -19,8 +19,8 @@
 
 ## 4. 单元测试
 
-- [ ] 4.1 测试 `caption_images`：正常路径（mock provider 返回描述）、部分图片失败时返回混合结果（成功+失败）、全部失败时返回全部错误结果
-- [ ] 4.2 测试 `_state_caption`：`vision_model=None` 时跳过、`media` 为空时即使配置了 `vision_model` 也跳过、有 media 且配置 vision_model 时调用并修改 `ctx.msg`、部分失败时 turn 继续且 channel 收到 warning
-- [ ] 4.3 测试 `base.py` 去图重试分支：strip 触发时附加 `vision_model` 配置提示
-- [ ] 4.4 测试配置解析：`vision_model` / `vision_provider` 字段序列化与反序列化
-- [ ] 4.5 测试 caption prompt 固定为中文
+- [x] 4.1 测试 `caption_images`：正常路径（mock provider 返回描述）、部分图片失败时返回混合结果（成功+失败）、全部失败时返回全部错误结果
+- [x] 4.2 测试 `_state_caption`：`vision_model=None` 时跳过、`media` 为空时即使配置了 `vision_model` 也跳过、有 media 且配置 vision_model 时调用并修改 `ctx.msg`、部分失败时 turn 继续且 channel 收到 warning
+- [x] 4.3 测试 `base.py` 去图重试分支：strip 触发时附加 `vision_model` 配置提示
+- [x] 4.4 测试配置解析：`vision_model` / `vision_provider` 字段序列化与反序列化
+- [x] 4.5 测试 caption prompt 固定为中文

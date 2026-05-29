@@ -230,6 +230,72 @@ def test_match_provider_uses_preset_provider_when_forced() -> None:
     assert name == "anthropic"
 
 
+# ── task 4.4: vision_model / vision_provider config parsing ──────────────────
+
+def test_vision_model_defaults_to_none() -> None:
+    """未配置时 vision_model/vision_provider 均为 None。"""
+    config = Config()
+    assert config.agents.defaults.vision_model is None
+    assert config.agents.defaults.vision_provider is None
+
+
+def test_vision_model_parsed_from_snake_case() -> None:
+    """snake_case 键名可正确解析 vision_model/vision_provider。"""
+    config = Config.model_validate({
+        "agents": {
+            "defaults": {
+                "vision_model": "gemini-2.5-flash",
+                "vision_provider": "gemini",
+            }
+        }
+    })
+    assert config.agents.defaults.vision_model == "gemini-2.5-flash"
+    assert config.agents.defaults.vision_provider == "gemini"
+
+
+def test_vision_model_parsed_from_camel_case() -> None:
+    """camelCase 键名（JSON 配置风格）同样可以解析。"""
+    config = Config.model_validate({
+        "agents": {
+            "defaults": {
+                "visionModel": "gemini-2.5-flash",
+                "visionProvider": "gemini",
+            }
+        }
+    })
+    assert config.agents.defaults.vision_model == "gemini-2.5-flash"
+    assert config.agents.defaults.vision_provider == "gemini"
+
+
+def test_vision_model_preset_override() -> None:
+    """preset 级 vision_model/vision_provider 字段可独立设置。"""
+    config = Config.model_validate({
+        "model_presets": {
+            "vision": {
+                "model": "openai/gpt-4.1",
+                "provider": "openai",
+                "vision_model": "gemini-2.5-pro",
+                "vision_provider": "gemini",
+            }
+        }
+    })
+    preset = config.model_presets["vision"]
+    assert preset.vision_model == "gemini-2.5-pro"
+    assert preset.vision_provider == "gemini"
+
+
+def test_vision_model_preset_defaults_to_none() -> None:
+    """preset 未指定 vision_model 时默认为 None（不强制 agent-level 配置）。"""
+    config = Config.model_validate({
+        "model_presets": {
+            "basic": {"model": "openai/gpt-4.1", "provider": "openai"},
+        }
+    })
+    preset = config.model_presets["basic"]
+    assert preset.vision_model is None
+    assert preset.vision_provider is None
+
+
 def test_match_provider_routes_forced_novita_model_api_models() -> None:
     config = Config.model_validate({
         "providers": {
