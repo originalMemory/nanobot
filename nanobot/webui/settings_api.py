@@ -11,6 +11,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from nanobot.config.loader import get_config_path, load_config, save_config
+from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import ModelPresetConfig
 from nanobot.providers.image_generation import (
     get_image_gen_provider,
@@ -63,6 +64,18 @@ def _query_first(query: QueryParams, key: str) -> str | None:
 def _query_first_alias(query: QueryParams, snake: str, camel: str) -> str | None:
     value = _query_first(query, snake)
     return _query_first(query, camel) if value is None else value
+
+
+_AVATAR_NAMES = ("avatar.jpg", "avatar.png", "avatar.webp")
+
+
+def _get_bot_avatar_url() -> str | None:
+    """Return ``/api/avatar`` if an avatar file exists in the media root, else ``None``."""
+    media_root = get_media_dir()
+    for name in _AVATAR_NAMES:
+        if (media_root / name).is_file():
+            return "/api/avatar"
+    return None
 
 
 def _mask_secret_hint(secret: str | None) -> str | None:
@@ -255,6 +268,7 @@ def settings_payload(*, requires_restart: bool = False) -> dict[str, Any]:
             "timezone": defaults.timezone,
             "bot_name": defaults.bot_name,
             "bot_icon": defaults.bot_icon,
+            "bot_avatar_url": _get_bot_avatar_url(),
             "tool_hint_max_length": defaults.tool_hint_max_length,
             "vision_model": defaults.vision_model,
             "vision_provider": defaults.vision_provider,

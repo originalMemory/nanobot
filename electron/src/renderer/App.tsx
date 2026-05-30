@@ -16,9 +16,10 @@ import {
   loadSavedSecret,
   saveSecret,
 } from "@/lib/bootstrap";
-import { fetchInboxThread } from "@/lib/api";
+import { fetchInboxThread, fetchSettings } from "@/lib/api";
 import { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider } from "@/providers/ClientProvider";
+import { BotIdentityProvider, type BotIdentity } from "@/contexts/BotIdentityContext";
 import type { UIMessage } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -119,6 +120,23 @@ function Shell({
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
   const [channels, setChannels] = useState<string[]>([]);
   const [view, setView] = useState<"chat" | "settings">("chat");
+  const [botIdentity, setBotIdentity] = useState<BotIdentity>({ botName: "nanobot", botIcon: "", botAvatarUrl: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSettings(token, gatewayUrl)
+      .then((s) => {
+        if (!cancelled) {
+          setBotIdentity({
+            botName: s.agent.bot_name,
+            botIcon: s.agent.bot_icon,
+            botAvatarUrl: s.agent.bot_avatar_url,
+          });
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token, gatewayUrl]);
 
   // 截图流程（8.2）：
   // pendingPreview = 等待用户在 Modal 中确认的截图
@@ -154,6 +172,7 @@ function Shell({
   return (
     <ThemeProvider theme={theme}>
       <ClientProvider client={client} token={token} modelName={modelName} apiBase={gatewayUrl}>
+        <BotIdentityProvider value={botIdentity}>
         <div className="flex h-full w-full overflow-hidden bg-background text-foreground">
           {/* Sidebar */}
           <InboxSidebar
@@ -189,6 +208,7 @@ function Shell({
           onConfirm={handleScreenshotConfirm}
           onCancel={handleScreenshotCancel}
         />
+        </BotIdentityProvider>
       </ClientProvider>
     </ThemeProvider>
   );

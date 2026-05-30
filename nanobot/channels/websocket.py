@@ -700,6 +700,9 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/settings":
             return self._handle_settings(request)
 
+        if got == "/api/avatar":
+            return self._handle_avatar_fetch()
+
         if got == "/api/commands":
             return self._handle_commands(request)
 
@@ -1241,6 +1244,31 @@ class WebSocketChannel(BaseChannel):
             workspace_path=self._workspace_path,
             sign_path=self._sign_or_stage_media_path,
         )
+
+    def _handle_avatar_fetch(self) -> Response:
+        """Serve the bot avatar image from the media root directory.
+
+        Looks for ``avatar.{jpg,png,webp}`` in the media root and returns the
+        first match. Returns 404 if none exist. No auth required — avatar is
+        public identity information.
+        """
+        media_root = get_media_dir()
+        for name, mime in (("avatar.jpg", "image/jpeg"), ("avatar.png", "image/png"), ("avatar.webp", "image/webp")):
+            candidate = media_root / name
+            if candidate.is_file():
+                try:
+                    body = candidate.read_bytes()
+                except OSError:
+                    return _http_error(500, "read error")
+                return _http_response(
+                    body,
+                    content_type=mime,
+                    extra_headers=[
+                        ("Cache-Control", "public, max-age=300, must-revalidate"),
+                        ("X-Content-Type-Options", "nosniff"),
+                    ],
+                )
+        return _http_error(404, "not found")
 
     def _handle_media_fetch(self, sig: str, payload: str) -> Response:
         """Serve a single media file previously signed via

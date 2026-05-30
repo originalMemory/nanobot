@@ -186,6 +186,7 @@ export interface SettingsPayload {
     timezone: string;
     bot_name: string;
     bot_icon: string;
+    bot_avatar_url: string | null;
     tool_hint_max_length: number;
     vision_model?: string;
     vision_provider?: string;

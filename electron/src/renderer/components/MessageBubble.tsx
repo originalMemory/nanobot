@@ -15,6 +15,7 @@ import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 import { formatTurnLatency } from "@/lib/format";
+import { useBotIdentity } from "@/contexts/BotIdentityContext";
 import type {
   CliAppInfo,
   McpPresetInfo,
@@ -170,51 +171,75 @@ export function MessageBubble({
     && latencyMs != null
     && !message.isStreaming
     && (!empty || hasReasoning || media.length > 0);
-  const showAssistantFooterRow = showCopyButton || showLatencyFooter;
-  return (
-    <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-      {hasReasoning ? (
-        <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={!empty} />
-      ) : null}
-      {empty && message.isStreaming && !hasReasoning ? (
+  const showBotName = message.role === "assistant" && !empty && !message.isStreaming;
+  const showAssistantFooterRow = showCopyButton || showLatencyFooter || showBotName;
+
+  const isTypingOnly = empty && message.isStreaming && !hasReasoning;
+  const { botName, botIcon, botAvatarUrl } = useBotIdentity();
+  const { apiBase } = useClient();
+
+  if (isTypingOnly) {
+    return (
+      <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
         <TypingDots />
-      ) : empty && message.isStreaming ? null : (
-        <>
-          <MarkdownText streaming={!!message.isStreaming}>{message.content}</MarkdownText>
-          {media.length > 0 ? <MessageMedia media={media} align="left" /> : null}
-          {showAssistantFooterRow ? (
-            <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-              {showCopyButton ? (
-                <button
-                  type="button"
-                  onClick={onCopyAssistantReply}
-                  aria-label={copied ? t("message.copiedReply") : t("message.copyReply")}
-                  title={copied ? t("message.copiedReply") : t("message.copyReply")}
-                  className={cn(
-                    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                    "transition-colors hover:bg-muted/55 hover:text-foreground",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  )}
-                >
-                  {copied ? (
-                    <Check className="h-4 w-4" aria-hidden />
-                  ) : (
-                    <Copy className="h-4 w-4" aria-hidden />
-                  )}
-                </button>
-              ) : null}
-              {showLatencyFooter ? (
-                <span
-                  className="text-[11px] leading-none text-muted-foreground/70 tabular-nums"
-                  title={t("message.turnLatencyTitle")}
-                >
-                  {formatTurnLatency(latencyMs)}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-        </>
-      )}
+      </div>
+    );
+  }
+
+  if (empty && message.isStreaming) {
+    return (
+      <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
+        <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={false} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("flex w-full gap-2 text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
+      {/* 左列：头像，靠底部对齐 */}
+      <div className="flex w-8 flex-none items-end pb-0.5">
+        <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
+      </div>
+      {/* 右列：内容 + footer */}
+      <div className="min-w-0 flex-1">
+        {hasReasoning ? (
+          <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={!empty} />
+        ) : null}
+        <MarkdownText streaming={!!message.isStreaming}>{message.content}</MarkdownText>
+        {media.length > 0 ? <MessageMedia media={media} align="left" /> : null}
+        {showAssistantFooterRow ? (
+          <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+            <span className="text-xs font-medium">{botName}</span>
+            {showCopyButton ? (
+              <button
+                type="button"
+                onClick={onCopyAssistantReply}
+                aria-label={copied ? t("message.copiedReply") : t("message.copyReply")}
+                title={copied ? t("message.copiedReply") : t("message.copyReply")}
+                className={cn(
+                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                  "transition-colors hover:bg-muted/55 hover:text-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+              >
+                {copied ? (
+                  <Check className="h-4 w-4" aria-hidden />
+                ) : (
+                  <Copy className="h-4 w-4" aria-hidden />
+                )}
+              </button>
+            ) : null}
+            {showLatencyFooter ? (
+              <span
+                className="text-[11px] leading-none text-muted-foreground/70 tabular-nums"
+                title={t("message.turnLatencyTitle")}
+              >
+                {formatTurnLatency(latencyMs)}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -519,6 +544,34 @@ function UserImageCell({
         </span>
       </div>
     </div>
+  );
+}
+
+function BotAvatarWithFallback({
+  name,
+  icon,
+  avatarUrl,
+}: {
+  name: string;
+  icon: string;
+  avatarUrl: string | undefined;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const fallback = icon || (name ? name[0].toUpperCase() : "B");
+  const showImg = !!avatarUrl && !imgFailed;
+  return (
+    <span className="inline-flex h-6 w-6 flex-none items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">
+      {showImg ? (
+        <img
+          src={avatarUrl}
+          alt={name}
+          className="h-6 w-6 rounded-full object-cover"
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        fallback
+      )}
+    </span>
   );
 }
 
