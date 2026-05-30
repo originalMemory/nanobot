@@ -166,7 +166,7 @@
       "visionProvider": "Vision provider"
     },
     "help": {
-      "theme": "Switch between light and dark appearance.",
+      "theme": "Choose from 9 themes to personalize your appearance.",
       "language": "Choose the language used by the WebUI.",
       "provider": "Select the provider that should serve new model requests.",
       "model": "Set the default model name used by nanobot.",
@@ -292,6 +292,13 @@
     "values": {
       "light": "Light",
       "dark": "Dark",
+      "midnight": "Midnight",
+      "desert": "Desert",
+      "neon": "Neon",
+      "marshmallow": "Marshmallow",
+      "ink": "Ink",
+      "party": "Party",
+      "rainbow": "Rainbow",
       "notAvailable": "Not available",
       "enabled": "Enabled",
       "disabled": "Disabled",
@@ -703,7 +710,8 @@
     "sidebarNav": "Sidebar navigation",
     "settings": "Settings (coming soon)",
     "themeDark": "Switch to light",
-    "themeLight": "Switch to dark"
+    "themeLight": "Switch to dark",
+    "themeNext": "Cycle theme"
   },
   "screenshot": {
     "previewTitle": "Screenshot Preview",

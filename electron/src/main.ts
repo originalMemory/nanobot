@@ -31,6 +31,11 @@ interface LocalPreferences {
   brandLogos: boolean;
 }
 
+// Keep in sync with renderer: src/renderer/hooks/useTheme.ts → Theme
+type Theme =
+  | 'light' | 'dark' | 'midnight' | 'desert'
+  | 'neon' | 'marshmallow' | 'ink' | 'party' | 'rainbow';
+
 interface AppConfig {
   gateway: {
     url: string;
@@ -38,7 +43,7 @@ interface AppConfig {
     chatId: string;
   };
   appearance: {
-    theme: 'light' | 'dark';
+    theme: Theme;
     language: string;
     preferences: LocalPreferences;
   };

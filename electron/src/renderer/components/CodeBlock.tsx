@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { useThemeValue } from "@/hooks/useTheme";
+import { isDarkTheme, useThemeValue } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 
 interface CodeBlockProps {
@@ -69,7 +69,7 @@ export function CodeBlock({
 }: CodeBlockProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
-  const isDark = useThemeValue() === "dark";
+  const isDark = isDarkTheme(useThemeValue());
 
   const onCopy = useCallback(() => {
     if (!navigator.clipboard) return;

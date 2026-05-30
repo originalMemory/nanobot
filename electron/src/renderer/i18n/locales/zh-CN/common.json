@@ -166,7 +166,7 @@
       "visionProvider": "视觉服务商"
     },
     "help": {
-      "theme": "在浅色和深色外观之间切换。",
+      "theme": "从 9 种主题中选择，个性化你的外观。",
       "language": "选择 WebUI 使用的语言。",
       "provider": "选择新模型请求使用的服务商。",
       "model": "设置 nanobot 默认使用的模型名称。",
@@ -290,8 +290,15 @@
       "testForTools": "运行测试后，可以查看并选择单个工具。"
     },
     "values": {
-      "light": "浅色",
-      "dark": "深色",
+      "light": "云石白",
+      "dark": "石墨灰",
+      "midnight": "深海蓝",
+      "desert": "沙漠橙",
+      "neon": "荧光",
+      "marshmallow": "棉花糖",
+      "ink": "水墨",
+      "party": "派对橙",
+      "rainbow": "彩虹",
       "notAvailable": "不可用",
       "enabled": "已启用",
       "disabled": "已禁用",
@@ -703,7 +710,8 @@
     "sidebarNav": "侧边栏导航",
     "settings": "设置（即将推出）",
     "themeDark": "切换到浅色",
-    "themeLight": "切换到深色"
+    "themeLight": "切换到深色",
+    "themeNext": "切换主题"
   },
   "screenshot": {
     "previewTitle": "截图预览",

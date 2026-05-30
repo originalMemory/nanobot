@@ -116,7 +116,7 @@ function Shell({
   initialMessages: UIMessage[];
   gatewayUrl: string;
 }) {
-  const { theme, toggle } = useTheme();
+  const { theme, setTheme } = useTheme();
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
   const [channels, setChannels] = useState<string[]>([]);
   const [view, setView] = useState<"chat" | "settings">("chat");
@@ -180,7 +180,7 @@ function Shell({
             onSelectChannel={(ch) => { setActiveChannel(ch); setView("chat"); }}
             channels={channels}
             theme={theme}
-            onToggleTheme={toggle}
+            onThemeChange={setTheme}
             onOpenSettings={() => setView("settings")}
             settingsActive={view === "settings"}
           />
@@ -188,7 +188,7 @@ function Shell({
           {/* Main area */}
           <main className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             {view === "settings" ? (
-              <SettingsView onBack={() => setView("chat")} />
+              <SettingsView onBack={() => setView("chat")} theme={theme} onThemeChange={setTheme} />
             ) : (
               <InboxView
                 initialMessages={initialMessages}

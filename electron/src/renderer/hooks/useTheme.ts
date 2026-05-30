@@ -4,21 +4,51 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 
 import { isElectron } from "@/lib/env";
 
-type Theme = "light" | "dark";
+export type Theme =
+  | "light"
+  | "dark"
+  | "midnight"
+  | "desert"
+  | "neon"
+  | "marshmallow"
+  | "ink"
+  | "party"
+  | "rainbow";
+
+export const ALL_THEMES: Theme[] = [
+  "light",
+  "dark",
+  "midnight",
+  "desert",
+  "neon",
+  "marshmallow",
+  "ink",
+  "party",
+  "rainbow",
+];
+
+const DARK_THEMES: Theme[] = ["dark", "midnight", "neon"];
+
 const STORAGE_KEY = "nanobot-webui.theme";
 const ELECTRON_STORE_KEY = "appearance.theme";
+
 const ThemeContext = createContext<Theme>("light");
+
+function isValidTheme(v: unknown): v is Theme {
+  return ALL_THEMES.includes(v as Theme);
+}
 
 function readStored(): Theme | null {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    return v === "light" || v === "dark" ? v : null;
+    return isValidTheme(v) ? v : null;
   } catch {
     return null;
   }
@@ -26,8 +56,12 @@ function readStored(): Theme | null {
 
 function applyTheme(theme: Theme): void {
   const root = document.documentElement;
-  if (theme === "dark") root.classList.add("dark");
-  else root.classList.remove("dark");
+  root.setAttribute("data-theme", theme);
+  if (DARK_THEMES.includes(theme)) {
+    root.classList.add("dark");
+  } else {
+    root.classList.remove("dark");
+  }
 }
 
 export function useTheme(): {
@@ -46,20 +80,41 @@ export function useTheme(): {
     return "light";
   });
 
-  // On mount in Electron, try to read from electron-store (overrides localStorage value)
+  const hydratedRef = useRef(false);
+
   useEffect(() => {
-    if (!isElectron) return;
+    if (!isElectron) {
+      hydratedRef.current = true;
+      return;
+    }
     window.electronAPI.config.get(ELECTRON_STORE_KEY).then((stored) => {
-      if (stored === "light" || stored === "dark") {
+      if (isValidTheme(stored)) {
         setThemeState(stored);
+      } else if (stored !== undefined && stored !== null) {
+        window.electronAPI.config.set(ELECTRON_STORE_KEY, "light").catch(() => {});
       }
     }).catch(() => {
       // ignore
+    }).finally(() => {
+      hydratedRef.current = true;
     });
   }, []);
 
   useEffect(() => {
-    applyTheme(theme);
+    const root = document.documentElement;
+
+    if (!hydratedRef.current) {
+      root.classList.add("no-transition");
+      applyTheme(theme);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          root.classList.remove("no-transition");
+        });
+      });
+    } else {
+      applyTheme(theme);
+    }
+
     if (isElectron) {
       window.electronAPI.config.set(ELECTRON_STORE_KEY, theme).catch(() => {});
     } else {
@@ -73,7 +128,11 @@ export function useTheme(): {
 
   const setTheme = useCallback((t: Theme) => setThemeState(t), []);
   const toggle = useCallback(
-    () => setThemeState((t) => (t === "dark" ? "light" : "dark")),
+    () =>
+      setThemeState((t) => {
+        const idx = ALL_THEMES.indexOf(t);
+        return ALL_THEMES[(idx + 1) % ALL_THEMES.length];
+      }),
     [],
   );
   return { theme, toggle, setTheme };
@@ -85,4 +144,8 @@ export function ThemeProvider({ theme, children }: { theme: Theme; children: Rea
 
 export function useThemeValue(): Theme {
   return useContext(ThemeContext);
+}
+
+export function isDarkTheme(theme: Theme): boolean {
+  return DARK_THEMES.includes(theme);
 }

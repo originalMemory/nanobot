@@ -1,7 +1,13 @@
-import { Inbox, Moon, Settings, Sun } from "lucide-react";
+import { Check, Inbox, Palette, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
@@ -9,16 +15,29 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ALL_THEMES, type Theme } from "@/hooks/useTheme";
 import { channelInitial, channelLabel } from "@/lib/channels";
 import { cn } from "@/lib/utils";
+
+const THEME_PREVIEW_COLORS: Record<Theme, string> = {
+  light:       "#2a7a8c",
+  dark:        "#d97706",
+  midnight:    "#ee7e00",
+  desert:      "#d98236",
+  neon:        "#ff2d95",
+  marshmallow: "#f5a5c3",
+  ink:         "#2c3e50",
+  party:       "#ed7d00",
+  rainbow:     "#845ec2",
+};
 
 interface InboxSidebarProps {
   activeChannel: string | null;
   onSelectChannel: (channel: string | null) => void;
   /** Channels derived from message history (sourceChannel values). */
   channels?: string[];
-  theme: "light" | "dark";
-  onToggleTheme: () => void;
+  theme: Theme;
+  onThemeChange: (t: Theme) => void;
   onOpenSettings?: () => void;
   settingsActive?: boolean;
 }
@@ -28,7 +47,7 @@ export function InboxSidebar({
   onSelectChannel,
   channels = [],
   theme,
-  onToggleTheme,
+  onThemeChange,
   onOpenSettings,
   settingsActive = false,
 }: InboxSidebarProps) {
@@ -74,16 +93,11 @@ export function InboxSidebar({
 
         <div className="flex-1" />
 
-        <NavItem
-          label={theme === "dark" ? t("inbox.themeDark") : t("inbox.themeLight")}
-          onClick={onToggleTheme}
-        >
-          {theme === "dark" ? (
-            <Sun className="h-4 w-4" />
-          ) : (
-            <Moon className="h-4 w-4" />
-          )}
-        </NavItem>
+        <ThemeDropdown
+          theme={theme}
+          onThemeChange={onThemeChange}
+          t={t}
+        />
 
         <NavItem
           label={t("inbox.settings")}
@@ -94,6 +108,55 @@ export function InboxSidebar({
         </NavItem>
       </nav>
     </TooltipProvider>
+  );
+}
+
+function ThemeDropdown({
+  theme,
+  onThemeChange,
+  t,
+}: {
+  theme: Theme;
+  onThemeChange: (t: Theme) => void;
+  t: ReturnType<typeof useTranslation>["t"];
+}) {
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 rounded-lg"
+              aria-label={t("inbox.themeNext", "Choose theme")}
+            >
+              <Palette className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="text-xs">
+          {t("inbox.themeNext", "Choose theme")}
+        </TooltipContent>
+      </Tooltip>
+
+      <DropdownMenuContent side="right" align="end" className="min-w-[10rem]">
+        {ALL_THEMES.map((name) => (
+          <DropdownMenuItem
+            key={name}
+            onClick={() => onThemeChange(name)}
+            className="flex items-center gap-2"
+          >
+            <span
+              className="inline-block h-3 w-3 rounded-full border border-border/50 shrink-0"
+              style={{ background: THEME_PREVIEW_COLORS[name] }}
+            />
+            <span className="flex-1">{t(`settings.values.${name}`)}</span>
+            {theme === name && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

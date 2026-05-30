@@ -3,7 +3,7 @@ const typography = require("@tailwindcss/typography");
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: ["class"],
+  darkMode: ["selector", '[data-theme="dark"],[data-theme="midnight"],[data-theme="neon"]'],
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     container: {

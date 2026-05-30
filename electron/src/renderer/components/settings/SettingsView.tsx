@@ -24,7 +24,7 @@ import type {
   WebSearchSettingsUpdate,
 } from "@/lib/types";
 import { useClient } from "@/providers/ClientProvider";
-import { useTheme } from "@/hooks/useTheme";
+import type { Theme } from "@/hooks/useTheme";
 import { useElectronPreference } from "@/hooks/useElectronPreference";
 import { DEFAULT_LOCAL_PREFS, type LocalPreferences } from "./shared";
 import { SettingsLayout } from "./SettingsLayout";
@@ -72,11 +72,12 @@ interface CustomMcpForm {
 
 interface SettingsViewProps {
   onBack: () => void;
+  theme: Theme;
+  onThemeChange: (t: Theme) => void;
 }
 
-export function SettingsView({ onBack }: SettingsViewProps) {
+export function SettingsView({ onBack, theme, onThemeChange }: SettingsViewProps) {
   const { token, apiBase } = useClient();
-  const { theme, toggle: toggleTheme } = useTheme();
   const [localPrefs, setLocalPrefs] = useElectronPreference<LocalPreferences>(
     "appearance.preferences",
     DEFAULT_LOCAL_PREFS,
@@ -295,7 +296,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         return (
           <AppearanceSection
             theme={theme}
-            onToggleTheme={toggleTheme}
+            onThemeChange={onThemeChange}
             localPrefs={localPrefs}
             onLocalPrefsChange={setLocalPrefs}
           />

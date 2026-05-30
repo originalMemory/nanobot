@@ -1,13 +1,14 @@
-import { Menu, Moon, Sun } from "lucide-react";
+import { Menu, Palette } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { isDarkTheme, type Theme } from "@/hooks/useTheme";
 
 interface ThreadHeaderProps {
   title: string;
   onToggleSidebar: () => void;
-  theme: "light" | "dark";
+  theme: Theme;
   onToggleTheme: () => void;
   hideSidebarToggleOnDesktop?: boolean;
   minimal?: boolean;
@@ -85,7 +86,7 @@ function ThemeButton({
   label,
   className,
 }: {
-  theme: "light" | "dark";
+  theme: Theme;
   onToggleTheme: () => void;
   label: string;
   className?: string;
@@ -101,10 +102,10 @@ function ThemeButton({
         className,
       )}
     >
-      {theme === "dark" ? (
-        <Sun className="h-4 w-4" />
+      {isDarkTheme(theme) ? (
+        <Palette className="h-4 w-4 opacity-80" />
       ) : (
-        <Moon className="h-4 w-4" />
+        <Palette className="h-4 w-4" />
       )}
     </Button>
   );
