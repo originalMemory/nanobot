@@ -73,9 +73,9 @@
 > 本期完成后另开 openspec 变更（建议命名 `electron-settings`）覆盖以下内容。
 > 6.3 的 store schema 和 6.4 的 IPC 命名空间已为此预留扩展口。
 
-- [ ] S.1 移植 `SettingsView.tsx` 及子面板：Overview、Appearance、Models、Providers、
+- [x] S.1 移植 `SettingsView.tsx` 及子面板：Overview、Appearance、Models、Providers、
       ImageGeneration、Web、AppsCatalog、Runtime、Advanced（共 ~4600 行）
-- [ ] S.2 补充设置相关 API：`/api/settings` 系列读写接口对接（`fetchSettings`、`updateSettings` 等加入 `api.ts`）
-- [ ] S.3 `electron-store` 中 `providers` / `models` 命名空间落地（与 S.2 联动）
-- [ ] S.4 侧边栏「设置」齿轮图标激活，跳转设置视图
-- [ ] S.5 `LanguageSwitcher`、主题切换在 Electron 中的持久化（读写 `appearance.theme`）
+- [x] S.2 补充设置相关 API：`/api/settings` 系列读写接口对接（`fetchSettings`、`updateSettings` 等加入 `api.ts`）
+- [x] S.3 `electron-store` 中 `providers` / `models` 命名空间落地（与 S.2 联动）
+- [x] S.4 侧边栏「设置」齿轮图标激活，跳转设置视图
+- [x] S.5 `LanguageSwitcher`、主题切换在 Electron 中的持久化（读写 `appearance.theme`）

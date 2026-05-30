@@ -161,7 +161,9 @@
       "pathAppend": "PATH 追加",
       "cliAppsCatalog": "目录",
       "cliAppsFilter": "筛选",
-      "configurationDocs": "配置文档"
+      "configurationDocs": "配置文档",
+      "visionModel": "视觉模型",
+      "visionProvider": "视觉服务商"
     },
     "help": {
       "theme": "在浅色和深色外观之间切换。",
@@ -194,7 +196,9 @@
       "toolHintMaxLength": "工具进度提示显示的最大字符数。",
       "cliAppsCatalog": "只安装 nanobot 在本机调用应用时需要的 CLI 适配层，不触碰应用本体。",
       "cliAppsFilter": "按应用、分类或能力搜索。",
-      "advancedReadOnly": "高级安全控制在 WebUI 中只读；需要时请谨慎编辑 config.json。"
+      "advancedReadOnly": "高级安全控制在 WebUI 中只读；需要时请谨慎编辑 config.json。",
+      "visionModel": "当主模型不支持视觉能力时，用于图片描述的辅助视觉模型。留空则禁用。",
+      "visionProvider": "视觉模型使用的服务商。留空则根据模型名自动检测。"
     },
     "timezone": {
       "select": "选择时区",

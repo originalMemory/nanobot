@@ -8,8 +8,11 @@ import {
   type ReactNode,
 } from "react";
 
+import { isElectron } from "@/lib/env";
+
 type Theme = "light" | "dark";
 const STORAGE_KEY = "nanobot-webui.theme";
+const ELECTRON_STORE_KEY = "appearance.theme";
 const ThemeContext = createContext<Theme>("light");
 
 function readStored(): Theme | null {
@@ -43,12 +46,28 @@ export function useTheme(): {
     return "light";
   });
 
+  // On mount in Electron, try to read from electron-store (overrides localStorage value)
+  useEffect(() => {
+    if (!isElectron) return;
+    window.electronAPI.config.get(ELECTRON_STORE_KEY).then((stored) => {
+      if (stored === "light" || stored === "dark") {
+        setThemeState(stored);
+      }
+    }).catch(() => {
+      // ignore
+    });
+  }, []);
+
   useEffect(() => {
     applyTheme(theme);
-    try {
-      localStorage.setItem(STORAGE_KEY, theme);
-    } catch {
-      // ignore
+    if (isElectron) {
+      window.electronAPI.config.set(ELECTRON_STORE_KEY, theme).catch(() => {});
+    } else {
+      try {
+        localStorage.setItem(STORAGE_KEY, theme);
+      } catch {
+        // ignore
+      }
     }
   }, [theme]);
 

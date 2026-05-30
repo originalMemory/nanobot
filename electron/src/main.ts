@@ -24,6 +24,13 @@ if (started) {
 // Store schema (6.3)
 // ---------------------------------------------------------------------------
 
+interface LocalPreferences {
+  density: 'comfortable' | 'compact';
+  activityMode: 'auto' | 'expanded';
+  codeWrap: boolean;
+  brandLogos: boolean;
+}
+
 interface AppConfig {
   gateway: {
     url: string;
@@ -32,6 +39,8 @@ interface AppConfig {
   };
   appearance: {
     theme: 'light' | 'dark';
+    language: string;
+    preferences: LocalPreferences;
   };
   window: {
     x?: number;
@@ -39,7 +48,6 @@ interface AppConfig {
     width: number;
     height: number;
   };
-  // Reserved for settings page migration (electron-settings)
   providers: Record<string, unknown>;
   models: Record<string, unknown>;
 }
@@ -53,6 +61,13 @@ const store = new Store<AppConfig>({
     },
     appearance: {
       theme: 'light',
+      language: 'en',
+      preferences: {
+        density: 'comfortable',
+        activityMode: 'auto',
+        codeWrap: true,
+        brandLogos: true,
+      },
     },
     window: {
       width: 1200,

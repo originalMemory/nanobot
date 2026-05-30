@@ -279,6 +279,12 @@ export async function updateSettings(
   if (update.toolHintMaxLength !== undefined) {
     query.set("tool_hint_max_length", String(update.toolHintMaxLength));
   }
+  if (update.visionModel !== undefined) {
+    query.set("vision_model", update.visionModel);
+  }
+  if (update.visionProvider !== undefined) {
+    query.set("vision_provider", update.visionProvider);
+  }
   return request<SettingsPayload>(`${base}/api/settings/update?${query}`, token);
 }
 

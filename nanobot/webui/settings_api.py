@@ -256,6 +256,8 @@ def settings_payload(*, requires_restart: bool = False) -> dict[str, Any]:
             "bot_name": defaults.bot_name,
             "bot_icon": defaults.bot_icon,
             "tool_hint_max_length": defaults.tool_hint_max_length,
+            "vision_model": defaults.vision_model,
+            "vision_provider": defaults.vision_provider,
         },
         "model_presets": model_presets,
         "providers": providers,
@@ -404,6 +406,20 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             defaults.tool_hint_max_length = parsed
             changed = True
             restart_required = True
+
+    vision_model = _query_first_alias(query, "vision_model", "visionModel")
+    if vision_model is not None:
+        vision_model_value = vision_model.strip() or None
+        if defaults.vision_model != vision_model_value:
+            defaults.vision_model = vision_model_value
+            changed = True
+
+    vision_provider = _query_first_alias(query, "vision_provider", "visionProvider")
+    if vision_provider is not None:
+        vision_provider_value = vision_provider.strip() or None
+        if defaults.vision_provider != vision_provider_value:
+            defaults.vision_provider = vision_provider_value
+            changed = True
 
     if changed:
         save_config(config)

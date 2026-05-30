@@ -187,6 +187,8 @@ export interface SettingsPayload {
     bot_name: string;
     bot_icon: string;
     tool_hint_max_length: number;
+    vision_model?: string;
+    vision_provider?: string;
   };
   model_presets: Array<{
     name: string;
@@ -446,6 +448,8 @@ export interface SettingsUpdate {
   botName?: string;
   botIcon?: string;
   toolHintMaxLength?: number;
+  visionModel?: string;
+  visionProvider?: string;
 }
 
 export interface ModelConfigurationCreate {

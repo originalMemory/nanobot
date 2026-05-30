@@ -161,7 +161,9 @@
       "pathAppend": "PATH append",
       "cliAppsCatalog": "Catalog",
       "cliAppsFilter": "Filter",
-      "configurationDocs": "Configuration docs"
+      "configurationDocs": "Configuration docs",
+      "visionModel": "Vision model",
+      "visionProvider": "Vision provider"
     },
     "help": {
       "theme": "Switch between light and dark appearance.",
@@ -194,7 +196,9 @@
       "toolHintMaxLength": "Maximum characters shown in tool progress hints.",
       "cliAppsCatalog": "Install only the app-specific CLI adapters nanobot can run locally; desktop apps stay untouched.",
       "cliAppsFilter": "Search by app, category, or capability.",
-      "advancedReadOnly": "Advanced safety controls are read-only in WebUI. Edit config.json intentionally when needed."
+      "advancedReadOnly": "Advanced safety controls are read-only in WebUI. Edit config.json intentionally when needed.",
+      "visionModel": "Auxiliary vision model for captioning images when the primary model lacks vision support. Leave blank to disable.",
+      "visionProvider": "Provider for the vision model. Leave blank to auto-detect from the model name."
     },
     "timezone": {
       "select": "Select timezone",

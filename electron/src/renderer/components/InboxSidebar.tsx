@@ -19,6 +19,8 @@ interface InboxSidebarProps {
   channels?: string[];
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  onOpenSettings?: () => void;
+  settingsActive?: boolean;
 }
 
 export function InboxSidebar({
@@ -27,6 +29,8 @@ export function InboxSidebar({
   channels = [],
   theme,
   onToggleTheme,
+  onOpenSettings,
+  settingsActive = false,
 }: InboxSidebarProps) {
   const { t } = useTranslation();
 
@@ -81,7 +85,11 @@ export function InboxSidebar({
           )}
         </NavItem>
 
-        <NavItem label={t("inbox.settings")} disabled>
+        <NavItem
+          label={t("inbox.settings")}
+          active={settingsActive}
+          onClick={onOpenSettings}
+        >
           <Settings className="h-4 w-4" />
         </NavItem>
       </nav>

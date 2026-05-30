@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { InboxSidebar } from "@/components/InboxSidebar";
 import { InboxView } from "@/components/InboxView";
 import { ScreenshotPreviewModal } from "@/components/ScreenshotPreviewModal";
+import { SettingsView } from "@/components/settings/SettingsView";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeProvider, useTheme } from "@/hooks/useTheme";
@@ -117,6 +118,7 @@ function Shell({
   const { theme, toggle } = useTheme();
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
   const [channels, setChannels] = useState<string[]>([]);
+  const [view, setView] = useState<"chat" | "settings">("chat");
 
   // 截图流程（8.2）：
   // pendingPreview = 等待用户在 Modal 中确认的截图
@@ -156,22 +158,28 @@ function Shell({
           {/* Sidebar */}
           <InboxSidebar
             activeChannel={activeChannel}
-            onSelectChannel={setActiveChannel}
+            onSelectChannel={(ch) => { setActiveChannel(ch); setView("chat"); }}
             channels={channels}
             theme={theme}
             onToggleTheme={toggle}
+            onOpenSettings={() => setView("settings")}
+            settingsActive={view === "settings"}
           />
 
           {/* Main area */}
-          <main className="relative flex h-full min-w-0 flex-1 flex-col">
-            <InboxView
-              initialMessages={initialMessages}
-              activeChannel={activeChannel}
-              onChannelsChange={setChannels}
-              pendingScreenshot={pendingAttach}
-              onScreenshotConsumed={() => setPendingAttach(null)}
-              onCaptureScreenshot={handleCaptureScreenshot}
-            />
+          <main className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+            {view === "settings" ? (
+              <SettingsView onBack={() => setView("chat")} />
+            ) : (
+              <InboxView
+                initialMessages={initialMessages}
+                activeChannel={activeChannel}
+                onChannelsChange={setChannels}
+                pendingScreenshot={pendingAttach}
+                onScreenshotConsumed={() => setPendingAttach(null)}
+                onCaptureScreenshot={handleCaptureScreenshot}
+              />
+            )}
           </main>
         </div>
 
