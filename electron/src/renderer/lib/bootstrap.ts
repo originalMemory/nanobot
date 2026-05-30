@@ -1,4 +1,5 @@
 import type { BootstrapResponse } from "./types";
+import { isElectron } from "./env";
 
 export const DEFAULT_GATEWAY_HTTP = "http://127.0.0.1:8765";
 
@@ -26,6 +27,15 @@ export function clearSavedSecret(): void {
     window.localStorage.removeItem(SECRET_STORAGE_KEY);
   } catch {
     // ignore
+  }
+}
+
+export async function saveGatewayUrl(url: string): Promise<void> {
+  if (!isElectron) return;
+  try {
+    await window.electronAPI.config.set("gateway.url", url);
+  } catch (e) {
+    console.warn("[nanobot] failed to persist gateway URL:", e);
   }
 }
 

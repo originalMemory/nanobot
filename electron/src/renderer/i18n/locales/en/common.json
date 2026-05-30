@@ -7,8 +7,10 @@
     },
     "error": {
       "title": "Couldn't reach nanobot",
-      "gatewayHint": "Make sure the gateway is running (`nanobot gateway`) and that this page is open on the same machine.",
-      "retry": "Retry"
+      "backendAddress": {
+        "placeholder": "http://127.0.0.1:8765",
+        "connect": "Connect"
+      }
     },
     "auth": {
       "title": "Authentication required",

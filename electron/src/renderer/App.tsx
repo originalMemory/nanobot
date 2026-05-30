@@ -14,6 +14,7 @@ import {
   deriveWsUrl,
   fetchBootstrap,
   loadSavedSecret,
+  saveGatewayUrl,
   saveSecret,
 } from "@/lib/bootstrap";
 import { fetchInboxThread, fetchSettings } from "@/lib/api";
@@ -96,6 +97,44 @@ function AuthForm({
         </Button>
       </form>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 后端地址配置表单（仅在连接失败时显示）
+// ---------------------------------------------------------------------------
+
+function BackendAddressForm({
+  initialUrl,
+  onConnect,
+}: {
+  initialUrl: string;
+  onConnect: (url: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [url, setUrl] = useState(initialUrl);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    onConnect(trimmed);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-2">
+      <div className="flex gap-2">
+        <Input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder={t("app.error.backendAddress.placeholder")}
+          className="flex-1 font-mono text-sm"
+        />
+        <Button type="submit" disabled={!url.trim()}>
+          {t("app.error.backendAddress.connect")}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -375,15 +414,18 @@ export default function App() {
   if (state.status === "error") {
     return (
       <div className="flex h-full w-full items-center justify-center px-4 text-center bg-background">
-        <div className="flex max-w-md flex-col items-center gap-3">
-          <p className="text-lg font-semibold text-foreground">{t("app.error.title")}</p>
-          <p className="text-sm text-muted-foreground">{state.message}</p>
-          <p className="text-xs text-muted-foreground">
-            {t("app.error.gatewayHint")}
-          </p>
-          <Button variant="outline" onClick={() => bootstrapWithSecret(bootstrapSecretRef.current, state.gatewayUrl ?? DEFAULT_GATEWAY_HTTP)}>
-            {t("app.error.retry")}
-          </Button>
+        <div className="flex w-full max-w-sm flex-col items-center gap-4">
+          <div className="flex flex-col items-center gap-1">
+            <p className="text-lg font-semibold text-foreground">{t("app.error.title")}</p>
+            <p className="text-sm text-muted-foreground">{state.message}</p>
+          </div>
+          <BackendAddressForm
+            initialUrl={state.gatewayUrl ?? DEFAULT_GATEWAY_HTTP}
+            onConnect={(url) => {
+              saveGatewayUrl(url);
+              bootstrapWithSecret(bootstrapSecretRef.current, url);
+            }}
+          />
         </div>
       </div>
     );
