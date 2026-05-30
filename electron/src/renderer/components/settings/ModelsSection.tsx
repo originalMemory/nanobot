@@ -60,6 +60,9 @@ export interface AgentSettingsDraft {
   modelPreset: string;
   visionModel: string;
   visionProvider: string;
+  maxTokens: string;
+  contextWindowTokens: string;
+  maxMessages: string;
 }
 
 interface ModelConfigurationDraft {
@@ -373,6 +376,9 @@ export function ModelsSection({
     modelPreset: modelPresetValue(settings),
     visionModel: settings.agent.vision_model ?? "",
     visionProvider: settings.agent.vision_provider ?? "",
+    maxTokens: String(settings.agent.max_tokens),
+    contextWindowTokens: String(settings.agent.context_window_tokens),
+    maxMessages: String(settings.agent.max_messages ?? 120),
   });
   const [saving, setSaving] = useState(false);
 
@@ -412,13 +418,19 @@ export function ModelsSection({
     const base = defaultPreset(settings);
     const visionModelDirty = form.visionModel !== (settings.agent.vision_model ?? "");
     const visionProviderDirty = form.visionProvider !== (settings.agent.vision_provider ?? "");
+    const maxTokensDirty = Number(form.maxTokens) !== settings.agent.max_tokens;
+    const contextWindowTokensDirty = Number(form.contextWindowTokens) !== settings.agent.context_window_tokens;
+    const maxMessagesDirty = Number(form.maxMessages) !== (settings.agent.max_messages ?? 120);
     return (
       form.modelPreset !== preset ||
       (form.modelPreset === "default" &&
         (form.model !== (base?.model ?? settings.agent.model) ||
           form.provider !== editableDefaultProvider(settings))) ||
       visionModelDirty ||
-      visionProviderDirty
+      visionProviderDirty ||
+      maxTokensDirty ||
+      contextWindowTokensDirty ||
+      maxMessagesDirty
     );
   }, [form, settings]);
 
@@ -774,6 +786,44 @@ export function ModelsSection({
                 emptyLabel={tx("settings.values.auto", "Auto")}
                 showProviderLogos={showBrandLogos}
                 onChange={(visionProvider) => setForm((prev) => ({ ...prev, visionProvider }))}
+              />
+            </SettingsRow>
+          </SettingsGroup>
+          <SettingsGroup>
+            <SettingsRow
+              title={tx("settings.rows.maxTokens", "Max Output Tokens")}
+              description={tx("settings.help.maxTokens", "Maximum tokens the model generates per reply.")}
+            >
+              <Input
+                type="number"
+                min={1}
+                value={form.maxTokens}
+                onChange={(e) => setForm((prev) => ({ ...prev, maxTokens: e.target.value }))}
+                className="h-8 w-[140px] rounded-full text-[13px]"
+              />
+            </SettingsRow>
+            <SettingsRow
+              title={tx("settings.rows.contextWindowTokens", "Context Window")}
+              description={tx("settings.help.contextWindowTokens", "Total context window size of the model. Used for consolidation and truncation decisions.")}
+            >
+              <Input
+                type="number"
+                min={4096}
+                value={form.contextWindowTokens}
+                onChange={(e) => setForm((prev) => ({ ...prev, contextWindowTokens: e.target.value }))}
+                className="h-8 w-[140px] rounded-full text-[13px]"
+              />
+            </SettingsRow>
+            <SettingsRow
+              title={tx("settings.rows.maxMessages", "Max Messages")}
+              description={tx("settings.help.maxMessages", "Max number of messages replayed from history. 0 uses the default (120).")}
+            >
+              <Input
+                type="number"
+                min={0}
+                value={form.maxMessages}
+                onChange={(e) => setForm((prev) => ({ ...prev, maxMessages: e.target.value }))}
+                className="h-8 w-[140px] rounded-full text-[13px]"
               />
             </SettingsRow>
             <SettingsFooter dirty={modelDirty} saving={saving} onSave={() => void handleSaveModel()} />

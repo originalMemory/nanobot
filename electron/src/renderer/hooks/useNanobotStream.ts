@@ -194,6 +194,29 @@ function stampLastAssistantLatency(prev: UIMessage[], latencyMs: number): UIMess
   return prev;
 }
 
+function stampLastAssistantTs(prev: UIMessage[], ts: string | number): UIMessage[] {
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    const m = prev[i];
+    if (m.role === "assistant" && m.kind !== "trace") {
+      const merged: UIMessage = { ...m, messageTs: ts };
+      return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
+    }
+  }
+  return prev;
+}
+
+function stampLastAssistantUsage(prev: UIMessage[], usage: UIMessage["usage"]): UIMessage[] {
+  if (!usage) return prev;
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    const m = prev[i];
+    if (m.role === "assistant" && m.kind !== "trace") {
+      const merged: UIMessage = { ...m, usage };
+      return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
+    }
+  }
+  return prev;
+}
+
 function findLatestAssistantAnswerIndex(prev: UIMessage[]): number | null {
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const m = prev[i];
@@ -675,6 +698,10 @@ export function useNanobotStream(
           if (typeof ev.latency_ms === "number" && ev.latency_ms >= 0) {
             finalized = stampLastAssistantLatency(finalized, Math.round(ev.latency_ms));
           }
+          if (ev.usage && typeof ev.usage === "object") {
+            finalized = stampLastAssistantUsage(finalized, ev.usage);
+          }
+          finalized = stampLastAssistantTs(finalized, Date.now());
           buffer.current = null;
           activeAssistantRef.current = null;
           clearActivitySegment();

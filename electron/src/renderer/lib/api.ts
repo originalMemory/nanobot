@@ -285,6 +285,15 @@ export async function updateSettings(
   if (update.visionProvider !== undefined) {
     query.set("vision_provider", update.visionProvider);
   }
+  if (update.maxTokens !== undefined) {
+    query.set("max_tokens", String(update.maxTokens));
+  }
+  if (update.contextWindowTokens !== undefined) {
+    query.set("context_window_tokens", String(update.contextWindowTokens));
+  }
+  if (update.maxMessages !== undefined) {
+    query.set("max_messages", String(update.maxMessages));
+  }
   return request<SettingsPayload>(`${base}/api/settings/update?${query}`, token);
 }
 

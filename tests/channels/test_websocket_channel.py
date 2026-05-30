@@ -686,6 +686,56 @@ async def test_send_turn_end_includes_goal_state_when_present() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_turn_end_includes_usage_when_present() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    usage = {
+        "last_prompt_tokens": 11000,
+        "turn_prompt_tokens": 152835,
+        "turn_completion_tokens": 340,
+        "context_tokens": 10800,
+        "context_pct": 1,
+    }
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="",
+        metadata={"_turn_end": True, "latency_ms": 1500, "usage": usage},
+    ))
+
+    mock_ws.send.assert_awaited_once()
+    body = json.loads(mock_ws.send.await_args.args[0])
+    assert body == {
+        "event": "turn_end",
+        "chat_id": "chat-1",
+        "latency_ms": 1500,
+        "usage": usage,
+    }
+
+
+@pytest.mark.asyncio
+async def test_send_turn_end_omits_usage_when_absent() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="",
+        metadata={"_turn_end": True},
+    ))
+
+    mock_ws.send.assert_awaited_once()
+    body = json.loads(mock_ws.send.await_args.args[0])
+    assert "usage" not in body
+
+
+@pytest.mark.asyncio
 async def test_send_goal_status_running_emits_event_with_started_at() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)

@@ -68,6 +68,15 @@ describe("updateSettings", () => {
     const url = String(fetch.mock.calls[0][0]);
     expect(url).toContain("vision_model=");
   });
+
+  it("sends max_tokens, context_window_tokens, max_messages", async () => {
+    const fetch = mockFetch({ agent: {}, requires_restart: false });
+    await updateSettings(TOKEN, { maxTokens: 8192, contextWindowTokens: 1000000, maxMessages: 200 }, BASE).catch(() => {});
+    const url = String(fetch.mock.calls[0][0]);
+    expect(url).toContain("max_tokens=8192");
+    expect(url).toContain("context_window_tokens=1000000");
+    expect(url).toContain("max_messages=200");
+  });
 });
 
 // ---------------------------------------------------------------------------

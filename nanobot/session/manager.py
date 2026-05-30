@@ -6,7 +6,7 @@ import re
 import shutil
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -82,8 +82,8 @@ class Session:
 
     key: str  # channel:chat_id
     messages: list[dict[str, Any]] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc).astimezone())
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc).astimezone())
     metadata: dict[str, Any] = field(default_factory=dict)
     last_consolidated: int = 0  # Number of messages already consolidated to files
 
@@ -111,11 +111,11 @@ class Session:
         msg = {
             "role": role,
             "content": content,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).astimezone().isoformat(),
             **kwargs
         }
         self.messages.append(msg)
-        self.updated_at = datetime.now()
+        self.updated_at = datetime.now(timezone.utc).astimezone()
 
     def get_history(
         self,
@@ -254,7 +254,7 @@ class Session:
         """Clear all messages and reset session to initial state."""
         self.messages = []
         self.last_consolidated = 0
-        self.updated_at = datetime.now()
+        self.updated_at = datetime.now(timezone.utc).astimezone()
         self.metadata.pop("_last_summary", None)
 
     def retain_recent_legal_suffix(self, max_messages: int) -> None:
@@ -297,7 +297,7 @@ class Session:
         dropped = len(self.messages) - len(retained)
         self.messages = retained
         self.last_consolidated = max(0, self.last_consolidated - dropped)
-        self.updated_at = datetime.now()
+        self.updated_at = datetime.now(timezone.utc).astimezone()
 
     def enforce_file_cap(
         self,
@@ -417,8 +417,8 @@ class SessionManager:
             return Session(
                 key=key,
                 messages=messages,
-                created_at=created_at or datetime.now(),
-                updated_at=updated_at or datetime.now(),
+                created_at=created_at or datetime.now(timezone.utc).astimezone(),
+                updated_at=updated_at or datetime.now(timezone.utc).astimezone(),
                 metadata=metadata,
                 last_consolidated=last_consolidated
             )
@@ -475,8 +475,8 @@ class SessionManager:
             return Session(
                 key=key,
                 messages=messages,
-                created_at=created_at or datetime.now(),
-                updated_at=updated_at or datetime.now(),
+                created_at=created_at or datetime.now(timezone.utc).astimezone(),
+                updated_at=updated_at or datetime.now(timezone.utc).astimezone(),
                 metadata=metadata,
                 last_consolidated=last_consolidated
             )

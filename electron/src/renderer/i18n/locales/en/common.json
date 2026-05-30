@@ -681,7 +681,11 @@
     "imageAttachment": "Image attachment",
     "copyReply": "Copy reply",
     "copiedReply": "Copied reply",
-    "turnLatencyTitle": "Response time (end-to-end)"
+    "turnLatencyTitle": "Response time (end-to-end)",
+    "tokenUsageTitle": "↑ context at cutoff · ↓ turn output · R cache read · ctx% window used",
+    "tokenUsageContextSize": "Context at this message (estimated size for replay on next turn)",
+    "tokenUsageTurnTotalIn": "Turn total input (all LLM calls)",
+    "tokenUsageTurnTotalOut": "Turn total output"
   },
   "lightbox": {
     "title": "Image preview",

@@ -7,7 +7,7 @@ import shutil
 import time
 import uuid
 from contextlib import suppress
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -193,8 +193,8 @@ def ensure_dir(path: Path) -> Path:
 
 
 def timestamp() -> str:
-    """Current ISO timestamp."""
-    return datetime.now().isoformat()
+    """Current ISO timestamp with local UTC offset."""
+    return datetime.now(timezone.utc).astimezone().isoformat()
 
 
 def current_time_str(timezone: str | None = None) -> str:
@@ -545,9 +545,12 @@ def build_status_content(
         if uptime_s >= 3600
         else f"{uptime_s // 60}m {uptime_s % 60}s"
     )
-    last_in = last_usage.get("prompt_tokens", 0)
-    last_out = last_usage.get("completion_tokens", 0)
-    cached = last_usage.get("cached_tokens", 0)
+    last_in = last_usage.get("last_prompt_tokens") or last_usage.get("prompt_tokens", 0)
+    last_out = (
+        last_usage.get("turn_completion_tokens")
+        or last_usage.get("completion_tokens", 0)
+    )
+    cached = last_usage.get("last_cached_tokens") or last_usage.get("cached_tokens", 0)
     ctx_total = max(context_window_tokens, 0)
     # Budget mirrors Consolidator formula: ctx_window - max_completion - _SAFETY_BUFFER
     ctx_budget = max(ctx_total - int(max_completion_tokens) - 1024, 1)

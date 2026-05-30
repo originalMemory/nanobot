@@ -16,7 +16,7 @@ There is **no** sub-agent orchestrator and **no** special WebSocket ``agent_ui``
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from nanobot.agent.tools.base import Tool, tool_parameters
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 
 def _iso_now() -> str:
-    return datetime.now().isoformat()
+    return datetime.now(timezone.utc).astimezone().isoformat()
 
 
 class _GoalToolsMixin(ContextAware):

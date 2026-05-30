@@ -393,6 +393,12 @@ def replay_transcript_to_ui_messages(
                 }
                 return
 
+    def stamp_usage(usage: dict[str, Any]) -> None:
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "assistant" and messages[i].get("kind") != "trace":
+                messages[i] = {**messages[i], "usage": usage}
+                return
+
     def absorb_complete(extra: dict[str, Any], idx: int) -> None:
         nonlocal active_activity_segment_id, active_file_edit_segment_id
         last = messages[-1] if messages else None
@@ -714,6 +720,12 @@ def replay_transcript_to_ui_messages(
             lat = rec.get("latency_ms")
             if isinstance(lat, (int, float)) and lat >= 0:
                 extra["latencyMs"] = int(lat)
+            usg = rec.get("usage")
+            if isinstance(usg, dict) and usg:
+                extra["usage"] = usg
+            ts_str = rec.get("ts")
+            if isinstance(ts_str, str):
+                extra["messageTs"] = ts_str
             absorb_complete(extra, idx)
             if media:
                 suppress_until_turn_end = True
@@ -730,6 +742,9 @@ def replay_transcript_to_ui_messages(
             lat = rec.get("latency_ms")
             if isinstance(lat, (int, float)) and lat >= 0:
                 stamp_latency(int(lat))
+            usg = rec.get("usage")
+            if isinstance(usg, dict) and usg:
+                stamp_usage(usg)
             buffer_message_id = None
             buffer_parts = []
             continue
@@ -818,6 +833,14 @@ def session_messages_to_wire_events(
 
         elif role == "assistant":
             tool_calls = msg.get("tool_calls")
+            ts = msg.get("timestamp")
+            # 若 content 和 tool_calls 同时存在（如 DeepSeek 在调工具时附带旁白），
+            # 先单独发一条 message 事件，与直播流行为保持一致。
+            if content and tool_calls and isinstance(tool_calls, list):
+                inline: dict[str, Any] = {**base, "event": "message", "text": content}
+                if isinstance(ts, str):
+                    inline["ts"] = ts
+                events.append(inline)
             if tool_calls and isinstance(tool_calls, list):
                 # 缓冲 tool calls，等 tool result 到达时生成合并的 end 事件，
                 # 与 wire 日志的单事件格式保持一致。
@@ -835,6 +858,11 @@ def session_messages_to_wire_events(
                 lat = msg.get("latency_ms")
                 if isinstance(lat, (int, float)):
                     ev["latency_ms"] = int(lat)
+                usg = msg.get("usage")
+                if isinstance(usg, dict) and usg:
+                    ev["usage"] = usg
+                if isinstance(ts, str):
+                    ev["ts"] = ts
                 events.append(ev)
 
         elif role == "tool":

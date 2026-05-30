@@ -122,6 +122,7 @@ class TurnContext:
 
     turn_wall_started_at: float = field(default_factory=time.time)
     turn_latency_ms: int | None = None
+    turn_usage: dict[str, int] = field(default_factory=dict)
 
     # 记录 caption 处理前的原始图片路径，供持久化到 session 时使用
     caption_original_media: list[str] = field(default_factory=list)
@@ -256,6 +257,7 @@ class AgentLoop:
         self._start_time = time.time()
         self._last_usage: dict[str, int] = {}
         self._pending_turn_latency_ms: dict[str, int] = {}
+        self._pending_turn_usage: dict[str, dict[str, int]] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
         self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
@@ -1007,10 +1009,12 @@ class AgentLoop:
                         ))
                     if msg.channel == "websocket":
                         turn_lat = self._pending_turn_latency_ms.pop(session_key, None)
+                        turn_usg = self._pending_turn_usage.pop(session_key, None)
                         await self._webui_turns.handle_turn_end(
                             msg,
                             session_key=session_key,
                             latency_ms=turn_lat,
+                            usage=turn_usg,
                         )
                 except asyncio.CancelledError:
                     logger.info("Task cancelled for session {}", session_key)
@@ -1065,6 +1069,7 @@ class AgentLoop:
                     )
             await self._webui_turns.publish_run_status(msg, "idle")
             self._pending_turn_latency_ms.pop(session_key, None)
+            self._pending_turn_usage.pop(session_key, None)
             self._webui_turns.discard(session_key)
 
     async def close_mcp(self) -> None:
@@ -1486,6 +1491,29 @@ class AgentLoop:
         ctx.had_injections = had_injections
         return "ok"
 
+    def _build_turn_usage(self, session: Session) -> dict[str, int]:
+        """Merge runner usage with session context estimate (same basis as /status)."""
+        usage = dict(self._last_usage)
+        if not usage:
+            return usage
+        try:
+            ctx_est, _ = self.consolidator.estimate_session_prompt_tokens(session)
+        except Exception:
+            logger.debug("estimate_session_prompt_tokens failed", exc_info=True)
+            ctx_est = 0
+        if ctx_est <= 0:
+            ctx_est = usage.get("last_prompt_tokens", 0)
+        if ctx_est > 0:
+            usage["context_tokens"] = int(ctx_est)
+        if ctx_est > 0 and self.context_window_tokens > 0:
+            max_out = getattr(getattr(self.provider, "generation", None), "max_tokens", 4096) or 4096
+            try:
+                ctx_budget = max(1, self.context_window_tokens - int(max_out) - 1024)
+                usage["context_pct"] = min(int(ctx_est * 100 / ctx_budget), 999)
+            except (TypeError, ValueError):
+                pass
+        return usage
+
     async def _state_save(self, ctx: TurnContext) -> str:
         if ctx.final_content is None or not ctx.final_content.strip():
             ctx.final_content = EMPTY_FINAL_RESPONSE_MESSAGE
@@ -1493,13 +1521,17 @@ class AgentLoop:
         ctx.save_skip = 1 + len(ctx.history) + (1 if ctx.user_persisted_early else 0)
 
         ctx.turn_latency_ms = max(0, int((time.time() - ctx.turn_wall_started_at) * 1000))
+        ctx.turn_usage = self._build_turn_usage(ctx.session)
         self._save_turn(
             ctx.session, ctx.all_messages, ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
+            turn_usage=ctx.turn_usage or None,
             **self._source_extras(ctx.msg),
         )
         if ctx.msg.channel == "websocket":
             self._pending_turn_latency_ms[ctx.session_key] = ctx.turn_latency_ms
+            if ctx.turn_usage:
+                self._pending_turn_usage[ctx.session_key] = ctx.turn_usage
         ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
         self._clear_pending_user_turn(ctx.session)
         self._clear_runtime_checkpoint(ctx.session)
@@ -1571,11 +1603,12 @@ class AgentLoop:
         skip: int,
         *,
         turn_latency_ms: int | None = None,
+        turn_usage: dict[str, int] | None = None,
         source_channel: str | None = None,
         source_chat_id: str | None = None,
     ) -> None:
         """Save new-turn messages into session, truncating large tool results."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         last_assistant_idx: int | None = None
         for m in messages[skip:]:
@@ -1609,13 +1642,16 @@ class AgentLoop:
                 entry.setdefault("source_channel", source_channel)
             if source_chat_id:
                 entry.setdefault("source_chat_id", source_chat_id)
-            entry.setdefault("timestamp", datetime.now().isoformat())
+            entry.setdefault("timestamp", datetime.now(timezone.utc).astimezone().isoformat())
             session.messages.append(entry)
             if role == "assistant":
                 last_assistant_idx = len(session.messages) - 1
-        if turn_latency_ms is not None and last_assistant_idx is not None:
-            session.messages[last_assistant_idx]["latency_ms"] = int(turn_latency_ms)
-        session.updated_at = datetime.now()
+        if last_assistant_idx is not None:
+            if turn_latency_ms is not None:
+                session.messages[last_assistant_idx]["latency_ms"] = int(turn_latency_ms)
+            if turn_usage:
+                session.messages[last_assistant_idx]["usage"] = dict(turn_usage)
+        session.updated_at = datetime.now(timezone.utc).astimezone()
 
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:
         """Persist subagent follow-ups before prompt assembly so history stays durable.
@@ -1670,7 +1706,7 @@ class AgentLoop:
 
     def _restore_runtime_checkpoint(self, session: Session) -> bool:
         """Materialize an unfinished turn into session history before a new request."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         checkpoint = session.metadata.get(self._RUNTIME_CHECKPOINT_KEY)
         if not isinstance(checkpoint, dict):
@@ -1680,15 +1716,18 @@ class AgentLoop:
         completed_tool_results = checkpoint.get("completed_tool_results") or []
         pending_tool_calls = checkpoint.get("pending_tool_calls") or []
 
+        def _now_iso() -> str:
+            return datetime.now(timezone.utc).astimezone().isoformat()
+
         restored_messages: list[dict[str, Any]] = []
         if isinstance(assistant_message, dict):
             restored = dict(assistant_message)
-            restored.setdefault("timestamp", datetime.now().isoformat())
+            restored.setdefault("timestamp", _now_iso())
             restored_messages.append(restored)
         for message in completed_tool_results:
             if isinstance(message, dict):
                 restored = dict(message)
-                restored.setdefault("timestamp", datetime.now().isoformat())
+                restored.setdefault("timestamp", _now_iso())
                 restored_messages.append(restored)
         for tool_call in pending_tool_calls:
             if not isinstance(tool_call, dict):
@@ -1701,7 +1740,7 @@ class AgentLoop:
                     "tool_call_id": tool_id,
                     "name": name,
                     "content": "Error: Task interrupted before this tool finished.",
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": _now_iso(),
                 }
             )
 
@@ -1724,7 +1763,7 @@ class AgentLoop:
 
     def _restore_pending_user_turn(self, session: Session) -> bool:
         """Close a turn that only persisted the user message before crashing."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         if not session.metadata.get(self._PENDING_USER_TURN_KEY):
             return False
@@ -1734,10 +1773,10 @@ class AgentLoop:
                 {
                     "role": "assistant",
                     "content": "Error: Task interrupted before a response was generated.",
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).astimezone().isoformat(),
                 }
             )
-            session.updated_at = datetime.now()
+            session.updated_at = datetime.now(timezone.utc).astimezone()
 
         self._clear_pending_user_turn(session)
         return True

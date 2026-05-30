@@ -272,6 +272,7 @@ def settings_payload(*, requires_restart: bool = False) -> dict[str, Any]:
             "tool_hint_max_length": defaults.tool_hint_max_length,
             "vision_model": defaults.vision_model,
             "vision_provider": defaults.vision_provider,
+            "max_messages": defaults.max_messages,
         },
         "model_presets": model_presets,
         "providers": providers,
@@ -433,6 +434,42 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
         vision_provider_value = vision_provider.strip() or None
         if defaults.vision_provider != vision_provider_value:
             defaults.vision_provider = vision_provider_value
+            changed = True
+
+    max_tokens_raw = _query_first_alias(query, "max_tokens", "maxTokens")
+    if max_tokens_raw is not None:
+        try:
+            parsed_max_tokens = int(max_tokens_raw)
+        except ValueError:
+            raise WebUISettingsError("max_tokens must be an integer") from None
+        if parsed_max_tokens < 1:
+            raise WebUISettingsError("max_tokens must be >= 1")
+        if defaults.max_tokens != parsed_max_tokens:
+            defaults.max_tokens = parsed_max_tokens
+            changed = True
+
+    context_window_tokens_raw = _query_first_alias(query, "context_window_tokens", "contextWindowTokens")
+    if context_window_tokens_raw is not None:
+        try:
+            parsed_ctx = int(context_window_tokens_raw)
+        except ValueError:
+            raise WebUISettingsError("context_window_tokens must be an integer") from None
+        if parsed_ctx < 4096:
+            raise WebUISettingsError("context_window_tokens must be >= 4096")
+        if defaults.context_window_tokens != parsed_ctx:
+            defaults.context_window_tokens = parsed_ctx
+            changed = True
+
+    max_messages_raw = _query_first_alias(query, "max_messages", "maxMessages")
+    if max_messages_raw is not None:
+        try:
+            parsed_max_messages = int(max_messages_raw)
+        except ValueError:
+            raise WebUISettingsError("max_messages must be an integer") from None
+        if parsed_max_messages < 0:
+            raise WebUISettingsError("max_messages must be >= 0")
+        if defaults.max_messages != parsed_max_messages:
+            defaults.max_messages = parsed_max_messages
             changed = True
 
     if changed:

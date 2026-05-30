@@ -296,6 +296,47 @@ def test_save_turn_stamps_latency_on_last_assistant() -> None:
     assert session.messages[-1]["latency_ms"] == 12345
 
 
+def test_save_turn_stamps_usage_on_last_assistant() -> None:
+    loop = _mk_loop()
+    session = Session(key="test:usage")
+    usage = {
+        "last_prompt_tokens": 11000,
+        "turn_prompt_tokens": 152835,
+        "turn_completion_tokens": 1366,
+        "last_cached_tokens": 10300,
+        "turn_cached_tokens": 144512,
+        "context_tokens": 10800,
+        "context_pct": 1,
+    }
+
+    loop._save_turn(
+        session,
+        [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "final answer"},
+        ],
+        skip=0,
+        turn_usage=usage,
+    )
+
+    assert session.messages[-1]["role"] == "assistant"
+    assert session.messages[-1]["usage"] == usage
+
+
+def test_save_turn_usage_not_written_when_empty() -> None:
+    loop = _mk_loop()
+    session = Session(key="test:usage-empty")
+
+    loop._save_turn(
+        session,
+        [{"role": "assistant", "content": "ok"}],
+        skip=0,
+        turn_usage={},
+    )
+
+    assert "usage" not in session.messages[-1]
+
+
 def test_restore_runtime_checkpoint_rehydrates_completed_and_pending_tools() -> None:
     loop = _mk_loop()
     session = Session(

@@ -66,6 +66,29 @@ export interface UIMessage {
   reasoningStreaming?: boolean;
   /** End-to-end wall time for this assistant turn (persisted ``latency_ms`` / ``turn_end``). */
   latencyMs?: number;
+  /** Token usage for this assistant turn (from ``turn_end`` / persisted ``usage`` field). */
+  usage?: TurnUsageStats;
+  /** Wall-clock timestamp of the assistant message (ISO local-time string from backend, or ms epoch for live turns). */
+  messageTs?: string | number;
+}
+
+/** Per-turn token stats: last-call context size vs turn-total billing. */
+export interface TurnUsageStats {
+  /** Last LLM call input size (↑ display; context at this message cutoff). */
+  last_prompt_tokens?: number;
+  /** Sum of prompt_tokens across all LLM calls this turn (tooltip / billing). */
+  turn_prompt_tokens?: number;
+  /** Sum of completion_tokens this turn (↓ display). */
+  turn_completion_tokens?: number;
+  last_cached_tokens?: number;
+  turn_cached_tokens?: number;
+  /** Estimated prompt size at cutoff (system + tools + history); drives ctx%. */
+  context_tokens?: number;
+  context_pct?: number;
+  /** @deprecated Pre-split saves: accumulated prompt_tokens only. */
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cached_tokens?: number;
 }
 
 export interface UICliAppAttachment {
@@ -190,6 +213,7 @@ export interface SettingsPayload {
     tool_hint_max_length: number;
     vision_model?: string;
     vision_provider?: string;
+    max_messages?: number;
   };
   model_presets: Array<{
     name: string;
@@ -451,6 +475,9 @@ export interface SettingsUpdate {
   toolHintMaxLength?: number;
   visionModel?: string;
   visionProvider?: string;
+  maxTokens?: number;
+  contextWindowTokens?: number;
+  maxMessages?: number;
 }
 
 export interface ModelConfigurationCreate {
@@ -561,6 +588,7 @@ export type InboundEvent =
       latency_ms?: number;
       /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
       goal_state?: GoalStateWsPayload;
+      usage?: TurnUsageStats;
     }
   | {
       event: "goal_status";

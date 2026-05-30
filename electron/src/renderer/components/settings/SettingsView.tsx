@@ -168,6 +168,12 @@ export function SettingsView({ onBack, theme, onThemeChange }: SettingsViewProps
     if (draft.provider) update.provider = draft.provider;
     update.visionModel = draft.visionModel.trim();
     update.visionProvider = draft.visionProvider.trim();
+    const maxTokens = Number(draft.maxTokens);
+    if (!Number.isNaN(maxTokens) && maxTokens >= 1) update.maxTokens = maxTokens;
+    const contextWindowTokens = Number(draft.contextWindowTokens);
+    if (!Number.isNaN(contextWindowTokens) && contextWindowTokens >= 4096) update.contextWindowTokens = contextWindowTokens;
+    const maxMessages = Number(draft.maxMessages);
+    if (!Number.isNaN(maxMessages) && maxMessages >= 0) update.maxMessages = maxMessages;
     const payload = await updateSettings(token, update, apiBase);
     setSettings(payload);
   }, [token, apiBase]);

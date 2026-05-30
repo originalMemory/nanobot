@@ -299,6 +299,7 @@ class WebuiTurnCoordinator:
         *,
         session_key: str,
         latency_ms: int | None,
+        usage: dict[str, int] | None = None,
     ) -> None:
         if msg.channel != "websocket":
             return
@@ -306,6 +307,8 @@ class WebuiTurnCoordinator:
         turn_metadata: dict[str, Any] = {**msg.metadata, "_turn_end": True}
         if latency_ms is not None:
             turn_metadata["latency_ms"] = int(latency_ms)
+        if usage:
+            turn_metadata["usage"] = usage
         session = self.sessions.get_or_create(session_key)
         turn_metadata["goal_state"] = goal_state_ws_blob(session.metadata)
         await self.bus.publish_outbound(OutboundMessage(

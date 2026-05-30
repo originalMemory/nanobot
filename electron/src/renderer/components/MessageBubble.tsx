@@ -12,7 +12,13 @@ import { useTranslation } from "react-i18next";
 import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
-import { cn } from "@/lib/utils";
+import {
+  buildTokenUsageTitle,
+  displayCacheRead,
+  displayCompletionOut,
+  displayPromptIn,
+} from "@/lib/turn-usage";
+import { cn, formatTokenCount } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 import { formatTurnLatency } from "@/lib/format";
 import { useBotIdentity } from "@/contexts/BotIdentityContext";
@@ -177,12 +183,13 @@ export function MessageBubble({
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   const showCopyButton = showAssistantCopyAction && showAssistantActions;
   const latencyMs = message.latencyMs;
-  const showLatencyFooter =
-    message.role === "assistant"
-    && latencyMs != null
-    && !message.isStreaming
-    && (!empty || hasReasoning || media.length > 0);
-  const showAssistantFooterRow = showCopyButton || showLatencyFooter;
+  const usage = message.role === "assistant" ? message.usage : undefined;
+  const messageTs = message.role === "assistant" ? message.messageTs : undefined;
+  const footerCondition = message.role === "assistant" && !message.isStreaming && (!empty || hasReasoning || media.length > 0);
+  const showLatencyFooter = footerCondition && latencyMs != null;
+  const showUsageFooter = footerCondition && usage != null;
+  const showTimestampFooter = footerCondition && messageTs != null;
+  const showAssistantFooterRow = showCopyButton || showLatencyFooter || showUsageFooter || showTimestampFooter;
 
   const isTypingOnly = empty && message.isStreaming && !hasReasoning;
   const { botName, botIcon, botAvatarUrl } = useBotIdentity();
@@ -190,8 +197,16 @@ export function MessageBubble({
 
   if (isTypingOnly) {
     return (
-      <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-        <TypingDots />
+      <div className={cn("flex w-full gap-2 text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
+        <div className="flex w-10 flex-none items-start pt-0.5">
+          <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <span className="mb-1 block text-xs text-muted-foreground">{botName}</span>
+          <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
+            <TypingDots />
+          </div>
+        </div>
       </div>
     );
   }
@@ -253,6 +268,12 @@ export function MessageBubble({
                   <Copy className="h-4 w-4" aria-hidden />
                 )}
               </button>
+            ) : null}
+            {showTimestampFooter ? (
+              <MessageTimestamp ts={messageTs!} />
+            ) : null}
+            {showUsageFooter ? (
+              <TokenUsageFooter usage={usage!} />
             ) : null}
             {showLatencyFooter ? (
               <span
@@ -624,6 +645,59 @@ function Dot({ delay }: { delay: string }) {
         "animate-bounce",
       )}
     />
+  );
+}
+
+function formatMessageTimestamp(ts: string | number): string {
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "";
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${mo}-${dd} ${hh}:${mm}:${ss}`;
+}
+
+function MessageTimestamp({ ts }: { ts: string | number }) {
+  const formatted = formatMessageTimestamp(ts);
+  if (!formatted) return null;
+  return (
+    <span className="text-[11px] leading-none text-muted-foreground/50 tabular-nums" title={String(ts)}>
+      {formatted}
+    </span>
+  );
+}
+
+function TokenUsageFooter({ usage }: { usage: NonNullable<UIMessage["usage"]> }) {
+  const { t } = useTranslation();
+  const parts: string[] = [];
+  const promptIn = displayPromptIn(usage);
+  const completionOut = displayCompletionOut(usage);
+  const cacheRead = displayCacheRead(usage);
+
+  if (promptIn > 0) {
+    parts.push(`↑${formatTokenCount(promptIn)}`);
+  }
+  if (completionOut > 0) {
+    parts.push(`↓${formatTokenCount(completionOut)}`);
+  }
+  if (cacheRead > 0) {
+    parts.push(`R${formatTokenCount(cacheRead)}`);
+  }
+  if (usage.context_pct != null && usage.context_pct >= 0) {
+    parts.push(`${usage.context_pct}% ctx`);
+  }
+
+  if (parts.length === 0) return null;
+
+  return (
+    <span
+      className="text-[11px] leading-none text-muted-foreground/60 tabular-nums"
+      title={buildTokenUsageTitle(usage, t)}
+    >
+      {parts.join(" ")}
+    </span>
   );
 }
 

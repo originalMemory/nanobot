@@ -269,6 +269,7 @@ class AgentRunner:
         final_content: str | None = None
         tools_used: list[str] = []
         usage: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
+        last_usage: dict[str, int] = {}
         error: str | None = None
         stop_reason = "completed"
         tool_events: list[dict[str, str]] = []
@@ -313,6 +314,7 @@ class AgentRunner:
             context.usage = dict(raw_usage)
             context.tool_calls = list(response.tool_calls)
             self._accumulate_usage(usage, raw_usage)
+            last_usage = dict(raw_usage)
 
             reasoning_text, cleaned_content = extract_reasoning(
                 response.reasoning_content,
@@ -450,6 +452,8 @@ class AgentRunner:
                 retry_usage = self._usage_dict(response.usage)
                 self._accumulate_usage(usage, retry_usage)
                 raw_usage = self._merge_usage(raw_usage, retry_usage)
+                if retry_usage:
+                    last_usage = dict(retry_usage)
                 context.response = response
                 context.usage = dict(raw_usage)
                 context.tool_calls = list(response.tool_calls)
@@ -588,7 +592,7 @@ class AgentRunner:
             final_content=final_content,
             messages=messages,
             tools_used=tools_used,
-            usage=usage,
+            usage=self._package_turn_usage(usage, last_usage),
             stop_reason=stop_reason,
             error=error,
             tool_events=tool_events,
@@ -781,6 +785,23 @@ class AgentRunner:
     def _accumulate_usage(target: dict[str, int], addition: dict[str, int]) -> None:
         for key, value in addition.items():
             target[key] = target.get(key, 0) + value
+
+    @staticmethod
+    def _package_turn_usage(accumulated: dict[str, int], last: dict[str, int]) -> dict[str, int]:
+        """Split turn totals vs last-call sizes for UI (context vs billing)."""
+        packaged: dict[str, int] = {
+            "turn_prompt_tokens": accumulated.get("prompt_tokens", 0),
+            "turn_completion_tokens": accumulated.get("completion_tokens", 0),
+            "last_prompt_tokens": last.get("prompt_tokens", 0),
+            "last_completion_tokens": last.get("completion_tokens", 0),
+        }
+        turn_cached = accumulated.get("cached_tokens", 0)
+        if turn_cached:
+            packaged["turn_cached_tokens"] = turn_cached
+        last_cached = last.get("cached_tokens", 0)
+        if last_cached:
+            packaged["last_cached_tokens"] = last_cached
+        return packaged
 
     @staticmethod
     def _merge_usage(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:

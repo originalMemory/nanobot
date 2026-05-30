@@ -1812,7 +1812,9 @@ class WebSocketChannel(BaseChannel):
             lat_i = int(lat) if isinstance(lat, (int, float)) else None
             gs = msg.metadata.get("goal_state")
             gs_blob = gs if isinstance(gs, dict) else None
-            await self.send_turn_end(msg.chat_id, latency_ms=lat_i, goal_state=gs_blob)
+            usg = msg.metadata.get("usage")
+            usg_dict = usg if isinstance(usg, dict) else None
+            await self.send_turn_end(msg.chat_id, latency_ms=lat_i, goal_state=gs_blob, usage=usg_dict)
             return
         if msg.metadata.get("_session_updated"):
             scope = msg.metadata.get("_session_update_scope")
@@ -1981,6 +1983,7 @@ class WebSocketChannel(BaseChannel):
         latency_ms: int | None = None,
         *,
         goal_state: dict[str, Any] | None = None,
+        usage: dict[str, int] | None = None,
     ) -> None:
         """Signal that the agent has fully finished processing the current turn."""
         conns = list(self._subs.get(chat_id, ()))
@@ -1991,6 +1994,8 @@ class WebSocketChannel(BaseChannel):
             body["latency_ms"] = int(latency_ms)
         if goal_state is not None:
             body["goal_state"] = goal_state
+        if usage:
+            body["usage"] = usage
         self._try_append_webui_transcript(chat_id, body)
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:

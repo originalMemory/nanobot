@@ -681,7 +681,11 @@
     "imageAttachment": "图片附件",
     "copyReply": "复制回复",
     "copiedReply": "已复制回复",
-    "turnLatencyTitle": "本轮耗时（端到端）"
+    "turnLatencyTitle": "本轮耗时（端到端）",
+    "tokenUsageTitle": "↑ 截止本条时的上下文规模 · ↓ 本轮输出合计 · R 末次缓存命中 · ctx% 窗口占用",
+    "tokenUsageContextSize": "截止本条时的上下文规模（预估下次回放时的 prompt 大小）",
+    "tokenUsageTurnTotalIn": "本轮输入合计（所有 LLM 调用累加）",
+    "tokenUsageTurnTotalOut": "本轮输出合计"
   },
   "lightbox": {
     "title": "图片预览",
