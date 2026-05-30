@@ -102,6 +102,9 @@ export function ImageLightbox({
             "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
             "motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none",
           )}
+          // Electron hiddenInset：底层 InboxView 标题栏的 drag 区域会在 OS 层吞掉点击，
+          // 必须在弹窗层声明 no-drag，否则右上角关闭按钮无法响应。
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         >
           <DialogPrimitive.Title className="sr-only">
             {current.name ?? t("lightbox.title")}
@@ -151,7 +154,7 @@ export function ImageLightbox({
           <DialogPrimitive.Close
             aria-label={t("lightbox.close")}
             className={cn(
-              "absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full",
+              "absolute right-7 top-7 z-10 grid h-9 w-9 place-items-center rounded-full",
               "bg-black/55 text-white/90 hover:bg-black/70 hover:text-white",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
               "transition-colors motion-reduce:transition-none",
@@ -186,7 +189,7 @@ function NavButton({ side, label, onClick }: NavButtonProps) {
       onClick={onClick}
       aria-label={label}
       className={cn(
-        "absolute top-1/2 -translate-y-1/2 grid h-11 w-11 place-items-center rounded-full",
+        "absolute top-1/2 z-10 -translate-y-1/2 grid h-11 w-11 place-items-center rounded-full",
         "bg-black/55 text-white/90 hover:bg-black/70 hover:text-white",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
         "transition-colors motion-reduce:transition-none",

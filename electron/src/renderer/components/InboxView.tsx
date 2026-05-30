@@ -63,14 +63,20 @@ export function InboxView({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Channel header strip */}
-      <div
-        className="flex h-11 shrink-0 items-center border-b border-border px-4 text-sm font-medium text-foreground"
-        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-      >
-        <span style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-          {activeChannel ? channelLabel(activeChannel) : t("inbox.unified")}
-        </span>
+      {/* Channel header strip — pt-2 + h-7 drag 与 InboxSidebar 首项图标垂直对齐 */}
+      <div className="flex shrink-0 flex-col border-b border-border pt-2">
+        <div
+          className="h-7 w-full shrink-0"
+          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        />
+        <div
+          className="flex h-9 shrink-0 items-center px-4 text-sm font-medium text-foreground"
+          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        >
+          <span style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+            {activeChannel ? channelLabel(activeChannel) : t("inbox.unified")}
+          </span>
+        </div>
       </div>
 
       {/* Thread + Composer (ThreadViewport owns the layout) */}
