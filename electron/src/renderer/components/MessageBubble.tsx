@@ -45,6 +45,8 @@ interface MessageBubbleProps {
   showAssistantCopyAction?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
+  /** 渲染在 AI 气泡顶部的活动区（工具调用/推理概要），由 ThreadMessages 传入以避免循环 import。 */
+  activityBefore?: React.ReactNode;
 }
 
 /** 与后端 _VISION_CAPTION_SENTINEL 保持一致。 */
@@ -80,6 +82,7 @@ export function MessageBubble({
   showAssistantCopyAction = true,
   cliApps = [],
   mcpPresets = [],
+  activityBefore,
 }: MessageBubbleProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -138,21 +141,29 @@ export function MessageBubble({
         {!hasImages && hasMedia ? (
           <MessageMedia media={media} align="right" />
         ) : null}
-        {hasText ? (
-          <p
+        {(hasText || captionText) ? (
+          <div
             className={cn(
-              "ml-auto w-fit rounded-[18px] bg-secondary/70 px-4 py-2",
-              "text-left text-[16px]/[1.75] whitespace-pre-wrap break-words",
+              "ml-auto w-fit rounded-[18px_18px_4px_18px] bg-gradient-to-br from-primary to-primary/80 chat-user-bubble",
+              "text-left break-words overflow-hidden",
             )}
           >
-            <CliAppMentionText
-              text={displayText}
-              cliApps={mentionCliApps}
-              mcpPresets={mentionMcpPresets}
-            />
-          </p>
+            {hasText ? (
+              <p className="px-4 py-2 text-[16px]/[1.75] whitespace-pre-wrap text-primary-foreground">
+                <CliAppMentionText
+                  text={displayText}
+                  cliApps={mentionCliApps}
+                  mcpPresets={mentionMcpPresets}
+                />
+              </p>
+            ) : null}
+            {captionText ? (
+              <div className={cn("px-2 pb-2", hasText && "border-t border-primary-foreground/20")}>
+                <CaptionBubble text={captionText} inverted />
+              </div>
+            ) : null}
+          </div>
         ) : null}
-        {captionText ? <CaptionBubble text={captionText} /> : null}
       </div>
     );
   }
@@ -171,8 +182,7 @@ export function MessageBubble({
     && latencyMs != null
     && !message.isStreaming
     && (!empty || hasReasoning || media.length > 0);
-  const showBotName = message.role === "assistant" && !empty && !message.isStreaming;
-  const showAssistantFooterRow = showCopyButton || showLatencyFooter || showBotName;
+  const showAssistantFooterRow = showCopyButton || showLatencyFooter;
 
   const isTypingOnly = empty && message.isStreaming && !hasReasoning;
   const { botName, botIcon, botAvatarUrl } = useBotIdentity();
@@ -188,28 +198,43 @@ export function MessageBubble({
 
   if (empty && message.isStreaming) {
     return (
-      <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-        <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={false} />
+      <div className={cn("flex w-full gap-2 text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
+        <div className="flex w-10 flex-none items-start pt-0.5">
+          <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <span className="mb-1 block text-xs text-muted-foreground">{botName}</span>
+          <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
+            <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={false} />
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className={cn("flex w-full gap-2 text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-      {/* 左列：头像，靠底部对齐 */}
-      <div className="flex w-8 flex-none items-end pb-0.5">
+      {/* 左列：头像，靠顶部对齐 */}
+      <div className="flex w-10 flex-none items-start pt-0.5">
         <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
       </div>
-      {/* 右列：内容 + footer */}
+      {/* 右列：名字 + 气泡 + footer */}
       <div className="min-w-0 flex-1">
-        {hasReasoning ? (
-          <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={!empty} />
-        ) : null}
-        <MarkdownText streaming={!!message.isStreaming}>{message.content}</MarkdownText>
+        <span className="mb-1 block text-xs text-muted-foreground">{botName}</span>
+        <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
+          {activityBefore ? (
+            <div className="-mx-3 -mt-2 mb-2 border-b border-border/30 pb-1">
+              {activityBefore}
+            </div>
+          ) : null}
+          {hasReasoning ? (
+            <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={!empty} />
+          ) : null}
+          <MarkdownText streaming={!!message.isStreaming}>{message.content}</MarkdownText>
+        </div>
         {media.length > 0 ? <MessageMedia media={media} align="left" /> : null}
         {showAssistantFooterRow ? (
           <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-            <span className="text-xs font-medium">{botName}</span>
             {showCopyButton ? (
               <button
                 type="button"
@@ -560,12 +585,12 @@ function BotAvatarWithFallback({
   const fallback = icon || (name ? name[0].toUpperCase() : "B");
   const showImg = !!avatarUrl && !imgFailed;
   return (
-    <span className="inline-flex h-6 w-6 flex-none items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">
+    <span className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-full bg-muted text-[13px] font-medium text-muted-foreground">
       {showImg ? (
         <img
           src={avatarUrl}
           alt={name}
-          className="h-6 w-6 rounded-full object-cover"
+          className="h-9 w-9 rounded-full object-cover"
           onError={() => setImgFailed(true)}
         />
       ) : (
@@ -739,7 +764,7 @@ export function ReasoningBubble({
  * 默认收起，避免与图片缩略图重复展示。
  * 单图时后端加了 `图片描述：\n` 前缀供 LLM 理解，展示前剥掉。
  */
-function CaptionBubble({ text }: { text: string }) {
+function CaptionBubble({ text, inverted = false }: { text: string; inverted?: boolean }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const SINGLE_PREFIX = "图片描述：";
@@ -753,7 +778,10 @@ function CaptionBubble({ text }: { text: string }) {
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "group flex w-full items-center gap-2 rounded-md px-2 py-1.5",
-          "text-xs text-muted-foreground transition-colors hover:bg-muted/45",
+          "text-xs transition-colors",
+          inverted
+            ? "text-primary-foreground/70 hover:bg-primary-foreground/10"
+            : "text-muted-foreground hover:bg-muted/45",
         )}
         aria-expanded={open}
       >
@@ -770,10 +798,18 @@ function CaptionBubble({ text }: { text: string }) {
         />
       </button>
       {open && (
-        <div className="mt-1 min-w-0 animate-in fade-in-0 slide-in-from-top-1 duration-200 border-l border-muted-foreground/20 pl-3">
+        <div
+          className={cn(
+            "mt-1 min-w-0 animate-in fade-in-0 slide-in-from-top-1 duration-200 border-l pl-3",
+            inverted ? "border-primary-foreground/20" : "border-muted-foreground/20",
+          )}
+        >
           <MarkdownText
             className={cn(
-              "text-[12.5px] italic text-muted-foreground/88",
+              "text-[12.5px] italic",
+              inverted
+                ? "prose-invert text-primary-foreground/80 prose-headings:text-primary-foreground prose-strong:text-primary-foreground"
+                : "text-muted-foreground/88",
               "prose-p:my-1.5 prose-li:my-0.5",
             )}
           >

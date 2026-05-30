@@ -369,6 +369,17 @@ def replay_transcript_to_ui_messages(
         for i, m in enumerate(messages):
             if is_reasoning_only_placeholder(m) and not is_tool_trace_at(i + 1):
                 continue
+            # Prune cleared placeholders (reasoning was moved to the answer message).
+            if (
+                m.get("role") == "assistant"
+                and m.get("kind") != "trace"
+                and not str(m.get("content") or "").strip()
+                and not m.get("reasoning")
+                and not m.get("reasoningStreaming")
+                and not m.get("isStreaming")
+                and not m.get("media")
+            ):
+                continue
             kept.append(m)
         messages = kept
 
@@ -393,14 +404,30 @@ def replay_transcript_to_ui_messages(
                 "reasoningStreaming": False,
             }
         else:
-            messages.append(
-                {
-                    "id": _new_id("as", idx),
-                    "role": "assistant",
-                    "createdAt": _ts_base + idx,
-                    **extra,
-                },
-            )
+            # Look back through this turn for a reasoning-only placeholder.
+            # When tool calls sit between reasoning and the answer, we copy the
+            # reasoning onto the answer so it renders inside the bubble, and
+            # clear the placeholder so it gets pruned later.
+            inline_reasoning: str | None = None
+            reasoning_idx: int | None = None
+            for i in range(len(messages) - 1, -1, -1):
+                m = messages[i]
+                if m.get("role") == "user":
+                    break
+                if is_reasoning_only_placeholder(m):
+                    inline_reasoning = str(m.get("reasoning") or "") or None
+                    reasoning_idx = i
+                    break
+            new_msg: dict[str, Any] = {
+                "id": _new_id("as", idx),
+                "role": "assistant",
+                "createdAt": _ts_base + idx,
+                **extra,
+            }
+            if inline_reasoning:
+                new_msg["reasoning"] = inline_reasoning
+                messages[reasoning_idx] = {**messages[reasoning_idx], "reasoning": None}
+            messages.append(new_msg)
         active_activity_segment_id = None
         active_file_edit_segment_id = None
 

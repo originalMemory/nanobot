@@ -20,7 +20,8 @@ interface ThreadMessagesProps {
 
 export type DisplayUnit =
   | { type: "cluster"; messages: UIMessage[] }
-  | { type: "single"; message: UIMessage };
+  | { type: "single"; message: UIMessage }
+  | { type: "single-with-activity"; message: UIMessage; activityMessages: UIMessage[]; turnLatencyMs?: number };
 
 /** True when this unit index is the last assistant text slice before the next user message (or end of thread). */
 export function isFinalAssistantSliceBeforeNextUser(
@@ -28,10 +29,10 @@ export function isFinalAssistantSliceBeforeNextUser(
   index: number,
 ): boolean {
   const u = units[index];
-  if (u.type !== "single" || u.message.role !== "assistant") return true;
+  if ((u.type !== "single" && u.type !== "single-with-activity") || u.message.role !== "assistant") return true;
   for (let j = index + 1; j < units.length; j++) {
     const v = units[j];
-    if (v.type === "single" && v.message.role === "user") break;
+    if ((v.type === "single" || v.type === "single-with-activity") && v.message.role === "user") break;
     return false;
   }
   return true;
@@ -62,24 +63,40 @@ export function buildDisplayUnits(messages: UIMessage[]): DisplayUnit[] {
       out.push({ type: "cluster", messages: cluster });
       continue;
     }
-    const previous = out[out.length - 1];
-    if (
-      previous?.type === "cluster"
-      && assistantHasInlineReasoning(m)
-      && canFoldInlineReasoning(previous.messages, m)
-    ) {
-      previous.messages.push(reasoningOnlyMessageFromAnswer(m));
-      out.push({ type: "single", message: stripInlineReasoning(m) });
-      i += 1;
-      continue;
-    }
-    if (assistantHasInlineReasoning(m)) {
-      out.push({ type: "cluster", messages: [reasoningOnlyMessageFromAnswer(m)] });
-      out.push({ type: "single", message: stripInlineReasoning(m) });
-      i += 1;
-      continue;
-    }
     out.push({ type: "single", message: m });
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * 把 [cluster, single-assistant] 对折叠成 single-with-activity，
+ * 让活动区（工具调用/推理）在回复气泡内部渲染，而不是浮在气泡上方。
+ * liveClusterIndex 对应正在流式输出的 cluster，不折叠。
+ */
+function foldActivityIntoBubbles(units: DisplayUnit[], liveClusterIndex: number): DisplayUnit[] {
+  const out: DisplayUnit[] = [];
+  let i = 0;
+  while (i < units.length) {
+    const unit = units[i];
+    const next = units[i + 1];
+    if (
+      unit.type === "cluster"
+      && i !== liveClusterIndex
+      && next?.type === "single"
+      && next.message.role === "assistant"
+    ) {
+      const latency = activityClusterTurnLatencyMs(unit.messages, next);
+      out.push({
+        type: "single-with-activity",
+        message: next.message,
+        activityMessages: unit.messages,
+        turnLatencyMs: latency,
+      });
+      i += 2;
+      continue;
+    }
+    out.push(unit);
     i += 1;
   }
   return out;
@@ -108,53 +125,16 @@ function canJoinActivityCluster(
   return clusterSegmentId === message.activitySegmentId;
 }
 
-function canFoldInlineReasoning(cluster: UIMessage[], message: UIMessage): boolean {
-  if (!clusterHasFileEdits(cluster) && !hasFileEdits(message)) return true;
-  const segmentId = clusterSegmentId(cluster);
-  if (!segmentId || !message.activitySegmentId) return true;
-  return segmentId === message.activitySegmentId;
-}
-
-function assistantHasInlineReasoning(message: UIMessage): boolean {
-  return (
-    message.role === "assistant"
-    && message.kind !== "trace"
-    && message.content.trim().length > 0
-    && (!!message.reasoning?.trim() || !!message.reasoningStreaming)
-  );
-}
-
-function reasoningOnlyMessageFromAnswer(message: UIMessage): UIMessage {
-  return {
-    id: `${message.id}-reasoning`,
-    role: "assistant",
-    content: "",
-    createdAt: message.createdAt,
-    reasoning: message.reasoning,
-    reasoningStreaming: message.reasoningStreaming,
-    isStreaming: message.reasoningStreaming,
-    activitySegmentId: message.activitySegmentId,
-    latencyMs: message.latencyMs,
-  };
-}
-
-function stripInlineReasoning(message: UIMessage): UIMessage {
-  const next = { ...message };
-  delete next.reasoning;
-  delete next.reasoningStreaming;
-  return next;
-}
-
 export function assistantCopyFlags(units: DisplayUnit[]): boolean[] {
   const flags = new Array<boolean>(units.length).fill(true);
   let hasLaterUnitBeforeUser = false;
   for (let i = units.length - 1; i >= 0; i -= 1) {
     const unit = units[i];
-    if (unit.type === "single" && unit.message.role === "user") {
+    if ((unit.type === "single" || unit.type === "single-with-activity") && unit.message.role === "user") {
       hasLaterUnitBeforeUser = false;
       continue;
     }
-    if (unit.type === "single" && unit.message.role === "assistant") {
+    if ((unit.type === "single" || unit.type === "single-with-activity") && unit.message.role === "assistant") {
       flags[i] = !hasLaterUnitBeforeUser;
     }
     hasLaterUnitBeforeUser = true;
@@ -171,12 +151,16 @@ export function ThreadMessages({
   mcpPresets = [],
 }: ThreadMessagesProps) {
   const { t } = useTranslation();
-  const units = useMemo(() => buildDisplayUnits(messages), [messages]);
-  const copyFlags = useMemo(() => assistantCopyFlags(units), [units]);
+  const rawUnits = useMemo(() => buildDisplayUnits(messages), [messages]);
   const liveActivityClusterIndex = useMemo(
-    () => isStreaming ? currentActivityClusterIndex(units) : -1,
-    [isStreaming, units],
+    () => isStreaming ? currentActivityClusterIndex(rawUnits) : -1,
+    [isStreaming, rawUnits],
   );
+  const units = useMemo(
+    () => foldActivityIntoBubbles(rawUnits, liveActivityClusterIndex),
+    [rawUnits, liveActivityClusterIndex],
+  );
+  const copyFlags = useMemo(() => assistantCopyFlags(units), [units]);
 
   return (
     <div className="flex w-full flex-col">
@@ -205,7 +189,7 @@ export function ThreadMessages({
           unit.type === "cluster"
           && next?.type === "single"
           && next.message.role === "assistant";
-        const turnLatencyMs =
+        const clusterLatencyMs =
           unit.type === "cluster" ? activityClusterTurnLatencyMs(unit.messages, next) : undefined;
 
         return (
@@ -215,9 +199,26 @@ export function ThreadMessages({
                 messages={unit.messages}
                 isTurnStreaming={index === liveActivityClusterIndex}
                 hasBodyBelow={hasBodyBelow}
-                turnLatencyMs={turnLatencyMs}
+                turnLatencyMs={clusterLatencyMs}
                 cliApps={cliApps}
                 mcpPresets={mcpPresets}
+              />
+            ) : unit.type === "single-with-activity" ? (
+              <MessageBubble
+                message={unit.message}
+                showAssistantCopyAction={copyFlags[index]}
+                cliApps={cliApps}
+                mcpPresets={mcpPresets}
+                activityBefore={
+                  <AgentActivityCluster
+                    messages={unit.activityMessages}
+                    isTurnStreaming={false}
+                    hasBodyBelow={false}
+                    turnLatencyMs={unit.turnLatencyMs}
+                    cliApps={cliApps}
+                    mcpPresets={mcpPresets}
+                  />
+                }
               />
             ) : (
               <MessageBubble
