@@ -3,8 +3,12 @@ import { useTranslation } from "react-i18next";
 
 import { MessageBubble } from "@/components/MessageBubble";
 import {
-  AgentActivityCluster,
+  AssistantTurnBubble,
+  type TurnSegment,
+} from "@/components/thread/AssistantTurnBubble";
+import {
   isAgentActivityMember,
+  isReasoningOnlyAssistant,
 } from "@/components/thread/AgentActivityCluster";
 import type { CliAppInfo, McpPresetInfo, UIMessage } from "@/lib/types";
 
@@ -18,28 +22,16 @@ interface ThreadMessagesProps {
   mcpPresets?: McpPresetInfo[];
 }
 
-export type DisplayUnit =
+type RawDisplayUnit =
   | { type: "cluster"; messages: UIMessage[] }
+  | { type: "single"; message: UIMessage };
+
+export type DisplayUnit =
   | { type: "single"; message: UIMessage }
-  | { type: "single-with-activity"; message: UIMessage; activityMessages: UIMessage[]; turnLatencyMs?: number };
+  | { type: "assistant-turn"; segments: TurnSegment[]; isStreaming: boolean };
 
-/** True when this unit index is the last assistant text slice before the next user message (or end of thread). */
-export function isFinalAssistantSliceBeforeNextUser(
-  units: DisplayUnit[],
-  index: number,
-): boolean {
-  const u = units[index];
-  if ((u.type !== "single" && u.type !== "single-with-activity") || u.message.role !== "assistant") return true;
-  for (let j = index + 1; j < units.length; j++) {
-    const v = units[j];
-    if ((v.type === "single" || v.type === "single-with-activity") && v.message.role === "user") break;
-    return false;
-  }
-  return true;
-}
-
-export function buildDisplayUnits(messages: UIMessage[]): DisplayUnit[] {
-  const out: DisplayUnit[] = [];
+export function buildDisplayUnits(messages: UIMessage[]): RawDisplayUnit[] {
+  const out: RawDisplayUnit[] = [];
   let i = 0;
   while (i < messages.length) {
     const m = messages[i];
@@ -63,43 +55,192 @@ export function buildDisplayUnits(messages: UIMessage[]): DisplayUnit[] {
       out.push({ type: "cluster", messages: cluster });
       continue;
     }
+    const previous = out[out.length - 1];
+    if (
+      previous?.type === "cluster"
+      && assistantHasInlineReasoning(m)
+      && canFoldInlineReasoning(previous.messages, m)
+    ) {
+      foldInlineReasoningIntoCluster(previous.messages, m);
+      out.push({ type: "single", message: stripInlineReasoning(m) });
+      i += 1;
+      continue;
+    }
+    if (assistantHasInlineReasoning(m)) {
+      out.push({ type: "cluster", messages: [reasoningOnlyMessageFromAnswer(m)] });
+      out.push({ type: "single", message: stripInlineReasoning(m) });
+      i += 1;
+      continue;
+    }
     out.push({ type: "single", message: m });
     i += 1;
   }
   return out;
 }
 
-/**
- * 把 [cluster, single-assistant] 对折叠成 single-with-activity，
- * 让活动区（工具调用/推理）在回复气泡内部渲染，而不是浮在气泡上方。
- * liveClusterIndex 对应正在流式输出的 cluster，不折叠。
- */
-function foldActivityIntoBubbles(units: DisplayUnit[], liveClusterIndex: number): DisplayUnit[] {
+/** 将同一 user turn 内的 cluster / assistant 正文收成单个 SAP 气泡，保留时序交错。 */
+export function coalesceAssistantTurnUnits(
+  rawUnits: RawDisplayUnit[],
+  globalStreaming: boolean,
+): DisplayUnit[] {
   const out: DisplayUnit[] = [];
   let i = 0;
-  while (i < units.length) {
-    const unit = units[i];
-    const next = units[i + 1];
-    if (
-      unit.type === "cluster"
-      && i !== liveClusterIndex
-      && next?.type === "single"
-      && next.message.role === "assistant"
-    ) {
-      const latency = activityClusterTurnLatencyMs(unit.messages, next);
-      out.push({
-        type: "single-with-activity",
-        message: next.message,
-        activityMessages: unit.messages,
-        turnLatencyMs: latency,
-      });
-      i += 2;
+  while (i < rawUnits.length) {
+    const unit = rawUnits[i];
+    if (!isAssistantTurnRawUnit(unit)) {
+      if (unit.type === "single") {
+        out.push(unit);
+      }
+      i += 1;
       continue;
     }
-    out.push(unit);
-    i += 1;
+    const segments: TurnSegment[] = [];
+    while (i < rawUnits.length && isAssistantTurnRawUnit(rawUnits[i])) {
+      const current = rawUnits[i];
+      if (current.type === "cluster") {
+        segments.push({
+          kind: "activity",
+          messages: current.messages,
+          turnLatencyMs: activitySegmentTurnLatency(current.messages),
+        });
+      } else {
+        segments.push({ kind: "text", message: current.message });
+      }
+      i += 1;
+    }
+    out.push({ type: "assistant-turn", segments: enrichActivitySegmentLatencies(segments), isStreaming: false });
+  }
+
+  if (!globalStreaming) {
+    return out;
+  }
+  for (let j = out.length - 1; j >= 0; j -= 1) {
+    const unit = out[j];
+    if (unit.type === "assistant-turn") {
+      out[j] = {
+        type: "assistant-turn",
+        segments: unit.segments,
+        isStreaming: true,
+      };
+      break;
+    }
   }
   return out;
+}
+
+/** 为 activity 段推算耗时：从本段首条消息到下一段开始的时间差。 */
+function enrichActivitySegmentLatencies(segments: TurnSegment[]): TurnSegment[] {
+  return segments.map((segment, index) => {
+    if (segment.kind !== "activity" || segment.turnLatencyMs != null) {
+      return segment;
+    }
+    const starts = segment.messages
+      .map((message) => message.createdAt)
+      .filter((value) => Number.isFinite(value));
+    if (!starts.length) {
+      return segment;
+    }
+    const start = Math.min(...starts);
+    let end: number | undefined;
+    for (let j = index + 1; j < segments.length; j += 1) {
+      const next = segments[j];
+      if (next.kind === "text") {
+        end = next.message.createdAt;
+      } else {
+        const nextStarts = next.messages
+          .map((message) => message.createdAt)
+          .filter((value) => Number.isFinite(value));
+        if (nextStarts.length) {
+          end = Math.min(...nextStarts);
+        }
+      }
+      if (Number.isFinite(end)) {
+        break;
+      }
+    }
+    if (end == null || end < start) {
+      return segment;
+    }
+    return { ...segment, turnLatencyMs: end - start };
+  });
+}
+
+function isAssistantTurnRawUnit(unit: RawDisplayUnit): boolean {
+  return unit.type === "cluster"
+    || (unit.type === "single" && unit.message.role === "assistant");
+}
+
+function assistantHasInlineReasoning(message: UIMessage): boolean {
+  return (
+    message.role === "assistant"
+    && message.kind !== "trace"
+    && message.content.trim().length > 0
+    && (!!message.reasoning?.trim() || !!message.reasoningStreaming)
+  );
+}
+
+function reasoningOnlyMessageFromAnswer(message: UIMessage): UIMessage {
+  return {
+    id: `${message.id}-reasoning`,
+    role: "assistant",
+    content: "",
+    createdAt: message.createdAt,
+    reasoning: message.reasoning,
+    reasoningStreaming: message.reasoningStreaming,
+    isStreaming: message.reasoningStreaming,
+    activitySegmentId: message.activitySegmentId,
+    latencyMs: message.latencyMs,
+  };
+}
+
+function stripInlineReasoning(message: UIMessage): UIMessage {
+  const next = { ...message };
+  delete next.reasoning;
+  delete next.reasoningStreaming;
+  return next;
+}
+
+/**
+ * 将 answer 消息上的 reasoning 折进前置 activity cluster。
+ *
+ * 背景：session replay 时 transcript.absorbComplete 会把「工具调用之前」的
+ * reasoning-only 行复制到最终 answer 上，并 prune 掉原 placeholder。此时 UIMessage
+ * 顺序变成 [trace, trace, …, answer+reasoning]，若直接 push 到 cluster 末尾，
+ * 折叠块里就会出现「工具在上、思考过程在下」的倒序。
+ *
+ * 不按 createdAt 做全序插入：折回 cluster 时时间戳常常缺失或不可信，且 trace 顺序
+ * 已由 UIMessage 数组保证。实际只有两种常见形态，用两条规则即可：
+ *
+ * 1. cluster 里尚无任何 reasoning 行 → 这是从早期 placeholder 迁来的「第一轮思考」，
+ *    应 splice 到首个 trace 之前（思考 → 工具）。
+ * 2. cluster 开头已有 reasoning 行 → answer 上的是工具后的「第二轮思考」，接在末尾
+ *    （思考 → 工具 → 再思考）。若文本与已有行相同则跳过，避免重复。
+ */
+function foldInlineReasoningIntoCluster(cluster: UIMessage[], message: UIMessage): void {
+  const reasoningRow = reasoningOnlyMessageFromAnswer(message);
+  const reasoningText = reasoningRow.reasoning?.trim();
+  if (
+    reasoningText
+    && cluster.some(
+      (row) => isReasoningOnlyAssistant(row) && row.reasoning?.trim() === reasoningText,
+    )
+  ) {
+    return;
+  }
+  const hasLeadingReasoning = cluster.some((row) => isReasoningOnlyAssistant(row));
+  const firstTraceIdx = cluster.findIndex((row) => row.kind === "trace");
+  if (!hasLeadingReasoning && firstTraceIdx !== -1) {
+    cluster.splice(firstTraceIdx, 0, reasoningRow);
+    return;
+  }
+  cluster.push(reasoningRow);
+}
+
+function canFoldInlineReasoning(cluster: UIMessage[], message: UIMessage): boolean {
+  if (!clusterHasFileEdits(cluster) && !hasFileEdits(message)) return true;
+  const segmentId = clusterSegmentId(cluster);
+  if (!segmentId || !message.activitySegmentId) return true;
+  return segmentId === message.activitySegmentId;
 }
 
 function clusterSegmentId(messages: UIMessage[]): string | undefined {
@@ -125,21 +266,39 @@ function canJoinActivityCluster(
   return clusterSegmentId === message.activitySegmentId;
 }
 
+/** 仅使用 activity 行自身携带的 latency，避免把整轮耗时误打到中间段。 */
+function activitySegmentTurnLatency(messages: UIMessage[]): number | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const latency = messages[i].latencyMs;
+    if (typeof latency === "number" && Number.isFinite(latency) && latency >= 0) {
+      return latency;
+    }
+  }
+  return undefined;
+}
+
 export function assistantCopyFlags(units: DisplayUnit[]): boolean[] {
   const flags = new Array<boolean>(units.length).fill(true);
   let hasLaterUnitBeforeUser = false;
   for (let i = units.length - 1; i >= 0; i -= 1) {
     const unit = units[i];
-    if ((unit.type === "single" || unit.type === "single-with-activity") && unit.message.role === "user") {
+    if (unit.type === "single" && unit.message.role === "user") {
       hasLaterUnitBeforeUser = false;
       continue;
     }
-    if ((unit.type === "single" || unit.type === "single-with-activity") && unit.message.role === "assistant") {
+    if (unit.type === "assistant-turn") {
       flags[i] = !hasLaterUnitBeforeUser;
     }
     hasLaterUnitBeforeUser = true;
   }
   return flags;
+}
+
+export function buildFinalDisplayUnits(
+  messages: UIMessage[],
+  globalStreaming: boolean,
+): DisplayUnit[] {
+  return coalesceAssistantTurnUnits(buildDisplayUnits(messages), globalStreaming);
 }
 
 export function ThreadMessages({
@@ -151,14 +310,9 @@ export function ThreadMessages({
   mcpPresets = [],
 }: ThreadMessagesProps) {
   const { t } = useTranslation();
-  const rawUnits = useMemo(() => buildDisplayUnits(messages), [messages]);
-  const liveActivityClusterIndex = useMemo(
-    () => isStreaming ? currentActivityClusterIndex(rawUnits) : -1,
-    [isStreaming, rawUnits],
-  );
   const units = useMemo(
-    () => foldActivityIntoBubbles(rawUnits, liveActivityClusterIndex),
-    [rawUnits, liveActivityClusterIndex],
+    () => buildFinalDisplayUnits(messages, isStreaming),
+    [messages, isStreaming],
   );
   const copyFlags = useMemo(() => assistantCopyFlags(units), [units]);
 
@@ -178,116 +332,42 @@ export function ThreadMessages({
           </button>
         </div>
       ) : null}
-      {units.map((unit, index) => {
-        const prev = units[index - 1];
-        const marginTop =
-          index > 0
-            ? marginAfterPrevUnit(prev)
-            : "";
-        const next = units[index + 1];
-        const hasBodyBelow =
-          unit.type === "cluster"
-          && next?.type === "single"
-          && next.message.role === "assistant";
-        const clusterLatencyMs =
-          unit.type === "cluster" ? activityClusterTurnLatencyMs(unit.messages, next) : undefined;
-
-        return (
-          <div key={unitKey(unit, index)} className={marginTop}>
-            {unit.type === "cluster" ? (
-              <AgentActivityCluster
-                messages={unit.messages}
-                isTurnStreaming={index === liveActivityClusterIndex}
-                hasBodyBelow={hasBodyBelow}
-                turnLatencyMs={clusterLatencyMs}
-                cliApps={cliApps}
-                mcpPresets={mcpPresets}
-              />
-            ) : unit.type === "single-with-activity" ? (
-              <MessageBubble
-                message={unit.message}
-                showAssistantCopyAction={copyFlags[index]}
-                cliApps={cliApps}
-                mcpPresets={mcpPresets}
-                activityBefore={
-                  <AgentActivityCluster
-                    messages={unit.activityMessages}
-                    isTurnStreaming={false}
-                    hasBodyBelow={false}
-                    turnLatencyMs={unit.turnLatencyMs}
-                    cliApps={cliApps}
-                    mcpPresets={mcpPresets}
-                  />
-                }
-              />
-            ) : (
-              <MessageBubble
-                message={unit.message}
-                showAssistantCopyAction={
-                  unit.message.role === "assistant"
-                    ? copyFlags[index]
-                    : true
-                }
-                cliApps={cliApps}
-                mcpPresets={mcpPresets}
-              />
-            )}
-          </div>
-        );
-      })}
+      {units.map((unit, index) => (
+        <div key={unitKey(unit, index)} className={index > 0 ? "mt-5" : ""}>
+          {unit.type === "assistant-turn" ? (
+            <AssistantTurnBubble
+              segments={unit.segments}
+              isTurnStreaming={unit.isStreaming}
+              showCopyAction={copyFlags[index]}
+              cliApps={cliApps}
+              mcpPresets={mcpPresets}
+            />
+          ) : (
+            <MessageBubble
+              message={unit.message}
+              showAssistantCopyAction={
+                unit.message.role === "assistant"
+                  ? copyFlags[index]
+                  : true
+              }
+              cliApps={cliApps}
+              mcpPresets={mcpPresets}
+            />
+          )}
+        </div>
+      ))}
     </div>
   );
 }
 
-function activityClusterTurnLatencyMs(
-  messages: UIMessage[],
-  next: DisplayUnit | undefined,
-): number | undefined {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const latency = messages[i].latencyMs;
-    if (typeof latency === "number" && Number.isFinite(latency) && latency >= 0) {
-      return latency;
-    }
-  }
-  if (
-    next?.type === "single"
-    && next.message.role === "assistant"
-    && typeof next.message.latencyMs === "number"
-    && Number.isFinite(next.message.latencyMs)
-    && next.message.latencyMs >= 0
-  ) {
-    return next.message.latencyMs;
-  }
-  return undefined;
-}
-
-function currentActivityClusterIndex(units: DisplayUnit[]): number {
-  const last = units.length - 1;
-  return units[last]?.type === "cluster" ? last : -1;
-}
-
 function unitKey(unit: DisplayUnit, index: number): string {
-  if (unit.type === "cluster") {
-    const anchor = unit.messages[0]?.id;
-    return anchor != null ? `cluster-${anchor}` : `cluster-idx-${index}`;
+  if (unit.type === "assistant-turn") {
+    const anchor = unit.segments[0]?.kind === "text"
+      ? unit.segments[0].message.id
+      : unit.segments[0]?.kind === "activity"
+        ? unit.segments[0].messages[0]?.id
+        : undefined;
+    return anchor != null ? `turn-${anchor}` : `turn-idx-${index}`;
   }
   return unit.message.id;
-}
-
-function marginAfterPrevUnit(prev: DisplayUnit): string {
-  if (prev.type === "cluster") {
-    return "mt-4";
-  }
-  const p = prev.message;
-  const denseP =
-    p.kind === "trace"
-    || (
-      p.role === "assistant"
-      && p.content.trim().length === 0
-      && (!!p.reasoning || !!p.reasoningStreaming)
-    );
-  if (denseP) {
-    return "mt-2";
-  }
-  return "mt-5";
 }

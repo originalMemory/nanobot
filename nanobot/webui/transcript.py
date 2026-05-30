@@ -363,6 +363,13 @@ def replay_transcript_to_ui_messages(
         m = messages[index] if 0 <= index < len(messages) else None
         return bool(m and m.get("kind") == "trace")
 
+    def is_assistant_answer(m: dict[str, Any]) -> bool:
+        return (
+            m.get("role") == "assistant"
+            and m.get("kind") != "trace"
+            and (bool(str(m.get("content") or "").strip()) or bool(m.get("media")))
+        )
+
     def prune_reasoning_only() -> None:
         nonlocal messages
         kept: list[dict[str, Any]] = []
@@ -385,7 +392,7 @@ def replay_transcript_to_ui_messages(
 
     def stamp_latency(latency_ms: int) -> None:
         for i in range(len(messages) - 1, -1, -1):
-            if messages[i].get("role") == "assistant" and messages[i].get("kind") != "trace":
+            if is_assistant_answer(messages[i]):
                 messages[i] = {
                     **messages[i],
                     "latencyMs": latency_ms,
@@ -395,7 +402,7 @@ def replay_transcript_to_ui_messages(
 
     def stamp_usage(usage: dict[str, Any]) -> None:
         for i in range(len(messages) - 1, -1, -1):
-            if messages[i].get("role") == "assistant" and messages[i].get("kind") != "trace":
+            if is_assistant_answer(messages[i]):
                 messages[i] = {**messages[i], "usage": usage}
                 return
 
@@ -834,6 +841,17 @@ def session_messages_to_wire_events(
         elif role == "assistant":
             tool_calls = msg.get("tool_calls")
             ts = msg.get("timestamp")
+            reasoning = msg.get("reasoning_content") or msg.get("reasoning")
+            if isinstance(reasoning, str) and reasoning:
+                reasoning_ev: dict[str, Any] = {
+                    **base,
+                    "event": "message",
+                    "kind": "reasoning",
+                    "text": reasoning,
+                }
+                if isinstance(ts, str):
+                    reasoning_ev["ts"] = ts
+                events.append(reasoning_ev)
             # 若 content 和 tool_calls 同时存在（如 DeepSeek 在调工具时附带旁白），
             # 先单独发一条 message 事件，与直播流行为保持一致。
             if content and tool_calls and isinstance(tool_calls, list):

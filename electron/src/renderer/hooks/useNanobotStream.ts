@@ -35,16 +35,19 @@ type PendingStreamEvent =
   | { kind: "delta"; text: string }
   | { kind: "reasoning"; text: string };
 
-/** Find a still-open streamed assistant turn. Closed stream segments stay visible
- * as streaming until ``turn_end`` for visual continuity, but they must not
- * receive later delta segments. */
-function findStreamingAssistantIndex(
+/**
+ * 查找仍可接收正文 delta 的 assistant 流。
+ *
+ * trace 是一次工具调用阶段边界：如果正文已经出现在 trace 后面，它属于工具后的
+ * 下一段 assistant 输出，不能再回头认领 trace 前的 reasoning placeholder。
+ */
+export function findStreamingAssistantIndex(
   prev: UIMessage[],
   closedStreamIds: ReadonlySet<string>,
 ): number | null {
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const m = prev[i];
-    if (m.kind === "trace") continue;
+    if (m.kind === "trace") break;
     if (m.role === "assistant" && m.isStreaming && !closedStreamIds.has(m.id)) return i;
     if (m.role === "user") break;
   }
@@ -172,6 +175,14 @@ function isToolTrace(message: UIMessage | undefined): boolean {
   return message?.kind === "trace";
 }
 
+function isAssistantAnswerMessage(message: UIMessage): boolean {
+  return (
+    message.role === "assistant"
+    && message.kind !== "trace"
+    && (message.content.trim().length > 0 || !!message.media?.length)
+  );
+}
+
 function pruneReasoningOnlyPlaceholders(prev: UIMessage[]): UIMessage[] {
   return prev.filter((message, index) => {
     if (!isReasoningOnlyPlaceholder(message)) return true;
@@ -186,7 +197,7 @@ function pruneReasoningOnlyPlaceholders(prev: UIMessage[]): UIMessage[] {
 function stampLastAssistantLatency(prev: UIMessage[], latencyMs: number): UIMessage[] {
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const m = prev[i];
-    if (m.role === "assistant" && m.kind !== "trace") {
+    if (isAssistantAnswerMessage(m)) {
       const merged: UIMessage = { ...m, latencyMs, isStreaming: false };
       return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
     }
@@ -197,7 +208,7 @@ function stampLastAssistantLatency(prev: UIMessage[], latencyMs: number): UIMess
 function stampLastAssistantTs(prev: UIMessage[], ts: string | number): UIMessage[] {
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const m = prev[i];
-    if (m.role === "assistant" && m.kind !== "trace") {
+    if (isAssistantAnswerMessage(m)) {
       const merged: UIMessage = { ...m, messageTs: ts };
       return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
     }
@@ -209,7 +220,7 @@ function stampLastAssistantUsage(prev: UIMessage[], usage: UIMessage["usage"]): 
   if (!usage) return prev;
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const m = prev[i];
-    if (m.role === "assistant" && m.kind !== "trace") {
+    if (isAssistantAnswerMessage(m)) {
       const merged: UIMessage = { ...m, usage };
       return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
     }

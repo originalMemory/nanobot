@@ -36,7 +36,7 @@ import type {
  * Electron 渲染进程是 file:// origin，/api/... 相对路径需要拼上网关绝对地址才能发起 HTTP 请求。
  * data: URL 和已经是绝对地址的 URL 原样返回。
  */
-function resolveMediaUrl(url: string | undefined, apiBase: string): string | undefined {
+export function resolveMediaUrl(url: string | undefined, apiBase: string): string | undefined {
   if (!url) return undefined;
   if (url.startsWith("data:") || url.startsWith("http://") || url.startsWith("https://")) {
     return url;
@@ -51,8 +51,6 @@ interface MessageBubbleProps {
   showAssistantCopyAction?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
-  /** 渲染在 AI 气泡顶部的活动区（工具调用/推理概要），由 ThreadMessages 传入以避免循环 import。 */
-  activityBefore?: React.ReactNode;
 }
 
 /** 与后端 _VISION_CAPTION_SENTINEL 保持一致。 */
@@ -88,7 +86,6 @@ export function MessageBubble({
   showAssistantCopyAction = true,
   cliApps = [],
   mcpPresets = [],
-  activityBefore,
 }: MessageBubbleProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -237,11 +234,6 @@ export function MessageBubble({
       <div className="min-w-0 flex-1">
         <span className="mb-1 block text-xs text-muted-foreground">{botName}</span>
         <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
-          {activityBefore ? (
-            <div className="-mx-3 -mt-2 mb-2 border-b border-border/30 pb-1">
-              {activityBefore}
-            </div>
-          ) : null}
           {hasReasoning ? (
             <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={!empty} />
           ) : null}
@@ -353,7 +345,7 @@ function mergeCliMentionApps(
   return Array.from(byName.values());
 }
 
-function MessageMedia({
+export function MessageMedia({
   media,
   align,
 }: {
@@ -593,7 +585,7 @@ function UserImageCell({
   );
 }
 
-function BotAvatarWithFallback({
+export function BotAvatarWithFallback({
   name,
   icon,
   avatarUrl,
