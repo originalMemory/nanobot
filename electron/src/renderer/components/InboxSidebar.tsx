@@ -1,4 +1,4 @@
-import { Check, Inbox, Palette, Settings } from "lucide-react";
+import { Check, Inbox, Palette, Power, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ALL_THEMES, type Theme } from "@/hooks/useTheme";
 import { channelInitial, channelLabel } from "@/lib/channels";
+import { isElectron } from "@/lib/env";
 import { cn } from "@/lib/utils";
 
 const THEME_PREVIEW_COLORS: Record<Theme, string> = {
@@ -59,12 +60,6 @@ export function InboxSidebar({
         className="flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border/60 bg-sidebar py-2"
         aria-label={t("inbox.sidebarNav")}
       >
-        {/* macOS hiddenInset 风格拖拽区域，顶部 28px 避让红绿灯按钮 */}
-        <div
-          className="h-7 w-full shrink-0"
-          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-        />
-
         <NavItem
           label={t("inbox.unified")}
           active={activeChannel === null}
@@ -106,6 +101,17 @@ export function InboxSidebar({
         >
           <Settings className="h-4 w-4" />
         </NavItem>
+
+        {isElectron ? (
+          <NavItem
+            label={t("inbox.quit")}
+            onClick={() => {
+              void window.electronAPI.app.quit();
+            }}
+          >
+            <Power className="h-4 w-4" />
+          </NavItem>
+        ) : null}
       </nav>
     </TooltipProvider>
   );

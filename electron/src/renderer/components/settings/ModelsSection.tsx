@@ -71,11 +71,16 @@ interface ModelConfigurationDraft {
   model: string;
 }
 
-const OPENAI_API_TYPE_OPTIONS: Array<{ value: ProviderApiType; label: string }> = [
-  { value: "auto", label: "Auto" },
-  { value: "chat_completions", label: "Chat Completions" },
-  { value: "responses", label: "Responses" },
-];
+const OPENAI_API_TYPE_VALUES: ProviderApiType[] = ["auto", "chat_completions", "responses"];
+
+function openAiApiTypeLabel(
+  t: (key: string, options?: { defaultValue?: string }) => string,
+  value: ProviderApiType,
+): string {
+  return t(`settings.byok.apiTypeOptions.${value}`, {
+    defaultValue: value === "auto" ? "Auto" : value === "chat_completions" ? "Chat Completions" : "Responses",
+  });
+}
 
 const LOCAL_UNCONFIGURED_PROVIDER_ORDER = new Map(
   ["vllm", "ollama", "lm_studio", "atomic_chat", "ovms"].map((name, index) => [name, index]),
@@ -290,12 +295,12 @@ function NewModelConfigurationDialog({
         <div className="space-y-3 py-2">
           <label className="block space-y-1.5">
             <span className="text-[12px] font-medium text-muted-foreground">
-              {tx("settings.models.configurationLabel", "Name")}
+              {tx("settings.models.configurationName", "Name")}
             </span>
             <Input
               value={draft.label}
               onChange={(e) => onChangeDraft({ ...draft, label: e.target.value })}
-              placeholder={tx("settings.models.configurationLabelPlaceholder", "e.g. Fast Claude")}
+              placeholder={tx("settings.models.configurationNamePlaceholder", "e.g. Fast Claude")}
               className="h-9 rounded-full text-[13px]"
             />
           </label>
@@ -661,24 +666,23 @@ export function ModelsSection({
                       className="h-9 w-full justify-between rounded-full px-3 text-[13px]"
                     >
                       <span>
-                        {OPENAI_API_TYPE_OPTIONS.find((o) => o.value === pForm.apiType)?.label ??
-                          pForm.apiType}
+                        {openAiApiTypeLabel(t, pForm.apiType)}
                       </span>
                       <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="min-w-[220px]">
-                    {OPENAI_API_TYPE_OPTIONS.map((opt) => (
+                    {OPENAI_API_TYPE_VALUES.map((value) => (
                       <DropdownMenuItem
-                        key={opt.value}
+                        key={value}
                         onSelect={() =>
                           setProviderForms((prev) => ({
                             ...prev,
-                            [provider.name]: { ...prev[provider.name], apiType: opt.value },
+                            [provider.name]: { ...prev[provider.name], apiType: value },
                           }))
                         }
                       >
-                        {opt.label}
+                        {openAiApiTypeLabel(t, value)}
                       </DropdownMenuItem>
                     ))}
                   </DropdownMenuContent>
@@ -769,7 +773,7 @@ export function ModelsSection({
               <Input
                 value={form.visionModel}
                 onChange={(e) => setForm((prev) => ({ ...prev, visionModel: e.target.value }))}
-                placeholder="e.g. gemini-2.5-flash"
+                placeholder={tx("settings.models.visionModelPlaceholder", "e.g. gemini-2.5-flash")}
                 className="h-8 w-[min(280px,70vw)] rounded-full text-[13px]"
               />
             </SettingsRow>

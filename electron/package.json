@@ -1,8 +1,8 @@
 {
-  "name": "electron",
-  "productName": "electron",
+  "name": "nanobot-desktop",
+  "productName": "Nanobot",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Nanobot desktop client",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
@@ -39,7 +39,7 @@
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "@vitejs/plugin-react": "^4.7.0",
-    "electron": "42.3.0",
+    "electron": "^42.3.0",
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
     "happy-dom": "^20.9.0",

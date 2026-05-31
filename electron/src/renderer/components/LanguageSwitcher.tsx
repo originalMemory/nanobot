@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,42 +12,21 @@ import {
   supportedLocales,
   type SupportedLocale,
 } from "@/i18n/config";
-import { setAppLanguage } from "@/i18n";
+import { setAppLanguage, persistLanguageToElectronStore } from "@/i18n";
 import { isElectron } from "@/lib/env";
-
-const ELECTRON_STORE_KEY = "appearance.language";
-
-async function persistLanguageToStore(locale: SupportedLocale): Promise<void> {
-  if (!isElectron) return;
-  try {
-    await window.electronAPI.config.set(ELECTRON_STORE_KEY, locale);
-  } catch {
-    // ignore
-  }
-}
 
 export function LanguageSwitcher({ className }: { className?: string }) {
   const { i18n } = useTranslation();
   const currentLocale = i18n.resolvedLanguage ?? i18n.language ?? "en";
-
-  useEffect(() => {
-    if (!isElectron) return;
-    let cancelled = false;
-    window.electronAPI.config.get(ELECTRON_STORE_KEY).then((stored) => {
-      if (!cancelled && typeof stored === "string" && stored) {
-        void setAppLanguage(stored as SupportedLocale);
-      }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const current =
     supportedLocales.find((l) => l.code === currentLocale) ?? supportedLocales[0];
 
   const handleSelect = async (locale: SupportedLocale) => {
     await setAppLanguage(locale);
-    await persistLanguageToStore(locale);
+    if (isElectron) {
+      await persistLanguageToElectronStore(locale);
+    }
   };
 
   return (

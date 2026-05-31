@@ -6,14 +6,36 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import path from 'node:path';
+import { APP_EXECUTABLE, APP_ID, APP_NAME } from './app.meta';
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    appBundleId: APP_ID,
+    executableName: APP_EXECUTABLE,
+    // Windows 需 .ico；源图来自 webui/public/brand/nanobot_apple_touch.png
+    icon: path.resolve(__dirname, 'assets', 'icon.ico'),
+    extraResource: [path.resolve(__dirname, 'assets')],
+    win32metadata: {
+      CompanyName: APP_NAME,
+      FileDescription: APP_NAME,
+      ProductName: APP_NAME,
+      InternalName: APP_EXECUTABLE,
+    },
+    // 默认从 GitHub 解析 Electron 下载地址，国内网络可能长时间无响应；改用镜像
+    download: {
+      mirrorOptions: {
+        mirror: 'https://npmmirror.com/mirrors/electron/',
+      },
+    },
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({
+      name: APP_NAME,
+      setupIcon: path.resolve(__dirname, 'assets', 'icon.ico'),
+    }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),

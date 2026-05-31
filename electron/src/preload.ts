@@ -9,7 +9,27 @@ import { contextBridge, ipcRenderer } from 'electron';
  *
  * All handlers live in main.ts ipcMain.handle() calls.
  */
+type WindowAction = 'show' | 'hide' | 'minimize' | 'maximize' | 'close';
+type WindowState = 'maximized' | 'normal';
+
 contextBridge.exposeInMainWorld('electronAPI', {
+  platform: {
+    isMac: process.platform === 'darwin',
+    isWindows: process.platform === 'win32',
+  },
+
+  window: {
+    action: (action: WindowAction): Promise<void> =>
+      ipcRenderer.invoke('window:action', action),
+
+    onStateChange: (cb: (state: WindowState) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: WindowState) =>
+        cb(state);
+      ipcRenderer.on('window:state', handler);
+      return () => ipcRenderer.removeListener('window:state', handler);
+    },
+  },
+
   config: {
     /** Read a value from electron-store. Supports dot-notation keys, e.g.
      *  "gateway.url", "appearance.theme". */
@@ -19,6 +39,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** Write a value to electron-store. */
     set: (key: string, value: unknown): Promise<void> =>
       ipcRenderer.invoke('config:set', key, value),
+  },
+
+  app: {
+    /** 完全退出应用（与托盘菜单「退出」一致） */
+    quit: (): Promise<void> => ipcRenderer.invoke('app:quit'),
   },
 
   screenshot: {

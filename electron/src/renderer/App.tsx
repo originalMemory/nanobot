@@ -5,6 +5,7 @@ import { InboxSidebar } from "@/components/InboxSidebar";
 import { InboxView } from "@/components/InboxView";
 import { ScreenshotPreviewModal } from "@/components/ScreenshotPreviewModal";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { WindowTitleBar } from "@/components/WindowTitleBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeProvider, useTheme } from "@/hooks/useTheme";
@@ -18,6 +19,7 @@ import {
   saveSecret,
 } from "@/lib/bootstrap";
 import { fetchInboxThread, fetchSettings } from "@/lib/api";
+import { bootstrapAppLanguage } from "@/i18n";
 import { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider } from "@/providers/ClientProvider";
 import { BotIdentityProvider, type BotIdentity } from "@/contexts/BotIdentityContext";
@@ -29,7 +31,7 @@ import type { UIMessage } from "@/lib/types";
 
 type BootState =
   | { status: "loading" }
-  | { status: "auth"; failed?: boolean }
+  | { status: "auth"; gatewayUrl: string; failed?: boolean }
   | { status: "error"; message: string; gatewayUrl: string }
   | {
       status: "ready";
@@ -39,6 +41,19 @@ type BootState =
       initialMessages: UIMessage[];
       gatewayUrl: string;
     };
+
+// ---------------------------------------------------------------------------
+// Electron 无边框窗口布局
+// ---------------------------------------------------------------------------
+
+function ElectronFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden bg-background">
+      <WindowTitleBar />
+      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Auth form
@@ -278,6 +293,7 @@ export default function App() {
 
         // Resolve URL: prefer explicit arg, then last known gateway (#6)
         const url = gatewayUrl !== undefined ? gatewayUrl : gatewayUrlRef.current;
+        gatewayUrlRef.current = url;
 
         try {
           const boot = await fetchBootstrap(url, secret);
@@ -288,7 +304,7 @@ export default function App() {
             saveSecret(secret);
             bootstrapSecretRef.current = secret;
           }
-          gatewayUrlRef.current = url;
+          void saveGatewayUrl(url);
 
           // Load inbox thread before connecting so initial messages are available
           // before any real-time events arrive (#3)
@@ -338,7 +354,7 @@ export default function App() {
           const msg = (e as Error).message;
           // Check numeric status code first, fall back to message string (#7)
           if (httpStatus === 401 || httpStatus === 403 || msg.includes("401") || msg.includes("403")) {
-            setState({ status: "auth", failed: true });
+            setState({ status: "auth", gatewayUrl: url, failed: true });
           } else {
             setState({ status: "error", message: msg, gatewayUrl: url });
           }
@@ -351,6 +367,10 @@ export default function App() {
     },
     [],
   );
+
+  useEffect(() => {
+    void bootstrapAppLanguage();
+  }, []);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -385,59 +405,67 @@ export default function App() {
       state.client.close();
     }
     clearSavedSecret();
-    setState({ status: "auth" });
+    setState({ status: "auth", gatewayUrl: gatewayUrlRef.current });
   }, [state]);
 
   if (state.status === "loading") {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-background">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground animate-in fade-in-0 duration-300">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground/40" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-foreground/60" />
-          </span>
-          {t("app.loading.connecting")}
+      <ElectronFrame>
+        <div className="flex h-full w-full items-center justify-center bg-background">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground animate-in fade-in-0 duration-300">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground/40" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-foreground/60" />
+            </span>
+            {t("app.loading.connecting")}
+          </div>
         </div>
-      </div>
+      </ElectronFrame>
     );
   }
 
   if (state.status === "auth") {
     return (
-      <AuthForm
-        failed={!!state.failed}
-        onSecret={(s) => bootstrapWithSecret(s)}
-      />
+      <ElectronFrame>
+        <AuthForm
+          failed={!!state.failed}
+          onSecret={(s) => bootstrapWithSecret(s, state.gatewayUrl)}
+        />
+      </ElectronFrame>
     );
   }
 
   if (state.status === "error") {
     return (
-      <div className="flex h-full w-full items-center justify-center px-4 text-center bg-background">
-        <div className="flex w-full max-w-sm flex-col items-center gap-4">
-          <div className="flex flex-col items-center gap-1">
-            <p className="text-lg font-semibold text-foreground">{t("app.error.title")}</p>
-            <p className="text-sm text-muted-foreground">{state.message}</p>
+      <ElectronFrame>
+        <div className="flex h-full w-full items-center justify-center px-4 text-center bg-background">
+          <div className="flex w-full max-w-sm flex-col items-center gap-4">
+            <div className="flex flex-col items-center gap-1">
+              <p className="text-lg font-semibold text-foreground">{t("app.error.title")}</p>
+              <p className="text-sm text-muted-foreground">{state.message}</p>
+            </div>
+            <BackendAddressForm
+              initialUrl={state.gatewayUrl ?? DEFAULT_GATEWAY_HTTP}
+              onConnect={(url) => {
+                saveGatewayUrl(url);
+                bootstrapWithSecret(bootstrapSecretRef.current, url);
+              }}
+            />
           </div>
-          <BackendAddressForm
-            initialUrl={state.gatewayUrl ?? DEFAULT_GATEWAY_HTTP}
-            onConnect={(url) => {
-              saveGatewayUrl(url);
-              bootstrapWithSecret(bootstrapSecretRef.current, url);
-            }}
-          />
         </div>
-      </div>
+      </ElectronFrame>
     );
   }
 
   return (
-    <Shell
-      client={state.client}
-      token={state.token}
-      modelName={state.modelName}
-      initialMessages={state.initialMessages}
-      gatewayUrl={state.gatewayUrl}
-    />
+    <ElectronFrame>
+      <Shell
+        client={state.client}
+        token={state.token}
+        modelName={state.modelName}
+        initialMessages={state.initialMessages}
+        gatewayUrl={state.gatewayUrl}
+      />
+    </ElectronFrame>
   );
 }

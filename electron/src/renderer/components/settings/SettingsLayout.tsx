@@ -53,12 +53,6 @@ export function SettingsLayout({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,hsl(var(--muted))_0%,hsl(var(--background))_42%)] md:flex-row">
       {/* Sidebar nav */}
       <aside className="flex w-full shrink-0 flex-col border-b border-border/55 bg-card/62 px-4 pb-3 pt-4 shadow-[inset_0_-1px_0_rgba(255,255,255,0.55)] backdrop-blur-xl dark:bg-card/45 dark:shadow-none md:w-[17rem] md:border-b-0 md:border-r md:px-3 md:py-4 md:shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)]">
-        {/* macOS draggable titlebar area */}
-        <div
-          className="h-7 w-full shrink-0"
-          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-        />
-
         <button
           type="button"
           onClick={onBack}

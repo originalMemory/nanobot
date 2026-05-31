@@ -10,14 +10,31 @@ import {
   Tray,
 } from 'electron';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import started from 'electron-squirrel-startup';
 
 const SCREENSHOT_ACCELERATOR = 'CmdOrCtrl+Shift+S';
 import Store from 'electron-store';
+import { APP_ID } from '../app.meta';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
   app.quit();
+}
+
+// 只允许单实例；再次启动时聚焦已有窗口（与托盘「显示」一致）
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  // 第二实例尽快退出，避免残留 Chromium 子进程
+  app.exit(0);
+} else {
+  app.on('second-instance', () => {
+    if (app.isReady()) {
+      showMainWindow();
+      return;
+    }
+    void app.whenReady().then(showMainWindow);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -66,7 +83,7 @@ const store = new Store<AppConfig>({
     },
     appearance: {
       theme: 'light',
-      language: 'en',
+      language: '',
       preferences: {
         density: 'comfortable',
         activityMode: 'auto',
@@ -93,6 +110,38 @@ ipcMain.handle('config:get', (_event, key: string) => {
 
 ipcMain.handle('config:set', (_event, key: string, value: unknown) => {
   store.set(key, value);
+});
+
+type WindowAction = 'show' | 'hide' | 'minimize' | 'maximize' | 'close';
+
+ipcMain.handle('window:action', (_event, action: WindowAction) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  switch (action) {
+    case 'show':
+      mainWindow.show();
+      break;
+    case 'hide':
+      mainWindow.hide();
+      break;
+    case 'minimize':
+      mainWindow.minimize();
+      break;
+    case 'maximize':
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize();
+      } else {
+        mainWindow.maximize();
+      }
+      break;
+    case 'close':
+      mainWindow.close();
+      break;
+  }
+});
+
+ipcMain.handle('app:quit', () => {
+  app.isQuitting = true;
+  app.quit();
 });
 
 // ---------------------------------------------------------------------------
@@ -123,10 +172,66 @@ async function captureScreen(): Promise<string | null> {
 ipcMain.handle('screenshot:capture', () => captureScreen());
 
 // ---------------------------------------------------------------------------
+// App icons (sourced from webui/public/brand/)
+// ---------------------------------------------------------------------------
+
+function resolveAsset(...segments: string[]): string {
+  const candidates = [
+    // 打包后：app.asar/.vite/build/assets/（vite.main 构建时复制）
+    path.join(__dirname, 'assets', ...segments),
+    // extraResource 兜底：resources/assets/
+    path.join(process.resourcesPath, 'assets', ...segments),
+    // 开发时源码目录
+    path.join(__dirname, '../../assets', ...segments),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
+}
+
+function loadAppIcon(): Electron.NativeImage {
+  const png = nativeImage.createFromPath(resolveAsset('icon.png'));
+  if (!png.isEmpty()) return png;
+  return nativeImage.createFromPath(resolveAsset('icon.ico'));
+}
+
+function loadTrayIcon(): Electron.NativeImage {
+  let icon = nativeImage.createFromPath(resolveAsset('tray.png'));
+  if (icon.isEmpty()) {
+    icon = loadAppIcon();
+  }
+  if (icon.isEmpty()) {
+    console.error('[tray] 无法加载托盘图标，尝试路径:', resolveAsset('tray.png'));
+    return icon;
+  }
+  // Windows 托盘建议使用 16×16，过大或路径异常时可能显示空白
+  if (process.platform === 'win32') {
+    const { width, height } = icon.getSize();
+    if (width !== 16 || height !== 16) {
+      icon = icon.resize({ width: 16, height: 16, quality: 'best' });
+    }
+  }
+  return icon;
+}
+
+// ---------------------------------------------------------------------------
 // Window factory (6.1)
 // ---------------------------------------------------------------------------
 
 let mainWindow: BrowserWindow | null = null;
+
+function showMainWindow(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+  createWindow();
+}
 
 function ensureWindowOnScreen(bounds: {
   x?: number;
@@ -162,11 +267,17 @@ function createWindow(): void {
   const saved = store.get('window');
   const bounds = ensureWindowOnScreen(saved);
 
+  const appIcon = loadAppIcon();
+
   mainWindow = new BrowserWindow({
     ...bounds,
     minWidth: 800,
     minHeight: 600,
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    icon: appIcon.isEmpty() ? undefined : appIcon,
+    // 全平台无边框；macOS 通过 hiddenInset 保留原生红绿灯
+    frame: false,
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 10, y: 12 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -189,6 +300,16 @@ function createWindow(): void {
   };
   mainWindow.on('resize', saveBounds);
   mainWindow.on('move', saveBounds);
+
+  const notifyWindowState = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send(
+      'window:state',
+      mainWindow.isMaximized() ? 'maximized' : 'normal',
+    );
+  };
+  mainWindow.on('maximize', notifyWindowState);
+  mainWindow.on('unmaximize', notifyWindowState);
 
   // Minimize to tray on close (6.2); actual quit goes through tray → 退出
   mainWindow.on('close', (event) => {
@@ -237,15 +358,8 @@ function createWindow(): void {
 let tray: Tray | null = null;
 
 function createTray(): void {
-  // Minimal 16×16 monochrome template icon (placeholder; replace with a
-  // proper @2x asset in the assets/ directory when branding is finalised).
-  const icon = nativeImage.createFromDataURL(
-    // 16×16 transparent PNG with a simple filled circle
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAA' +
-    'MElEQVQ4T2NkYGD4z8BAAoxqoBIGRgMYGBj+k+2FUQ1QwQCyDR8VZMKoJhIGAABkBAMB' +
-    'H/3XHQAAAABJRU5ErkJggg==',
-  );
-  icon.setTemplateImage(true); // macOS: auto-adjusts for light/dark menu bar
+  const icon = loadTrayIcon();
+  if (icon.isEmpty()) return;
 
   tray = new Tray(icon);
   tray.setToolTip('Nanobot');
@@ -254,12 +368,7 @@ function createTray(): void {
     {
       label: '显示',
       click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        } else {
-          createWindow();
-        }
+        showMainWindow();
       },
     },
     { type: 'separator' },
@@ -275,15 +384,7 @@ function createTray(): void {
   tray.setContextMenu(contextMenu);
 
   tray.on('click', () => {
-    if (mainWindow) {
-      if (mainWindow.isVisible()) {
-        mainWindow.focus();
-      } else {
-        mainWindow.show();
-      }
-    } else {
-      createWindow();
-    }
+    showMainWindow();
   });
 }
 
@@ -293,32 +394,39 @@ function createTray(): void {
 
 app.isQuitting = false;
 
-app.whenReady().then(() => {
-  // BrowserWindow 的 webSecurity: false 已关闭 renderer 的 CORS 检查，
-  // 无需在 session 层面额外处理 CORS。
+if (gotSingleInstanceLock) {
+  app.whenReady().then(() => {
+    if (process.platform === 'win32') {
+      app.setAppUserModelId(APP_ID);
+    }
 
-  createTray();
-  createWindow();
+    // BrowserWindow 的 webSecurity: false 已关闭 renderer 的 CORS 检查，
+    // 无需在 session 层面额外处理 CORS。
+    // Windows/Linux 默认会显示 File/Edit/View 菜单栏，无边框窗口需移除；
+    // macOS 保留原生应用菜单，避免影响状态栏菜单和 Cmd+Q/C/V 等快捷键。
+    if (process.platform !== 'darwin') {
+      Menu.setApplicationMenu(null);
+    }
 
-  app.on('activate', () => {
-    // macOS: re-create window when dock icon is clicked and no windows exist
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    } else {
-      mainWindow?.show();
+    createTray();
+    createWindow();
+
+    app.on('activate', () => {
+      // macOS: 点击 Dock 图标时恢复主窗口
+      showMainWindow();
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    // macOS: keep app running in tray; other platforms: quit
+    // TODO: Windows 上需要区分「最小化到托盘」和「真正退出」的行为，当前 close 被
+    //       preventDefault 后此事件不会触发，需要在 Windows 环境上验证并调整。
+    if (process.platform !== 'darwin') {
+      app.quit();
     }
   });
-});
 
-app.on('window-all-closed', () => {
-  // macOS: keep app running in tray; other platforms: quit
-  // TODO: Windows 上需要区分「最小化到托盘」和「真正退出」的行为，当前 close 被
-  //       preventDefault 后此事件不会触发，需要在 Windows 环境上验证并调整。
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-app.on('before-quit', () => {
-  app.isQuitting = true;
-});
+  app.on('before-quit', () => {
+    app.isQuitting = true;
+  });
+}

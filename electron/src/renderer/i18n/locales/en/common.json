@@ -19,6 +19,12 @@
       "submit": "Connect",
       "invalid": "Invalid password. Try again."
     },
+    "window": {
+      "minimize": "Minimize",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "close": "Close"
+    },
     "account": {
       "section": "Account",
       "logoutHint": "Disconnect this browser from the gateway.",
@@ -115,7 +121,9 @@
       "newConfiguration": "New model configuration",
       "newConfigurationHelp": "Save a provider and model as a one-click option.",
       "configurationName": "Name",
-      "configurationNamePlaceholder": "Fast writing"
+      "configurationNamePlaceholder": "Fast writing",
+      "modelPlaceholder": "e.g. claude-opus-4-5",
+      "visionModelPlaceholder": "e.g. gemini-2.5-flash"
     },
     "rows": {
       "theme": "Theme",
@@ -165,7 +173,10 @@
       "cliAppsFilter": "Filter",
       "configurationDocs": "Configuration docs",
       "visionModel": "Vision model",
-      "visionProvider": "Vision provider"
+      "visionProvider": "Vision provider",
+      "maxTokens": "Max output tokens",
+      "contextWindowTokens": "Context window",
+      "maxMessages": "Max messages"
     },
     "help": {
       "theme": "Choose from 9 themes to personalize your appearance.",
@@ -200,7 +211,10 @@
       "cliAppsFilter": "Search by app, category, or capability.",
       "advancedReadOnly": "Advanced safety controls are read-only in WebUI. Edit config.json intentionally when needed.",
       "visionModel": "Auxiliary vision model for captioning images when the primary model lacks vision support. Leave blank to disable.",
-      "visionProvider": "Provider for the vision model. Leave blank to auto-detect from the model name."
+      "visionProvider": "Provider for the vision model. Leave blank to auto-detect from the model name.",
+      "maxTokens": "Maximum tokens the model generates per reply.",
+      "contextWindowTokens": "Total context window size of the model. Used for consolidation and truncation decisions.",
+      "maxMessages": "Max number of messages replayed from history. 0 uses the default (120)."
     },
     "timezone": {
       "select": "Select timezone",
@@ -342,6 +356,12 @@
       "showLess": "Show fewer",
       "apiKey": "API key",
       "apiBase": "API base",
+      "apiType": "API type",
+      "apiTypeOptions": {
+        "auto": "Auto",
+        "chat_completions": "Chat Completions",
+        "responses": "Responses"
+      },
       "apiKeyPlaceholder": "Enter API key",
       "apiKeyConfiguredPlaceholder": "Leave blank to keep the current key",
       "configuredKeyHint": "Configured key",
@@ -714,7 +734,8 @@
   "inbox": {
     "unified": "Unified Inbox",
     "sidebarNav": "Sidebar navigation",
-    "settings": "Settings (coming soon)",
+    "settings": "Settings",
+    "quit": "Quit",
     "themeDark": "Switch to light",
     "themeLight": "Switch to dark",
     "themeNext": "Cycle theme"

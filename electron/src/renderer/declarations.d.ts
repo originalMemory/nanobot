@@ -2,10 +2,24 @@
 // Electron IPC bridge (injected by preload.ts via contextBridge)
 // ---------------------------------------------------------------------------
 
+type WindowAction = "show" | "hide" | "minimize" | "maximize" | "close";
+type WindowState = "maximized" | "normal";
+
 interface ElectronAPI {
+  platform: {
+    isMac: boolean;
+    isWindows: boolean;
+  };
+  window: {
+    action(action: WindowAction): Promise<void>;
+    onStateChange(cb: (state: WindowState) => void): () => void;
+  };
   config: {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
+  };
+  app: {
+    quit(): Promise<void>;
   };
   screenshot: {
     capture(): Promise<string | null>;

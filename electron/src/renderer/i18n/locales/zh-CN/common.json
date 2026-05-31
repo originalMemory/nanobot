@@ -19,6 +19,12 @@
       "submit": "连接",
       "invalid": "密码无效，请重试。"
     },
+    "window": {
+      "minimize": "最小化",
+      "maximize": "最大化",
+      "restore": "还原",
+      "close": "关闭"
+    },
     "account": {
       "section": "账户",
       "logoutHint": "断开此浏览器与 gateway 的连接。",
@@ -115,7 +121,9 @@
       "newConfiguration": "新建模型配置",
       "newConfigurationHelp": "把服务商和模型保存为一个可直接切换的选项。",
       "configurationName": "名称",
-      "configurationNamePlaceholder": "快速写作"
+      "configurationNamePlaceholder": "快速写作",
+      "modelPlaceholder": "例如 claude-opus-4-5",
+      "visionModelPlaceholder": "例如 gemini-2.5-flash"
     },
     "rows": {
       "theme": "主题",
@@ -165,7 +173,10 @@
       "cliAppsFilter": "筛选",
       "configurationDocs": "配置文档",
       "visionModel": "视觉模型",
-      "visionProvider": "视觉服务商"
+      "visionProvider": "视觉服务商",
+      "maxTokens": "最大输出 Token 数",
+      "contextWindowTokens": "上下文窗口",
+      "maxMessages": "最大消息数"
     },
     "help": {
       "theme": "从 9 种主题中选择，个性化你的外观。",
@@ -200,7 +211,10 @@
       "cliAppsFilter": "按应用、分类或能力搜索。",
       "advancedReadOnly": "高级安全控制在 WebUI 中只读；需要时请谨慎编辑 config.json。",
       "visionModel": "当主模型不支持视觉能力时，用于图片描述的辅助视觉模型。留空则禁用。",
-      "visionProvider": "视觉模型使用的服务商。留空则根据模型名自动检测。"
+      "visionProvider": "视觉模型使用的服务商。留空则根据模型名自动检测。",
+      "maxTokens": "模型每次回复最多生成的 Token 数。",
+      "contextWindowTokens": "模型的上下文窗口大小，用于记忆整理与截断决策。",
+      "maxMessages": "从历史中回放的最大消息数。填 0 则使用默认值（120）。"
     },
     "timezone": {
       "select": "选择时区",
@@ -342,6 +356,12 @@
       "showLess": "收起",
       "apiKey": "API key",
       "apiBase": "API base",
+      "apiType": "API 类型",
+      "apiTypeOptions": {
+        "auto": "自动",
+        "chat_completions": "Chat Completions",
+        "responses": "Responses"
+      },
       "apiKeyPlaceholder": "输入 API key",
       "apiKeyConfiguredPlaceholder": "留空则保留当前 key",
       "configuredKeyHint": "已配置的 key",
@@ -714,7 +734,8 @@
   "inbox": {
     "unified": "统一收件箱",
     "sidebarNav": "侧边栏导航",
-    "settings": "设置（即将推出）",
+    "settings": "设置",
+    "quit": "退出",
     "themeDark": "切换到浅色",
     "themeLight": "切换到深色",
     "themeNext": "切换主题"
