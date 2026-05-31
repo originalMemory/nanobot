@@ -1755,6 +1755,14 @@ class WebSocketChannel(BaseChannel):
             }
             if msg.metadata.get("_channel_delivery"):
                 payload["channel_delivery"] = True
+            if msg.metadata.get("_user_initiated_channel_delivery"):
+                payload["user_initiated_delivery"] = True
+            delivery_channel = msg.metadata.get("source_channel")
+            if isinstance(delivery_channel, str) and delivery_channel:
+                payload["source_channel"] = delivery_channel
+            delivery_chat = msg.metadata.get("source_chat_id")
+            if isinstance(delivery_chat, str) and delivery_chat:
+                payload["source_chat_id"] = delivery_chat
             if msg.media:
                 urls: list[dict[str, str]] = []
                 for entry in msg.media:
@@ -1881,6 +1889,14 @@ class WebSocketChannel(BaseChannel):
             payload["kind"] = "progress"
         if msg.metadata.get("_channel_delivery"):
             payload["channel_delivery"] = True
+        if msg.metadata.get("_user_initiated_channel_delivery"):
+            payload["user_initiated_delivery"] = True
+        delivery_channel = msg.metadata.get("source_channel")
+        if isinstance(delivery_channel, str) and delivery_channel:
+            payload["source_channel"] = delivery_channel
+        delivery_chat = msg.metadata.get("source_chat_id")
+        if isinstance(delivery_chat, str) and delivery_chat:
+            payload["source_chat_id"] = delivery_chat
         transcript_payload = dict(payload)
         transcript_payload["text"] = text
         self._try_append_webui_transcript(msg.chat_id, transcript_payload)

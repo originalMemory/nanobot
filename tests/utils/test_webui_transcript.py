@@ -451,6 +451,41 @@ def test_replay_channel_delivery_preserves_ui_flag() -> None:
     assert assistants[1].get("channelDelivery") is True
 
 
+def test_session_messages_to_wire_events_marks_user_initiated_delivery() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {
+            "role": "assistant",
+            "content": "测试发图",
+            "_channel_delivery": True,
+            "source_channel": "qq",
+            "source_chat_id": "chat-1",
+            "_user_initiated_channel_delivery": True,
+        },
+    ])
+    message = next(event for event in events if event.get("event") == "message")
+    assert message["channel_delivery"] is True
+    assert message["user_initiated_delivery"] is True
+    assert message["source_channel"] == "qq"
+
+
+def test_replay_preserves_user_initiated_delivery() -> None:
+    msgs = replay_transcript_to_ui_messages([
+        {
+            "event": "message",
+            "chat_id": "x",
+            "text": "测试发图",
+            "source_channel": "qq",
+            "channel_delivery": True,
+            "user_initiated_delivery": True,
+        },
+    ])
+    assert msgs[0].get("sourceChannel") == "qq"
+    assert msgs[0].get("channelDelivery") is True
+    assert msgs[0].get("userInitiatedDelivery") is True
+
+
 def test_replay_preserves_source_channel() -> None:
     msgs = replay_transcript_to_ui_messages([
         {"event": "user", "chat_id": "x", "text": "hi", "source_channel": "qq"},

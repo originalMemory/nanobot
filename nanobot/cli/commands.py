@@ -779,6 +779,7 @@ def _run_gateway(
 
         metadata = dict(msg.metadata or {})
         record = record or bool(metadata.pop("_record_channel_delivery", False))
+        user_initiated = bool(metadata.pop("_user_initiated_channel_delivery", False))
         media = list(msg.media or [])
         if media:
             media = normalize_outbound_media(media, channel=msg.channel)
@@ -791,12 +792,22 @@ def _run_gateway(
         ):
             key = session_key or _channel_session_key(msg.channel, msg.chat_id)
             session = session_manager.get_or_create(key)
-            extra: dict[str, Any] = {"_channel_delivery": True}
+            extra: dict[str, Any] = {
+                "_channel_delivery": True,
+                "source_channel": msg.channel,
+                "source_chat_id": msg.chat_id,
+            }
+            if user_initiated:
+                extra["_user_initiated_channel_delivery"] = True
             if media:
                 extra["media"] = list(media)
             session.add_message("assistant", msg.content, **extra)
             session_manager.save(session)
             metadata["_channel_delivery"] = True
+            metadata["source_channel"] = msg.channel
+            metadata["source_chat_id"] = msg.chat_id
+            if user_initiated:
+                metadata["_user_initiated_channel_delivery"] = True
         if metadata != (msg.metadata or {}) or media != list(msg.media or []):
             msg = OutboundMessage(
                 channel=msg.channel,

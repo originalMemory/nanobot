@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { UIMessage } from "@/lib/types";
 
 interface MessageSourceBadgeProps {
-  message: Pick<UIMessage, "sourceChannel" | "channelDelivery">;
+  message: Pick<UIMessage, "sourceChannel" | "channelDelivery" | "userInitiatedDelivery">;
 }
 
 const BADGE_PILL_CLASS =

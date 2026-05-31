@@ -74,7 +74,10 @@ async def test_message_tool_records_media_deliveries() -> None:
         media=["/tmp/generated.png"],
     )
 
-    assert sent[0].metadata == {"_record_channel_delivery": True}
+    assert sent[0].metadata == {
+        "_record_channel_delivery": True,
+        "_user_initiated_channel_delivery": True,
+    }
 
 
 @pytest.mark.asyncio

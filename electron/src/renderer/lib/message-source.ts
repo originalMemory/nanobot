@@ -13,9 +13,12 @@ type SourceLabels = {
   proactive: string;
 };
 
-/** 解析 assistant 消息的来源徽章；无来源信息时返回 null。 */
+/**
+ * 解析 assistant 消息的来源徽章；无来源信息时返回 null。
+ * 展示规则：可见通道名 + channelDelivery 时追加「主动推送」（如 QQ · 主动推送）。
+ */
 export function resolveMessageSourceBadge(
-  message: Pick<UIMessage, "sourceChannel" | "channelDelivery">,
+  message: Pick<UIMessage, "sourceChannel" | "channelDelivery" | "userInitiatedDelivery">,
   labels: SourceLabels,
 ): MessageSourceBadgeInfo | null {
   const parts: MessageSourceBadgePart[] = [];
@@ -38,12 +41,15 @@ export function resolveMessageSourceBadge(
 
 /** 从 assistant turn 的多个 segment 中取首个含来源字段的 message。 */
 export function pickMessageSourceFields(
-  messages: Array<Pick<UIMessage, "sourceChannel" | "channelDelivery">>,
-): Pick<UIMessage, "sourceChannel" | "channelDelivery"> | undefined {
+  messages: Array<
+    Pick<UIMessage, "sourceChannel" | "channelDelivery" | "userInitiatedDelivery">
+  >,
+): Pick<UIMessage, "sourceChannel" | "channelDelivery" | "userInitiatedDelivery"> | undefined {
   for (const message of messages) {
     if (
       (message.sourceChannel && !isHiddenLocalSourceChannel(message.sourceChannel))
       || message.channelDelivery
+      || message.userInitiatedDelivery
     ) {
       return message;
     }

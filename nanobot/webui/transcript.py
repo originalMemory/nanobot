@@ -600,6 +600,8 @@ def replay_transcript_to_ui_messages(
                 row["sourceChannel"] = sc
             if rec.get("channel_delivery"):
                 row["channelDelivery"] = True
+            if rec.get("user_initiated_delivery"):
+                row["userInitiatedDelivery"] = True
             messages.append(row)
             continue
 
@@ -785,6 +787,8 @@ def replay_transcript_to_ui_messages(
                 extra["sourceChannel"] = sc
             if rec.get("channel_delivery"):
                 extra["channelDelivery"] = True
+            if rec.get("user_initiated_delivery"):
+                extra["userInitiatedDelivery"] = True
             absorb_complete(extra, idx)
             if media:
                 suppress_until_turn_end = True
@@ -942,6 +946,8 @@ def session_messages_to_wire_events(
                     ev["ts"] = ts
                 if msg.get("_channel_delivery"):
                     ev["channel_delivery"] = True
+                if msg.get("_user_initiated_channel_delivery"):
+                    ev["user_initiated_delivery"] = True
                 if local_paths:
                     ev["media_paths"] = local_paths
                 if remote_urls:

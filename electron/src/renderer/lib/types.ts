@@ -41,6 +41,8 @@ export interface UIMessage {
   sourceChannel?: string;
   /** Heartbeat/cron 等主动投递到会话、前面没有 user 消息的 assistant 行。 */
   channelDelivery?: boolean;
+  /** 用户在本轮通过 message 工具外发到其他通道的镜像行（数据区分；徽章仍可与主动推送并存）。 */
+  userInitiatedDelivery?: boolean;
   /** For trace rows: each individual hint line, so consecutive hints can
    * render as a single collapsible group. */
   traces?: string[];
@@ -552,6 +554,8 @@ export type InboundEvent =
       source_channel?: string;
       /** Heartbeat/cron 等主动投递，UI 上不与上一轮 assistant 合并。 */
       channel_delivery?: boolean;
+      /** 用户触发的跨通道外发镜像（数据区分，供重放保留）。 */
+      user_initiated_delivery?: boolean;
     }
   | {
       event: "file_edit";

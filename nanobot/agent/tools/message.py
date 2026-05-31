@@ -226,6 +226,9 @@ class MessageTool(Tool, ContextAware):
             metadata["message_id"] = message_id
         if self._record_channel_delivery_var.get() or media:
             metadata["_record_channel_delivery"] = True
+            # 用户在本轮通过 message 工具外发（含附件）时标记，与会话里 cron/heartbeat 外发区分。
+            if media and not self._record_channel_delivery_var.get():
+                metadata["_user_initiated_channel_delivery"] = True
 
         msg = OutboundMessage(
             channel=channel,

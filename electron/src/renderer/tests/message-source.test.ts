@@ -45,6 +45,21 @@ describe("resolveMessageSourceBadge", () => {
     ]);
   });
 
+  it("shows channel and proactive for user-initiated cross-channel delivery", () => {
+    const badge = resolveMessageSourceBadge(
+      {
+        sourceChannel: "qq",
+        channelDelivery: true,
+        userInitiatedDelivery: true,
+      },
+      labels,
+    );
+    expect(badge?.parts).toEqual([
+      { kind: "channel", channel: "qq", label: "QQ" },
+      { kind: "proactive", label: "主动推送" },
+    ]);
+  });
+
   it("supports proactive-only messages", () => {
     const badge = resolveMessageSourceBadge({ channelDelivery: true }, labels);
     expect(badge?.parts).toEqual([{ kind: "proactive", label: "主动推送" }]);

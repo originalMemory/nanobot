@@ -3,7 +3,7 @@ import type { UIMessage } from "@/lib/types";
 
 interface AssistantNameRowProps {
   botName: string;
-  message?: Pick<UIMessage, "sourceChannel" | "channelDelivery">;
+  message?: Pick<UIMessage, "sourceChannel" | "channelDelivery" | "userInitiatedDelivery">;
 }
 
 /** assistant 气泡顶行：bot 名称 + 可选来源徽章。 */

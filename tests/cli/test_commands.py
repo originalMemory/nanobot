@@ -1265,6 +1265,8 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
             "role": "assistant",
             "content": "Time to stretch.",
             "_channel_delivery": True,
+            "source_channel": "telegram",
+            "source_chat_id": "user-1",
         }
     ]
 
