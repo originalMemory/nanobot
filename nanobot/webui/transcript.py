@@ -595,6 +595,11 @@ def replay_transcript_to_ui_messages(
                 row["mcpPresets"] = [
                     dict(preset) for preset in mcp_presets if isinstance(preset, dict)
                 ]
+            sc = rec.get("source_channel")
+            if isinstance(sc, str) and sc:
+                row["sourceChannel"] = sc
+            if rec.get("channel_delivery"):
+                row["channelDelivery"] = True
             messages.append(row)
             continue
 
@@ -775,6 +780,9 @@ def replay_transcript_to_ui_messages(
             ts_str = rec.get("ts")
             if isinstance(ts_str, str):
                 extra["messageTs"] = ts_str
+            sc = rec.get("source_channel")
+            if isinstance(sc, str) and sc:
+                extra["sourceChannel"] = sc
             if rec.get("channel_delivery"):
                 extra["channelDelivery"] = True
             absorb_complete(extra, idx)

@@ -197,16 +197,28 @@ function loadAppIcon(): Electron.NativeImage {
 }
 
 function loadTrayIcon(): Electron.NativeImage {
-  let icon = nativeImage.createFromPath(resolveAsset('tray.png'));
+  const assetName = process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png';
+  let icon = nativeImage.createFromPath(resolveAsset(assetName));
+  if (icon.isEmpty() && process.platform === 'darwin') {
+    icon = nativeImage.createFromPath(resolveAsset('tray.png'));
+  }
   if (icon.isEmpty()) {
     icon = loadAppIcon();
   }
   if (icon.isEmpty()) {
-    console.error('[tray] 无法加载托盘图标，尝试路径:', resolveAsset('tray.png'));
+    console.error('[tray] 无法加载托盘图标，尝试路径:', resolveAsset(assetName));
     return icon;
   }
-  // Windows 托盘建议使用 16×16，过大或路径异常时可能显示空白
-  if (process.platform === 'win32') {
+  if (process.platform === 'darwin') {
+    // macOS 菜单栏：Template Image，系统随深浅模式自动反色
+    icon.setTemplateImage(true);
+    const { width, height } = icon.getSize();
+    if (width !== 36 || height !== 36) {
+      icon = icon.resize({ width: 36, height: 36, quality: 'best' });
+      icon.setTemplateImage(true);
+    }
+  } else if (process.platform === 'win32') {
+    // Windows 托盘建议使用 16×16，过大或路径异常时可能显示空白
     const { width, height } = icon.getSize();
     if (width !== 16 || height !== 16) {
       icon = icon.resize({ width: 16, height: 16, quality: 'best' });

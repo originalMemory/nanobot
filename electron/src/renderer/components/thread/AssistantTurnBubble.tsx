@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { AssistantNameRow } from "@/components/AssistantNameRow";
 import { BotAvatarWithFallback, MessageMedia, resolveMediaUrl } from "@/components/MessageBubble";
 import { MarkdownText } from "@/components/MarkdownText";
 import { AgentActivityCluster } from "@/components/thread/AgentActivityCluster";
 import { useBotIdentity } from "@/contexts/BotIdentityContext";
 import { formatTurnLatency } from "@/lib/format";
+import { pickMessageSourceFields } from "@/lib/message-source";
 import {
   buildTokenUsageTitle,
   displayCacheRead,
@@ -50,6 +52,9 @@ export function AssistantTurnBubble({
     [segments],
   );
   const footerMessage = textSegments.at(-1)?.message;
+  const sourceMessage = pickMessageSourceFields(
+    textSegments.map((segment) => segment.message),
+  );
   const copyText = useMemo(
     () => textSegments.map((s) => s.message.content).filter((c) => c.trim()).join("\n\n"),
     [textSegments],
@@ -97,7 +102,7 @@ export function AssistantTurnBubble({
           />
         </div>
         <div className="min-w-0 flex-1">
-          <span className="mb-1 block text-xs text-muted-foreground">{botName}</span>
+          <AssistantNameRow botName={botName} message={sourceMessage} />
           <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
             <TypingDots />
           </div>
@@ -128,7 +133,7 @@ export function AssistantTurnBubble({
         />
       </div>
       <div className="min-w-0 flex-1">
-        <span className="mb-1 block text-xs text-muted-foreground">{botName}</span>
+        <AssistantNameRow botName={botName} message={sourceMessage} />
         <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
           <div className="flex flex-col gap-2">
             {segments.map((segment, index) => {

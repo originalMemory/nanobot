@@ -451,6 +451,22 @@ def test_replay_channel_delivery_preserves_ui_flag() -> None:
     assert assistants[1].get("channelDelivery") is True
 
 
+def test_replay_preserves_source_channel() -> None:
+    msgs = replay_transcript_to_ui_messages([
+        {"event": "user", "chat_id": "x", "text": "hi", "source_channel": "qq"},
+        {
+            "event": "message",
+            "chat_id": "x",
+            "text": "reply",
+            "source_channel": "qq",
+            "channel_delivery": True,
+        },
+    ])
+    assert msgs[0].get("sourceChannel") == "qq"
+    assert msgs[1].get("sourceChannel") == "qq"
+    assert msgs[1].get("channelDelivery") is True
+
+
 def test_session_messages_to_wire_events_includes_assistant_media_paths() -> None:
     from nanobot.webui.transcript import session_messages_to_wire_events
 

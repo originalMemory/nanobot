@@ -9,6 +9,7 @@ import {
 import { Check, ChevronRight, Copy, FileIcon, ImageIcon, PlaySquare, Sparkles, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { AssistantNameRow } from "@/components/AssistantNameRow";
 import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
@@ -199,7 +200,7 @@ export function MessageBubble({
           <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
         </div>
         <div className="min-w-0 flex-1">
-          <span className="mb-1 block text-xs text-muted-foreground">{botName}</span>
+          <AssistantNameRow botName={botName} message={message} />
           <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
             <TypingDots />
           </div>
@@ -215,7 +216,7 @@ export function MessageBubble({
           <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
         </div>
         <div className="min-w-0 flex-1">
-          <span className="mb-1 block text-xs text-muted-foreground">{botName}</span>
+          <AssistantNameRow botName={botName} message={message} />
           <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
             <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={false} />
           </div>
@@ -232,7 +233,7 @@ export function MessageBubble({
       </div>
       {/* 右列：名字 + 气泡 + footer */}
       <div className="min-w-0 flex-1">
-        <span className="mb-1 block text-xs text-muted-foreground">{botName}</span>
+        <AssistantNameRow botName={botName} message={message} />
         <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
           {hasReasoning ? (
             <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={!empty} />
