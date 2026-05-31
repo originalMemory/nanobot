@@ -775,32 +775,38 @@ def _run_gateway(
         msg: OutboundMessage, *, record: bool = False, session_key: str | None = None,
     ) -> None:
         """Publish a user-visible message and mirror it into that channel's session."""
+        from nanobot.utils.media_staging import normalize_outbound_media
+
         metadata = dict(msg.metadata or {})
         record = record or bool(metadata.pop("_record_channel_delivery", False))
-        if metadata != (msg.metadata or {}):
-            msg = OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
-                content=msg.content,
-                reply_to=msg.reply_to,
-                media=msg.media,
-                metadata=metadata,
-                buttons=msg.buttons,
-            )
+        media = list(msg.media or [])
+        if media:
+            media = normalize_outbound_media(media, channel=msg.channel)
         if (
             record
             and msg.channel != "cli"
-            and msg.content.strip()
+            and (msg.content.strip() or media)
             and hasattr(session_manager, "get_or_create")
             and hasattr(session_manager, "save")
         ):
             key = session_key or _channel_session_key(msg.channel, msg.chat_id)
             session = session_manager.get_or_create(key)
             extra: dict[str, Any] = {"_channel_delivery": True}
-            if msg.media:
-                extra["media"] = list(msg.media)
+            if media:
+                extra["media"] = list(media)
             session.add_message("assistant", msg.content, **extra)
             session_manager.save(session)
+            metadata["_channel_delivery"] = True
+        if metadata != (msg.metadata or {}) or media != list(msg.media or []):
+            msg = OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=msg.content,
+                reply_to=msg.reply_to,
+                media=media,
+                metadata=metadata,
+                buttons=msg.buttons,
+            )
         await bus.publish_outbound(msg)
 
     message_tool = getattr(agent, "tools", {}).get("message")

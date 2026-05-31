@@ -827,6 +827,7 @@ export function useNanobotStream(
             ...(hasMedia ? { media } : {}),
             ...(lat !== undefined ? { latencyMs: lat } : {}),
             ...(ev.source_channel ? { sourceChannel: ev.source_channel } : {}),
+            ...(ev.channel_delivery ? { channelDelivery: true } : {}),
           });
         });
         if (hasMedia) {

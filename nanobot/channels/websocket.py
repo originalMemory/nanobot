@@ -13,7 +13,6 @@ import json
 import mimetypes
 import re
 import secrets
-import shutil
 import ssl
 import time
 import uuid
@@ -40,11 +39,11 @@ from nanobot.config.schema import Base
 from nanobot.session import UNIFIED_SESSION_KEY
 from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
-from nanobot.utils.helpers import safe_filename
 from nanobot.utils.media_decode import (
     FileSizeExceeded,
     save_base64_data_url,
 )
+from nanobot.utils.media_staging import is_remote_media_url
 from nanobot.utils.subagent_channel_display import scrub_subagent_messages_for_channel
 from nanobot.webui.settings_api import (
     WebUISettingsError,
@@ -1074,7 +1073,7 @@ class WebSocketChannel(BaseChannel):
             return _http_error(404, "session not found")
         data = build_webui_thread_response(
             decoded_key,
-            augment_user_media=self._augment_transcript_user_media,
+            augment_media_paths=self._augment_transcript_media_paths,
             augment_assistant_text=self._rewrite_local_markdown_images,
         )
         if data is None:
@@ -1097,7 +1096,7 @@ class WebSocketChannel(BaseChannel):
             return _http_json_response(empty)
         data = build_inbox_thread_from_session(
             session,
-            augment_user_media=self._augment_transcript_user_media,
+            augment_media_paths=self._augment_transcript_media_paths,
             augment_assistant_text=self._rewrite_local_markdown_images,
         )
         return _http_json_response(data)
@@ -1110,7 +1109,7 @@ class WebSocketChannel(BaseChannel):
         except (ValueError, TypeError) as e:
             self.logger.warning("webui transcript append failed: {}", e)
 
-    def _augment_transcript_user_media(self, paths: list[str]) -> list[dict[str, Any]]:
+    def _augment_transcript_media_paths(self, paths: list[str]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for pstr in paths:
             path = Path(pstr)
@@ -1182,6 +1181,9 @@ class WebSocketChannel(BaseChannel):
             for entry in media:
                 if not isinstance(entry, str) or not entry:
                     continue
+                if is_remote_media_url(entry):
+                    urls.append(self._remote_media_payload(entry))
+                    continue
                 signed = self._sign_media_path(Path(entry))
                 if signed is None:
                     continue
@@ -1220,23 +1222,21 @@ class WebSocketChannel(BaseChannel):
         can fetch them through the existing signed media route without
         exposing arbitrary filesystem paths.
         """
-        signed = self._sign_media_path(path)
-        if signed is not None:
-            return {"url": signed, "name": path.name}
-        try:
-            if not path.is_file():
-                return None
-            media_dir = get_media_dir("websocket")
-            safe_name = safe_filename(path.name) or "attachment"
-            staged = media_dir / f"{uuid.uuid4().hex[:12]}-{safe_name}"
-            shutil.copyfile(path, staged)
-        except OSError as exc:
-            self.logger.warning("failed to stage outbound media {}: {}", path, exc)
+        from nanobot.utils.media_staging import stage_media_file
+
+        staged = stage_media_file(path, channel="websocket")
+        if staged is None:
             return None
         signed = self._sign_media_path(staged)
         if signed is None:
             return None
         return {"url": signed, "name": path.name}
+
+    @staticmethod
+    def _remote_media_payload(url: str) -> dict[str, str]:
+        parsed = urlparse(url)
+        name = Path(unquote(parsed.path)).name or "attachment"
+        return {"url": url, "name": name}
 
     def _rewrite_local_markdown_images(self, text: str) -> str:
         return rewrite_local_markdown_images(
@@ -1753,9 +1753,16 @@ class WebSocketChannel(BaseChannel):
                 "chat_id": _INBOX_UNIFIED_CHAT_ID,
                 "text": wire_text,
             }
+            if msg.metadata.get("_channel_delivery"):
+                payload["channel_delivery"] = True
             if msg.media:
                 urls: list[dict[str, str]] = []
                 for entry in msg.media:
+                    if not isinstance(entry, str) or not entry:
+                        continue
+                    if is_remote_media_url(entry):
+                        urls.append(self._remote_media_payload(entry))
+                        continue
                     signed = self._sign_or_stage_media_path(Path(entry))
                     if signed is not None:
                         urls.append(signed)
@@ -1845,6 +1852,11 @@ class WebSocketChannel(BaseChannel):
             payload["media"] = msg.media
             urls: list[dict[str, str]] = []
             for entry in msg.media:
+                if not isinstance(entry, str) or not entry:
+                    continue
+                if is_remote_media_url(entry):
+                    urls.append(self._remote_media_payload(entry))
+                    continue
                 signed = self._sign_or_stage_media_path(Path(entry))
                 if signed is not None:
                     urls.append(signed)
@@ -1867,6 +1879,8 @@ class WebSocketChannel(BaseChannel):
             payload["kind"] = "tool_hint"
         elif msg.metadata.get("_progress"):
             payload["kind"] = "progress"
+        if msg.metadata.get("_channel_delivery"):
+            payload["channel_delivery"] = True
         transcript_payload = dict(payload)
         transcript_payload["text"] = text
         self._try_append_webui_transcript(msg.chat_id, transcript_payload)

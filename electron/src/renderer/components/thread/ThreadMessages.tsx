@@ -97,6 +97,9 @@ export function coalesceAssistantTurnUnits(
     const segments: TurnSegment[] = [];
     while (i < rawUnits.length && isAssistantTurnRawUnit(rawUnits[i])) {
       const current = rawUnits[i];
+      if (segments.length > 0 && isChannelDeliveryRawUnit(current)) {
+        break;
+      }
       if (current.type === "cluster") {
         segments.push({
           kind: "activity",
@@ -107,6 +110,9 @@ export function coalesceAssistantTurnUnits(
         segments.push({ kind: "text", message: current.message });
       }
       i += 1;
+      if (isChannelDeliveryRawUnit(current)) {
+        break;
+      }
     }
     out.push({ type: "assistant-turn", segments: enrichActivitySegmentLatencies(segments), isStreaming: false });
   }
@@ -168,6 +174,13 @@ function enrichActivitySegmentLatencies(segments: TurnSegment[]): TurnSegment[] 
 function isAssistantTurnRawUnit(unit: RawDisplayUnit): boolean {
   return unit.type === "cluster"
     || (unit.type === "single" && unit.message.role === "assistant");
+}
+
+/** 主动投递（heartbeat/cron）的 assistant 正文，前面没有 user 消息，单独成泡。 */
+function isChannelDeliveryRawUnit(unit: RawDisplayUnit): boolean {
+  return unit.type === "single"
+    && unit.message.role === "assistant"
+    && unit.message.channelDelivery === true;
 }
 
 function assistantHasInlineReasoning(message: UIMessage): boolean {

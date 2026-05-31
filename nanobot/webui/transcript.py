@@ -15,6 +15,7 @@ from loguru import logger
 
 from nanobot.config.paths import get_webui_dir
 from nanobot.session.manager import Session, SessionManager
+from nanobot.utils.media_staging import is_remote_media_url
 
 WEBUI_TRANSCRIPT_SCHEMA_VERSION = 3
 _MAX_TRANSCRIPT_FILE_BYTES = 8 * 1024 * 1024
@@ -28,6 +29,29 @@ _INLINE_MARKDOWN_IMAGE_EXTS: frozenset[str] = frozenset({
     ".webp",
     ".gif",
 })
+
+
+def _remote_media_payloads(media: Any) -> list[dict[str, str]]:
+    if not isinstance(media, list):
+        return []
+    out: list[dict[str, str]] = []
+    for entry in media:
+        if not isinstance(entry, str) or not is_remote_media_url(entry):
+            continue
+        parsed = urlparse(entry)
+        name = Path(unquote(parsed.path)).name or "attachment"
+        out.append({"url": entry, "name": name})
+    return out
+
+
+def _local_media_paths(media: Any) -> list[str]:
+    if not isinstance(media, list):
+        return []
+    return [
+        entry
+        for entry in media
+        if isinstance(entry, str) and entry and not is_remote_media_url(entry)
+    ]
 
 
 def rewrite_local_markdown_images(
@@ -241,13 +265,13 @@ def _merge_unique_tool_trace_lines(
 def replay_transcript_to_ui_messages(
     lines: list[dict[str, Any]],
     *,
-    augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
+    augment_media_paths: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_text: Callable[[str], str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fold JSONL records into ``UIMessage``-shaped dicts for the WebUI.
 
     Mirrors the core fold in ``useNanobotStream.ts`` (delta, reasoning,
-    message+kind, turn_end). ``augment_user_media`` maps persisted filesystem
+    message+kind, turn_end). ``augment_media_paths`` maps persisted filesystem
     paths to ``{url, name?}`` / attachment dicts the client expects.
     """
     messages: list[dict[str, Any]] = []
@@ -539,9 +563,20 @@ def replay_transcript_to_ui_messages(
             paths: list[str] = []
             if isinstance(media_paths, list):
                 paths = [str(p) for p in media_paths if p]
-            media_att: list[dict[str, Any]] | None = None
-            if paths and augment_user_media is not None:
-                media_att = augment_user_media(paths)
+            media_att: list[dict[str, Any]] = []
+            media_urls = rec.get("media_urls")
+            if isinstance(media_urls, list):
+                for m in media_urls:
+                    if isinstance(m, dict) and m.get("url"):
+                        media_att.append(
+                            {
+                                "kind": "image",
+                                "url": str(m["url"]),
+                                "name": str(m.get("name") or ""),
+                            },
+                        )
+            if paths and augment_media_paths is not None:
+                media_att.extend(augment_media_paths(paths))
             row: dict[str, Any] = {
                 "id": _new_id("u", idx),
                 "role": "user",
@@ -721,6 +756,13 @@ def replay_transcript_to_ui_messages(
                                 "name": str(m.get("name") or ""),
                             },
                         )
+            media_paths = rec.get("media_paths")
+            if isinstance(media_paths, list) and media_paths and augment_media_paths is not None:
+                paths = [str(p) for p in media_paths if p]
+                if paths:
+                    media_att = augment_media_paths(paths)
+                    if media_att:
+                        media.extend(media_att)
             extra: dict[str, Any] = {"content": content_s}
             if media:
                 extra["media"] = media
@@ -733,6 +775,8 @@ def replay_transcript_to_ui_messages(
             ts_str = rec.get("ts")
             if isinstance(ts_str, str):
                 extra["messageTs"] = ts_str
+            if rec.get("channel_delivery"):
+                extra["channelDelivery"] = True
             absorb_complete(extra, idx)
             if media:
                 suppress_until_turn_end = True
@@ -772,7 +816,7 @@ def replay_transcript_to_ui_messages(
 def build_webui_thread_response(
     session_key: str,
     *,
-    augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
+    augment_media_paths: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_text: Callable[[str], str] | None = None,
 ) -> dict[str, Any] | None:
     """Return a payload compatible with ``WebuiThreadPersistedPayload``."""
@@ -781,7 +825,7 @@ def build_webui_thread_response(
         return None
     msgs = replay_transcript_to_ui_messages(
         lines,
-        augment_user_media=augment_user_media,
+        augment_media_paths=augment_media_paths,
         augment_assistant_text=augment_assistant_text,
     )
     return {
@@ -834,13 +878,20 @@ def session_messages_to_wire_events(
         if role == "user":
             ev: dict[str, Any] = {**base, "event": "user", "text": content}
             media = msg.get("media")
-            if isinstance(media, list) and media:
-                ev["media_paths"] = [p for p in media if isinstance(p, str)]
+            local_paths = _local_media_paths(media)
+            if local_paths:
+                ev["media_paths"] = local_paths
+            remote_urls = _remote_media_payloads(media)
+            if remote_urls:
+                ev["media_urls"] = remote_urls
             events.append(ev)
 
         elif role == "assistant":
             tool_calls = msg.get("tool_calls")
             ts = msg.get("timestamp")
+            media = msg.get("media")
+            local_paths = _local_media_paths(media)
+            remote_urls = _remote_media_payloads(media)
             reasoning = msg.get("reasoning_content") or msg.get("reasoning")
             if isinstance(reasoning, str) and reasoning:
                 reasoning_ev: dict[str, Any] = {
@@ -871,7 +922,7 @@ def session_messages_to_wire_events(
                         "name": fn.get("name", ""),
                         "arguments": _safe_parse_args(fn.get("arguments", "")),
                     }
-            elif content:
+            elif content or local_paths or remote_urls:
                 ev = {**base, "event": "message", "text": content}
                 lat = msg.get("latency_ms")
                 if isinstance(lat, (int, float)):
@@ -881,6 +932,12 @@ def session_messages_to_wire_events(
                     ev["usage"] = usg
                 if isinstance(ts, str):
                     ev["ts"] = ts
+                if msg.get("_channel_delivery"):
+                    ev["channel_delivery"] = True
+                if local_paths:
+                    ev["media_paths"] = local_paths
+                if remote_urls:
+                    ev["media_urls"] = remote_urls
                 events.append(ev)
 
         elif role == "tool":
@@ -924,7 +981,7 @@ def _safe_parse_args(raw: Any) -> Any:
 def build_inbox_thread_from_session(
     session: Session,
     *,
-    augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
+    augment_media_paths: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_text: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
     """直接从 Session 对象构建 inbox thread 响应。
@@ -941,7 +998,7 @@ def build_inbox_thread_from_session(
         }
     msgs = replay_transcript_to_ui_messages(
         wire_events,
-        augment_user_media=augment_user_media,
+        augment_media_paths=augment_media_paths,
         augment_assistant_text=augment_assistant_text,
     )
     return {

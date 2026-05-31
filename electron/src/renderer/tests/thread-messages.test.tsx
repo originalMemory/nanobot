@@ -268,6 +268,28 @@ describe("ThreadMessages turn coalescing", () => {
     expect(screen.getByAltText("generated.png")).toBeInTheDocument();
   });
 
+  it("splits proactive channel delivery from the previous assistant turn", () => {
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", content: "phase2?", createdAt: 1 },
+      { id: "a1", role: "assistant", content: "explanation", createdAt: 2 },
+      {
+        id: "a2",
+        role: "assistant",
+        content: "早上好",
+        channelDelivery: true,
+        createdAt: 3,
+      },
+    ];
+    const units = buildFinalDisplayUnits(messages, false);
+    expect(units).toHaveLength(3);
+    expect(units.filter((u) => u.type === "assistant-turn")).toHaveLength(2);
+    if (units[1].type !== "assistant-turn" || units[2].type !== "assistant-turn") return;
+    expect(units[1].segments).toHaveLength(1);
+    expect(units[2].segments).toHaveLength(1);
+    if (units[2].segments[0].kind !== "text") return;
+    expect(units[2].segments[0].message.channelDelivery).toBe(true);
+  });
+
   it("only enables copy on the final coalesced assistant turn unit", () => {
     const messages: UIMessage[] = [
       { id: "u1", role: "user", content: "hi", createdAt: 1 },

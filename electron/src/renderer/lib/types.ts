@@ -39,6 +39,8 @@ export interface UIMessage {
   createdAt: number;
   /** Electron inbox only: originating channel, e.g. "telegram", "discord". */
   sourceChannel?: string;
+  /** Heartbeat/cron 等主动投递到会话、前面没有 user 消息的 assistant 行。 */
+  channelDelivery?: boolean;
   /** For trace rows: each individual hint line, so consecutive hints can
    * render as a single collapsible group. */
   traces?: string[];
@@ -548,6 +550,8 @@ export type InboundEvent =
       agent_ui?: AgentUIBlob;
       /** Electron inbox only: originating channel for inbox:unified fan-out. */
       source_channel?: string;
+      /** Heartbeat/cron 等主动投递，UI 上不与上一轮 assistant 合并。 */
+      channel_delivery?: boolean;
     }
   | {
       event: "file_edit";

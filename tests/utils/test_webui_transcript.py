@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from nanobot.webui.transcript import (
     WEBUI_TRANSCRIPT_SCHEMA_VERSION,
     append_transcript_object,
@@ -414,8 +416,112 @@ def test_build_response_schema(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
     key = "websocket:t3"
     append_transcript_object(key, {"event": "user", "chat_id": "t3", "text": "x"})
-    out = build_webui_thread_response(key, augment_user_media=None)
+    out = build_webui_thread_response(key, augment_media_paths=None)
     assert out is not None
     assert out["schemaVersion"] == WEBUI_TRANSCRIPT_SCHEMA_VERSION
     assert out["sessionKey"] == key
     assert len(out["messages"]) == 1
+
+
+def test_session_messages_to_wire_events_marks_channel_delivery() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "reply"},
+        {"role": "assistant", "content": "morning", "_channel_delivery": True},
+    ])
+    delivery = [
+        event for event in events
+        if event.get("event") == "message" and event.get("channel_delivery")
+    ]
+    assert len(delivery) == 1
+    assert delivery[0]["text"] == "morning"
+
+
+def test_replay_channel_delivery_preserves_ui_flag() -> None:
+    msgs = replay_transcript_to_ui_messages([
+        {"event": "user", "chat_id": "x", "text": "hi"},
+        {"event": "message", "chat_id": "x", "text": "reply"},
+        {"event": "message", "chat_id": "x", "text": "morning", "channel_delivery": True},
+        {"event": "turn_end", "chat_id": "x"},
+    ])
+    assistants = [m for m in msgs if m.get("role") == "assistant"]
+    assert len(assistants) == 2
+    assert assistants[1].get("channelDelivery") is True
+
+
+def test_session_messages_to_wire_events_includes_assistant_media_paths() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {
+            "role": "assistant",
+            "content": "早安",
+            "_channel_delivery": True,
+            "media": ["/tmp/out.png"],
+        },
+    ])
+    message = next(event for event in events if event.get("event") == "message")
+    assert message["text"] == "早安"
+    assert message["media_paths"] == ["/tmp/out.png"]
+
+
+def test_session_messages_to_wire_events_keeps_remote_assistant_media_urls() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {
+            "role": "assistant",
+            "content": "",
+            "_channel_delivery": True,
+            "media": ["https://cdn.example.test/out.png?sig=1"],
+        },
+    ])
+    message = next(event for event in events if event.get("event") == "message")
+    assert message["text"] == ""
+    assert message["channel_delivery"] is True
+    assert message["media_urls"] == [
+        {"url": "https://cdn.example.test/out.png?sig=1", "name": "out.png"},
+    ]
+    assert "media_paths" not in message
+
+
+def test_replay_assistant_media_paths_uses_augment_callback() -> None:
+    msgs = replay_transcript_to_ui_messages(
+        [
+            {
+                "event": "message",
+                "chat_id": "x",
+                "text": "早安",
+                "media_paths": ["/tmp/out.png"],
+            },
+            {"event": "turn_end", "chat_id": "x"},
+        ],
+        augment_media_paths=lambda paths: [
+            {"kind": "image", "url": f"/api/media/signed/{Path(p).name}", "name": Path(p).name}
+            for p in paths
+        ],
+    )
+    assert len(msgs) == 1
+    assert msgs[0]["media"] == [
+        {"kind": "image", "url": "/api/media/signed/out.png", "name": "out.png"},
+    ]
+
+
+def test_replay_user_remote_media_urls_render_as_attachments() -> None:
+    msgs = replay_transcript_to_ui_messages([
+        {
+            "event": "user",
+            "chat_id": "x",
+            "text": "see this",
+            "media_urls": [{"url": "https://cdn.example.test/input.jpg", "name": "input.jpg"}],
+        },
+    ])
+
+    assert msgs[0]["media"] == [
+        {"kind": "image", "url": "https://cdn.example.test/input.jpg", "name": "input.jpg"},
+    ]
+    assert msgs[0]["images"] == [
+        {"url": "https://cdn.example.test/input.jpg", "name": "input.jpg"},
+    ]
