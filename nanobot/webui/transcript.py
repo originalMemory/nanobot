@@ -555,6 +555,9 @@ def replay_transcript_to_ui_messages(
     for idx, rec in enumerate(lines):
         ev = rec.get("event")
         if ev == "user":
+            suppress_until_turn_end = False
+            buffer_message_id = None
+            buffer_parts = []
             active_activity_segment_id = None
             active_file_edit_segment_id = None
             text = rec.get("text")
@@ -790,7 +793,7 @@ def replay_transcript_to_ui_messages(
             if rec.get("user_initiated_delivery"):
                 extra["userInitiatedDelivery"] = True
             absorb_complete(extra, idx)
-            if media:
+            if media and not rec.get("channel_delivery"):
                 suppress_until_turn_end = True
             continue
 
@@ -864,6 +867,32 @@ def session_messages_to_wire_events(
     # call_id → {name, arguments}：从 assistant tool_calls 填充，
     # 收到匹配的 tool result 时消费。
     pending_tool_calls: dict[str, dict[str, Any]] = {}
+    pending_user_delivery_events: list[dict[str, Any]] = []
+
+    def flush_user_delivery_events() -> None:
+        if not pending_user_delivery_events:
+            return
+        events.extend(pending_user_delivery_events)
+        pending_user_delivery_events.clear()
+
+    def flush_next_user_delivery_event(tool_ev: dict[str, Any]) -> None:
+        if not pending_user_delivery_events:
+            return
+        match_index = 0
+        args = tool_ev.get("arguments")
+        if isinstance(args, dict):
+            for i, ev in enumerate(pending_user_delivery_events):
+                if (
+                    (not args.get("channel") or ev.get("source_channel") == args.get("channel"))
+                    and (not args.get("chat_id") or ev.get("source_chat_id") == args.get("chat_id"))
+                    and (
+                        not isinstance(args.get("content"), str)
+                        or ev.get("text") == args.get("content")
+                    )
+                ):
+                    match_index = i
+                    break
+        events.append(pending_user_delivery_events.pop(match_index))
 
     for msg in messages:
         if msg.get("_type") == "metadata":
@@ -888,6 +917,7 @@ def session_messages_to_wire_events(
             base["source_chat_id"] = scid
 
         if role == "user":
+            flush_user_delivery_events()
             ev: dict[str, Any] = {**base, "event": "user", "text": content}
             media = msg.get("media")
             local_paths = _local_media_paths(media)
@@ -952,6 +982,9 @@ def session_messages_to_wire_events(
                     ev["media_paths"] = local_paths
                 if remote_urls:
                     ev["media_urls"] = remote_urls
+                if ev.get("channel_delivery") and ev.get("user_initiated_delivery"):
+                    pending_user_delivery_events.append(ev)
+                    continue
                 events.append(ev)
 
         elif role == "tool":
@@ -976,7 +1009,10 @@ def session_messages_to_wire_events(
                 "kind": "tool_hint",
                 "tool_events": [tool_ev],
             })
+            if name == "message":
+                flush_next_user_delivery_event(tool_ev)
 
+    flush_user_delivery_events()
     if events:
         events.append({"event": "turn_end", "chat_id": chat_id})
 

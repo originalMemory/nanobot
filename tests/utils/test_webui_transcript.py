@@ -560,6 +560,191 @@ def test_replay_assistant_media_paths_uses_augment_callback() -> None:
     ]
 
 
+def test_replay_new_user_clears_assistant_media_suppression() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {"role": "user", "content": "draw"},
+        {"role": "assistant", "content": "", "media": ["/tmp/out.png"]},
+        {"role": "user", "content": "check"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "need inspect",
+            "tool_calls": [
+                {
+                    "id": "call-read",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": '{"path": "notes.md"}',
+                    },
+                },
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call-read", "name": "read_file", "content": "ok"},
+        {"role": "assistant", "content": "done"},
+    ])
+
+    msgs = replay_transcript_to_ui_messages(
+        events,
+        augment_media_paths=lambda paths: [
+            {"kind": "image", "url": f"/api/media/signed/{Path(p).name}", "name": Path(p).name}
+            for p in paths
+        ],
+    )
+
+    traces = [m for m in msgs if m.get("kind") == "trace"]
+    assistants = [m for m in msgs if m.get("role") == "assistant" and m.get("kind") != "trace"]
+    assert traces
+    assert traces[0]["traces"] == ['read_file({"path": "notes.md"})']
+    assert assistants[-1]["content"] == "done"
+    assert assistants[-1]["reasoning"] == "need inspect"
+
+
+def test_replay_channel_delivery_media_keeps_same_turn_tool_trace() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {"role": "user", "content": "send image"},
+        {
+            "role": "assistant",
+            "content": "测试发图~",
+            "_channel_delivery": True,
+            "_user_initiated_channel_delivery": True,
+            "source_channel": "qq",
+            "source_chat_id": "chat-1",
+            "media": ["/tmp/staged.png"],
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-message",
+                    "function": {
+                        "name": "message",
+                        "arguments": '{"channel": "qq", "chat_id": "chat-1", "content": "测试发图~", "media": ["/tmp/source.png"]}',
+                    },
+                },
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-message",
+            "name": "message",
+            "content": "Message sent to qq:chat-1 with 1 attachments",
+        },
+        {"role": "assistant", "content": "发了"},
+    ])
+
+    msgs = replay_transcript_to_ui_messages(
+        events,
+        augment_media_paths=lambda paths: [
+            {"kind": "image", "url": f"/api/media/signed/{Path(p).name}", "name": Path(p).name}
+            for p in paths
+        ],
+    )
+
+    traces = [m for m in msgs if m.get("kind") == "trace"]
+    roles = [(m.get("role"), m.get("kind"), m.get("content")) for m in msgs]
+    assert traces
+    assert traces[0]["toolEvents"][0]["name"] == "message"
+    assert traces[0]["toolEvents"][0]["phase"] == "end"
+    assert roles == [
+        ("user", None, "send image"),
+        ("tool", "trace", traces[0]["content"]),
+        ("assistant", None, "测试发图~"),
+        ("assistant", None, "发了"),
+    ]
+
+
+def test_replay_multiple_channel_delivery_media_keeps_each_tool_trace_order() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {"role": "user", "content": "send images"},
+        {
+            "role": "assistant",
+            "content": "发图 1",
+            "_channel_delivery": True,
+            "_user_initiated_channel_delivery": True,
+            "source_channel": "qq",
+            "source_chat_id": "chat-1",
+            "media": ["/tmp/staged-1.png"],
+        },
+        {
+            "role": "assistant",
+            "content": "发图 2",
+            "_channel_delivery": True,
+            "_user_initiated_channel_delivery": True,
+            "source_channel": "qq",
+            "source_chat_id": "chat-1",
+            "media": ["/tmp/staged-2.png"],
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-message-1",
+                    "function": {
+                        "name": "message",
+                        "arguments": (
+                            '{"channel": "qq", "chat_id": "chat-1", '
+                            '"content": "发图 1", "media": ["/tmp/source-1.png"]}'
+                        ),
+                    },
+                },
+                {
+                    "id": "call-message-2",
+                    "function": {
+                        "name": "message",
+                        "arguments": (
+                            '{"channel": "qq", "chat_id": "chat-1", '
+                            '"content": "发图 2", "media": ["/tmp/source-2.png"]}'
+                        ),
+                    },
+                },
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-message-1",
+            "name": "message",
+            "content": "Message sent to qq:chat-1 with 1 attachments",
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-message-2",
+            "name": "message",
+            "content": "Message sent to qq:chat-1 with 1 attachments",
+        },
+        {"role": "assistant", "content": "都发了"},
+    ])
+
+    msgs = replay_transcript_to_ui_messages(
+        events,
+        augment_media_paths=lambda paths: [
+            {"kind": "image", "url": f"/api/media/signed/{Path(p).name}", "name": Path(p).name}
+            for p in paths
+        ],
+    )
+
+    traces = [m for m in msgs if m.get("kind") == "trace"]
+    roles = [(m.get("role"), m.get("kind"), m.get("content")) for m in msgs]
+    assert len(traces) == 2
+    assert traces[0]["toolEvents"][0]["call_id"] == "call-message-1"
+    assert traces[1]["toolEvents"][0]["call_id"] == "call-message-2"
+    assert roles == [
+        ("user", None, "send images"),
+        ("tool", "trace", traces[0]["content"]),
+        ("assistant", None, "发图 1"),
+        ("tool", "trace", traces[1]["content"]),
+        ("assistant", None, "发图 2"),
+        ("assistant", None, "都发了"),
+    ]
+
+
 def test_replay_user_remote_media_urls_render_as_attachments() -> None:
     msgs = replay_transcript_to_ui_messages([
         {
