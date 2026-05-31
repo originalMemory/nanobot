@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeProvider, useTheme } from "@/hooks/useTheme";
 import {
+  bootstrapTokenExpiresAt,
   clearSavedSecret,
   DEFAULT_GATEWAY_HTTP,
   deriveWsUrl,
@@ -17,6 +18,7 @@ import {
   loadSavedSecret,
   saveGatewayUrl,
   saveSecret,
+  tokenRefreshDelayMs,
 } from "@/lib/bootstrap";
 import { fetchInboxThread, fetchSettings } from "@/lib/api";
 import { bootstrapAppLanguage } from "@/i18n";
@@ -37,6 +39,7 @@ type BootState =
       status: "ready";
       client: NanobotClient;
       token: string;
+      tokenExpiresAt: number;
       modelName: string | null;
       initialMessages: UIMessage[];
       gatewayUrl: string;
@@ -327,9 +330,15 @@ export default function App() {
               try {
                 const refreshed = await fetchBootstrap(url, bootstrapSecretRef.current);
                 const refreshedUrl = deriveWsUrl(refreshed.ws_path, refreshed.token, url);
+                const tokenExpiresAt = bootstrapTokenExpiresAt(refreshed.expires_in);
                 setState((current) =>
-                  current.status === "ready"
-                    ? { ...current, token: refreshed.token }
+                  current.status === "ready" && current.client === client
+                    ? {
+                        ...current,
+                        token: refreshed.token,
+                        tokenExpiresAt,
+                        modelName: refreshed.model_name ?? current.modelName,
+                      }
                     : current,
                 );
                 return refreshedUrl;
@@ -344,6 +353,7 @@ export default function App() {
             status: "ready",
             client,
             token: boot.token,
+            tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
             modelName: boot.model_name ?? null,
             initialMessages,
             gatewayUrl: url,
@@ -371,6 +381,42 @@ export default function App() {
   useEffect(() => {
     void bootstrapAppLanguage();
   }, []);
+
+  // 在 REST token 过期前主动刷新，避免长时间停留后打开设置页出现 HTTP 401
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    const { client, gatewayUrl } = state;
+    const timer = window.setTimeout(async () => {
+      try {
+        const boot = await fetchBootstrap(gatewayUrl, bootstrapSecretRef.current);
+        const wsUrl = deriveWsUrl(boot.ws_path, boot.token, gatewayUrl);
+        const tokenExpiresAt = bootstrapTokenExpiresAt(boot.expires_in);
+        client.updateUrl(wsUrl);
+        setState((current) =>
+          current.status === "ready" && current.client === client
+            ? {
+                ...current,
+                token: boot.token,
+                tokenExpiresAt,
+                modelName: boot.model_name ?? current.modelName,
+              }
+            : current,
+        );
+      } catch (e) {
+        const httpStatus = (e as Error & { httpStatus?: number }).httpStatus;
+        const msg = (e as Error).message;
+        if (httpStatus === 401 || httpStatus === 403 || msg.includes("401") || msg.includes("403")) {
+          setState((current) => {
+            if (current.status === "ready" && current.client === client) {
+              current.client.close();
+            }
+            return { status: "auth", gatewayUrl: gatewayUrlRef.current, failed: true };
+          });
+        }
+      }
+    }, tokenRefreshDelayMs(state.tokenExpiresAt));
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;

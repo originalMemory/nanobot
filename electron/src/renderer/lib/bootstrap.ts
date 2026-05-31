@@ -3,7 +3,27 @@ import { isElectron } from "./env";
 
 export const DEFAULT_GATEWAY_HTTP = "http://127.0.0.1:8765";
 
+/** 到期前刷新 token 的提前量（毫秒） */
+export const TOKEN_REFRESH_MARGIN_MS = 30_000;
+/** 定时刷新最短间隔（毫秒） */
+export const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
+
 const SECRET_STORAGE_KEY = "nanobot-electron.bootstrap-secret";
+
+/** 根据 bootstrap 返回的 expires_in 计算 token 绝对过期时间 */
+export function bootstrapTokenExpiresAt(expiresInSeconds: number): number {
+  return Date.now() + Math.max(0, expiresInSeconds) * 1000;
+}
+
+/** 计算距离 token 过期前应触发刷新的延迟（毫秒） */
+export function tokenRefreshDelayMs(expiresAt: number): number {
+  const remaining = Math.max(0, expiresAt - Date.now());
+  const margin = Math.min(
+    TOKEN_REFRESH_MARGIN_MS,
+    Math.max(1_000, remaining / 2),
+  );
+  return Math.max(TOKEN_REFRESH_MIN_DELAY_MS, remaining - margin);
+}
 
 // TODO(6.3): 迁移到 electron-store，使跨窗口共享且不受 renderer 沙箱限制
 export function loadSavedSecret(): string {
