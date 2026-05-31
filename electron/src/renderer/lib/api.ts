@@ -294,6 +294,9 @@ export async function updateSettings(
   if (update.maxMessages !== undefined) {
     query.set("max_messages", String(update.maxMessages));
   }
+  if (update.reasoningEffort !== undefined) {
+    query.set("reasoning_effort", update.reasoningEffort || "default");
+  }
   return request<SettingsPayload>(`${base}/api/settings/update?${query}`, token);
 }
 
@@ -307,6 +310,9 @@ export async function createModelConfiguration(
   query.set("label", configuration.label);
   query.set("provider", configuration.provider);
   query.set("model", configuration.model);
+  if (configuration.reasoningEffort !== undefined) {
+    query.set("reasoning_effort", configuration.reasoningEffort || "default");
+  }
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/create?${query}`,
     token,

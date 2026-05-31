@@ -41,11 +41,16 @@ import {
   ModelPresetPicker,
   ProviderPicker,
   ProviderPickerIcon,
+  ReasoningEffortPicker,
   RestartSettingsFooter,
   SettingsGroup,
   SettingsRow,
   StatusPill,
 } from "./shared";
+import {
+  normalizeReasoningEffort,
+  type ReasoningEffortValue,
+} from "@/lib/reasoning-effort";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,12 +68,14 @@ export interface AgentSettingsDraft {
   maxTokens: string;
   contextWindowTokens: string;
   maxMessages: string;
+  reasoningEffort: ReasoningEffortValue;
 }
 
 interface ModelConfigurationDraft {
   label: string;
   provider: string;
   model: string;
+  reasoningEffort: ReasoningEffortValue;
 }
 
 const OPENAI_API_TYPE_VALUES: ProviderApiType[] = ["auto", "chat_completions", "responses"];
@@ -134,6 +141,10 @@ function editableDefaultProvider(payload: SettingsPayload): string {
 function agentDraftForPreset(payload: SettingsPayload, presetName: string): AgentSettingsDraft {
   const preset = payload.model_presets.find((p) => p.name === presetName);
   const base = defaultPreset(payload);
+  const reasoningSource =
+    presetName === "default"
+      ? (base?.reasoning_effort ?? payload.agent.reasoning_effort)
+      : preset?.reasoning_effort;
   return {
     model:
       presetName === "default"
@@ -149,6 +160,7 @@ function agentDraftForPreset(payload: SettingsPayload, presetName: string): Agen
     maxTokens: String(preset?.max_tokens ?? payload.agent.max_tokens),
     contextWindowTokens: String(preset?.context_window_tokens ?? payload.agent.context_window_tokens),
     maxMessages: String(payload.agent.max_messages ?? 120),
+    reasoningEffort: normalizeReasoningEffort(reasoningSource),
   };
 }
 
@@ -352,6 +364,16 @@ function NewModelConfigurationDialog({
               className="h-9 rounded-full text-[13px]"
             />
           </label>
+          <label className="block space-y-1.5">
+            <span className="text-[12px] font-medium text-muted-foreground">
+              {tx("settings.rows.reasoningEffort", "Thinking mode")}
+            </span>
+            <ReasoningEffortPicker
+              value={draft.reasoningEffort}
+              onChange={(reasoningEffort) => onChangeDraft({ ...draft, reasoningEffort })}
+              className="w-full"
+            />
+          </label>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="rounded-full">
@@ -409,6 +431,7 @@ export function ModelsSection({
     label: "",
     provider: "",
     model: "",
+    reasoningEffort: "",
   });
   const [configSaving, setConfigSaving] = useState(false);
 
@@ -431,6 +454,7 @@ export function ModelsSection({
             preset.provider,
             preset.max_tokens,
             preset.context_window_tokens,
+            preset.reasoning_effort ?? "",
           ].join("\u0000"),
         )
         .join("\u0001"),
@@ -449,6 +473,7 @@ export function ModelsSection({
     settings.agent.max_tokens,
     settings.agent.context_window_tokens,
     settings.agent.max_messages,
+    settings.agent.reasoning_effort,
     modelPresetsSignature,
   ]);
 
@@ -474,6 +499,13 @@ export function ModelsSection({
     const maxTokensDirty = Number(form.maxTokens) !== settings.agent.max_tokens;
     const contextWindowTokensDirty = Number(form.contextWindowTokens) !== settings.agent.context_window_tokens;
     const maxMessagesDirty = Number(form.maxMessages) !== (settings.agent.max_messages ?? 120);
+    const activePreset = settings.model_presets.find((p) => p.name === form.modelPreset);
+    const activeReasoning =
+      form.modelPreset === "default"
+        ? (defaultPreset(settings)?.reasoning_effort ?? settings.agent.reasoning_effort)
+        : activePreset?.reasoning_effort;
+    const reasoningDirty =
+      form.reasoningEffort !== normalizeReasoningEffort(activeReasoning);
     return (
       form.modelPreset !== preset ||
       (form.modelPreset === "default" &&
@@ -483,7 +515,8 @@ export function ModelsSection({
       visionProviderDirty ||
       maxTokensDirty ||
       contextWindowTokensDirty ||
-      maxMessagesDirty
+      maxMessagesDirty ||
+      reasoningDirty
     );
   }, [form, settings]);
 
@@ -523,7 +556,12 @@ export function ModelsSection({
       configuredModelProviderOptions.find((o) => o.name === currentProvider)?.name ??
       configuredModelProviderOptions[0]?.name ??
       "";
-    setConfigDraft({ label: "", provider, model: "" });
+    setConfigDraft({
+      label: "",
+      provider,
+      model: "",
+      reasoningEffort: normalizeReasoningEffort(settings.agent.reasoning_effort),
+    });
     setConfigOpen(true);
   };
 
@@ -814,6 +852,18 @@ export function ModelsSection({
                 </SettingsRow>
               </>
             ) : null}
+            <SettingsRow
+              title={tx("settings.rows.reasoningEffort", "Thinking mode")}
+              description={tx(
+                "settings.help.reasoningEffort",
+                "Control extended thinking for the active model preset.",
+              )}
+            >
+              <ReasoningEffortPicker
+                value={form.reasoningEffort}
+                onChange={(reasoningEffort) => setForm((prev) => ({ ...prev, reasoningEffort }))}
+              />
+            </SettingsRow>
             <SettingsRow
               title={t("settings.rows.visionModel")}
               description={t("settings.help.visionModel")}

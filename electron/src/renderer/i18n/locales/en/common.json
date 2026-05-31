@@ -176,7 +176,18 @@
       "visionProvider": "Vision provider",
       "maxTokens": "Max output tokens",
       "contextWindowTokens": "Context window",
-      "maxMessages": "Max messages"
+      "maxMessages": "Max messages",
+      "reasoningEffort": "Thinking mode"
+    },
+    "reasoningEffort": {
+      "options": {
+        "default": "Default",
+        "none": "Off",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "adaptive": "Adaptive"
+      }
     },
     "help": {
       "theme": "Choose from 9 themes to personalize your appearance.",
@@ -214,7 +225,8 @@
       "visionProvider": "Provider for the vision model. Leave blank to auto-detect from the model name.",
       "maxTokens": "Maximum tokens the model generates per reply.",
       "contextWindowTokens": "Total context window size of the model. Used for consolidation and truncation decisions.",
-      "maxMessages": "Max number of messages replayed from history. 0 uses the default (120)."
+      "maxMessages": "Max number of messages replayed from history. 0 uses the default (120).",
+      "reasoningEffort": "Control extended thinking for the active model preset."
     },
     "timezone": {
       "select": "Select timezone",
@@ -574,6 +586,12 @@
           "4_3": "Landscape 4:3",
           "16_9": "Wide 16:9"
         }
+      },
+      "reasoningMode": {
+        "toggle": "Thinking mode",
+        "menuAria": "Thinking mode",
+        "menuLabel": "Thinking mode",
+        "failed": "Failed to update thinking mode"
       },
       "tools": {
         "search": "Search",

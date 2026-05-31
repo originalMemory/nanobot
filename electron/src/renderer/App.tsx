@@ -22,6 +22,7 @@ import {
   tokenRefreshDelayMs,
 } from "@/lib/bootstrap";
 import { fetchInboxThread, fetchSettings, updateSettings } from "@/lib/api";
+import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
 import { bootstrapAppLanguage } from "@/i18n";
 import { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider } from "@/providers/ClientProvider";
@@ -183,6 +184,8 @@ function Shell({
   const [settings, setSettings] = useState<SettingsPayload | null>(null);
   const [modelSelectionPending, setModelSelectionPending] = useState(false);
   const [modelSelectionError, setModelSelectionError] = useState<string | null>(null);
+  const [reasoningSelectionPending, setReasoningSelectionPending] = useState(false);
+  const [reasoningSelectionError, setReasoningSelectionError] = useState<string | null>(null);
 
   const applySettings = useCallback((payload: SettingsPayload) => {
     setSettings(payload);
@@ -229,8 +232,29 @@ function Shell({
     }
   }, [applySettings, gatewayUrl, modelSelectionPending, t, token]);
 
+  const handleSelectReasoningEffort = useCallback(async (effort: ReasoningEffortValue) => {
+    if (reasoningSelectionPending) return;
+    setReasoningSelectionError(null);
+    setReasoningSelectionPending(true);
+    try {
+      const payload = await updateSettings(token, { reasoningEffort: effort }, gatewayUrl);
+      applySettings(payload);
+    } catch (err) {
+      const message = (err as Error).message;
+      setReasoningSelectionError(
+        message || t("thread.composer.reasoningMode.failed", { defaultValue: "Failed to update thinking mode" }),
+      );
+    } finally {
+      setReasoningSelectionPending(false);
+    }
+  }, [applySettings, gatewayUrl, reasoningSelectionPending, t, token]);
+
   const dismissModelSelectionError = useCallback(() => {
     setModelSelectionError(null);
+  }, []);
+
+  const dismissReasoningSelectionError = useCallback(() => {
+    setReasoningSelectionError(null);
   }, []);
 
   // 截图流程（8.2）：
@@ -302,6 +326,10 @@ function Shell({
                 modelSelectionError={modelSelectionError}
                 onDismissModelSelectionError={dismissModelSelectionError}
                 onModelPresetSelect={handleSelectModelPreset}
+                reasoningSelectionPending={reasoningSelectionPending}
+                reasoningSelectionError={reasoningSelectionError}
+                onDismissReasoningSelectionError={dismissReasoningSelectionError}
+                onReasoningEffortSelect={handleSelectReasoningEffort}
               />
             )}
           </main>

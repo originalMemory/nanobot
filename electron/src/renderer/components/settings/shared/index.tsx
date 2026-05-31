@@ -36,6 +36,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { providerBrand, providerDisplayLabel } from "@/lib/provider-brand";
+import {
+  REASONING_EFFORT_VALUES,
+  reasoningEffortLabelKey,
+  type ReasoningEffortValue,
+} from "@/lib/reasoning-effort";
 import { cn } from "@/lib/utils";
 import type { SettingsPayload } from "@/lib/types";
 
@@ -955,6 +960,68 @@ export function TimezonePicker({
             </div>
           )}
         </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function ReasoningEffortPicker({
+  value,
+  onChange,
+  className,
+}: {
+  value: ReasoningEffortValue;
+  onChange: (value: ReasoningEffortValue) => void;
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const label = tx(
+    `settings.reasoningEffort.options.${reasoningEffortLabelKey(value)}`,
+    value || "Default",
+  );
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            "h-8 w-[min(220px,70vw)] justify-between rounded-full border-input bg-background px-3 text-[13px] font-normal shadow-none",
+            "hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring",
+            className,
+          )}
+        >
+          <span className="truncate">{label}</span>
+          <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="min-w-[220px] rounded-[18px] border-border/65 bg-popover p-1.5 text-popover-foreground shadow-[0_18px_55px_rgba(15,23,42,0.18)] dark:border-white/10 dark:shadow-[0_22px_55px_rgba(0,0,0,0.45)]"
+      >
+        {REASONING_EFFORT_VALUES.map((option) => {
+          const selected = option === value;
+          const optionLabel = tx(
+            `settings.reasoningEffort.options.${reasoningEffortLabelKey(option)}`,
+            option || "Default",
+          );
+          return (
+            <DropdownMenuItem
+              key={option || "default"}
+              onSelect={() => onChange(option)}
+              className={cn(
+                "flex h-9 cursor-default items-center justify-between gap-3 rounded-[12px] px-2.5 text-[13px]",
+                "focus:bg-muted/85 focus:text-foreground",
+                selected && "bg-muted/80 text-foreground focus:bg-muted",
+              )}
+            >
+              <span>{optionLabel}</span>
+              {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );

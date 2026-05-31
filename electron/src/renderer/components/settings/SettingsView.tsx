@@ -23,6 +23,7 @@ import type {
   SettingsUpdate,
   WebSearchSettingsUpdate,
 } from "@/lib/types";
+import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
 import { useClient } from "@/providers/ClientProvider";
 import type { Theme } from "@/hooks/useTheme";
 import { useElectronPreference } from "@/hooks/useElectronPreference";
@@ -49,6 +50,7 @@ interface ModelConfigurationDraft {
   label: string;
   provider: string;
   model: string;
+  reasoningEffort?: ReasoningEffortValue;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +189,7 @@ export function SettingsView({ onBack, theme, onThemeChange, onSettingsChange }:
     if (!Number.isNaN(contextWindowTokens) && contextWindowTokens >= 4096) update.contextWindowTokens = contextWindowTokens;
     const maxMessages = Number(draft.maxMessages);
     if (!Number.isNaN(maxMessages) && maxMessages >= 0) update.maxMessages = maxMessages;
+    update.reasoningEffort = draft.reasoningEffort;
     const payload = await updateSettings(token, update, apiBase);
     handleSettingsUpdate(payload);
   }, [token, apiBase, handleSettingsUpdate, settings]);

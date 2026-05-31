@@ -245,9 +245,9 @@ export function ThreadViewport({
         )}
       >
         {hasMessages ? (
-          <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[64rem] flex-col">
+          <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[72rem] flex-col">
             <div className="flex-1 px-4 pb-20 pt-4">
-              <div className="mx-auto w-full max-w-[49.5rem]">
+              <div className="mx-auto w-full max-w-[58rem]">
                 <ThreadMessages
                   messages={visibleMessages}
                   isStreaming={isStreaming}
@@ -270,9 +270,9 @@ export function ThreadViewport({
             </div>
           </div>
         ) : (
-          <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[72rem] flex-col px-4">
+          <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[80rem] flex-col px-4">
             <div className="flex w-full flex-1 items-center justify-center pb-[7vh] pt-8">
-              <div className="flex w-full max-w-[58rem] flex-col gap-6">
+              <div className="flex w-full max-w-[64rem] flex-col gap-6">
                 {emptyState}
                 <div className="w-full">{composer}</div>
               </div>

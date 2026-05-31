@@ -73,6 +73,12 @@ import {
   providerBrand,
 } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
+import {
+  REASONING_EFFORT_VALUES,
+  normalizeReasoningEffort,
+  reasoningEffortLabelKey,
+  type ReasoningEffortValue,
+} from "@/lib/reasoning-effort";
 
 /** ``<input accept>``: aligned with the server's MIME whitelist. SVG is
  * deliberately excluded to avoid an embedded-script XSS surface. */
@@ -97,6 +103,10 @@ interface ThreadComposerProps {
   modelSelectionError?: string | null;
   onDismissModelSelectionError?: () => void;
   onModelPresetSelect?: (preset: string) => void;
+  reasoningSelectionPending?: boolean;
+  reasoningSelectionError?: string | null;
+  onDismissReasoningSelectionError?: () => void;
+  onReasoningEffortSelect?: (effort: ReasoningEffortValue) => void;
   variant?: "thread" | "hero";
   slashCommands?: SlashCommand[];
   cliApps?: CliAppInfo[];
@@ -494,6 +504,10 @@ export function ThreadComposer({
   modelSelectionError = null,
   onDismissModelSelectionError,
   onModelPresetSelect,
+  reasoningSelectionPending = false,
+  reasoningSelectionError = null,
+  onDismissReasoningSelectionError,
+  onReasoningEffortSelect,
   variant = "thread",
   slashCommands = [],
   cliApps = [],
@@ -1141,8 +1155,8 @@ export function ThreadComposer({
         className={cn(
           "relative mx-auto flex w-full flex-col overflow-visible transition-all duration-200",
           isHero
-            ? "max-w-[58rem] rounded-[28px] border border-black/[0.035] bg-card shadow-[0_20px_55px_rgba(15,23,42,0.08)] dark:border-white/[0.06] dark:shadow-[0_24px_55px_rgba(0,0,0,0.34)]"
-            : "max-w-[49.5rem] rounded-[22px] border border-black/[0.035] bg-card shadow-[0_12px_30px_rgba(15,23,42,0.07)] dark:border-white/[0.06] dark:shadow-[0_16px_34px_rgba(0,0,0,0.28)]",
+            ? "max-w-[64rem] rounded-[28px] border border-black/[0.035] bg-card shadow-[0_20px_55px_rgba(15,23,42,0.08)] dark:border-white/[0.06] dark:shadow-[0_24px_55px_rgba(0,0,0,0.34)]"
+            : "max-w-[58rem] rounded-[22px] border border-black/[0.035] bg-card shadow-[0_12px_30px_rgba(15,23,42,0.07)] dark:border-white/[0.06] dark:shadow-[0_16px_34px_rgba(0,0,0,0.28)]",
           "focus-within:ring-1 focus-within:ring-foreground/8",
           disabled && "opacity-60",
           isDragging && "ring-2 ring-primary/40 motion-reduce:ring-0 motion-reduce:border-primary",
@@ -1330,14 +1344,26 @@ export function ThreadComposer({
               ) : null}
             </div>
             {modelSettings ? (
-              <ComposerModelPicker
-                settings={modelSettings}
-                isHero={isHero}
-                selecting={modelSelectionPending}
-                error={modelSelectionError}
-                onDismissError={onDismissModelSelectionError}
-                onSelect={onModelPresetSelect}
-              />
+              <div className="flex min-w-0 items-center gap-2">
+                <ComposerModelPicker
+                  settings={modelSettings}
+                  isHero={isHero}
+                  selecting={modelSelectionPending}
+                  error={modelSelectionError}
+                  onDismissError={onDismissModelSelectionError}
+                  onSelect={onModelPresetSelect}
+                />
+                {onReasoningEffortSelect ? (
+                  <ComposerReasoningPicker
+                    value={normalizeReasoningEffort(modelSettings.agent.reasoning_effort)}
+                    isHero={isHero}
+                    selecting={reasoningSelectionPending}
+                    error={reasoningSelectionError}
+                    onDismissError={onDismissReasoningSelectionError}
+                    onSelect={onReasoningEffortSelect}
+                  />
+                ) : null}
+              </div>
             ) : modelLabel ? (
               <ComposerModelBadge
                 label={modelLabel}
@@ -1396,6 +1422,121 @@ function composerPresetProvider(
   if (preset.active) return settings.agent.resolved_provider || settings.agent.provider || preset.provider;
   if (preset.provider === "auto") return "auto";
   return preset.provider;
+}
+
+function ComposerReasoningPicker({
+  value,
+  isHero,
+  selecting,
+  error = null,
+  onDismissError,
+  onSelect,
+}: {
+  value: ReasoningEffortValue;
+  isHero: boolean;
+  selecting: boolean;
+  error?: string | null;
+  onDismissError?: () => void;
+  onSelect?: (effort: ReasoningEffortValue) => void;
+}) {
+  const { t } = useTranslation();
+  const reasoningActive = value !== "" && value !== "none";
+  const label = t(
+    `settings.reasoningEffort.options.${reasoningEffortLabelKey(value)}`,
+    {
+      defaultValue: value
+        ? value
+        : t("settings.reasoningEffort.options.default", { defaultValue: "Default" }),
+    },
+  );
+  const errorId = error ? "composer-reasoning-picker-error" : undefined;
+
+  return (
+    <div className={cn("flex min-w-0 flex-col items-end gap-0.5", isHero ? "max-w-[9rem]" : "max-w-[8rem]")}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild disabled={!onSelect || selecting}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={!onSelect || selecting}
+            aria-label={t("thread.composer.reasoningMode.toggle", { defaultValue: "Thinking mode" })}
+            title={t("thread.composer.reasoningMode.toggle", { defaultValue: "Thinking mode" })}
+            aria-pressed={reasoningActive}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={errorId}
+            className={cn(
+              "inline-flex min-w-0 items-center rounded-full border px-2.5 font-medium shadow-[0_2px_8px_rgba(15,23,42,0.04)]",
+              "h-9 text-[12px]",
+              error
+                ? "border-destructive/45 bg-destructive/5 text-destructive"
+                : reasoningActive
+                  ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/12"
+                  : "border-border/55 bg-card text-muted-foreground hover:bg-card hover:text-foreground",
+            )}
+          >
+            {selecting ? (
+              <Loader2 className={cn("mr-1.5 shrink-0 animate-spin", isHero ? "h-4 w-4" : "h-3.5 w-3.5")} />
+            ) : (
+              <Brain className={cn("mr-1.5 shrink-0", isHero ? "h-4 w-4" : "h-3.5 w-3.5")} />
+            )}
+            <span className="truncate">{label}</span>
+            <ChevronDown className="ml-1.5 h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          side="top"
+          className="w-44 rounded-[16px] border-border/65 bg-popover p-1.5 text-popover-foreground shadow-[0_16px_45px_rgba(15,23,42,0.16)] dark:border-white/10 dark:shadow-[0_18px_45px_rgba(0,0,0,0.42)]"
+        >
+          <div className="px-2 pb-1 pt-1 text-[11px] font-medium text-muted-foreground/70">
+            {t("thread.composer.reasoningMode.menuLabel", { defaultValue: "Thinking mode" })}
+          </div>
+          {REASONING_EFFORT_VALUES.map((option) => {
+            const selected = option === value;
+            const optionLabel = t(
+              `settings.reasoningEffort.options.${reasoningEffortLabelKey(option)}`,
+              { defaultValue: option || "Default" },
+            );
+            return (
+              <DropdownMenuItem
+                key={option || "default"}
+                onSelect={() => onSelect?.(option)}
+                className={cn(
+                  "flex cursor-default items-center justify-between rounded-[11px] px-2.5 py-2 text-[12px]",
+                  "focus:bg-muted/85 focus:text-foreground",
+                  selected && "bg-muted/80 text-foreground focus:bg-muted",
+                )}
+              >
+                <span>{optionLabel}</span>
+                {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {error ? (
+        <div
+          id={errorId}
+          role="alert"
+          className="flex w-full items-start gap-1 text-[10px] leading-4 text-destructive"
+        >
+          <span className="min-w-0 flex-1 truncate" title={error}>
+            {error}
+          </span>
+          {onDismissError ? (
+            <button
+              type="button"
+              onClick={onDismissError}
+              aria-label={t("common.dismiss", { defaultValue: "Dismiss" })}
+              className="shrink-0 rounded p-0.5 text-destructive/80 hover:bg-destructive/10 hover:text-destructive"
+            >
+              <X className="h-3 w-3" aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function ComposerModelPicker({
@@ -1723,7 +1864,7 @@ function CliAppMentionPalette({
         layout.placement === "above" ? "bottom-full mb-2" : "top-full mt-2",
         "border-border/70 bg-popover p-2 text-popover-foreground shadow-[0_20px_60px_rgba(15,23,42,0.12)]",
         "dark:border-white/10 dark:shadow-[0_24px_60px_rgba(0,0,0,0.42)]",
-        isHero ? "max-w-[58rem]" : "max-w-[49.5rem]",
+        isHero ? "max-w-[64rem]" : "max-w-[58rem]",
       )}
     >
       <div className="px-2 pb-1.5 pt-0.5 text-[13px] font-semibold text-muted-foreground/78">
@@ -1857,7 +1998,7 @@ function SlashCommandPalette({
         layout.placement === "above" ? "bottom-full mb-2" : "top-full mt-2",
         "border-border/65 bg-popover p-1.5 text-popover-foreground shadow-[0_18px_55px_rgba(15,23,42,0.16)]",
         "dark:border-white/10 dark:shadow-[0_22px_55px_rgba(0,0,0,0.45)]",
-        isHero ? "max-w-[58rem]" : "max-w-[49.5rem]",
+        isHero ? "max-w-[64rem]" : "max-w-[58rem]",
       )}
     >
       <div className="overflow-y-auto pr-0.5" style={{ maxHeight: listMaxHeight }}>

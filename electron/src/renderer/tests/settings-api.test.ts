@@ -77,6 +77,20 @@ describe("updateSettings", () => {
     expect(url).toContain("context_window_tokens=1000000");
     expect(url).toContain("max_messages=200");
   });
+
+  it("sends reasoning_effort", async () => {
+    const fetch = mockFetch({ agent: {}, requires_restart: false });
+    await updateSettings(TOKEN, { reasoningEffort: "high" }, BASE).catch(() => {});
+    const url = String(fetch.mock.calls[0][0]);
+    expect(url).toContain("reasoning_effort=high");
+  });
+
+  it("sends default to clear reasoning_effort", async () => {
+    const fetch = mockFetch({ agent: {}, requires_restart: false });
+    await updateSettings(TOKEN, { reasoningEffort: "" }, BASE).catch(() => {});
+    const url = String(fetch.mock.calls[0][0]);
+    expect(url).toContain("reasoning_effort=default");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
 import { useNanobotStream } from "@/hooks/useNanobotStream";
 import { channelLabel } from "@/lib/channels";
+import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
 import type { SettingsPayload, UIMessage } from "@/lib/types";
 
 const INBOX_CHAT_ID = "inbox:unified";
@@ -25,6 +26,10 @@ interface InboxViewProps {
   modelSelectionError?: string | null;
   onDismissModelSelectionError?: () => void;
   onModelPresetSelect?: (preset: string) => void;
+  reasoningSelectionPending?: boolean;
+  reasoningSelectionError?: string | null;
+  onDismissReasoningSelectionError?: () => void;
+  onReasoningEffortSelect?: (effort: ReasoningEffortValue) => void;
 }
 
 export function InboxView({
@@ -39,6 +44,10 @@ export function InboxView({
   modelSelectionError,
   onDismissModelSelectionError,
   onModelPresetSelect,
+  reasoningSelectionPending,
+  reasoningSelectionError,
+  onDismissReasoningSelectionError,
+  onReasoningEffortSelect,
 }: InboxViewProps) {
   const { t } = useTranslation();
   const {
@@ -103,6 +112,10 @@ export function InboxView({
               modelSelectionError={modelSelectionError}
               onDismissModelSelectionError={onDismissModelSelectionError}
               onModelPresetSelect={onModelPresetSelect}
+              reasoningSelectionPending={reasoningSelectionPending}
+              reasoningSelectionError={reasoningSelectionError}
+              onDismissReasoningSelectionError={onDismissReasoningSelectionError}
+              onReasoningEffortSelect={onReasoningEffortSelect}
             />
           }
         />

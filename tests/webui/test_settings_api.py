@@ -114,3 +114,53 @@ def test_update_agent_settings_writes_generation_fields_to_defaults_without_pres
     assert payload["agent"]["context_window_tokens"] == 128_000
     saved = load_config(config_path)
     assert saved.agents.defaults.context_window_tokens == 128_000
+
+
+def test_update_agent_settings_writes_reasoning_effort_to_active_preset(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.providers.deepseek.api_key = "sk-test"
+    config.model_presets["think"] = ModelPresetConfig(
+        label="think",
+        model="deepseek-v4-pro",
+        provider="deepseek",
+        reasoning_effort=None,
+    )
+    config.agents.defaults.model_preset = "think"
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = update_agent_settings({"reasoning_effort": ["high"]})
+
+    assert payload["agent"]["reasoning_effort"] == "high"
+    saved = load_config(config_path)
+    assert saved.model_presets["think"].reasoning_effort == "high"
+
+
+def test_create_model_configuration_accepts_reasoning_effort(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.providers.openai.api_key = "sk-test"
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = create_model_configuration(
+        {
+            "label": ["Think preset"],
+            "provider": ["openai"],
+            "model": ["openai/gpt-5"],
+            "reasoning_effort": ["medium"],
+        }
+    )
+
+    assert payload["agent"]["model_preset"] == "think-preset"
+    rows = {row["name"]: row for row in payload["model_presets"]}
+    assert rows["think-preset"]["reasoning_effort"] == "medium"
+    saved = load_config(config_path)
+    assert saved.model_presets["think-preset"].reasoning_effort == "medium"

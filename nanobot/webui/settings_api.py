@@ -22,6 +22,18 @@ from nanobot.providers.registry import PROVIDERS, find_by_name
 
 QueryParams = dict[str, list[str]]
 
+_VALID_REASONING_EFFORTS = frozenset({"none", "low", "medium", "high", "adaptive", "minimal"})
+
+
+def _parse_reasoning_effort_value(raw: str) -> str | None:
+    """解析 reasoning_effort 查询参数；空或 default 表示 None。"""
+    value = raw.strip().lower()
+    if not value or value == "default":
+        return None
+    if value not in _VALID_REASONING_EFFORTS:
+        raise WebUISettingsError("invalid reasoning_effort")
+    return value
+
 _WEB_SEARCH_PROVIDER_OPTIONS: tuple[dict[str, str], ...] = (
     {"name": "duckduckgo", "label": "DuckDuckGo", "credential": "none"},
     {"name": "brave", "label": "Brave Search", "credential": "api_key"},
@@ -488,6 +500,13 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             defaults.max_messages = parsed_max_messages
             changed = True
 
+    reasoning_effort_raw = _query_first_alias(query, "reasoning_effort", "reasoningEffort")
+    if reasoning_effort_raw is not None:
+        parsed_reasoning = _parse_reasoning_effort_value(reasoning_effort_raw)
+        if generation_target.reasoning_effort != parsed_reasoning:
+            generation_target.reasoning_effort = parsed_reasoning
+            changed = True
+
     if changed:
         save_config(config)
     return settings_payload(requires_restart=restart_required)
@@ -513,6 +532,10 @@ def create_model_configuration(query: QueryParams) -> dict[str, Any]:
     _validate_configured_provider(config, provider)
 
     base = config.resolve_default_preset()
+    reasoning_effort = base.reasoning_effort
+    reasoning_effort_raw = _query_first_alias(query, "reasoning_effort", "reasoningEffort")
+    if reasoning_effort_raw is not None:
+        reasoning_effort = _parse_reasoning_effort_value(reasoning_effort_raw)
     config.model_presets[name] = ModelPresetConfig(
         label=label,
         model=model,
@@ -520,7 +543,7 @@ def create_model_configuration(query: QueryParams) -> dict[str, Any]:
         max_tokens=base.max_tokens,
         context_window_tokens=base.context_window_tokens,
         temperature=base.temperature,
-        reasoning_effort=base.reasoning_effort,
+        reasoning_effort=reasoning_effort,
     )
     config.agents.defaults.model_preset = name
     save_config(config)

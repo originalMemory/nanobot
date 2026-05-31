@@ -176,7 +176,18 @@
       "visionProvider": "视觉服务商",
       "maxTokens": "最大输出 Token 数",
       "contextWindowTokens": "上下文窗口",
-      "maxMessages": "最大消息数"
+      "maxMessages": "最大消息数",
+      "reasoningEffort": "思考模式"
+    },
+    "reasoningEffort": {
+      "options": {
+        "default": "默认",
+        "none": "关闭",
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "adaptive": "自适应"
+      }
     },
     "help": {
       "theme": "从 9 种主题中选择，个性化你的外观。",
@@ -214,7 +225,8 @@
       "visionProvider": "视觉模型使用的服务商。留空则根据模型名自动检测。",
       "maxTokens": "模型每次回复最多生成的 Token 数。",
       "contextWindowTokens": "模型的上下文窗口大小，用于记忆整理与截断决策。",
-      "maxMessages": "从历史中回放的最大消息数。填 0 则使用默认值（120）。"
+      "maxMessages": "从历史中回放的最大消息数。填 0 则使用默认值（120）。",
+      "reasoningEffort": "控制当前模型预设的 extended thinking 强度。"
     },
     "timezone": {
       "select": "选择时区",
@@ -573,6 +585,12 @@
           "4_3": "横版 4:3",
           "16_9": "宽屏 16:9"
         }
+      },
+      "reasoningMode": {
+        "toggle": "思考模式",
+        "menuAria": "思考模式",
+        "menuLabel": "思考模式",
+        "failed": "更新思考模式失败"
       },
       "tools": {
         "search": "搜索",

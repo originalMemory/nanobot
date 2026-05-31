@@ -953,6 +953,8 @@ class WebSocketChannel(BaseChannel):
             "visionModel",
             "vision_provider",
             "visionProvider",
+            "reasoning_effort",
+            "reasoningEffort",
         }
         if self._runtime_model_setter is not None and any(key in query for key in model_keys):
             try:

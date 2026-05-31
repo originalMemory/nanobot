@@ -1,3 +1,5 @@
+import type { ReasoningEffortValue } from "./reasoning-effort";
+
 export type Role = "user" | "assistant" | "tool" | "system";
 
 /** "trace" rows are intermediate agent breadcrumbs (tool-call hints,
@@ -482,6 +484,7 @@ export interface SettingsUpdate {
   maxTokens?: number;
   contextWindowTokens?: number;
   maxMessages?: number;
+  reasoningEffort?: ReasoningEffortValue;
 }
 
 export interface ModelConfigurationCreate {
@@ -489,6 +492,7 @@ export interface ModelConfigurationCreate {
   label: string;
   provider: string;
   model: string;
+  reasoningEffort?: ReasoningEffortValue;
 }
 
 export interface ProviderSettingsUpdate {
