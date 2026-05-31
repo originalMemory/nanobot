@@ -151,6 +151,45 @@ All frames are JSON text. Each message has an `event` field.
 
 Reasoning frames only flow when the channel's `showReasoning` is `true` (default) and the model returns reasoning content (DeepSeek-R1 / Kimi / MiMo / OpenAI reasoning models, Anthropic extended thinking, or inline `<think>` / `<thought>` tags). Models without reasoning produce zero `reasoning_delta` frames.
 
+**`message` with `kind: "tool_hint"`** — tool-call progress while the agent executes tools. Carries a human-readable hint in `text` and structured lifecycle data in `tool_events` (phase `start` → `end` / `error`, keyed by `call_id`). WebUI/Electron fold these into activity trace rows (e.g. `Using read_file`). See [Tool call UI mapping](./tool-call-ui.md) for the full live + replay pipeline.
+
+```json
+{
+  "event": "message",
+  "chat_id": "uuid-v4",
+  "text": "read_file({\"path\": \"notes.md\"})",
+  "kind": "tool_hint",
+  "tool_events": [
+    {
+      "phase": "start",
+      "call_id": "call_1",
+      "name": "read_file",
+      "arguments": {"path": "notes.md"}
+    }
+  ]
+}
+```
+
+**`file_edit`** — structured file-edit progress from edit tools (added/deleted lines, path, status). Separate from `tool_hint`; the WebUI renders these inside the same activity cluster.
+
+```json
+{
+  "event": "file_edit",
+  "chat_id": "uuid-v4",
+  "edits": [
+    {
+      "call_id": "call-write",
+      "tool": "write_file",
+      "path": "foo.txt",
+      "phase": "end",
+      "added": 12,
+      "deleted": 0,
+      "status": "done"
+    }
+  ]
+}
+```
+
 **`runtime_model_updated`** — broadcast when the gateway runtime model changes, for example after `/model <preset>`:
 
 ```json

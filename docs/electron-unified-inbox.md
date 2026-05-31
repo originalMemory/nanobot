@@ -206,6 +206,7 @@ Phase 4  跨通道回复路由（后续优化）
 | source_channel 写入 Session | `nanobot/agent/loop.py` → `_source_extras()`, `_persist_user_message_early()`, `_save_turn()`, `_state_command()` |
 | Session → wire events 转换器 | `nanobot/webui/transcript.py` → `session_messages_to_wire_events()` |
 | Inbox thread 构建 | `nanobot/webui/transcript.py` → `build_inbox_thread_from_session()` |
+| 工具调用 → UI 展示全链路 | [`tool-call-ui.md`](./tool-call-ui.md) |
 | WebUI transcript 写入 | `nanobot/webui/transcript.py` → `append_transcript_object()` |
 | 实时 fan-out 推送 | `nanobot/channels/websocket.py` → `_fan_out_to_unified_inbox()` |
 | Sessions API 过滤 | `nanobot/channels/websocket.py` → `_handle_sessions_list` |
