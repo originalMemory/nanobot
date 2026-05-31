@@ -4307,6 +4307,7 @@ function ModelPresetPicker({
             <ModelPresetOptionContent
               preset={selectedPreset}
               settings={settings}
+              activePreset={value}
               draftModel={draftModel}
               draftProvider={draftProvider}
               showProviderLogos={showProviderLogos}
@@ -4339,6 +4340,7 @@ function ModelPresetPicker({
               <ModelPresetOptionContent
                 preset={preset}
                 settings={settings}
+                activePreset={value}
                 draftModel={draftModel}
                 draftProvider={draftProvider}
                 showProviderLogos={showProviderLogos}
@@ -4369,6 +4371,7 @@ function ModelPresetPicker({
 function ModelPresetOptionContent({
   preset,
   settings,
+  activePreset,
   draftModel,
   draftProvider,
   showProviderLogos,
@@ -4376,15 +4379,17 @@ function ModelPresetOptionContent({
 }: {
   preset: SettingsPayload["model_presets"][number];
   settings: SettingsPayload;
+  activePreset: string;
   draftModel: string;
   draftProvider: string;
   showProviderLogos: boolean;
   compact?: boolean;
 }) {
+  const useDraftValues = preset.is_default && preset.name === activePreset;
   const provider = modelPresetProviderKey(preset, settings, {
-    draftProvider: preset.is_default ? draftProvider : undefined,
+    draftProvider: useDraftValues ? draftProvider : undefined,
   });
-  const model = preset.is_default ? draftModel : preset.model;
+  const model = useDraftValues ? draftModel : preset.model;
   const providerName = providerDisplayLabel(settings.providers, provider);
   return (
     <span className="flex min-w-0 items-center gap-2.5">

@@ -131,6 +131,31 @@ function editableDefaultProvider(payload: SettingsPayload): string {
   return base?.provider ?? payload.agent.provider ?? payload.agent.resolved_provider ?? "";
 }
 
+function agentDraftForPreset(payload: SettingsPayload, presetName: string): AgentSettingsDraft {
+  const preset = payload.model_presets.find((p) => p.name === presetName);
+  const base = defaultPreset(payload);
+  return {
+    model:
+      presetName === "default"
+        ? (base?.model ?? payload.agent.model)
+        : (preset?.model ?? payload.agent.model),
+    provider:
+      presetName === "default"
+        ? editableDefaultProvider(payload)
+        : (preset?.provider ?? payload.agent.provider),
+    modelPreset: presetName,
+    visionModel: payload.agent.vision_model ?? "",
+    visionProvider: payload.agent.vision_provider ?? "",
+    maxTokens: String(preset?.max_tokens ?? payload.agent.max_tokens),
+    contextWindowTokens: String(preset?.context_window_tokens ?? payload.agent.context_window_tokens),
+    maxMessages: String(payload.agent.max_messages ?? 120),
+  };
+}
+
+function agentDraftFromSettings(payload: SettingsPayload): AgentSettingsDraft {
+  return agentDraftForPreset(payload, modelPresetValue(payload));
+}
+
 // ---------------------------------------------------------------------------
 // ProviderIcon (larger variant used in provider rows)
 // ---------------------------------------------------------------------------
@@ -375,16 +400,7 @@ export function ModelsSection({
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
 
   // Agent form state
-  const [form, setForm] = useState<AgentSettingsDraft>({
-    model: defaultPreset(settings)?.model ?? settings.agent.model,
-    provider: editableDefaultProvider(settings),
-    modelPreset: modelPresetValue(settings),
-    visionModel: settings.agent.vision_model ?? "",
-    visionProvider: settings.agent.vision_provider ?? "",
-    maxTokens: String(settings.agent.max_tokens),
-    contextWindowTokens: String(settings.agent.context_window_tokens),
-    maxMessages: String(settings.agent.max_messages ?? 120),
-  });
+  const [form, setForm] = useState<AgentSettingsDraft>(() => agentDraftFromSettings(settings));
   const [saving, setSaving] = useState(false);
 
   // Model configuration dialog
@@ -403,6 +419,38 @@ export function ModelsSection({
   const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
   const [editingKeys, setEditingKeys] = useState<Record<string, boolean>>({});
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
+
+  const modelPresetsSignature = useMemo(
+    () =>
+      settings.model_presets
+        .map((preset) =>
+          [
+            preset.name,
+            preset.active,
+            preset.model,
+            preset.provider,
+            preset.max_tokens,
+            preset.context_window_tokens,
+          ].join("\u0000"),
+        )
+        .join("\u0001"),
+    [settings.model_presets],
+  );
+
+  useEffect(() => {
+    setForm(agentDraftFromSettings(settings));
+  }, [
+    settings.agent.model_preset,
+    settings.agent.model,
+    settings.agent.provider,
+    settings.agent.resolved_provider,
+    settings.agent.vision_model,
+    settings.agent.vision_provider,
+    settings.agent.max_tokens,
+    settings.agent.context_window_tokens,
+    settings.agent.max_messages,
+    modelPresetsSignature,
+  ]);
 
   useEffect(() => {
     setProviderForms((prev) => {
@@ -736,7 +784,7 @@ export function ModelsSection({
                 draftModel={form.model}
                 draftProvider={form.provider}
                 showProviderLogos={showBrandLogos}
-                onChange={(modelPreset) => setForm((prev) => ({ ...prev, modelPreset }))}
+                onChange={(modelPreset) => setForm(agentDraftForPreset(settings, modelPreset))}
                 onCreateConfiguration={handleOpenConfigDialog}
               />
             </SettingsRow>

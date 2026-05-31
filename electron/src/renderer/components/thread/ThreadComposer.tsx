@@ -45,6 +45,12 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   useAttachedImages,
   type AttachedImage,
   type AttachmentError,
@@ -58,6 +64,7 @@ import type {
   McpPresetInfo,
   OutboundCliAppMention,
   OutboundMcpPresetMention,
+  SettingsPayload,
   SlashCommand,
 } from "@/lib/types";
 import {
@@ -85,6 +92,11 @@ interface ThreadComposerProps {
   modelLabel?: string | null;
   modelProvider?: string | null;
   modelProviderLabel?: string | null;
+  modelSettings?: SettingsPayload | null;
+  modelSelectionPending?: boolean;
+  modelSelectionError?: string | null;
+  onDismissModelSelectionError?: () => void;
+  onModelPresetSelect?: (preset: string) => void;
   variant?: "thread" | "hero";
   slashCommands?: SlashCommand[];
   cliApps?: CliAppInfo[];
@@ -477,6 +489,11 @@ export function ThreadComposer({
   modelLabel = null,
   modelProvider = null,
   modelProviderLabel = null,
+  modelSettings = null,
+  modelSelectionPending = false,
+  modelSelectionError = null,
+  onDismissModelSelectionError,
+  onModelPresetSelect,
   variant = "thread",
   slashCommands = [],
   cliApps = [],
@@ -1312,7 +1329,16 @@ export function ThreadComposer({
                 />
               ) : null}
             </div>
-            {modelLabel ? (
+            {modelSettings ? (
+              <ComposerModelPicker
+                settings={modelSettings}
+                isHero={isHero}
+                selecting={modelSelectionPending}
+                error={modelSelectionError}
+                onDismissError={onDismissModelSelectionError}
+                onSelect={onModelPresetSelect}
+              />
+            ) : modelLabel ? (
               <ComposerModelBadge
                 label={modelLabel}
                 provider={modelProvider}
@@ -1358,6 +1384,180 @@ export function ThreadComposer({
   );
 }
 
+function composerProviderLabel(settings: SettingsPayload, provider: string | null | undefined): string {
+  if (!provider) return "";
+  return settings.providers.find((p) => p.name === provider)?.label ?? provider;
+}
+
+function composerPresetProvider(
+  settings: SettingsPayload,
+  preset: SettingsPayload["model_presets"][number],
+): string {
+  if (preset.active) return settings.agent.resolved_provider || settings.agent.provider || preset.provider;
+  if (preset.provider === "auto") return "auto";
+  return preset.provider;
+}
+
+function ComposerModelPicker({
+  settings,
+  isHero,
+  selecting,
+  error = null,
+  onDismissError,
+  onSelect,
+}: {
+  settings: SettingsPayload;
+  isHero: boolean;
+  selecting: boolean;
+  error?: string | null;
+  onDismissError?: () => void;
+  onSelect?: (preset: string) => void;
+}) {
+  const { t } = useTranslation();
+  const activePresetName = settings.agent.model_preset || "default";
+  const activeProvider = settings.agent.resolved_provider || settings.agent.provider;
+  const activeProviderLabel = composerProviderLabel(settings, activeProvider);
+  const errorId = error ? "composer-model-picker-error" : undefined;
+
+  return (
+    <div className={cn("flex min-w-0 flex-col items-end gap-0.5", isHero ? "max-w-[13.5rem]" : "max-w-[12rem]")}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild disabled={!onSelect || selecting}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={!onSelect || selecting}
+            title={activeProviderLabel ? `${settings.agent.model} · ${activeProviderLabel}` : settings.agent.model}
+            aria-label={t("thread.composer.modelPickerAria", { defaultValue: "Choose model" })}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={errorId}
+            className={cn(
+              "inline-flex min-w-0 items-center rounded-full border font-medium text-foreground/82",
+              "shadow-[0_2px_8px_rgba(15,23,42,0.045)] hover:bg-card hover:text-foreground",
+              error
+                ? "border-destructive/45 bg-destructive/5"
+                : "border-border/55 bg-card hover:text-foreground",
+              isHero ? "h-9 w-full gap-2 px-2.5 text-[12px]" : "h-9 w-full gap-2 px-2.5 text-[12px]",
+            )}
+          >
+            <ComposerModelLogo provider={activeProvider} label={settings.agent.model} isHero={isHero} />
+            <span className="truncate">{settings.agent.model}</span>
+            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="max-h-[18rem] w-[360px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[18px] border-border/65 bg-popover p-1.5 text-popover-foreground shadow-[0_18px_55px_rgba(15,23,42,0.18)] dark:border-white/10 dark:shadow-[0_22px_55px_rgba(0,0,0,0.45)]"
+        >
+          {settings.model_presets.map((preset) => {
+            const selected = preset.name === activePresetName;
+            const provider = composerPresetProvider(settings, preset);
+            const providerLabel = composerProviderLabel(settings, provider);
+            return (
+              <DropdownMenuItem
+                key={preset.name}
+                onSelect={() => onSelect?.(preset.name)}
+                className={cn(
+                  "flex cursor-default items-center justify-between gap-3 rounded-[12px] px-2.5 py-2 text-[13px]",
+                  "focus:bg-muted/85 focus:text-foreground",
+                  selected && "bg-muted/80 text-foreground focus:bg-muted",
+                )}
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <ComposerModelLogo provider={provider} label={preset.model} isHero={false} />
+                  <span className="min-w-0 text-left leading-tight">
+                    <span className="block truncate font-medium text-foreground">{preset.model || preset.label}</span>
+                    <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
+                      {providerLabel}
+                      {preset.label ? ` · ${preset.label}` : ""}
+                    </span>
+                  </span>
+                </span>
+                {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {error ? (
+        <div
+          id={errorId}
+          role="alert"
+          className="flex w-full items-start gap-1 text-[10px] leading-4 text-destructive"
+        >
+          <span className="min-w-0 flex-1 truncate" title={error}>
+            {error}
+          </span>
+          {onDismissError ? (
+            <button
+              type="button"
+              onClick={onDismissError}
+              aria-label={t("common.dismiss", { defaultValue: "Dismiss" })}
+              className="shrink-0 rounded p-0.5 text-destructive/80 hover:bg-destructive/10 hover:text-destructive"
+            >
+              <X className="h-3 w-3" aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ComposerModelLogo({
+  provider,
+  label,
+  isHero,
+}: {
+  provider?: string | null;
+  label: string;
+  isHero: boolean;
+}) {
+  const inferredProvider = provider || inferProviderFromModelName(label);
+  const brand = providerBrand(inferredProvider);
+  const [logoIndex, setLogoIndex] = useState(0);
+  const logoUrl = brand?.logoUrls[logoIndex];
+  const showLogo = !!logoUrl;
+
+  useEffect(() => setLogoIndex(0), [inferredProvider]);
+
+  return (
+    <span
+      data-testid={inferredProvider ? `composer-model-logo-${inferredProvider}` : "composer-model-logo"}
+      className={cn(
+        "grid shrink-0 place-items-center overflow-hidden rounded-full border bg-background",
+        "h-5 w-5",
+      )}
+      style={{
+        borderColor: brand ? `${brand.color}28` : undefined,
+        boxShadow: brand ? `inset 0 0 0 1px ${brand.color}18` : undefined,
+      }}
+      aria-hidden
+    >
+      {showLogo ? (
+        <img
+          src={logoUrl}
+          alt=""
+          className="h-3.5 w-3.5 object-contain"
+          onError={() => setLogoIndex((index) => index + 1)}
+        />
+      ) : brand ? (
+        <span
+          className={cn(
+            "grid h-full w-full place-items-center rounded-full text-white",
+            "text-[8px]",
+          )}
+          style={{ backgroundColor: brand.color }}
+        >
+          {brand.initials.slice(0, 2)}
+        </span>
+      ) : (
+        <Sparkles className={cn("text-muted-foreground/65", isHero ? "h-3.5 w-3.5" : "h-3 w-3")} />
+      )}
+    </span>
+  );
+}
+
 function ComposerModelBadge({
   label,
   provider,
@@ -1369,14 +1569,7 @@ function ComposerModelBadge({
   providerLabel?: string | null;
   isHero: boolean;
 }) {
-  const inferredProvider = provider || inferProviderFromModelName(label);
-  const brand = providerBrand(inferredProvider);
-  const [logoIndex, setLogoIndex] = useState(0);
-  const logoUrl = brand?.logoUrls[logoIndex];
-  const showLogo = !!logoUrl;
   const title = providerLabel ? `${label} · ${providerLabel}` : label;
-
-  useEffect(() => setLogoIndex(0), [inferredProvider]);
 
   return (
     <span
@@ -1387,39 +1580,7 @@ function ComposerModelBadge({
         isHero ? "h-9 max-w-[13.5rem] gap-2 px-2.5 text-[12px]" : "h-9 max-w-[12rem] gap-2 px-2.5 text-[12px]",
       )}
     >
-      <span
-        data-testid={inferredProvider ? `composer-model-logo-${inferredProvider}` : "composer-model-logo"}
-        className={cn(
-          "grid shrink-0 place-items-center overflow-hidden rounded-full border bg-background",
-          "h-5 w-5",
-        )}
-        style={{
-          borderColor: brand ? `${brand.color}28` : undefined,
-          boxShadow: brand ? `inset 0 0 0 1px ${brand.color}18` : undefined,
-        }}
-        aria-hidden
-      >
-        {showLogo ? (
-          <img
-            src={logoUrl}
-            alt=""
-            className="h-3.5 w-3.5 object-contain"
-            onError={() => setLogoIndex((index) => index + 1)}
-          />
-        ) : brand ? (
-          <span
-            className={cn(
-              "grid h-full w-full place-items-center rounded-full text-white",
-              "text-[8px]",
-            )}
-            style={{ backgroundColor: brand.color }}
-          >
-            {brand.initials.slice(0, 2)}
-          </span>
-        ) : (
-          <Sparkles className={cn("text-muted-foreground/65", isHero ? "h-3.5 w-3.5" : "h-3 w-3")} />
-        )}
-      </span>
+      <ComposerModelLogo provider={provider} label={label} isHero={isHero} />
       <span className="truncate">{label}</span>
     </span>
   );

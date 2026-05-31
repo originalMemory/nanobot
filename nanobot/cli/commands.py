@@ -903,6 +903,14 @@ def _run_gateway(
             return stripped or None
         return None
 
+    def _webui_runtime_model_setter(preset: str | None) -> None:
+        from nanobot.agent import model_presets as preset_helpers
+        from nanobot.config.loader import load_config, resolve_config_env_vars
+
+        latest_config = resolve_config_env_vars(load_config())
+        agent.model_presets = preset_helpers.configured_model_presets(latest_config)
+        agent.set_model_preset(preset or "default")
+
     # Create channel manager (forwards SessionManager so the WebSocket channel
     # can serve the embedded webui's REST surface).
     channels = ChannelManager(
@@ -910,6 +918,7 @@ def _run_gateway(
         bus,
         session_manager=session_manager,
         webui_runtime_model_name=_webui_runtime_model_name,
+        webui_runtime_model_setter=_webui_runtime_model_setter,
     )
 
     def _pick_heartbeat_target() -> tuple[str, str]:

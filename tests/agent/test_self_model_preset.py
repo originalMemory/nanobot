@@ -37,6 +37,23 @@ def test_model_preset_getter_none_when_not_set(tmp_path) -> None:
     assert loop.model_preset is None
 
 
+def test_model_preset_init_applies_active_preset_before_tools_register(tmp_path) -> None:
+    """config 启动时带 model_preset 不应在 vision 字段初始化前调用 set_model_preset。"""
+    presets = {
+        "fast": ModelPresetConfig(
+            model="openai/gpt-4.1",
+            provider="openai",
+            max_tokens=4096,
+            context_window_tokens=32_768,
+        )
+    }
+    loop = _make_loop(tmp_path, presets=presets, active_preset="fast")
+
+    assert loop.model_preset == "fast"
+    assert loop.model == "openai/gpt-4.1"
+    assert loop.context_window_tokens == 32_768
+
+
 def test_model_preset_setter_updates_state(tmp_path) -> None:
     presets = {
         "fast": ModelPresetConfig(

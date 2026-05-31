@@ -509,6 +509,7 @@ class WebSocketChannel(BaseChannel):
         static_dist_path: Path | None = None,
         workspace_path: Path | None = None,
         runtime_model_name: Callable[[], str | None] | None = None,
+        runtime_model_setter: Callable[[str | None], None] | None = None,
         unified_session: bool = False,
     ):
         if isinstance(config, dict):
@@ -537,6 +538,7 @@ class WebSocketChannel(BaseChannel):
             else get_workspace_path()
         ).resolve(strict=False)
         self._runtime_model_name = runtime_model_name
+        self._runtime_model_setter = runtime_model_setter
         self._unified_session = unified_session
         self._settings_restart_sections: set[str] = set()
         self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
@@ -938,6 +940,25 @@ class WebSocketChannel(BaseChannel):
             payload = update_agent_settings(query)
         except WebUISettingsError as e:
             return _http_error(e.status, e.message)
+        model_keys = {
+            "model_preset",
+            "modelPreset",
+            "model",
+            "provider",
+            "max_tokens",
+            "maxTokens",
+            "context_window_tokens",
+            "contextWindowTokens",
+            "vision_model",
+            "visionModel",
+            "vision_provider",
+            "visionProvider",
+        }
+        if self._runtime_model_setter is not None and any(key in query for key in model_keys):
+            try:
+                self._runtime_model_setter(payload.get("agent", {}).get("model_preset"))
+            except (KeyError, ValueError) as e:
+                return _http_error(400, str(e))
         return _http_json_response(
             self._with_settings_restart_state(payload, section="runtime")
         )
@@ -950,6 +971,11 @@ class WebSocketChannel(BaseChannel):
             payload = create_model_configuration(query)
         except WebUISettingsError as e:
             return _http_error(e.status, e.message)
+        if self._runtime_model_setter is not None:
+            try:
+                self._runtime_model_setter(payload.get("agent", {}).get("model_preset"))
+            except (KeyError, ValueError) as e:
+                return _http_error(400, str(e))
         return _http_json_response(self._with_settings_restart_state(payload))
 
     def _handle_settings_provider_update(self, request: WsRequest) -> Response:

@@ -14,6 +14,7 @@ const clientInstances = vi.hoisted(
       connect: ReturnType<typeof vi.fn>;
       updateUrl: ReturnType<typeof vi.fn>;
       close: ReturnType<typeof vi.fn>;
+      onRuntimeModelUpdate: ReturnType<typeof vi.fn>;
     }>,
 );
 
@@ -26,23 +27,23 @@ vi.mock("@/i18n", () => ({
 }));
 
 vi.mock("@/components/InboxSidebar", () => ({
-  InboxSidebar: () => null,
+  InboxSidebar: (): null => null,
 }));
 
 vi.mock("@/components/InboxView", () => ({
-  InboxView: () => null,
+  InboxView: (): null => null,
 }));
 
 vi.mock("@/components/ScreenshotPreviewModal", () => ({
-  ScreenshotPreviewModal: () => null,
+  ScreenshotPreviewModal: (): null => null,
 }));
 
 vi.mock("@/components/settings/SettingsView", () => ({
-  SettingsView: () => null,
+  SettingsView: (): null => null,
 }));
 
 vi.mock("@/components/WindowTitleBar", () => ({
-  WindowTitleBar: () => null,
+  WindowTitleBar: (): null => null,
 }));
 
 vi.mock("@/lib/nanobot-client", () => ({
@@ -51,6 +52,7 @@ vi.mock("@/lib/nanobot-client", () => ({
       connect: vi.fn(),
       updateUrl: vi.fn(),
       close: vi.fn(),
+      onRuntimeModelUpdate: vi.fn(() => vi.fn()),
     };
     clientInstances.push(client);
     return client;
@@ -60,6 +62,7 @@ vi.mock("@/lib/nanobot-client", () => ({
 vi.mock("@/lib/api", () => ({
   fetchInboxThread: fetchInboxThreadMock,
   fetchSettings: fetchSettingsMock,
+  updateSettings: vi.fn(),
 }));
 
 vi.mock("@/lib/bootstrap", async () => {
@@ -158,5 +161,31 @@ describe("Electron App token refresh", () => {
     });
 
     expect(clientInstances[0]?.close).toHaveBeenCalledOnce();
+  });
+
+  it("retries scheduled refresh after a transient failure", async () => {
+    fetchBootstrapMock
+      .mockResolvedValueOnce(bootstrap("tok-1"))
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValueOnce(bootstrap("tok-2", 300));
+
+    render(<App />);
+    await settleInitialBoot();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(fetchBootstrapMock).toHaveBeenCalledTimes(2);
+    expect(clientInstances[0]?.updateUrl).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(fetchBootstrapMock).toHaveBeenCalledTimes(3);
+    expect(clientInstances[0]?.updateUrl).toHaveBeenCalledWith(
+      "ws://test?token=tok-2",
+    );
   });
 });

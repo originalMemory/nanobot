@@ -12,7 +12,8 @@ from zoneinfo import ZoneInfo
 
 from nanobot.config.loader import get_config_path, load_config, save_config
 from nanobot.config.paths import get_media_dir
-from nanobot.config.schema import ModelPresetConfig
+from nanobot.config.schema import AgentDefaults, Config, ModelPresetConfig
+from nanobot.providers.factory import resolve_vision_config
 from nanobot.providers.image_generation import (
     get_image_gen_provider,
     image_gen_provider_names,
@@ -126,6 +127,18 @@ def _model_configuration_slug(label: str) -> str:
     if len(normalized) > 48:
         normalized = normalized[:48].rstrip("-_")
     return normalized
+
+
+GenerationTarget = AgentDefaults | ModelPresetConfig
+
+
+def _writable_generation_target(config: Config) -> GenerationTarget:
+    """返回当前应写入模型/生成参数的配置对象（默认或具名 preset）。"""
+    defaults = config.agents.defaults
+    preset_name = defaults.model_preset
+    if preset_name and preset_name != "default":
+        return config.model_presets[preset_name]
+    return defaults
 
 
 def _validate_configured_provider(config: Any, provider: str) -> None:
@@ -254,6 +267,7 @@ def settings_payload(*, requires_restart: bool = False) -> dict[str, Any]:
         )
 
     exec_config = config.tools.exec
+    vision_model, vision_provider = resolve_vision_config(config)
     return {
         "agent": {
             "model": effective_preset.model,
@@ -270,8 +284,8 @@ def settings_payload(*, requires_restart: bool = False) -> dict[str, Any]:
             "bot_icon": defaults.bot_icon,
             "bot_avatar_url": _get_bot_avatar_url(),
             "tool_hint_max_length": defaults.tool_hint_max_length,
-            "vision_model": defaults.vision_model,
-            "vision_provider": defaults.vision_provider,
+            "vision_model": vision_model,
+            "vision_provider": vision_provider,
             "max_messages": defaults.max_messages,
         },
         "model_presets": model_presets,
@@ -354,13 +368,15 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             defaults.model_preset = preset_value
             changed = True
 
+    generation_target = _writable_generation_target(config)
+
     model = _query_first(query, "model")
     if model is not None:
         model = model.strip()
         if not model:
             raise WebUISettingsError("model is required")
-        if defaults.model != model:
-            defaults.model = model
+        if generation_target.model != model:
+            generation_target.model = model
             changed = True
 
     provider = _query_first(query, "provider")
@@ -369,8 +385,8 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
         if not provider:
             raise WebUISettingsError("provider is required")
         _validate_configured_provider(config, provider)
-        if defaults.provider != provider:
-            defaults.provider = provider
+        if generation_target.provider != provider:
+            generation_target.provider = provider
             changed = True
 
     timezone = _query_first(query, "timezone")
@@ -425,15 +441,15 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
     vision_model = _query_first_alias(query, "vision_model", "visionModel")
     if vision_model is not None:
         vision_model_value = vision_model.strip() or None
-        if defaults.vision_model != vision_model_value:
-            defaults.vision_model = vision_model_value
+        if generation_target.vision_model != vision_model_value:
+            generation_target.vision_model = vision_model_value
             changed = True
 
     vision_provider = _query_first_alias(query, "vision_provider", "visionProvider")
     if vision_provider is not None:
         vision_provider_value = vision_provider.strip() or None
-        if defaults.vision_provider != vision_provider_value:
-            defaults.vision_provider = vision_provider_value
+        if generation_target.vision_provider != vision_provider_value:
+            generation_target.vision_provider = vision_provider_value
             changed = True
 
     max_tokens_raw = _query_first_alias(query, "max_tokens", "maxTokens")
@@ -444,8 +460,8 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             raise WebUISettingsError("max_tokens must be an integer") from None
         if parsed_max_tokens < 1:
             raise WebUISettingsError("max_tokens must be >= 1")
-        if defaults.max_tokens != parsed_max_tokens:
-            defaults.max_tokens = parsed_max_tokens
+        if generation_target.max_tokens != parsed_max_tokens:
+            generation_target.max_tokens = parsed_max_tokens
             changed = True
 
     context_window_tokens_raw = _query_first_alias(query, "context_window_tokens", "contextWindowTokens")
@@ -456,8 +472,8 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             raise WebUISettingsError("context_window_tokens must be an integer") from None
         if parsed_ctx < 4096:
             raise WebUISettingsError("context_window_tokens must be >= 4096")
-        if defaults.context_window_tokens != parsed_ctx:
-            defaults.context_window_tokens = parsed_ctx
+        if generation_target.context_window_tokens != parsed_ctx:
+            generation_target.context_window_tokens = parsed_ctx
             changed = True
 
     max_messages_raw = _query_first_alias(query, "max_messages", "maxMessages")

@@ -6,7 +6,7 @@ import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
 import { useNanobotStream } from "@/hooks/useNanobotStream";
 import { channelLabel } from "@/lib/channels";
-import type { UIMessage } from "@/lib/types";
+import type { SettingsPayload, UIMessage } from "@/lib/types";
 
 const INBOX_CHAT_ID = "inbox:unified";
 
@@ -20,6 +20,11 @@ interface InboxViewProps {
   onScreenshotConsumed?: () => void;
   /** 点击截图按钮时触发，由 Shell 负责调用 electronAPI 并展示确认弹窗。 */
   onCaptureScreenshot?: () => void;
+  modelSettings?: SettingsPayload | null;
+  modelSelectionPending?: boolean;
+  modelSelectionError?: string | null;
+  onDismissModelSelectionError?: () => void;
+  onModelPresetSelect?: (preset: string) => void;
 }
 
 export function InboxView({
@@ -29,6 +34,11 @@ export function InboxView({
   pendingScreenshot,
   onScreenshotConsumed,
   onCaptureScreenshot,
+  modelSettings,
+  modelSelectionPending,
+  modelSelectionError,
+  onDismissModelSelectionError,
+  onModelPresetSelect,
 }: InboxViewProps) {
   const { t } = useTranslation();
   const {
@@ -88,6 +98,11 @@ export function InboxView({
               pendingScreenshot={pendingScreenshot}
               onScreenshotConsumed={onScreenshotConsumed}
               onCaptureScreenshot={onCaptureScreenshot}
+              modelSettings={modelSettings}
+              modelSelectionPending={modelSelectionPending}
+              modelSelectionError={modelSelectionError}
+              onDismissModelSelectionError={onDismissModelSelectionError}
+              onModelPresetSelect={onModelPresetSelect}
             />
           }
         />

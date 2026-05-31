@@ -703,6 +703,7 @@ export function useNanobotStream(
           streamEndTimerRef.current = null;
         }
         setIsStreaming(false);
+        setRunStartedAt(null);
         setMessages((prev) => {
           let finalized = prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
           finalized = pruneReasoningOnlyPlaceholders(finalized);

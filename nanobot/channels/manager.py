@@ -57,11 +57,13 @@ class ChannelManager:
         *,
         session_manager: "SessionManager | None" = None,
         webui_runtime_model_name: Callable[[], str | None] | None = None,
+        webui_runtime_model_setter: Callable[[str | None], None] | None = None,
     ):
         self.config = config
         self.bus = bus
         self._session_manager = session_manager
         self._webui_runtime_model_name = webui_runtime_model_name
+        self._webui_runtime_model_setter = webui_runtime_model_setter
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
         self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
@@ -117,6 +119,8 @@ class ChannelManager:
                     kwargs["workspace_path"] = self.config.workspace_path
                     if self._webui_runtime_model_name is not None:
                         kwargs["runtime_model_name"] = self._webui_runtime_model_name
+                    if self._webui_runtime_model_setter is not None:
+                        kwargs["runtime_model_setter"] = self._webui_runtime_model_setter
                     kwargs["unified_session"] = self._unified_session
                 channel = cls(section, self.bus, **kwargs)
                 channel.transcription_provider = transcription_provider

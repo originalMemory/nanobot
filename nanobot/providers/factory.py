@@ -163,7 +163,7 @@ def make_provider(
     return provider
 
 
-def _resolve_vision_config(config: Config) -> tuple[str | None, str | None]:
+def resolve_vision_config(config: Config) -> tuple[str | None, str | None]:
     """解析辅助视觉模型配置，返回 (vision_model, vision_provider)。
 
     优先级：当前活跃 preset 覆盖值 > agents.defaults 默认值。
@@ -190,13 +190,13 @@ def _resolve_vision_config(config: Config) -> tuple[str | None, str | None]:
 
 def get_vision_model(config: Config) -> str | None:
     """返回当前生效的辅助视觉模型名称；未配置时返回 None。"""
-    model, _ = _resolve_vision_config(config)
+    model, _ = resolve_vision_config(config)
     return model
 
 
 def make_vision_provider(config: Config) -> LLMProvider | None:
     """根据配置创建辅助视觉 provider；未配置 vision_model 时返回 None。"""
-    vision_model, vision_provider_name = _resolve_vision_config(config)
+    vision_model, vision_provider_name = resolve_vision_config(config)
     if not vision_model:
         return None
 

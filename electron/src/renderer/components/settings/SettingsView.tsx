@@ -74,9 +74,10 @@ interface SettingsViewProps {
   onBack: () => void;
   theme: Theme;
   onThemeChange: (t: Theme) => void;
+  onSettingsChange?: (settings: SettingsPayload) => void;
 }
 
-export function SettingsView({ onBack, theme, onThemeChange }: SettingsViewProps) {
+export function SettingsView({ onBack, theme, onThemeChange, onSettingsChange }: SettingsViewProps) {
   const { token, apiBase } = useClient();
   const [localPrefs, setLocalPrefs] = useElectronPreference<LocalPreferences>(
     "appearance.preferences",
@@ -112,10 +113,16 @@ export function SettingsView({ onBack, theme, onThemeChange }: SettingsViewProps
     setSettingsLoading(true);
     setSettingsError(null);
     fetchSettings(token, apiBase)
-      .then((data) => { if (!cancelled) { setSettings(data); setSettingsLoading(false); } })
+      .then((data) => {
+        if (!cancelled) {
+          setSettings(data);
+          onSettingsChange?.(data);
+          setSettingsLoading(false);
+        }
+      })
       .catch((err) => { if (!cancelled) { setSettingsError((err as Error).message); setSettingsLoading(false); } });
     return () => { cancelled = true; };
-  }, [token, apiBase]);
+  }, [token, apiBase, onSettingsChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,15 +166,21 @@ export function SettingsView({ onBack, theme, onThemeChange }: SettingsViewProps
 
   const handleSettingsUpdate = useCallback((payload: SettingsPayload) => {
     setSettings(payload);
-  }, []);
+    onSettingsChange?.(payload);
+  }, [onSettingsChange]);
 
   const handleSaveModel = useCallback(async (draft: AgentSettingsDraft) => {
+    if (!settings) return;
     const update: SettingsUpdate = {};
     if (draft.modelPreset !== null) update.modelPreset = draft.modelPreset;
-    if (draft.model) update.model = draft.model;
-    if (draft.provider) update.provider = draft.provider;
-    update.visionModel = draft.visionModel.trim();
-    update.visionProvider = draft.visionProvider.trim();
+    if (draft.modelPreset === "default") {
+      if (draft.model) update.model = draft.model;
+      if (draft.provider) update.provider = draft.provider;
+    }
+    const visionModel = draft.visionModel.trim();
+    if (visionModel !== (settings.agent.vision_model ?? "")) update.visionModel = visionModel;
+    const visionProvider = draft.visionProvider.trim();
+    if (visionProvider !== (settings.agent.vision_provider ?? "")) update.visionProvider = visionProvider;
     const maxTokens = Number(draft.maxTokens);
     if (!Number.isNaN(maxTokens) && maxTokens >= 1) update.maxTokens = maxTokens;
     const contextWindowTokens = Number(draft.contextWindowTokens);
@@ -175,8 +188,8 @@ export function SettingsView({ onBack, theme, onThemeChange }: SettingsViewProps
     const maxMessages = Number(draft.maxMessages);
     if (!Number.isNaN(maxMessages) && maxMessages >= 0) update.maxMessages = maxMessages;
     const payload = await updateSettings(token, update, apiBase);
-    setSettings(payload);
-  }, [token, apiBase]);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate, settings]);
 
   const handleSaveProvider = useCallback(async (providerName: string, form: ProviderForm) => {
     const rawApiType = form.apiType || undefined;
@@ -191,28 +204,28 @@ export function SettingsView({ onBack, theme, onThemeChange }: SettingsViewProps
       apiType,
     };
     const payload = await updateProviderSettings(token, update, apiBase);
-    setSettings(payload);
-  }, [token, apiBase]);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate]);
 
   const handleCreateModelConfiguration = useCallback(async (draft: ModelConfigurationDraft) => {
     const payload = await createModelConfiguration(token, draft, apiBase);
-    setSettings(payload);
-  }, [token, apiBase]);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate]);
 
   const handleSaveWebSearch = useCallback(async (update: WebSearchSettingsUpdate) => {
     const payload = await updateWebSearchSettings(token, update, apiBase);
-    setSettings(payload);
-  }, [token, apiBase]);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate]);
 
   const handleSaveImageGeneration = useCallback(async (update: ImageGenerationSettingsUpdate) => {
     const payload = await updateImageGenerationSettings(token, update, apiBase);
-    setSettings(payload);
-  }, [token, apiBase]);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate]);
 
   const handleSaveRuntime = useCallback(async (update: SettingsUpdate) => {
     const payload = await updateSettings(token, update, apiBase);
-    setSettings(payload);
-  }, [token, apiBase]);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate]);
 
   // -----------------------------------------------------------------------
   // CLI App actions

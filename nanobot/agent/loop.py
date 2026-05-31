@@ -327,12 +327,12 @@ class AgentLoop:
         )
         self.model_presets: dict[str, ModelPresetConfig] = model_presets or {}
         self._active_preset: str | None = None
-        if model_preset:
-            self.set_model_preset(model_preset, publish_update=False)
         self._vision_provider: LLMProvider | None = vision_provider
         self._vision_model: str | None = vision_model
         self._vision_provider_name: str | None = None
         self._vision_provider_factory = vision_provider_factory
+        if model_preset:
+            self.set_model_preset(model_preset, publish_update=False)
         self._register_default_tools()
         self._runtime_vars: dict[str, Any] = {}
         self._current_iteration: int = 0

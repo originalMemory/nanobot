@@ -18,14 +18,15 @@ import {
   loadSavedSecret,
   saveGatewayUrl,
   saveSecret,
+  TOKEN_REFRESH_MIN_DELAY_MS,
   tokenRefreshDelayMs,
 } from "@/lib/bootstrap";
-import { fetchInboxThread, fetchSettings } from "@/lib/api";
+import { fetchInboxThread, fetchSettings, updateSettings } from "@/lib/api";
 import { bootstrapAppLanguage } from "@/i18n";
 import { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider } from "@/providers/ClientProvider";
 import { BotIdentityProvider, type BotIdentity } from "@/contexts/BotIdentityContext";
-import type { UIMessage } from "@/lib/types";
+import type { SettingsPayload, UIMessage } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -173,27 +174,64 @@ function Shell({
   initialMessages: UIMessage[];
   gatewayUrl: string;
 }) {
+  const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
   const [channels, setChannels] = useState<string[]>([]);
   const [view, setView] = useState<"chat" | "settings">("chat");
   const [botIdentity, setBotIdentity] = useState<BotIdentity>({ botName: "nanobot", botIcon: "", botAvatarUrl: null });
+  const [settings, setSettings] = useState<SettingsPayload | null>(null);
+  const [modelSelectionPending, setModelSelectionPending] = useState(false);
+  const [modelSelectionError, setModelSelectionError] = useState<string | null>(null);
+
+  const applySettings = useCallback((payload: SettingsPayload) => {
+    setSettings(payload);
+    setBotIdentity({
+      botName: payload.agent.bot_name,
+      botIcon: payload.agent.bot_icon,
+      botAvatarUrl: payload.agent.bot_avatar_url,
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     fetchSettings(token, gatewayUrl)
       .then((s) => {
-        if (!cancelled) {
-          setBotIdentity({
-            botName: s.agent.bot_name,
-            botIcon: s.agent.bot_icon,
-            botAvatarUrl: s.agent.bot_avatar_url,
-          });
-        }
+        if (!cancelled) applySettings(s);
       })
-      .catch(() => {});
+      .catch((): void => undefined);
     return () => { cancelled = true; };
-  }, [token, gatewayUrl]);
+  }, [token, gatewayUrl, applySettings]);
+
+  useEffect(() => {
+    return client.onRuntimeModelUpdate((modelName, _modelPreset) => {
+      if (!modelName) return;
+      fetchSettings(token, gatewayUrl)
+        .then(applySettings)
+        .catch((): void => undefined);
+    });
+  }, [applySettings, client, gatewayUrl, token]);
+
+  const handleSelectModelPreset = useCallback(async (preset: string) => {
+    if (modelSelectionPending) return;
+    setModelSelectionError(null);
+    setModelSelectionPending(true);
+    try {
+      const payload = await updateSettings(token, { modelPreset: preset }, gatewayUrl);
+      applySettings(payload);
+    } catch (err) {
+      const message = (err as Error).message;
+      setModelSelectionError(
+        message || t("thread.composer.modelPresetFailed", { defaultValue: "Failed to switch model" }),
+      );
+    } finally {
+      setModelSelectionPending(false);
+    }
+  }, [applySettings, gatewayUrl, modelSelectionPending, t, token]);
+
+  const dismissModelSelectionError = useCallback(() => {
+    setModelSelectionError(null);
+  }, []);
 
   // 截图流程（8.2）：
   // pendingPreview = 等待用户在 Modal 中确认的截图
@@ -245,7 +283,12 @@ function Shell({
           {/* Main area */}
           <main className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             {view === "settings" ? (
-              <SettingsView onBack={() => setView("chat")} theme={theme} onThemeChange={setTheme} />
+              <SettingsView
+                onBack={() => setView("chat")}
+                theme={theme}
+                onThemeChange={setTheme}
+                onSettingsChange={applySettings}
+              />
             ) : (
               <InboxView
                 initialMessages={initialMessages}
@@ -254,6 +297,11 @@ function Shell({
                 pendingScreenshot={pendingAttach}
                 onScreenshotConsumed={() => setPendingAttach(null)}
                 onCaptureScreenshot={handleCaptureScreenshot}
+                modelSettings={settings}
+                modelSelectionPending={modelSelectionPending}
+                modelSelectionError={modelSelectionError}
+                onDismissModelSelectionError={dismissModelSelectionError}
+                onModelPresetSelect={handleSelectModelPreset}
               />
             )}
           </main>
@@ -386,9 +434,20 @@ export default function App() {
   useEffect(() => {
     if (state.status !== "ready") return;
     const { client, gatewayUrl } = state;
-    const timer = window.setTimeout(async () => {
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const scheduleRefresh = (delayMs: number) => {
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        void refreshToken();
+      }, delayMs);
+    };
+
+    const refreshToken = async () => {
       try {
         const boot = await fetchBootstrap(gatewayUrl, bootstrapSecretRef.current);
+        if (cancelled) return;
         const wsUrl = deriveWsUrl(boot.ws_path, boot.token, gatewayUrl);
         const tokenExpiresAt = bootstrapTokenExpiresAt(boot.expires_in);
         client.updateUrl(wsUrl);
@@ -405,6 +464,7 @@ export default function App() {
       } catch (e) {
         const httpStatus = (e as Error & { httpStatus?: number }).httpStatus;
         const msg = (e as Error).message;
+        if (cancelled) return;
         if (httpStatus === 401 || httpStatus === 403 || msg.includes("401") || msg.includes("403")) {
           setState((current) => {
             if (current.status === "ready" && current.client === client) {
@@ -412,10 +472,19 @@ export default function App() {
             }
             return { status: "auth", gatewayUrl: gatewayUrlRef.current, failed: true };
           });
+        } else {
+          scheduleRefresh(TOKEN_REFRESH_MIN_DELAY_MS);
         }
       }
-    }, tokenRefreshDelayMs(state.tokenExpiresAt));
-    return () => window.clearTimeout(timer);
+    };
+
+    scheduleRefresh(tokenRefreshDelayMs(state.tokenExpiresAt));
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
   }, [state]);
 
   useEffect(() => {
