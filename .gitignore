@@ -75,7 +75,10 @@ Desktop.ini
 .directory
 
 # Editors & IDEs (local workspace / user settings)
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 .cursor/*
 !.cursor/rules/
 .idea/

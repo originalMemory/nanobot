@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Electron: 打包（免安装）",
+      "type": "shell",
+      "command": "npm run package",
+      "options": {
+        "cwd": "${workspaceFolder}/electron",
+        "env": {
+          "ELECTRON_MIRROR": "https://npmmirror.com/mirrors/electron/"
+        }
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true,
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}
