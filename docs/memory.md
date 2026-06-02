@@ -176,6 +176,65 @@ Legacy note:
 - Older source-based configs may still contain `dream.cron`. nanobot continues to honor it for backward compatibility, but new configs should use `intervalH`.
 - Older source-based configs may still contain `dream.model`. nanobot continues to honor it for backward compatibility, but new configs should use `modelOverride`.
 
+## Historical Journals
+
+nanobot can connect to an external library of historical diary files — thousands of daily Markdown notes written outside of any nanobot workspace — and make them searchable and contextually available during conversation.
+
+This is useful when a user has years of personal writing that captures decisions, moods, relationships, and experiences that a fresh workspace cannot know about.
+
+### How it works
+
+At startup, nanobot scans the configured diary paths and builds a SQLite FTS5 full-text index. Only changed files (by `mtime`) are re-indexed on subsequent startups, so the process stays fast over time.
+
+Two things happen automatically when historical journals are enabled:
+
+1. **Context preloading**: the most recent N days of diary summaries are injected into the system prompt under `# Historical Journals`, giving the agent immediate background on recent life events without requiring an explicit search.
+2. **`memory_search` tool**: the agent can actively query the index by keyword, returning matched entries with their date, summary, and a relevant text snippet.
+
+The diary files are **read-only**. `read_file` and `grep` can access them; `edit_file` and `write_file` cannot, even when `restrictToWorkspace` is enabled.
+
+### Indexing and Chinese text
+
+Diary content is cleaned before indexing: weather API JSON blocks, image embeds (`![[...]]`), nested callout lines (`>>`), callout markers, HTML tags, and Markdown table separators are stripped. The Obsidian frontmatter fields `概要` (summary), `心情` (mood), and `tags` are extracted separately and stored as dedicated columns.
+
+For Chinese text, nanobot uses character-level segmentation by default: each CJK character becomes its own token, while ASCII words are kept whole. FTS5 phrase queries ensure that multi-character Chinese words still match precisely. This requires no external dependencies and handles common two-character words reliably.
+
+### Configuration
+
+Historical journals are configured under `agents.defaults.historicalMemory`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "historicalMemory": {
+        "enabled": true,
+        "paths": ["/Users/you/notes/日记"],
+        "glob": "**/*.md",
+        "datePattern": "(\\d{4}-\\d{2}-\\d{2})",
+        "preloadRecentDays": 2,
+        "searchTopK": 5,
+        "indexPath": null,
+        "tokenizer": "char"
+      }
+    }
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `enabled` | Whether to activate historical memory. Defaults to `false` |
+| `paths` | List of absolute paths to scan for diary files |
+| `glob` | Glob pattern for diary files within each path. Defaults to `**/*.md` |
+| `datePattern` | Regex to extract `YYYY-MM-DD` from the filename or path. Falls back to file `mtime` |
+| `preloadRecentDays` | How many recent days to inject into the system prompt. Defaults to `2` |
+| `searchTopK` | Maximum number of results returned by `memory_search`. Defaults to `5` |
+| `indexPath` | Path to the SQLite index file. Defaults to `workspace/memory/historical.db` |
+| `tokenizer` | Segmentation mode: `char` (default, zero-dependency). `trigram`, `jieba`, `simple` are reserved for future use |
+
+The index is built in the background at startup. If a search is requested before indexing completes, `memory_search` returns a polite notice rather than blocking.
+
 ## In Practice
 
 What this means in daily use is simple:

@@ -75,6 +75,39 @@ class DreamConfig(Base):
         return f"every {hours}h"
 
 
+class HistoricalMemoryConfig(Base):
+    """历史记忆库配置：接入外部日记 md 文件，提供 FTS 检索和按日预热。"""
+
+    enabled: bool = False
+    paths: list[str] = Field(default_factory=list)
+    glob: str = "**/*.md"
+    date_pattern: str = r"(\d{4}-\d{2}-\d{2})"
+    preload_recent_days: int = Field(
+        default=2,
+        ge=0,
+        validation_alias=AliasChoices("preloadRecentDays", "preload_recent_days"),
+        serialization_alias="preloadRecentDays",
+    )
+    search_top_k: int = Field(
+        default=5,
+        ge=1,
+        validation_alias=AliasChoices("searchTopK", "search_top_k"),
+        serialization_alias="searchTopK",
+    )
+    index_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("indexPath", "index_path"),
+        serialization_alias="indexPath",
+    )
+    tokenizer: Literal["char", "jieba", "trigram", "simple"] = "char"
+    # 预留：tokenizer="simple" 时加载的 FTS5 扩展动态库路径（当前版本未实现）
+    simple_extension_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("simpleExtensionPath", "simple_extension_path"),
+        serialization_alias="simpleExtensionPath",
+    )
+
+
 class InlineFallbackConfig(Base):
     """One inline fallback model configuration."""
 
@@ -162,6 +195,11 @@ class AgentDefaults(Base):
         serialization_alias="consolidationRatio",
     )  # Consolidation target ratio (0.5 = 50% of budget retained after compression)
     dream: DreamConfig = Field(default_factory=DreamConfig)
+    historical_memory: HistoricalMemoryConfig = Field(
+        default_factory=HistoricalMemoryConfig,
+        validation_alias=AliasChoices("historicalMemory", "historical_memory"),
+        serialization_alias="historicalMemory",
+    )
 
 
 class AgentsConfig(Base):

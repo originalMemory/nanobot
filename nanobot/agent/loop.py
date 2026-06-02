@@ -59,6 +59,7 @@ from nanobot.utils.runtime import (
 if TYPE_CHECKING:
     from nanobot.config.schema import (
         ChannelsConfig,
+        HistoricalMemoryConfig,
         ProviderConfig,
         ToolsConfig,
     )
@@ -199,6 +200,7 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
         tools_config: ToolsConfig | None = None,
+        historical_memory_config: HistoricalMemoryConfig | None = None,
         image_generation_provider_config: ProviderConfig | None = None,
         image_generation_provider_configs: dict[str, ProviderConfig] | None = None,
         provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None,
@@ -261,7 +263,13 @@ class AgentLoop:
         self._pending_turn_usage: dict[str, dict[str, int]] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
-        self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
+        self._historical_memory_config = historical_memory_config
+        self.context = ContextBuilder(
+            workspace,
+            timezone=timezone,
+            disabled_skills=disabled_skills,
+            historical_memory_config=historical_memory_config,
+        )
         self.sessions = session_manager or SessionManager(workspace)
         self._webui_turns = WebuiTurnCoordinator(
             bus=self.bus,
@@ -398,6 +406,7 @@ class AgentLoop:
             consolidation_ratio=defaults.consolidation_ratio,
             max_messages=defaults.max_messages,
             tools_config=config.tools,
+            historical_memory_config=config.agents.defaults.historical_memory,
             model_presets=preset_helpers.configured_model_presets(config),
             model_preset=defaults.model_preset,
             provider_snapshot_loader=provider_snapshot_loader,
@@ -521,6 +530,7 @@ class AgentLoop:
             provider_snapshot_loader=self._provider_snapshot_loader,
             image_generation_provider_configs=self._image_generation_provider_configs,
             timezone=self.context.timezone or "UTC",
+            historical_memory_config=self._historical_memory_config,
         )
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)

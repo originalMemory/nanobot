@@ -1067,6 +1067,18 @@ def _run_gateway(
     ))
     console.print(f"[green]✓[/green] Dream: {dream_cfg.describe_schedule()}")
 
+    # 初始化历史记忆索引（启动时后台增量构建，不阻塞 gateway）
+    hist_cfg = config.agents.defaults.historical_memory
+    _hist_index = None
+    if hist_cfg.enabled and hist_cfg.paths:
+        from nanobot.agent.historical_memory import HistoricalMemoryIndex, register_index
+        _hist_index = HistoricalMemoryIndex(hist_cfg, config.workspace_path)
+        register_index(str(config.workspace_path), _hist_index)
+        console.print(
+            f"[green]✓[/green] Historical memory: {len(hist_cfg.paths)} path(s), "
+            f"preload {hist_cfg.preload_recent_days}d, indexing in background..."
+        )
+
     async def _open_browser_when_ready() -> None:
         """Wait for the gateway to bind, then point the user's browser at the webui."""
         if not open_browser_url:
@@ -1094,6 +1106,11 @@ def _run_gateway(
         try:
             await cron.start()
             await heartbeat.start()
+            if _hist_index is not None:
+                async def _build_hist_index() -> None:
+                    changed = await _hist_index.refresh_async()
+                    console.print(f"[green]✓[/green] Historical memory index built: {changed} updated")
+                asyncio.create_task(_build_hist_index())
             tasks = [
                 agent.run(),
                 channels.start_all(),

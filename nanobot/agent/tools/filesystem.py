@@ -22,6 +22,10 @@ from nanobot.utils.helpers import build_image_content_blocks, detect_image_mime
 class _FsTool(Tool):
     """Shared base for filesystem tools — common init and path resolution."""
 
+    # 只读类工具设为 True，EditFileTool/WriteFileTool 覆盖为 False，
+    # 用于决定是否把历史日记库路径加入 extra_allowed_dirs
+    _allow_historical_dirs: bool = True
+
     def __init__(
         self,
         workspace: Path | None = None,
@@ -47,7 +51,21 @@ class _FsTool(Tool):
             or ctx.config.exec.sandbox
         )
         allowed_dir = Path(ctx.workspace) if restrict else None
-        extra_read = [BUILTIN_SKILLS_DIR] if allowed_dir else None
+        extra_read: list[Path] | None = [BUILTIN_SKILLS_DIR] if allowed_dir else None
+
+        # 只读类工具（ReadFileTool / GrepTool / FindFilesTool）在受限模式下
+        # 把历史日记库路径加入白名单，写类工具（EditFileTool / WriteFileTool）不加
+        if cls._allow_historical_dirs and allowed_dir is not None:
+            hist_cfg = getattr(ctx, "historical_memory_config", None)
+            if hist_cfg and hist_cfg.enabled and hist_cfg.paths:
+                hist_paths: list[Path] = []
+                for p in hist_cfg.paths:
+                    resolved = Path(p).expanduser().resolve()
+                    if resolved.exists():
+                        hist_paths.append(resolved)
+                if hist_paths:
+                    extra_read = list(extra_read or []) + hist_paths
+
         return cls(
             workspace=Path(ctx.workspace),
             allowed_dir=allowed_dir,
@@ -379,6 +397,7 @@ class ReadFileTool(_FsTool):
 class WriteFileTool(_FsTool):
     """Write content to a file."""
     _scopes = {"core", "subagent", "memory"}
+    _allow_historical_dirs = False  # 日记库只读，不允许写工具访问
 
     @property
     def name(self) -> str:
@@ -704,6 +723,7 @@ def _find_match(content: str, old_text: str) -> tuple[str | None, int]:
 class EditFileTool(_FsTool):
     """Edit a file by replacing text with fallback matching."""
     _scopes = {"core", "subagent", "memory"}
+    _allow_historical_dirs = False  # 日记库只读，不允许编辑工具访问
 
     _MAX_EDIT_FILE_SIZE = 1024 * 1024 * 1024  # 1 GiB
     _MARKDOWN_EXTS = frozenset({".md", ".mdx", ".markdown"})
