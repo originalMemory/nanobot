@@ -14,8 +14,9 @@ const config: ForgeConfig = {
     asar: true,
     appBundleId: APP_ID,
     executableName: APP_EXECUTABLE,
-    // Windows 需 .ico；源图来自 webui/public/brand/nanobot_apple_touch.png
-    icon: path.resolve(__dirname, 'assets', 'icon.ico'),
+    // 不带后缀：Forge 按平台自动选 .icns(macOS) / .ico(Windows) / .png(Linux)
+    // 对应文件需预先放在 assets/ 目录下
+    icon: path.resolve(__dirname, 'assets', 'icon'),
     extraResource: [path.resolve(__dirname, 'assets')],
     win32metadata: {
       CompanyName: APP_NAME,

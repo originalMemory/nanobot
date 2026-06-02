@@ -556,10 +556,20 @@ export type InboundEvent =
       agent_ui?: AgentUIBlob;
       /** Electron inbox only: originating channel for inbox:unified fan-out. */
       source_channel?: string;
+      source_chat_id?: string;
       /** Heartbeat/cron 等主动投递，UI 上不与上一轮 assistant 合并。 */
       channel_delivery?: boolean;
       /** 用户触发的跨通道外发镜像（数据区分，供重放保留）。 */
       user_initiated_delivery?: boolean;
+    }
+  | {
+      event: "user";
+      chat_id: string;
+      text?: string;
+      media_urls?: Array<{ url: string; name?: string }>;
+      /** Electron inbox only: originating channel for inbox:unified fan-out. */
+      source_channel?: string;
+      source_chat_id?: string;
     }
   | {
       event: "file_edit";

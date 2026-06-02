@@ -725,6 +725,28 @@ export function useNanobotStream(
         return;
       }
 
+      if (ev.event === "user") {
+        const content = typeof ev.text === "string" ? ev.text : "";
+        const media = ev.media_urls?.length
+          ? ev.media_urls.map((m) => toMediaAttachment(m))
+          : undefined;
+        if (!content.trim() && !media) return;
+
+        // 外部 channel 推来的用户消息：仅追加，不干扰本地正在进行的流式状态。
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "user" as const,
+            content,
+            createdAt: Date.now(),
+            ...(media ? { media } : {}),
+            ...(ev.source_channel ? { sourceChannel: ev.source_channel } : {}),
+          },
+        ]);
+        return;
+      }
+
       if (ev.event === "message") {
         if (
           suppressStreamUntilTurnEndRef.current &&
