@@ -46,13 +46,22 @@ def _segment_text(text: str) -> str:
 
 
 def _segment_query(query: str) -> str:
-    """把查询词转为 FTS5 phrase 表达式，保证相邻字符必须连续出现（防止拆字误命中）。"""
-    tokens = _CJK_RE.findall(query)
-    if not tokens:
-        return query
-    if len(tokens) == 1:
-        return tokens[0]
-    return '"' + " ".join(tokens) + '"'
+    """把查询词转为 FTS5 表达式。
+
+    - 单个词/短语：转为 phrase（双引号包裹），要求相邻字符连续出现。
+    - 多个词（空格分隔）：各自转为 phrase 后用 AND 连接，要求全部出现但不要求连续。
+    """
+    parts = query.strip().split()
+    segments: list[str] = []
+    for part in parts:
+        tokens = _CJK_RE.findall(part)
+        if not tokens:
+            continue
+        if len(tokens) == 1:
+            segments.append(tokens[0])
+        else:
+            segments.append('"' + " ".join(tokens) + '"')
+    return " AND ".join(segments) if segments else query
 
 
 # ---------------------------------------------------------------------------
