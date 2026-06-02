@@ -26,6 +26,10 @@ interface ElectronAPI {
     /** 订阅全局快捷键触发的截图事件，返回取消监听的清理函数。 */
     onCapture(cb: (dataUrl: string) => void): () => void;
   };
+  presence: {
+    /** 订阅窗口焦点变更事件（focused=true 获焦，false 失焦），返回取消监听的清理函数。 */
+    onChange(cb: (focused: boolean) => void): () => void;
+  };
 }
 
 declare global {

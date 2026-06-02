@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { AssistantNameRow } from "@/components/AssistantNameRow";
 import { BotAvatarWithFallback, MessageMedia, resolveMediaUrl } from "@/components/MessageBubble";
 import { MarkdownText } from "@/components/MarkdownText";
+import { isLiveArrival } from "@/lib/media";
 import { AgentActivityCluster } from "@/components/thread/AgentActivityCluster";
 import { useBotIdentity } from "@/contexts/BotIdentityContext";
 import { formatTurnLatency } from "@/lib/format";
@@ -166,7 +167,9 @@ export function AssistantTurnBubble({
                       {message.content}
                     </MarkdownText>
                   ) : null}
-                  {hasMedia ? <MessageMedia media={media} align="left" /> : null}
+                  {hasMedia ? (
+                    <MessageMedia media={media} align="left" autoPlayAudio={isLiveArrival(message.createdAt)} />
+                  ) : null}
                 </div>
               );
             })}

@@ -28,7 +28,6 @@ from nanobot.channels.websocket import (
 )
 from nanobot.session.manager import Session, SessionManager
 
-
 # PNG magic bytes + a couple of sentinel bytes so we can verify byte-for-byte
 # round-trip of the served payload. Stays under mimetype + size limits.
 _PNG_BYTES = (
@@ -428,3 +427,44 @@ async def test_session_messages_skips_vanished_media(
         finally:
             await channel.stop()
             await server_task
+
+
+# ---------------------------------------------------------------------------
+# 音频 MIME 放行：TTS 文件应以正确 Content-Type 返回，不被降级为 octet-stream
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "filename,expected_ct",
+    [
+        ("greeting.mp3", "audio/mpeg"),
+        ("greeting.wav", "audio/wav"),   # 经 _MIME_NORMALIZE 正规化
+        ("greeting.m4a", "audio/mp4"),   # 经 _MIME_NORMALIZE 正规化
+        ("greeting.ogg", "audio/ogg"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_media_route_serves_audio_with_correct_content_type(
+    bus: MagicMock, tmp_path: Path, filename: str, expected_ct: str
+) -> None:
+    """TTS 合成的音频文件应以正确 Content-Type 下发，不被降级为 application/octet-stream。"""
+    media = tmp_path / "media"
+    media.mkdir()
+    (media / filename).write_bytes(b"\x00" * 32)  # 伪造音频内容
+
+    channel = _ch(bus, port=29927)
+    with patch("nanobot.channels.websocket.get_media_dir", return_value=media):
+        payload = _b64url_encode(filename.encode())
+        mac = hmac.new(
+            channel._media_secret, payload.encode("ascii"), hashlib.sha256
+        ).digest()[:16]
+        url = f"/api/media/{_b64url_encode(mac)}/{payload}"
+        server_task = asyncio.create_task(channel.start())
+        await asyncio.sleep(0.3)
+        try:
+            resp = await _http_get(f"http://127.0.0.1:29927{url}")
+        finally:
+            await channel.stop()
+            await server_task
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith(expected_ct)

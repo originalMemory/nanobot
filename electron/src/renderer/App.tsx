@@ -272,6 +272,27 @@ function Shell({
     return cleanup;
   }, []);
 
+  // 订阅服务端发起的截图请求：捕获 JPEG 后经 WebSocket 回传 screenshot_result。
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.electronAPI?.screenshot?.capture) return;
+    return client.onScreenshotRequest(async (requestId) => {
+      const dataUrl = await window.electronAPI.screenshot.capture();
+      if (dataUrl) client.sendScreenshotResult(requestId, dataUrl);
+    });
+  }, [client]);
+
+  // 订阅窗口焦点变更，经 WebSocket 上报 presence 给服务端；
+  // 连接建立时先同步一次当前状态，此后每次 focus/blur 实时推送。
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.electronAPI?.presence?.onChange) return;
+    // 连接建立后立即同步当前焦点状态
+    client.sendPresence(document.hasFocus());
+    const cleanup = window.electronAPI.presence.onChange((focused) => {
+      client.sendPresence(focused);
+    });
+    return cleanup;
+  }, [client]);
+
   const handleScreenshotConfirm = useCallback((dataUrl: string) => {
     setPendingPreview(null);
     setPendingAttach(dataUrl);

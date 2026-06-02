@@ -13,6 +13,7 @@ import { AssistantNameRow } from "@/components/AssistantNameRow";
 import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
+import { isLiveArrival } from "@/lib/media";
 import {
   buildTokenUsageTitle,
   displayCacheRead,
@@ -240,7 +241,9 @@ export function MessageBubble({
           ) : null}
           <MarkdownText streaming={!!message.isStreaming}>{message.content}</MarkdownText>
         </div>
-        {media.length > 0 ? <MessageMedia media={media} align="left" /> : null}
+        {media.length > 0 ? (
+          <MessageMedia media={media} align="left" autoPlayAudio={isLiveArrival(message.createdAt)} />
+        ) : null}
         {showAssistantFooterRow ? (
           <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
             {showCopyButton ? (
@@ -349,9 +352,12 @@ function mergeCliMentionApps(
 export function MessageMedia({
   media,
   align,
+  autoPlayAudio = false,
 }: {
   media: UIMediaAttachment[];
   align: "left" | "right";
+  /** 仅当消息为本次会话直播到达时为 true，决定音频是否自动播放。 */
+  autoPlayAudio?: boolean;
 }) {
   if (media.length === 0) return null;
   const images: UIImage[] = [];
@@ -375,21 +381,82 @@ export function MessageMedia({
         <UserImages images={images} align={align} size={align === "left" ? "large" : "compact"} />
       ) : null}
       {nonImages.map((item, i) => (
-        <MediaCell key={`${item.url ?? item.name ?? item.kind}-${i}`} media={item} />
+        <MediaCell key={`${item.url ?? item.name ?? item.kind}-${i}`} media={item} autoPlay={autoPlayAudio} />
       ))}
     </div>
   );
 }
 
-function MediaCell({ media }: { media: UIMediaAttachment }) {
+// 已自动播放过的音频 URL：避免视图重挂载（切换 Tab 再切回等）时重复自动播放。
+const autoPlayedAudio = new Set<string>();
+
+function AudioCell({ media, autoPlay = false }: { media: UIMediaAttachment; autoPlay?: boolean }) {
   const { t } = useTranslation();
+  const { apiBase } = useClient();
+  const [failed, setFailed] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  // Electron 是 file:// origin，相对路径需要拼上 gateway 绝对地址
+  const resolvedUrl = resolveMediaUrl(media.url, apiBase);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || !autoPlay || !resolvedUrl) return;
+    // 仅对「直播到达且尚未自动播放过」的音频自动播放一次。
+    if (autoPlayedAudio.has(resolvedUrl)) return;
+    autoPlayedAudio.add(resolvedUrl);
+    // autoplay 被浏览器策略拒绝不视为失败：保留 controls 让用户手动播放。
+    el.play().catch(() => {});
+  }, [autoPlay, resolvedUrl]);
+
+  if (failed || !resolvedUrl) {
+    return (
+      <a
+        href={resolvedUrl ?? undefined}
+        download={media.name ?? t("message.audioAttachment", { defaultValue: "Audio attachment" })}
+        aria-label={t("message.audioAttachment", { defaultValue: "Audio attachment" })}
+        className="flex max-w-[18rem] items-center gap-2 rounded-[14px] border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground hover:underline"
+      >
+        <PlaySquare className="h-4 w-4 flex-none" aria-hidden />
+        <span className="truncate">{media.name ?? t("message.audioAttachment", { defaultValue: "Audio attachment" })}</span>
+      </a>
+    );
+  }
+
+  return (
+    <figure className="w-full max-w-[min(100%,28rem)]">
+      <audio
+        ref={audioRef}
+        src={resolvedUrl}
+        controls
+        preload="auto"
+        onError={() => setFailed(true)}
+        className="w-full rounded-[12px]"
+        aria-label={media.name ? `${t("message.audioAttachment", { defaultValue: "Audio attachment" })}: ${media.name}` : t("message.audioAttachment", { defaultValue: "Audio attachment" })}
+      />
+      {media.name ? (
+        <figcaption className="truncate px-1 pt-1 text-[11.5px] text-muted-foreground">
+          {media.name}
+        </figcaption>
+      ) : null}
+    </figure>
+  );
+}
+
+function MediaCell({ media, autoPlay = false }: { media: UIMediaAttachment; autoPlay?: boolean }) {
+  const { t } = useTranslation();
+  const { apiBase } = useClient();
   const hasUrl = typeof media.url === "string" && media.url.length > 0;
+  const resolvedUrl = resolveMediaUrl(media.url, apiBase);
+
+  if (media.kind === "audio") {
+    return <AudioCell media={media} autoPlay={autoPlay} />;
+  }
 
   if (media.kind === "video" && hasUrl) {
     return (
       <figure className="max-w-[min(100%,32rem)] overflow-hidden rounded-[14px] border border-border/60 bg-muted/40">
         <video
-          src={media.url}
+          src={resolvedUrl}
           controls
           preload="metadata"
           className="block max-h-[26rem] w-full bg-black"
@@ -420,7 +487,7 @@ function MediaCell({ media }: { media: UIMediaAttachment }) {
   if (hasUrl) {
     return (
       <a
-        href={media.url}
+        href={resolvedUrl}
         download={media.name ?? label}
         title={media.name ?? undefined}
         aria-label={label}

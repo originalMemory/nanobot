@@ -59,4 +59,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('screenshot:captured', handler);
     },
   },
+
+  presence: {
+    /** 订阅主进程推送的窗口焦点变更事件（focused=true 获焦，false 失焦）。
+     *  返回取消监听的清理函数。连接建立后由 renderer 主动同步当前状态。 */
+    onChange: (cb: (focused: boolean) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: { focused: boolean }) =>
+        cb(payload.focused);
+      ipcRenderer.on('window:presence', handler);
+      return () => ipcRenderer.removeListener('window:presence', handler);
+    },
+  },
 });

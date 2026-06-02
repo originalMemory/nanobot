@@ -19,7 +19,7 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.websocket import (
     WebSocketChannel,
-    _INBOX_UNIFIED_CHAT_ID,
+    INBOX_UNIFIED_CHAT_ID,
     _is_valid_chat_id,
 )
 from nanobot.session.manager import SessionManager

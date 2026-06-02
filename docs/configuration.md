@@ -1603,3 +1603,137 @@ Set `agents.defaults.toolHintMaxLength` to control the truncation threshold:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `agents.defaults.toolHintMaxLength` | `40` | Maximum characters for tool hint display. Range: 20–500. Higher values show more of the command or path; lower values keep hints compact. |
+
+## Proactive Chat
+
+> **Privacy notice** — when enabled, nanobot periodically captures a screenshot of the Electron desktop window and sends the image to your configured AI model. Only enable this if you understand and accept that data flow.
+
+Proactive chat lets nanobot act as a companion that reaches out to you while you're away. When the Electron app moves to the background, nanobot wakes up on a configurable interval, takes a screenshot, and generates a short voice message based on your recent conversation and what it sees on screen.
+
+**Disabled by default.** You must opt in explicitly.
+
+> **Two switches are required.** `proactiveChat.enabled` only starts the trigger loop — the spoken voice is produced by the `tts` agent tool. You must **also** set `tools.tts.enabled = true` with a valid API key. If `tools.tts` is left disabled (or its API key is missing), proactive chat still fires but degrades to a **text-only** message with no audio.
+
+### Minimal setup
+
+```json
+{
+  "proactiveChat": { "enabled": true },
+  "tools": {
+    "tts": {
+      "enabled": true,
+      "apiBase": "https://open.bigmodel.cn/api/paas/v4",
+      "apiKey": "${ZHIPUAI_API_KEY}",
+      "model": "glm-tts"
+    }
+  }
+}
+```
+
+### Options
+
+**Proactive Chat (`proactiveChat`):**
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `proactiveChat.enabled` | `false` | Enable or disable the feature. |
+| `proactiveChat.intervalS` | `1800` (30 min) | Seconds between proactive checks. Minimum: `60`. |
+| `proactiveChat.quietHours` | `[]` | Silence window as `["HH:MM", "HH:MM"]` (24h, start–end). Supports cross-midnight ranges, e.g. `["22:00", "08:00"]`. Empty list means always active. |
+
+**TTS tool (`tools.tts`):**
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `tools.tts.enabled` | `false` | Enable the TTS agent tool (required for proactive chat voice). |
+| `tools.tts.defaultVoice` | `"tongtong"` | Default voice name or ID. GLM system voices: `tongtong`, `chuichui`. Custom cloned voices use a UUID. |
+| `tools.tts.provider` | `"glm-tts"` | Label used in logs (does not affect routing). |
+| `tools.tts.apiBase` | GLM endpoint | Base URL for the OpenAI-compatible `/audio/speech` endpoint. |
+| `tools.tts.apiKey` | `null` | API key. Prefer `${ENV_VAR}` references. |
+| `tools.tts.model` | `"glm-tts"` | TTS model name. |
+| `tools.tts.responseFormat` | `"wav"` | Audio format: `wav`, `mp3`, `ogg`, etc. |
+| `tools.tts.speed` | `1.0` | Playback speed. Range: 0.5–2.0. |
+| `tools.tts.extraBody` | `{}` | Vendor-specific JSON fields merged into the request body (e.g. `{"watermark_enabled": false}` for GLM-TTS). |
+
+### TTS provider examples
+
+**GLM-TTS (ZhipuAI):**
+
+```json
+{
+  "tools": {
+    "tts": {
+      "enabled": true,
+      "defaultVoice": "tongtong",
+      "apiBase": "https://open.bigmodel.cn/api/paas/v4",
+      "apiKey": "${ZHIPUAI_API_KEY}",
+      "model": "glm-tts",
+      "responseFormat": "wav",
+      "extraBody": { "watermark_enabled": false }
+    }
+  }
+}
+```
+
+For custom cloned voices, pass the voice UUID as `defaultVoice`.
+
+**OpenAI TTS:**
+
+```json
+{
+  "tools": {
+    "tts": {
+      "enabled": true,
+      "defaultVoice": "nova",
+      "apiBase": "https://api.openai.com/v1",
+      "apiKey": "${OPENAI_API_KEY}",
+      "model": "tts-1",
+      "responseFormat": "mp3"
+    }
+  }
+}
+```
+
+**Groq (Orpheus):**
+
+```json
+{
+  "tools": {
+    "tts": {
+      "enabled": true,
+      "defaultVoice": "tara",
+      "apiBase": "https://api.groq.com/openai/v1",
+      "apiKey": "${GROQ_API_KEY}",
+      "model": "playai-tts",
+      "responseFormat": "wav"
+    }
+  }
+}
+```
+
+### Quiet hours
+
+Only trigger between 09:00 and 21:00:
+
+```json
+{
+  "proactiveChat": {
+    "enabled": true,
+    "quietHours": ["21:00", "09:00"]
+  }
+}
+```
+
+### How it works
+
+1. `ProactiveChatService` wakes up every `intervalS` seconds.
+2. It checks whether the Electron window that sent the **most recent user message** is still connected and currently **unfocused** (in the background). Only that window is targeted; if it is in the foreground, or the user last interacted elsewhere (e.g. the WebUI), nothing fires.
+3. If eligible, it sends a `screenshot_request` event to that connection; the Electron renderer captures the screen and returns a JPEG via `screenshot_result`.
+4. The screenshot (if received) is passed as a vision image to the agent, along with the `proactive-chat` skill as the prompt.
+5. The agent generates a short message in the style of an intimate companion, calls `tts` to synthesize audio, and calls `message` to deliver text + audio to the target chat.
+6. The Electron renderer receives the message and auto-plays the audio attachment.
+
+### Requirements
+
+- Electron desktop client (WebSocket channel must be enabled and connected).
+- A configured TTS provider with a valid API key.
+- The AI model must support vision (multimodal) for screenshot analysis. If `agents.defaults.visionModel` is set, that auxiliary model is used for image captioning instead.

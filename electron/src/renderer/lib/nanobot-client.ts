@@ -14,6 +14,7 @@ import type {
 const WS_OPEN = 1;
 const WS_CLOSING = 2;
 
+
 /** Inbound WebSocket ``console.log`` / parse-failure ``console.warn``.
  *
  * - **Dev** (non-production bundle): **on by default** — messages appear at default log level.
@@ -59,6 +60,7 @@ type RuntimeModelHandler = (modelName: string | null, modelPreset?: string | nul
 type SessionUpdateScope = "metadata" | "thread" | string;
 type SessionUpdateHandler = (chatId: string, scope?: SessionUpdateScope) => void;
 type RunStatusHandler = (chatId: string, startedAt: number | null) => void;
+type ScreenshotRequestHandler = (requestId: string) => void;
 
 /** Structured connection-level errors surfaced to the UI.
  *
@@ -107,6 +109,7 @@ export class NanobotClient {
   private sessionUpdateHandlers = new Set<SessionUpdateHandler>();
   private runStatusHandlers = new Set<RunStatusHandler>();
   private errorHandlers = new Set<ErrorHandler>();
+  private screenshotRequestHandlers = new Set<ScreenshotRequestHandler>();
   // chat_id -> handlers listening on it
   private chatHandlers = new Map<string, Set<EventHandler>>();
   /** Inbound frames received while no subscriber is registered (e.g. user switched away). */
@@ -192,6 +195,19 @@ export class NanobotClient {
     return () => {
       this.errorHandlers.delete(handler);
     };
+  }
+
+  /** 订阅服务端发起的截图请求。收到后调用方应捕获截图并调用 sendScreenshotResult。 */
+  onScreenshotRequest(handler: ScreenshotRequestHandler): Unsubscribe {
+    this.screenshotRequestHandlers.add(handler);
+    return () => {
+      this.screenshotRequestHandlers.delete(handler);
+    };
+  }
+
+  /** 将截图结果（JPEG data URL）回传给服务端。 */
+  sendScreenshotResult(requestId: string, dataUrl: string): void {
+    this.queueSend({ type: "screenshot_result", request_id: requestId, data: dataUrl });
   }
 
   /** Last ``goal_status`` ``started_at`` (unix sec) for *chatId*, if the turn is running. */
@@ -295,6 +311,11 @@ export class NanobotClient {
     });
   }
 
+  /** 向服务端上报窗口焦点状态（presence envelope）。 */
+  sendPresence(focused: boolean): void {
+    this.queueSend({ type: "presence", focused });
+  }
+
   attach(chatId: string): void {
     this.knownChats.add(chatId);
     if (this.socket?.readyState === WS_OPEN) {
@@ -389,6 +410,11 @@ export class NanobotClient {
 
     if (parsed.event === "session_updated") {
       this.emitSessionUpdate(parsed.chat_id, parsed.scope);
+      return;
+    }
+
+    if (parsed.event === "screenshot_request") {
+      for (const h of this.screenshotRequestHandlers) h(parsed.request_id);
       return;
     }
 

@@ -24,7 +24,7 @@ export interface UIImage {
   name?: string;
 }
 
-export type UIMediaKind = "image" | "video" | "file";
+export type UIMediaKind = "image" | "video" | "audio" | "file";
 
 export interface UIMediaAttachment {
   kind: UIMediaKind;
@@ -626,7 +626,8 @@ export type InboundEvent =
       goal_state: GoalStateWsPayload;
     }
   | { event: "session_updated"; chat_id: string; scope?: "metadata" | "thread" | string }
-  | { event: "error"; chat_id?: string; detail?: string };
+  | { event: "error"; chat_id?: string; detail?: string }
+  | { event: "screenshot_request"; request_id: string };
 
 /** Base64-encoded image attached to an outbound ``message`` envelope.
  *
@@ -677,6 +678,8 @@ export interface WebuiThreadPersistedPayload {
 export type Outbound =
   | { type: "new_chat" }
   | { type: "attach"; chat_id: string }
+  | { type: "presence"; focused: boolean }
+  | { type: "screenshot_result"; request_id: string; data: string }
   | {
       type: "message";
       chat_id: string;

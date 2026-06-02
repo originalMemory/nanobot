@@ -18,6 +18,22 @@ from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.media_staging import is_remote_media_url
 
 WEBUI_TRANSCRIPT_SCHEMA_VERSION = 3
+
+_AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".aac", ".m4a", ".weba", ".flac", ".opus"}
+_VIDEO_EXTS = {".mp4", ".webm", ".avi", ".mov", ".mkv", ".ogv"}
+
+
+def _infer_media_kind(url: str, name: str) -> str:
+    """根据文件名或 URL 后缀推断媒体类型（image / video / audio）。"""
+    for candidate in (name, url.split("?")[0]):
+        dot = candidate.rfind(".")
+        if dot >= 0:
+            ext = candidate[dot:].lower()
+            if ext in _AUDIO_EXTS:
+                return "audio"
+            if ext in _VIDEO_EXTS:
+                return "video"
+    return "image"
 _MAX_TRANSCRIPT_FILE_BYTES = 8 * 1024 * 1024
 _MARKDOWN_LOCAL_IMAGE_RE = re.compile(
     r"!\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(\s+(?:\"[^\"]*\"|'[^']*'))?\)"
@@ -571,11 +587,13 @@ def replay_transcript_to_ui_messages(
             if isinstance(media_urls, list):
                 for m in media_urls:
                     if isinstance(m, dict) and m.get("url"):
+                        _url = str(m["url"])
+                        _name = str(m.get("name") or "")
                         media_att.append(
                             {
-                                "kind": "image",
-                                "url": str(m["url"]),
-                                "name": str(m.get("name") or ""),
+                                "kind": _infer_media_kind(_url, _name),
+                                "url": _url,
+                                "name": _name,
                             },
                         )
             if paths and augment_media_paths is not None:
@@ -759,11 +777,13 @@ def replay_transcript_to_ui_messages(
             if isinstance(media_urls, list):
                 for m in media_urls:
                     if isinstance(m, dict) and m.get("url"):
+                        _url = str(m["url"])
+                        _name = str(m.get("name") or "")
                         media.append(
                             {
-                                "kind": "image",
-                                "url": str(m["url"]),
-                                "name": str(m.get("name") or ""),
+                                "kind": _infer_media_kind(_url, _name),
+                                "url": _url,
+                                "name": _name,
                             },
                         )
             media_paths = rec.get("media_paths")

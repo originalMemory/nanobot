@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
+    from nanobot.agent.tools.tts import TtsToolConfig
     from nanobot.agent.tools.web import WebToolsConfig
 
 
@@ -285,6 +286,48 @@ class HeartbeatConfig(Base):
     keep_recent_messages: int = 8
 
 
+class TtsConfig(Base):
+    """TTS provider configuration (OpenAI-compatible POST /audio/speech).
+
+    GLM-TTS preset defaults (覆盖为 OpenAI/Groq 只需改 api_base + model):
+      api_base = https://open.bigmodel.cn/api/paas/v4
+      model    = glm-tts
+      voice    = <音色名称或ID，如 tongtong / 12d9e8df-…>
+
+    OpenAI preset:
+      api_base = https://api.openai.com/v1
+      model    = tts-1 / gpt-4o-mini-tts
+      extra_body = {"instructions": "…"}   # 情感/风格提示
+
+    Groq preset:
+      api_base = https://api.groq.com/openai/v1
+      model    = canopylabs/orpheus-v1-english
+    """
+
+    provider: str = "glm-tts"  # 标识/日志标签，不影响路由逻辑
+    api_base: str = "https://open.bigmodel.cn/api/paas/v4"
+    api_key: str | None = None
+    model: str = "glm-tts"
+    response_format: str = "wav"
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    extra_body: dict[str, Any] = Field(default_factory=dict)
+    # GLM-TTS 去水印示例：extra_body = {"watermark_enabled": false}
+
+
+class ProactiveChatConfig(Base):
+    """主动陪伴功能配置（默认关闭，需显式开启）。
+
+    用户切到后台时，助手基于屏幕截图和近期对话主动生成一句话并以语音播放。
+
+    quiet_hours 格式：["HH:MM", "HH:MM"] 表示静默开始和结束时间（24h），
+    空列表表示不设静默时段。示例：["22:00", "08:00"] 表示夜间静默。
+    """
+
+    enabled: bool = False
+    interval_s: int = Field(default=30 * 60, ge=60)  # 触发间隔，最短 60 秒
+    quiet_hours: list[str] = Field(default_factory=list)  # [] = 不设静默时段
+
+
 class ApiConfig(Base):
     """OpenAI-compatible API server configuration."""
 
@@ -337,6 +380,9 @@ class ToolsConfig(Base):
     image_generation: ImageGenerationToolConfig = Field(
         default_factory=lambda: _lazy_default("nanobot.agent.tools.image_generation", "ImageGenerationToolConfig"),
     )
+    tts: TtsToolConfig = Field(
+        default_factory=lambda: _lazy_default("nanobot.agent.tools.tts", "TtsToolConfig"),
+    )
     restrict_to_workspace: bool = False  # restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
@@ -351,6 +397,10 @@ class Config(BaseSettings):
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    proactive_chat: ProactiveChatConfig = Field(
+        default_factory=ProactiveChatConfig,
+        validation_alias=AliasChoices("proactiveChat", "proactive_chat"),
+    )
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("modelPresets", "model_presets"),
@@ -523,6 +573,7 @@ def _resolve_tool_config_refs() -> None:
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
+    from nanobot.agent.tools.tts import TtsToolConfig
     from nanobot.agent.tools.web import WebFetchConfig, WebSearchConfig, WebToolsConfig
 
     # Re-export into this module's namespace
@@ -534,6 +585,7 @@ def _resolve_tool_config_refs() -> None:
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.ImageGenerationToolConfig = ImageGenerationToolConfig  # type: ignore[attr-defined]
+    mod.TtsToolConfig = TtsToolConfig  # type: ignore[attr-defined]
 
     ToolsConfig.model_rebuild()
     Config.model_rebuild()

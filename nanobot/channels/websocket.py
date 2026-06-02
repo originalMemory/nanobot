@@ -45,15 +45,6 @@ from nanobot.utils.media_decode import (
 )
 from nanobot.utils.media_staging import is_remote_media_url
 from nanobot.utils.subagent_channel_display import scrub_subagent_messages_for_channel
-from nanobot.webui.settings_api import (
-    WebUISettingsError,
-    create_model_configuration,
-    settings_payload,
-    update_agent_settings,
-    update_image_generation_settings,
-    update_provider_settings,
-    update_web_search_settings,
-)
 from nanobot.webui.cli_apps_api import (
     cli_apps_action,
     cli_apps_payload,
@@ -62,6 +53,15 @@ from nanobot.webui.cli_apps_api import (
 from nanobot.webui.mcp_presets_api import (
     mcp_presets_settings_action,
     normalize_mcp_preset_mentions,
+)
+from nanobot.webui.settings_api import (
+    WebUISettingsError,
+    create_model_configuration,
+    settings_payload,
+    update_agent_settings,
+    update_image_generation_settings,
+    update_provider_settings,
+    update_web_search_settings,
 )
 from nanobot.webui.sidebar_state import (
     read_webui_sidebar_state,
@@ -316,7 +316,7 @@ _CHAT_ID_RE = re.compile(r"^[A-Za-z0-9_:-]{1,64}$")
 
 # Electron 客户端订阅此特殊频道以接收所有通道的实时消息推送（fan-out）。
 # 不对应任何真实 session，仅作为路由键使用。
-_INBOX_UNIFIED_CHAT_ID = "inbox:unified"
+INBOX_UNIFIED_CHAT_ID = "inbox:unified"
 
 
 def _is_valid_chat_id(value: Any) -> bool:
@@ -479,7 +479,35 @@ _MEDIA_ALLOWED_MIMES: frozenset[str] = frozenset({
     "video/mp4",
     "video/webm",
     "video/quicktime",
+    # 音频格式：TTS 合成文件（mp3/wav）及主流编码。
+    # Python mimetypes 对部分扩展名返回非标准值（如 .wav→audio/x-wav），两者均保留。
+    "audio/mpeg",    # .mp3
+    "audio/wav",     # .wav（RFC 2361）
+    "audio/x-wav",   # .wav（Python mimetypes 返回值）
+    "audio/mp4",     # .m4a / .mp4 容器内 AAC
+    "audio/ogg",     # .ogg
+    "audio/aac",     # .aac
+    "audio/webm",    # .weba
 })
+
+# mimetypes.guess_type 无法识别的扩展名兜底映射（返回 None 时使用）。
+_MIME_FALLBACK: dict[str, str] = {
+    ".m4a":  "audio/mp4",
+    ".aac":  "audio/aac",
+    ".weba": "audio/webm",
+}
+
+# 非标准/废弃 MIME → 标准 MIME 正规化表（跨平台 mimetypes 返回值差异）。
+_MIME_NORMALIZE: dict[str, str] = {
+    "audio/mp4a-latm": "audio/mp4",   # macOS mimetypes 对 .m4a 返回此值
+    "audio/x-wav":     "audio/wav",   # 部分平台对 .wav 返回此值；均放入白名单
+}
+
+# screenshot_result 专用体积上限（JPEG 80%，全屏约 1-3 MB，上限给足余量）。
+# 高于普通图片单张 8 MB 是有意为之：截图一次只传一张，且不走消息管道。
+_MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024
+
+
 def _issue_route_secret_matches(headers: Any, configured_secret: str) -> bool:
     """Return True if the token-issue HTTP request carries credentials matching ``token_issue_secret``."""
     if not configured_secret:
@@ -522,6 +550,16 @@ class WebSocketChannel(BaseChannel):
         self._conn_chats: dict[Any, set[str]] = {}
         # connection -> default chat_id for legacy frames that omit routing.
         self._conn_default: dict[Any, str] = {}
+        # connection -> 是否处于前台（获焦）；Electron 连接建立后立即上报初值，
+        # 字段缺失时兜底 True 以避免误触主动推送。
+        self._conn_focused: dict[Any, bool] = {}
+        # 最近一条 user 消息来源的连接（Electron）。主动陪伴只针对用户最后交互的窗口，
+        # 且仅当该窗口当前失焦时才触发。连接断开时清空。
+        self._last_user_conn: Any | None = None
+        # request_id -> Future[Path | None]：等待 screenshot_result 的挂起请求。
+        self._screenshot_futures: dict[str, asyncio.Future[Any]] = {}
+        # connection -> 该连接上正在进行的截图 request_id 集合，用于断开时取消。
+        self._conn_screenshot_requests: dict[Any, set[str]] = {}
         # Single-use tokens consumed at WebSocket handshake.
         self._issued_tokens: dict[str, float] = {}
         # Multi-use tokens for HTTP routes served beside WS; checked but not consumed.
@@ -566,6 +604,14 @@ class WebSocketChannel(BaseChannel):
             if not subs:
                 self._subs.pop(cid, None)
         self._conn_default.pop(connection, None)
+        self._conn_focused.pop(connection, None)
+        if self._last_user_conn is connection:
+            self._last_user_conn = None
+        # 断开时取消该连接上所有挂起的截图请求，防止调用方永久阻塞。
+        for req_id in self._conn_screenshot_requests.pop(connection, set()):
+            fut = self._screenshot_futures.pop(req_id, None)
+            if fut is not None and not fut.done():
+                fut.cancel()
 
     async def _maybe_push_active_goal_state(self, chat_id: str) -> None:
         """Replay an active sustained goal from session metadata after *chat_id* is subscribed.
@@ -1145,7 +1191,12 @@ class WebSocketChannel(BaseChannel):
             if att is None:
                 continue
             mime, _ = mimetypes.guess_type(path.name)
-            kind = "video" if mime and mime.startswith("video/") else "image"
+            if mime and mime.startswith("audio/"):
+                kind = "audio"
+            elif mime and mime.startswith("video/"):
+                kind = "video"
+            else:
+                kind = "image"
             out.append(
                 {"kind": kind, "url": att["url"], "name": att.get("name", path.name)},
             )
@@ -1333,6 +1384,12 @@ class WebSocketChannel(BaseChannel):
         except OSError:
             return _http_error(500, "read error")
         mime, _ = mimetypes.guess_type(candidate.name)
+        if mime is None:
+            # 对 mimetypes 无法识别的扩展名（如 .m4a on Linux）按扩展名兜底
+            mime = _MIME_FALLBACK.get(Path(candidate.name).suffix.lower())
+        # 跨平台正规化非标准 MIME（如 macOS 对 .m4a 返回 audio/mp4a-latm）
+        if mime is not None:
+            mime = _MIME_NORMALIZE.get(mime, mime)
         if mime not in _MEDIA_ALLOWED_MIMES:
             mime = "application/octet-stream"
         return _http_response(
@@ -1632,9 +1689,9 @@ class WebSocketChannel(BaseChannel):
             cid = envelope.get("chat_id")
             # "inbox:unified" 是特殊的 fan-out 订阅目标，不映射到任何 session，
             # 直接允许订阅，无需经过普通 chat_id 格式校验。
-            if cid == _INBOX_UNIFIED_CHAT_ID:
-                self._attach(connection, _INBOX_UNIFIED_CHAT_ID)
-                await self._send_event(connection, "attached", chat_id=_INBOX_UNIFIED_CHAT_ID)
+            if cid == INBOX_UNIFIED_CHAT_ID:
+                self._attach(connection, INBOX_UNIFIED_CHAT_ID)
+                await self._send_event(connection, "attached", chat_id=INBOX_UNIFIED_CHAT_ID)
                 return
             if not _is_valid_chat_id(cid):
                 await self._send_event(connection, "error", detail="invalid chat_id")
@@ -1680,6 +1737,8 @@ class WebSocketChannel(BaseChannel):
 
             # Auto-attach on first use so clients can one-shot without a separate attach.
             self._attach(connection, cid)
+            # 记录最近一条 user 消息来源连接，供主动陪伴判断目标窗口。
+            self._last_user_conn = connection
             await self._hydrate_after_subscribe(cid)
             metadata: dict[str, Any] = {"remote": getattr(connection, "remote_address", None)}
             if envelope.get("webui") is True:
@@ -1706,6 +1765,52 @@ class WebSocketChannel(BaseChannel):
                 is_dm=False,
             )
             return
+        if t == "presence":
+            # Electron 上报窗口焦点状态（focused=true/false）。
+            # 字段缺失时兜底为 true，避免因协议疏漏误触主动推送。
+            focused = envelope.get("focused")
+            self._conn_focused[connection] = bool(focused) if isinstance(focused, bool) else True
+            return
+        if t == "screenshot_result":
+            req_id = envelope.get("request_id")
+            data = envelope.get("data")
+            if not isinstance(req_id, str) or not isinstance(data, str):
+                return  # 格式错误，静默丢弃
+            fut = self._screenshot_futures.get(req_id)
+            if fut is None or fut.done():
+                return  # 无对应等待者或已超时
+            # 校验 data URL 为 JPEG 且体积在允许范围内
+            mime = _extract_data_url_mime(data)
+            if mime != "image/jpeg":
+                logger.warning("screenshot_result: 期望 image/jpeg，收到 {}", mime)
+                fut.set_result(None)
+                return
+            # base64 body 长度换算为字节：每 4 字符约 3 字节
+            estimated_bytes = len(data) * 3 // 4
+            if estimated_bytes > _MAX_SCREENSHOT_BYTES:
+                logger.warning(
+                    "screenshot_result: 体积 {} 字节超过上限 {}，丢弃",
+                    estimated_bytes, _MAX_SCREENSHOT_BYTES,
+                )
+                fut.set_result(None)
+                return
+            try:
+                b64_start = data.index(",") + 1
+                raw = base64.b64decode(data[b64_start:])
+            except Exception as e:
+                logger.warning("screenshot_result: base64 解码失败: {}", e)
+                fut.set_result(None)
+                return
+            try:
+                out = get_media_dir("websocket") / "screenshots" / f"{req_id}.jpg"
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(raw)
+            except OSError as e:
+                logger.exception("screenshot_result: 写文件失败: {}", e)
+                fut.set_result(None)
+                return
+            fut.set_result(out)
+            return
         await self._send_event(connection, "error", detail=f"unknown type: {t!r}")
 
     async def stop(self) -> None:
@@ -1723,6 +1828,13 @@ class WebSocketChannel(BaseChannel):
         self._subs.clear()
         self._conn_chats.clear()
         self._conn_default.clear()
+        self._conn_focused.clear()
+        self._last_user_conn = None
+        for fut in self._screenshot_futures.values():
+            if not fut.done():
+                fut.cancel()
+        self._screenshot_futures.clear()
+        self._conn_screenshot_requests.clear()
         self._issued_tokens.clear()
         self._api_tokens.clear()
 
@@ -1749,7 +1861,7 @@ class WebSocketChannel(BaseChannel):
         *exclude_conns* 中的连接会被跳过，避免同时订阅了自身 ``chat_id``
         和 ``inbox:unified`` 的客户端收到重复消息（按连接集合去重）。
         """
-        inbox_conns = list(self._subs.get(_INBOX_UNIFIED_CHAT_ID, ()))
+        inbox_conns = list(self._subs.get(INBOX_UNIFIED_CHAT_ID, ()))
         if not inbox_conns:
             return
         fan_payload = dict(payload)
@@ -1778,7 +1890,7 @@ class WebSocketChannel(BaseChannel):
             wire_text = self._rewrite_local_markdown_images(text)
             payload: dict[str, Any] = {
                 "event": "message",
-                "chat_id": _INBOX_UNIFIED_CHAT_ID,
+                "chat_id": INBOX_UNIFIED_CHAT_ID,
                 "text": wire_text,
             }
             if msg.metadata.get("_channel_delivery"):
@@ -1814,7 +1926,7 @@ class WebSocketChannel(BaseChannel):
             source_cid = str(msg.metadata.get("source_chat_id") or "")
             user_obj: dict[str, Any] = {
                 "event": "user",
-                "chat_id": _INBOX_UNIFIED_CHAT_ID,
+                "chat_id": INBOX_UNIFIED_CHAT_ID,
                 "text": msg.content,
             }
             await self._fan_out_to_unified_inbox(user_obj, source_ch, source_cid)
@@ -2102,6 +2214,66 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" session_updated ")
+
+    async def request_screenshot(
+        self,
+        connection: Any,
+        *,
+        timeout_s: float = 10.0,
+    ) -> "Path | None":
+        """向指定连接发送截图请求，异步等待 screenshot_result 返回落盘路径。
+
+        超时、连接断开或解码失败均返回 ``None``，不抛出异常。
+        结果文件落盘到 ``get_media_dir("websocket")/screenshots/<request_id>.jpg``。
+        """
+        request_id = str(uuid.uuid4())
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Any] = loop.create_future()
+        self._screenshot_futures[request_id] = fut
+        self._conn_screenshot_requests.setdefault(connection, set()).add(request_id)
+        try:
+            await self._safe_send_to(
+                connection,
+                json.dumps(
+                    {"event": "screenshot_request", "request_id": request_id},
+                    ensure_ascii=False,
+                ),
+            )
+            # 超时即放弃：wait_for 取消 fut，迟到的 screenshot_result 因 fut.done() 被安全丢弃。
+            return await asyncio.wait_for(fut, timeout=timeout_s)
+        except asyncio.TimeoutError:
+            logger.warning("截图请求超时 request_id={}", request_id)
+            return None
+        except Exception as e:
+            logger.warning("截图请求失败: {}", e)
+            return None
+        finally:
+            self._screenshot_futures.pop(request_id, None)
+            reqs = self._conn_screenshot_requests.get(connection)
+            if reqs is not None:
+                reqs.discard(request_id)
+
+    def is_connection_focused(self, connection: Any) -> bool:
+        """返回连接的焦点状态；字段缺失时兜底为 True。"""
+        return self._conn_focused.get(connection, True)
+
+    def get_unfocused_last_user_connection(self) -> "tuple[Any, str] | None":
+        """返回最近一条 user 消息来源连接及其默认 chat_id（若它仍在线且当前失焦）。
+
+        主动陪伴据此决定是否触发：仅当用户最后交互的那个 Electron 窗口切到后台时，
+        才对该窗口发起主动陪伴。下列情况返回 ``None``（不触发）：
+        - 尚无任何 user 消息来源连接；
+        - 该连接已断开（清理后不在默认映射中）；
+        - 该连接当前在前台（获焦）。
+        """
+        conn = self._last_user_conn
+        if conn is None:
+            return None
+        if conn not in self._conn_default:
+            return None
+        if self._conn_focused.get(conn, True):
+            return None
+        return (conn, self._conn_default.get(conn, ""))
 
     async def send_runtime_model_updated(
         self,

@@ -162,7 +162,10 @@ async function captureScreen(): Promise<string | null> {
       sources.find((s) => s.display_id === String(primaryDisplay.id)) ??
       sources[0];
 
-    return primary?.thumbnail.toDataURL() ?? null;
+    // 固定输出 JPEG（quality=80）以压缩体积，比 PNG 小 5-10 倍。
+    const buf = primary?.thumbnail.toJPEG(80);
+    if (!buf) return null;
+    return 'data:image/jpeg;base64,' + buf.toString('base64');
   } catch (err) {
     console.error('[screenshot] captureScreen failed:', err);
     return null;
@@ -344,9 +347,13 @@ function createWindow(): void {
   };
   mainWindow.on('focus', () => {
     globalShortcut.register(SCREENSHOT_ACCELERATOR, screenshotHandler);
+    // 通知 renderer 窗口已获焦，renderer 将经 WebSocket 上报 presence 给服务端
+    mainWindow?.webContents.send('window:presence', { focused: true });
   });
   mainWindow.on('blur', () => {
     globalShortcut.unregister(SCREENSHOT_ACCELERATOR);
+    // 通知 renderer 窗口已失焦
+    mainWindow?.webContents.send('window:presence', { focused: false });
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
