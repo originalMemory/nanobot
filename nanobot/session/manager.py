@@ -302,9 +302,17 @@ class Session:
     def enforce_file_cap(
         self,
         on_archive: Any = None,
+        on_trim: Any = None,
         limit: int = FILE_MAX_MESSAGES,
     ) -> None:
-        """Bound session message growth by archiving and trimming old prefixes."""
+        """Bound session message growth by archiving and trimming old prefixes.
+
+        Args:
+            on_archive: Callback receiving the non-consolidated dropped chunk
+                        (for raw-text summarization into history.jsonl).
+            on_trim:    Callback receiving ALL dropped messages in original JSON
+                        form (for full-fidelity backup archive).
+        """
         if limit <= 0 or len(self.messages) <= limit:
             return
 
@@ -317,6 +325,8 @@ class Session:
             return
 
         dropped = before[:dropped_count]
+        if dropped and on_trim:
+            on_trim(dropped)
         already_consolidated = min(before_last_consolidated, dropped_count)
         archive_chunk = dropped[already_consolidated:]
         if archive_chunk and on_archive:

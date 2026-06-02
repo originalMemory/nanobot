@@ -17,6 +17,7 @@ from loguru import logger
 
 from nanobot.agent.runner import AgentRunner, AgentRunSpec
 from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.session.archiver import SessionArchiver
 from nanobot.session.manager import Session
 from nanobot.utils.gitstore import GitStore
 from nanobot.utils.helpers import (
@@ -459,6 +460,7 @@ class Consolidator:
         get_tool_definitions: Callable[[], list[dict[str, Any]]],
         max_completion_tokens: int = 4096,
         consolidation_ratio: float = 0.5,
+        archiver: SessionArchiver | None = None,
     ):
         self.store = store
         self.provider = provider
@@ -469,6 +471,7 @@ class Consolidator:
         self.consolidation_ratio = consolidation_ratio
         self._build_messages = build_messages
         self._get_tool_definitions = get_tool_definitions
+        self.archiver = archiver
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
             weakref.WeakValueDictionary()
         )
@@ -793,6 +796,7 @@ class Consolidator:
             self.sessions.invalidate(session_key)
             session = self.sessions.get_or_create(session_key)
 
+            consolidated_prefix = list(session.messages[: session.last_consolidated])
             tail = list(session.messages[session.last_consolidated:])
             if not tail:
                 session.updated_at = datetime.now()
@@ -817,9 +821,15 @@ class Consolidator:
                 self.sessions.save(session)
                 return ""
 
+            # 真正要 drop 消息时才写 trim archive，避免 early-return 路径重复归档。
+            if consolidated_prefix and self.archiver:
+                self.archiver.append(session_key, consolidated_prefix, "idle_compact")
+
             last_active = session.updated_at
             summary: str | None = ""
             if archive_msgs:
+                if self.archiver:
+                    self.archiver.append(session_key, archive_msgs, "idle_compact")
                 summary = await self.archive(archive_msgs)
 
             if summary and summary != "(nothing)":

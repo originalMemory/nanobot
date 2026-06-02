@@ -34,6 +34,7 @@ from nanobot.config.schema import AgentDefaults, ModelPresetConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.providers.factory import ProviderSnapshot
 from nanobot.session import UNIFIED_SESSION_KEY
+from nanobot.session.archiver import SessionArchiver
 from nanobot.session.goal_state import (
     goal_state_runtime_lines,
     runner_wall_llm_timeout_s,
@@ -304,6 +305,7 @@ class AgentLoop:
         self._concurrency_gate: asyncio.Semaphore | None = (
             asyncio.Semaphore(_max) if _max > 0 else None
         )
+        self.archiver = SessionArchiver(self.sessions.sessions_dir)
         self.consolidator = Consolidator(
             store=self.context.memory,
             provider=provider,
@@ -314,6 +316,7 @@ class AgentLoop:
             get_tool_definitions=self.tools.get_definitions,
             max_completion_tokens=provider.generation.max_tokens,
             consolidation_ratio=consolidation_ratio,
+            archiver=self.archiver,
         )
         self.auto_compact = AutoCompact(
             sessions=self.sessions,
@@ -1166,7 +1169,10 @@ class AgentLoop:
         )
         if channel == "websocket":
             self._pending_turn_latency_ms[key] = latency_ms
-        session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
+        session.enforce_file_cap(
+            on_archive=self.context.memory.raw_archive,
+            on_trim=lambda msgs: self.archiver.append(session.key, msgs, "file_cap"),
+        )
         self._clear_runtime_checkpoint(session)
         self.sessions.save(session)
         self._schedule_background(
@@ -1532,7 +1538,10 @@ class AgentLoop:
             self._pending_turn_latency_ms[ctx.session_key] = ctx.turn_latency_ms
             if ctx.turn_usage:
                 self._pending_turn_usage[ctx.session_key] = ctx.turn_usage
-        ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
+        ctx.session.enforce_file_cap(
+            on_archive=self.context.memory.raw_archive,
+            on_trim=lambda msgs: self.archiver.append(ctx.session.key, msgs, "file_cap"),
+        )
         self._clear_pending_user_turn(ctx.session)
         self._clear_runtime_checkpoint(ctx.session)
         self.sessions.save(ctx.session)
