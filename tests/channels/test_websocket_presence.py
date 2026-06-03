@@ -189,16 +189,93 @@ def test_cleanup_connection_clears_last_user_conn(bus: MagicMock) -> None:
 
 
 # ---------------------------------------------------------------------------
-# stop() 清理 _conn_focused
+# locked 状态：上报与默认值
+# ---------------------------------------------------------------------------
+
+
+def test_is_connection_locked_default_false(bus: MagicMock) -> None:
+    """未上报锁屏时，连接默认视为未锁屏。"""
+    ch = _ch(bus)
+    conn = _mock_conn()
+    assert ch.is_connection_locked(conn) is False
+
+
+@pytest.mark.asyncio
+async def test_dispatch_presence_locked_true(bus: MagicMock) -> None:
+    """收到 presence locked=true 后，锁屏状态更新为 True。"""
+    ch = _ch(bus)
+    conn = _mock_conn()
+    ch._conn_default[conn] = "chat-1"
+
+    envelope = {"type": "presence", "focused": False, "locked": True}
+    await ch._dispatch_envelope(conn, "client-1", envelope)
+
+    assert ch.is_connection_locked(conn) is True
+
+
+@pytest.mark.asyncio
+async def test_dispatch_presence_locked_false(bus: MagicMock) -> None:
+    """收到 presence locked=false 后，锁屏状态更新为 False。"""
+    ch = _ch(bus)
+    conn = _mock_conn()
+    ch._conn_locked[conn] = True  # 预设为锁屏
+
+    envelope = {"type": "presence", "focused": False, "locked": False}
+    await ch._dispatch_envelope(conn, "client-1", envelope)
+
+    assert ch.is_connection_locked(conn) is False
+
+
+@pytest.mark.asyncio
+async def test_dispatch_presence_missing_locked_keeps_default(bus: MagicMock) -> None:
+    """presence 缺少 locked 字段时，不修改原有锁屏状态。"""
+    ch = _ch(bus)
+    conn = _mock_conn()
+    # 缺少 locked 字段，_conn_locked 不应被更新
+    envelope = {"type": "presence", "focused": False}
+    await ch._dispatch_envelope(conn, "client-1", envelope)
+
+    assert conn not in ch._conn_locked  # 未被写入
+
+
+def test_cleanup_connection_removes_locked_state(bus: MagicMock) -> None:
+    """断开连接后，locked 状态被清除。"""
+    ch = _ch(bus)
+    conn = _mock_conn()
+    ch._conn_locked[conn] = True
+    ch._conn_default[conn] = "chat-1"
+    ch._subs["chat-1"] = {conn}
+    ch._conn_chats[conn] = {"chat-1"}
+
+    ch._cleanup_connection(conn)
+
+    assert conn not in ch._conn_locked
+
+
+def test_last_user_connection_none_when_locked(bus: MagicMock) -> None:
+    """最近用户连接失焦但屏幕已锁时返回 None（不触发主动陪伴）。"""
+    ch = _ch(bus)
+    conn = _mock_conn()
+    ch._conn_default[conn] = "chat-a"
+    ch._conn_focused[conn] = False
+    ch._conn_locked[conn] = True
+    ch._last_user_conn = conn
+
+    assert ch.get_unfocused_last_user_connection() is None
+
+
+# ---------------------------------------------------------------------------
+# stop() 清理 _conn_focused / _conn_locked
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_stop_clears_focused_state(bus: MagicMock) -> None:
-    """stop() 后 _conn_focused 被清空。"""
+    """stop() 后 _conn_focused 和 _conn_locked 被清空。"""
     ch = _ch(bus)
     conn = _mock_conn()
     ch._conn_focused[conn] = False
+    ch._conn_locked[conn] = True
     ch._running = True
     ch._stop_event = None
     ch._server_task = None
@@ -206,3 +283,4 @@ async def test_stop_clears_focused_state(bus: MagicMock) -> None:
     await ch.stop()
 
     assert ch._conn_focused == {}
+    assert ch._conn_locked == {}

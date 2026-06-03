@@ -6,6 +6,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  powerMonitor,
   screen,
   Tray,
 } from 'electron';
@@ -345,15 +346,34 @@ function createWindow(): void {
       mainWindow.webContents.send('screenshot:captured', dataUrl);
     }
   };
+  let screenLocked = false;
+
+  const sendPresence = (patch: { focused?: boolean; locked?: boolean }) => {
+    mainWindow?.webContents.send('window:presence', patch);
+  };
+
   mainWindow.on('focus', () => {
     globalShortcut.register(SCREENSHOT_ACCELERATOR, screenshotHandler);
-    // 通知 renderer 窗口已获焦，renderer 将经 WebSocket 上报 presence 给服务端
-    mainWindow?.webContents.send('window:presence', { focused: true });
+    sendPresence({ focused: true });
   });
   mainWindow.on('blur', () => {
     globalShortcut.unregister(SCREENSHOT_ACCELERATOR);
-    // 通知 renderer 窗口已失焦
-    mainWindow?.webContents.send('window:presence', { focused: false });
+    sendPresence({ focused: false });
+  });
+
+  // powerMonitor 必须在 app.whenReady() 后使用（此处已在 createWindow 内，满足条件）
+  powerMonitor.on('lock-screen', () => {
+    screenLocked = true;
+    sendPresence({ locked: true });
+  });
+  powerMonitor.on('unlock-screen', () => {
+    screenLocked = false;
+    sendPresence({ locked: false });
+  });
+
+  // 新窗口建立时补发一次当前锁屏状态，避免 renderer 连接后状态不同步
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (screenLocked) sendPresence({ locked: true });
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

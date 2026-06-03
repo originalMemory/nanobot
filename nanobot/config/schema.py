@@ -77,10 +77,24 @@ class DreamConfig(Base):
 
 
 class HistoricalMemoryConfig(Base):
-    """历史记忆库配置：接入外部日记 md 文件，提供 FTS 检索和按日预热。"""
+    """历史记忆库配置：接入外部笔记 md 文件，提供 FTS 检索和按日预热。
+
+    root        扫描根目录（如 ~/note）
+    diary_path  root 下视为日记的子目录名（如 "日记"）；
+                日记文件从文件名提取日期、解析 概要/心情；
+                其他文件（note 类型）从 frontmatter created/date 字段提取日期，
+                并将全量 frontmatter 值一并索引。
+                diary_path 为空时全部文件视为 note 类型。
+    refresh_interval_m  定时刷新间隔（分钟），0 表示不定时刷新，仅启动时构建一次。
+    """
 
     enabled: bool = False
-    paths: list[str] = Field(default_factory=list)
+    root: str = ""
+    diary_path: str = Field(
+        default="",
+        validation_alias=AliasChoices("diaryPath", "diary_path"),
+        serialization_alias="diaryPath",
+    )
     glob: str = "**/*.md"
     date_pattern: str = r"(\d{4}-\d{2}-\d{2})"
     preload_recent_days: int = Field(
@@ -99,6 +113,12 @@ class HistoricalMemoryConfig(Base):
         default=None,
         validation_alias=AliasChoices("indexPath", "index_path"),
         serialization_alias="indexPath",
+    )
+    refresh_interval_m: int = Field(
+        default=1440,
+        ge=0,
+        validation_alias=AliasChoices("refreshIntervalM", "refresh_interval_m"),
+        serialization_alias="refreshIntervalM",
     )
     tokenizer: Literal["char", "jieba", "trigram", "simple"] = "char"
     # 预留：tokenizer="simple" 时加载的 FTS5 扩展动态库路径（当前版本未实现）
@@ -317,15 +337,22 @@ class TtsConfig(Base):
 class ProactiveChatConfig(Base):
     """主动陪伴功能配置（默认关闭，需显式开启）。
 
-    用户切到后台时，助手基于屏幕截图和近期对话主动生成一句话并以语音播放。
+    用户切到后台且未锁屏时，助手基于屏幕截图和近期对话主动生成一句话并以语音播放。
 
-    quiet_hours 格式：["HH:MM", "HH:MM"] 表示静默开始和结束时间（24h），
-    空列表表示不设静默时段。示例：["22:00", "08:00"] 表示夜间静默。
+    quiet_periods 格式：每项为字符串，支持两种形式：
+      - "HH:MM-HH:MM"            每天均生效的静默段（支持跨午夜）
+      - "weekday:HH:MM-HH:MM"    仅周一至周五生效
+    示例：["22:00-08:00", "weekday:09:00-18:00"]
+    空列表表示不设静默时段。
     """
 
     enabled: bool = False
     interval_s: int = Field(default=30 * 60, ge=60)  # 触发间隔，最短 60 秒
-    quiet_hours: list[str] = Field(default_factory=list)  # [] = 不设静默时段
+    quiet_periods: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("quietPeriods", "quiet_periods"),
+        serialization_alias="quietPeriods",
+    )
 
 
 class ApiConfig(Base):

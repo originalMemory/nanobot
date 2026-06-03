@@ -15,6 +15,8 @@ from nanobot.agent.historical_memory import (
     SearchHit,
     _clean_body,
     _extract_date,
+    _extract_date_from_frontmatter,
+    _extract_frontmatter_text,
     _parse_frontmatter,
     _segment_query,
     _segment_text,
@@ -90,6 +92,33 @@ def test_parse_frontmatter_no_frontmatter():
     assert body == raw
 
 
+def test_extract_date_from_frontmatter_created():
+    """从 frontmatter created 字段提取日期。"""
+    fields = {"created": "2023-10-19T10:00"}
+    path = Path("/some/note.md")
+    assert _extract_date_from_frontmatter(fields, path) == "2023-10-19"
+
+
+def test_extract_date_from_frontmatter_date_key():
+    """从 frontmatter date 字段提取日期。"""
+    fields = {"date": "2024-03-15"}
+    path = Path("/some/note.md")
+    assert _extract_date_from_frontmatter(fields, path) == "2024-03-15"
+
+
+def test_extract_frontmatter_text_filters_wikilinks():
+    """_extract_frontmatter_text 过滤 wikilink 图片，保留普通字段值。"""
+    fields = {
+        "figureSource": "紫罗兰永恒花园",
+        "figureCreator": "繁缕",
+        "cover": "[[72fdafd3218271acf8db48cb41b7affc.jpg]]",
+    }
+    text = _extract_frontmatter_text(fields)
+    assert "紫罗兰永恒花园" in text
+    assert "繁缕" in text
+    assert "72fdafd" not in text
+
+
 def test_clean_body_removes_noise():
     """去除 JSON 块、embed 图片、wikilink、嵌套 callout 等噪声。"""
     body = """
@@ -124,32 +153,46 @@ def _date_str(days_ago: int) -> str:
 
 
 @pytest.fixture
-def diary_dir(tmp_path: Path) -> Path:
-    """创建临时日记目录，放入几个测试 md 文件（日期基于 today 偏移）。"""
-    d = tmp_path / "diary"
-    d.mkdir()
+def note_root(tmp_path: Path) -> Path:
+    """创建临时笔记根目录，包含日记子目录和其他笔记文件。"""
+    root = tmp_path / "note"
+    root.mkdir()
 
-    (d / f"{_date_str(2)} 周六.md").write_text(
+    # 日记目录
+    diary = root / "日记"
+    diary.mkdir()
+    (diary / f"{_date_str(2)} 周六.md").write_text(
         "---\n概要: 周六迁移 nanobot 到新环境\n心情:\n  - 成就感\n---\n"
         "下午精力基本全投在鸣潮和 nanobot 上，完成了迁移。绯雪手办到家。\n",
         encoding="utf-8",
     )
-    (d / f"{_date_str(1)} 周日.md").write_text(
+    (diary / f"{_date_str(1)} 周日.md").write_text(
         "---\n概要: 休息日折腾配置\n心情:\n  - 放松\n---\n"
         "终于可以好好休息了，暗色神具的魔王打到第三章。\n",
         encoding="utf-8",
     )
-    (d / f"{_date_str(45)}.md").write_text(
+    (diary / f"{_date_str(45)}.md").write_text(
         "---\n概要: 普通工作日\n---\n茑町千岁今天生日，公司送了蛋糕。\n",
         encoding="utf-8",
     )
-    return d
+
+    # 手办购买记录（note 类型，frontmatter 含有价值字段）
+    figure_dir = root / "手办" / "购买记录"
+    figure_dir.mkdir(parents=True)
+    (figure_dir / "繁缕-薇尔莉特.md").write_text(
+        f"---\nfigureSource: 紫罗兰永恒花园\nfigureCreator: 繁缕\n"
+        f"figureOrderDate: 2023-10-19\ncreated: 2023-10-19T10:00\n---\n",
+        encoding="utf-8",
+    )
+
+    return root
 
 
-def _make_config(diary_dir: Path, tmp_path: Path) -> HistoricalMemoryConfig:
+def _make_config(note_root: Path, tmp_path: Path) -> HistoricalMemoryConfig:
     return HistoricalMemoryConfig(
         enabled=True,
-        paths=[str(diary_dir)],
+        root=str(note_root),
+        diary_path="日记",
         glob="**/*.md",
         index_path=str(tmp_path / "test_index.db"),
         preload_recent_days=2,
@@ -157,18 +200,24 @@ def _make_config(diary_dir: Path, tmp_path: Path) -> HistoricalMemoryConfig:
     )
 
 
-def test_refresh_indexes_all_files(diary_dir: Path, tmp_path: Path):
-    """refresh 后所有日记文件都进了索引。"""
-    cfg = _make_config(diary_dir, tmp_path)
+# backward-compat alias for tests that still reference diary_dir
+@pytest.fixture
+def diary_dir(note_root: Path) -> Path:
+    return note_root / "日记"
+
+
+def test_refresh_indexes_all_files(note_root: Path, tmp_path: Path):
+    """refresh 后所有文件（日记+笔记）都进了索引。"""
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     changed = idx.refresh()
-    assert changed == 3
+    assert changed == 4  # 3 日记 + 1 手办记录
     assert idx.is_ready
 
 
-def test_search_two_char_chinese(diary_dir: Path, tmp_path: Path):
-    """2 字中文关键词（鸣潮/绯雪/迁移）能正确命中。"""
-    cfg = _make_config(diary_dir, tmp_path)
+def test_search_two_char_chinese(note_root: Path, tmp_path: Path):
+    """2 字中文关键词（鸣潮/绯雪/迁移）能正确命中日记。"""
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     idx.refresh()
 
@@ -178,36 +227,36 @@ def test_search_two_char_chinese(diary_dir: Path, tmp_path: Path):
         assert all(isinstance(h, SearchHit) for h in hits)
 
 
-def test_search_long_phrase(diary_dir: Path, tmp_path: Path):
+def test_search_long_phrase(note_root: Path, tmp_path: Path):
     """多字短语（暗色神具的魔王）能命中。"""
-    cfg = _make_config(diary_dir, tmp_path)
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     idx.refresh()
     hits = idx.search("暗色神具的魔王")
     assert len(hits) > 0
 
 
-def test_search_person_name(diary_dir: Path, tmp_path: Path):
+def test_search_person_name(note_root: Path, tmp_path: Path):
     """人名（茑町千岁）能命中。"""
-    cfg = _make_config(diary_dir, tmp_path)
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     idx.refresh()
     hits = idx.search("茑町千岁")
     assert len(hits) > 0
 
 
-def test_search_no_result(diary_dir: Path, tmp_path: Path):
+def test_search_no_result(note_root: Path, tmp_path: Path):
     """不存在的关键词返回空列表。"""
-    cfg = _make_config(diary_dir, tmp_path)
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     idx.refresh()
     hits = idx.search("zzznomatch999")
     assert hits == []
 
 
-def test_search_hit_fields(diary_dir: Path, tmp_path: Path):
+def test_search_hit_fields(note_root: Path, tmp_path: Path):
     """命中结果包含 path/date/summary 字段。"""
-    cfg = _make_config(diary_dir, tmp_path)
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     idx.refresh()
     hits = idx.search("茑町千岁")
@@ -217,13 +266,12 @@ def test_search_hit_fields(diary_dir: Path, tmp_path: Path):
     assert hit.path.endswith(".md")
 
 
-def test_refresh_incremental(diary_dir: Path, tmp_path: Path):
+def test_refresh_incremental(note_root: Path, tmp_path: Path, diary_dir: Path):
     """修改单个文件后 refresh 只重建该文件。"""
-    cfg = _make_config(diary_dir, tmp_path)
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     idx.refresh()
 
-    # 修改一个文件
     target = diary_dir / f"{_date_str(45)}.md"
     time.sleep(0.01)  # 确保 mtime 变化
     target.write_text(
@@ -233,53 +281,81 @@ def test_refresh_incremental(diary_dir: Path, tmp_path: Path):
     target.touch()
 
     changed = idx.refresh()
-    assert changed == 1  # 只重建了 1 个文件
+    assert changed == 1
 
 
-def test_refresh_deleted_file(diary_dir: Path, tmp_path: Path):
+def test_refresh_deleted_file(note_root: Path, tmp_path: Path, diary_dir: Path):
     """删除文件后 refresh 从索引中移除它。"""
-    cfg = _make_config(diary_dir, tmp_path)
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     idx.refresh()
 
-    # 删除文件
     (diary_dir / f"{_date_str(45)}.md").unlink()
     changed = idx.refresh()
     assert changed == 1
 
-    # 搜索已删除文件的内容应返回空
     hits = idx.search("茑町千岁")
     assert len(hits) == 0
 
 
-def test_recent_returns_notes(diary_dir: Path, tmp_path: Path):
-    """recent() 返回 RecentNote 列表，按 date 倒序。"""
-    cfg = _make_config(diary_dir, tmp_path)
+def test_recent_returns_only_diary(note_root: Path, tmp_path: Path):
+    """recent() 只返回 diary 类型，不含 note 类型笔记。"""
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     idx.refresh()
-    # 取足够多天数确保拿到数据
     notes = idx.recent(365)
-    assert len(notes) == 3
+    assert len(notes) == 3  # 只有 3 条日记，手办记录不在其中
     assert all(isinstance(n, RecentNote) for n in notes)
-    # 验证倒序
     dates = [n.date for n in notes]
     assert dates == sorted(dates, reverse=True)
 
 
-def test_recent_respects_days(diary_dir: Path, tmp_path: Path):
+def test_recent_respects_days(note_root: Path, tmp_path: Path):
     """recent(days) 只返回 cutoff 之后的日记。"""
-    cfg = _make_config(diary_dir, tmp_path)
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     idx.refresh()
     notes = idx.recent(7)
-    cutoff = _date_str(6)  # recent(7) 包含今天往前 6 天
+    cutoff = _date_str(6)
     for n in notes:
         assert n.date >= cutoff, f"recent(7) 不应包含 {n.date}"
 
 
-def test_registry(diary_dir: Path, tmp_path: Path):
+def test_note_frontmatter_indexed(note_root: Path, tmp_path: Path):
+    """note 类型：frontmatter 字段值（figureSource/figureCreator）可被搜索命中。"""
+    cfg = _make_config(note_root, tmp_path)
+    idx = HistoricalMemoryIndex(cfg, tmp_path)
+    idx.refresh()
+
+    for kw in ("紫罗兰永恒花园", "繁缕"):
+        hits = idx.search(kw)
+        assert len(hits) > 0, f"note frontmatter 关键词 {kw!r} 应能命中"
+
+
+def test_note_date_from_frontmatter(note_root: Path, tmp_path: Path):
+    """note 类型：日期从 frontmatter created 字段提取。"""
+    cfg = _make_config(note_root, tmp_path)
+    idx = HistoricalMemoryIndex(cfg, tmp_path)
+    idx.refresh()
+
+    hits = idx.search("紫罗兰永恒花园")
+    assert len(hits) > 0
+    assert hits[0].date == "2023-10-19"
+
+
+def test_note_not_in_recent(note_root: Path, tmp_path: Path):
+    """note 类型不出现在 recent() 结果中，即使日期在范围内。"""
+    cfg = _make_config(note_root, tmp_path)
+    idx = HistoricalMemoryIndex(cfg, tmp_path)
+    idx.refresh()
+    notes = idx.recent(365)
+    paths = [n.path for n in notes]
+    assert not any("手办" in p for p in paths)
+
+
+def test_registry(note_root: Path, tmp_path: Path):
     """register_index / get_index 模块级注册表正常工作。"""
-    cfg = _make_config(diary_dir, tmp_path)
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     workspace = str(tmp_path)
 
@@ -288,9 +364,9 @@ def test_registry(diary_dir: Path, tmp_path: Path):
     assert get_index(workspace) is idx
 
 
-def test_not_ready_before_refresh(diary_dir: Path, tmp_path: Path):
+def test_not_ready_before_refresh(note_root: Path, tmp_path: Path):
     """未调用 refresh 前 is_ready=False，search 返回空列表。"""
-    cfg = _make_config(diary_dir, tmp_path)
+    cfg = _make_config(note_root, tmp_path)
     idx = HistoricalMemoryIndex(cfg, tmp_path)
     assert not idx.is_ready
     assert idx.search("鸣潮") == []

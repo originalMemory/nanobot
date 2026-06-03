@@ -1,4 +1,9 @@
-"""历史记忆索引：扫描外部日记 md，建 SQLite FTS5 全文索引，提供检索与按日预热。"""
+"""历史记忆索引：扫描外部笔记 md，建 SQLite FTS5 全文索引，提供检索与按日预热。
+
+支持两种文档类型：
+- diary：日记文件，从文件名提取日期，解析 概要/心情 结构化字段
+- note ：普通笔记，从 frontmatter created/date 字段提取日期，全量索引 frontmatter 值
+"""
 
 from __future__ import annotations
 
@@ -82,6 +87,9 @@ _NOISE_PATTERNS = [
     re.compile(r"^\|[-| ]+\|$", re.MULTILINE),            # Markdown 表格分隔行
 ]
 
+# 用于过滤 frontmatter 值里的 wikilink 图片（如 [[hash.jpg]]）
+_WIKILINK_RE = re.compile(r"^\[\[.*\]\]$")
+
 
 def _parse_frontmatter(raw: str) -> tuple[dict[str, str], str]:
     """解析 YAML frontmatter，返回 (字段字典, 正文文本)。"""
@@ -136,6 +144,32 @@ def _extract_date(path: Path, pattern: re.Pattern[str]) -> str:
         return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
     except OSError:
         return ""
+
+
+def _extract_date_from_frontmatter(fields: dict[str, str], path: Path) -> str:
+    """从 frontmatter created/date 字段提取 YYYY-MM-DD，fallback mtime。
+
+    note 类型文档使用此函数；created 字段可能含时间部分，取前 10 字符。
+    """
+    for key in ("created", "date"):
+        val = fields.get(key, "").strip()
+        if len(val) >= 10 and val[:4].isdigit():
+            return val[:10]
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+    except OSError:
+        return ""
+
+
+def _extract_frontmatter_text(fields: dict[str, str]) -> str:
+    """将全量 frontmatter 值拼成可索引文本，过滤 wikilink 图片格式值。"""
+    parts: list[str] = []
+    for val in fields.values():
+        val = val.strip()
+        if not val or _WIKILINK_RE.match(val):
+            continue
+        parts.append(val)
+    return " ".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -207,12 +241,16 @@ def _check_fts5() -> bool:
 
 class HistoricalMemoryIndex:
     """
-    SQLite FTS5 历史日记索引。
+    SQLite FTS5 历史笔记索引。
 
     表结构：
     - ``_files(path TEXT PK, mtime REAL)``：mtime 增量缓存
-    - ``docs(path, date, summary, mood, content, tokenize='unicode61')``：
+    - ``docs(path, date, summary, mood, doc_type, content)``：
       FTS5 虚表，content 列存字级分词后的文本，其余列 UNINDEXED
+
+    doc_type：
+    - ``diary``：日记文件（位于 diary_path 子目录），从文件名取日期，解析 概要/心情
+    - ``note`` ：其他笔记，从 frontmatter created/date 取日期，全量索引 frontmatter 值
     """
 
     def __init__(self, config: HistoricalMemoryConfig, workspace: Path) -> None:
@@ -226,6 +264,15 @@ class HistoricalMemoryIndex:
         )
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
+
+        # 解析根目录和日记子目录
+        self._root: Path | None = None
+        self._diary_root: Path | None = None
+        if config.root:
+            self._root = Path(config.root).expanduser().resolve()
+            if config.diary_path:
+                self._diary_root = self._root / config.diary_path
+
         # 读连接：仅在事件循环主线程中使用（search / recent）
         self._read_con: sqlite3.Connection | None = None
         self._ready = False
@@ -242,14 +289,15 @@ class HistoricalMemoryIndex:
                 mtime REAL NOT NULL
             )
         """)
-        # FTS5 虚表：path/date/summary/mood 是 UNINDEXED（只用于过滤/返回），
+        # FTS5 虚表：path/date/summary/mood/doc_type 是 UNINDEXED（只用于过滤/返回），
         # content 列存字级分词文本供全文检索
         con.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
-                path    UNINDEXED,
-                date    UNINDEXED,
-                summary UNINDEXED,
-                mood    UNINDEXED,
+                path     UNINDEXED,
+                date     UNINDEXED,
+                summary  UNINDEXED,
+                mood     UNINDEXED,
+                doc_type UNINDEXED,
                 content,
                 tokenize = 'unicode61'
             )
@@ -268,17 +316,22 @@ class HistoricalMemoryIndex:
     # -- 文件扫描 -------------------------------------------------------------
 
     def _iter_paths(self) -> list[Path]:
-        """遍历所有配置根目录，返回匹配 glob 的文件列表。"""
-        result: list[Path] = []
-        for root_str in self._config.paths:
-            root = Path(root_str).expanduser().resolve()
-            if not root.exists():
-                logger.warning("历史记忆路径不存在，跳过: {}", root)
-                continue
-            for p in sorted(root.rglob(self._config.glob)):
-                if p.is_file():
-                    result.append(p)
-        return result
+        """遍历根目录，返回匹配 glob 的文件列表。"""
+        if self._root is None or not self._root.exists():
+            if self._root is not None:
+                logger.warning("历史记忆路径不存在，跳过: {}", self._root)
+            return []
+        return [p for p in sorted(self._root.rglob(self._config.glob)) if p.is_file()]
+
+    def _doc_type(self, path: Path) -> str:
+        """判断文件类型：位于 diary_root 下为 'diary'，否则为 'note'。"""
+        if self._diary_root is not None:
+            try:
+                path.relative_to(self._diary_root)
+                return "diary"
+            except ValueError:
+                pass
+        return "note"
 
     # -- 单文件索引 -----------------------------------------------------------
 
@@ -288,20 +341,31 @@ class HistoricalMemoryIndex:
             raw = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return
+
         fields, body = _parse_frontmatter(raw)
-        summary = fields.get("概要", "")
-        mood = fields.get("心情", "")
-        date_str = _extract_date(path, self._date_pattern)
         clean_text = _clean_body(body)
-        # 字级分词：摘要 + 正文合并后索引，提升摘要字段的召回权重
-        fts_content = _segment_text(f"{summary} {clean_text}")
+        doc_type = self._doc_type(path)
+
+        if doc_type == "diary":
+            summary = fields.get("概要", "")
+            mood = fields.get("心情", "")
+            date_str = _extract_date(path, self._date_pattern)
+            # 摘要 + 正文合并后索引，提升摘要字段的召回权重
+            fts_content = _segment_text(f"{summary} {clean_text}")
+        else:
+            summary = ""
+            mood = ""
+            date_str = _extract_date_from_frontmatter(fields, path)
+            # 全量 frontmatter 值 + 正文一并索引
+            fm_text = _extract_frontmatter_text(fields)
+            fts_content = _segment_text(f"{fm_text} {clean_text}")
 
         path_str = str(path)
         # FTS5 虚表不支持 UPDATE，用 DELETE + INSERT 实现 upsert
         con.execute("DELETE FROM docs WHERE path = ?", (path_str,))
         con.execute(
-            "INSERT INTO docs(path, date, summary, mood, content) VALUES (?,?,?,?,?)",
-            (path_str, date_str, summary, mood, fts_content),
+            "INSERT INTO docs(path, date, summary, mood, doc_type, content) VALUES (?,?,?,?,?,?)",
+            (path_str, date_str, summary, mood, doc_type, fts_content),
         )
         con.execute(
             "INSERT OR REPLACE INTO _files(path, mtime) VALUES (?,?)",
@@ -393,7 +457,7 @@ class HistoricalMemoryIndex:
             rows = con.execute(
                 """
                 SELECT path, date, summary,
-                       snippet(docs, 4, '>', '<', '...', 16)
+                       snippet(docs, 5, '>', '<', '...', 16)
                 FROM docs
                 WHERE content MATCH ?
                 ORDER BY rank
@@ -410,14 +474,18 @@ class HistoricalMemoryIndex:
         ]
 
     def recent(self, days: int) -> list[RecentNote]:
-        """返回最近 days 天的日记摘要（按 date 倒序）。"""
+        """返回最近 days 天的日记摘要（按 date 倒序，仅 doc_type='diary'）。"""
         if not self._ready or days <= 0:
             return []
         cutoff = (date.today() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
         con = self._read_connect()
         try:
             rows = con.execute(
-                "SELECT path, date, summary, mood FROM docs WHERE date >= ? ORDER BY date DESC",
+                """
+                SELECT path, date, summary, mood FROM docs
+                WHERE date >= ? AND doc_type = 'diary'
+                ORDER BY date DESC
+                """,
                 (cutoff,),
             ).fetchall()
         except sqlite3.OperationalError as e:

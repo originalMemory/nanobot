@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import time
+from datetime import datetime, time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -23,14 +23,14 @@ def _cfg(
     *,
     enabled: bool = True,
     interval_s: int = 1,
-    quiet_hours: list[str] | None = None,
+    quiet_periods: list[str] | None = None,
     voice: str = "tongtong",
 ) -> Any:
     """构造一个最小 ProactiveChatConfig 替代对象。"""
     cfg = MagicMock()
     cfg.enabled = enabled
     cfg.interval_s = interval_s
-    cfg.quiet_hours = quiet_hours or []
+    cfg.quiet_periods = quiet_periods or []
     cfg.voice = voice
     return cfg
 
@@ -84,12 +84,12 @@ async def test_quiet_hours_skips(monkeypatch: pytest.MonkeyPatch) -> None:
     """在静默时段内 _tick 不触发。"""
     import nanobot.proactive_chat.service as svc_mod
 
-    # 固定当前时间为 23:00
-    monkeypatch.setattr(svc_mod, "_current_time", lambda _tz: time(23, 0))
+    # 固定当前时间为周一 23:00（工作日夜间，命中 22:00-08:00）
+    monkeypatch.setattr(svc_mod, "_current_datetime", lambda _tz: datetime(2026, 6, 1, 23, 0))
 
     ws = _mock_ws(target=("conn1", "chat-1"))
     on_trigger = AsyncMock()
-    cfg = _cfg(quiet_hours=["22:00", "08:00"])
+    cfg = _cfg(quiet_periods=["22:00-08:00"])
     svc = ProactiveChatService(cfg, ws, on_trigger)
     await svc._tick()
     on_trigger.assert_not_called()
@@ -100,12 +100,12 @@ async def test_outside_quiet_hours_triggers(monkeypatch: pytest.MonkeyPatch) -> 
     """在静默时段外 _tick 正常触发。"""
     import nanobot.proactive_chat.service as svc_mod
 
-    # 固定当前时间为 12:00（不在 22:00-08:00 内）
-    monkeypatch.setattr(svc_mod, "_current_time", lambda _tz: time(12, 0))
+    # 固定当前时间为周一 20:00（不在 22:00-08:00 内）
+    monkeypatch.setattr(svc_mod, "_current_datetime", lambda _tz: datetime(2026, 6, 1, 20, 0))
 
     ws = _mock_ws(target=("conn1", "chat-1"))
     on_trigger = AsyncMock()
-    svc = ProactiveChatService(_cfg(quiet_hours=["22:00", "08:00"]), ws, on_trigger)
+    svc = ProactiveChatService(_cfg(quiet_periods=["22:00-08:00"]), ws, on_trigger)
     await svc._tick()
     on_trigger.assert_called_once()
     (media,) = on_trigger.call_args[0]
@@ -230,10 +230,64 @@ def test_time_in_range(start: str, end: str, now: str, expected: bool) -> None:
 
 @pytest.mark.asyncio
 async def test_malformed_quiet_hours_skips_silence() -> None:
-    """quiet_hours 格式错误时不进入静默，正常触发。"""
+    """quiet_periods 格式错误时不进入静默，正常触发。"""
     ws = _mock_ws(target=("conn1", "chat-1"))
     on_trigger = AsyncMock()
-    cfg = _cfg(quiet_hours=["bad", "format"])
+    cfg = _cfg(quiet_periods=["bad_format"])
     svc = ProactiveChatService(cfg, ws, on_trigger)
     await svc._tick()
     on_trigger.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# weekday: 前缀静默段
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_weekday_period_skips_on_weekday(monkeypatch: pytest.MonkeyPatch) -> None:
+    """weekday: 静默段在工作日内不触发。"""
+    import nanobot.proactive_chat.service as svc_mod
+
+    # 2026-06-01 周一 10:00（工作日，命中 weekday:09:00-18:00）
+    monkeypatch.setattr(svc_mod, "_current_datetime", lambda _tz: datetime(2026, 6, 1, 10, 0))
+
+    ws = _mock_ws(target=("conn1", "chat-1"))
+    on_trigger = AsyncMock()
+    cfg = _cfg(quiet_periods=["weekday:09:00-18:00"])
+    svc = ProactiveChatService(cfg, ws, on_trigger)
+    await svc._tick()
+    on_trigger.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_weekday_period_triggers_on_weekend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """weekday: 静默段在周末不生效，正常触发。"""
+    import nanobot.proactive_chat.service as svc_mod
+
+    # 2026-06-07 周日 10:00（周末，weekday: 不生效）
+    monkeypatch.setattr(svc_mod, "_current_datetime", lambda _tz: datetime(2026, 6, 7, 10, 0))
+
+    ws = _mock_ws(target=("conn1", "chat-1"))
+    on_trigger = AsyncMock()
+    cfg = _cfg(quiet_periods=["weekday:09:00-18:00"])
+    svc = ProactiveChatService(cfg, ws, on_trigger)
+    await svc._tick()
+    on_trigger.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_multiple_periods_any_match_skips(monkeypatch: pytest.MonkeyPatch) -> None:
+    """多个 quiet_periods 中任意一项命中则静默。"""
+    import nanobot.proactive_chat.service as svc_mod
+
+    # 周一 20:00：不在 22:00-08:00，但在 weekday 晚高峰段（若配置了的话）
+    # 这里测 22:00-08:00 夜间段命中的情况，改为 23:00
+    monkeypatch.setattr(svc_mod, "_current_datetime", lambda _tz: datetime(2026, 6, 1, 23, 0))
+
+    ws = _mock_ws(target=("conn1", "chat-1"))
+    on_trigger = AsyncMock()
+    cfg = _cfg(quiet_periods=["22:00-08:00", "weekday:09:00-18:00"])
+    svc = ProactiveChatService(cfg, ws, on_trigger)
+    await svc._tick()
+    on_trigger.assert_not_called()  # 命中夜间段，跳过

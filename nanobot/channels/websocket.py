@@ -553,6 +553,9 @@ class WebSocketChannel(BaseChannel):
         # connection -> 是否处于前台（获焦）；Electron 连接建立后立即上报初值，
         # 字段缺失时兜底 True 以避免误触主动推送。
         self._conn_focused: dict[Any, bool] = {}
+        # connection -> 是否处于锁屏状态；锁屏时不触发主动陪伴。
+        # 字段缺失时兜底 False（未锁屏），锁屏事件由 Electron powerMonitor 上报。
+        self._conn_locked: dict[Any, bool] = {}
         # 最近一条 user 消息来源的连接（Electron）。主动陪伴只针对用户最后交互的窗口，
         # 且仅当该窗口当前失焦时才触发。连接断开时清空。
         self._last_user_conn: Any | None = None
@@ -605,6 +608,7 @@ class WebSocketChannel(BaseChannel):
                 self._subs.pop(cid, None)
         self._conn_default.pop(connection, None)
         self._conn_focused.pop(connection, None)
+        self._conn_locked.pop(connection, None)
         if self._last_user_conn is connection:
             self._last_user_conn = None
         # 断开时取消该连接上所有挂起的截图请求，防止调用方永久阻塞。
@@ -1766,10 +1770,14 @@ class WebSocketChannel(BaseChannel):
             )
             return
         if t == "presence":
-            # Electron 上报窗口焦点状态（focused=true/false）。
-            # 字段缺失时兜底为 true，避免因协议疏漏误触主动推送。
+            # Electron 上报窗口焦点/锁屏状态。
+            # focused 字段缺失时兜底 true，避免因协议疏漏误触主动推送。
+            # locked 字段缺失时兜底 false（未锁屏）。
             focused = envelope.get("focused")
             self._conn_focused[connection] = bool(focused) if isinstance(focused, bool) else True
+            locked = envelope.get("locked")
+            if isinstance(locked, bool):
+                self._conn_locked[connection] = locked
             return
         if t == "screenshot_result":
             req_id = envelope.get("request_id")
@@ -1829,6 +1837,7 @@ class WebSocketChannel(BaseChannel):
         self._conn_chats.clear()
         self._conn_default.clear()
         self._conn_focused.clear()
+        self._conn_locked.clear()
         self._last_user_conn = None
         for fut in self._screenshot_futures.values():
             if not fut.done():
@@ -2270,14 +2279,18 @@ class WebSocketChannel(BaseChannel):
         """返回连接的焦点状态；字段缺失时兜底为 True。"""
         return self._conn_focused.get(connection, True)
 
-    def get_unfocused_last_user_connection(self) -> "tuple[Any, str] | None":
-        """返回最近一条 user 消息来源连接及其默认 chat_id（若它仍在线且当前失焦）。
+    def is_connection_locked(self, connection: Any) -> bool:
+        """返回连接的锁屏状态；字段缺失时兜底为 False（未锁屏）。"""
+        return self._conn_locked.get(connection, False)
 
-        主动陪伴据此决定是否触发：仅当用户最后交互的那个 Electron 窗口切到后台时，
-        才对该窗口发起主动陪伴。下列情况返回 ``None``（不触发）：
+    def get_unfocused_last_user_connection(self) -> "tuple[Any, str] | None":
+        """返回最近一条 user 消息来源连接及其默认 chat_id（若它仍在线且当前失焦且未锁屏）。
+
+        主动陪伴据此决定是否触发。下列情况返回 ``None``（不触发）：
         - 尚无任何 user 消息来源连接；
         - 该连接已断开（清理后不在默认映射中）；
-        - 该连接当前在前台（获焦）。
+        - 该连接当前在前台（获焦）；
+        - 该连接对应的屏幕处于锁屏状态。
         """
         conn = self._last_user_conn
         if conn is None:
@@ -2285,6 +2298,9 @@ class WebSocketChannel(BaseChannel):
         if conn not in self._conn_default:
             return None
         if self._conn_focused.get(conn, True):
+            return None
+        if self._conn_locked.get(conn, False):
+            logger.debug("主动陪伴：屏幕已锁，跳过")
             return None
         return (conn, self._conn_default.get(conn, ""))
 
