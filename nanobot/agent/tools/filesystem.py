@@ -57,14 +57,10 @@ class _FsTool(Tool):
         # 把历史日记库路径加入白名单，写类工具（EditFileTool / WriteFileTool）不加
         if cls._allow_historical_dirs and allowed_dir is not None:
             hist_cfg = getattr(ctx, "historical_memory_config", None)
-            if hist_cfg and hist_cfg.enabled and hist_cfg.paths:
-                hist_paths: list[Path] = []
-                for p in hist_cfg.paths:
-                    resolved = Path(p).expanduser().resolve()
-                    if resolved.exists():
-                        hist_paths.append(resolved)
-                if hist_paths:
-                    extra_read = list(extra_read or []) + hist_paths
+            if hist_cfg and hist_cfg.enabled and hist_cfg.root:
+                root = Path(hist_cfg.root).expanduser().resolve()
+                if root.exists():
+                    extra_read = list(extra_read or []) + [root]
 
         return cls(
             workspace=Path(ctx.workspace),

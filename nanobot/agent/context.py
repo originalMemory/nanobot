@@ -237,7 +237,7 @@ class ContextBuilder:
     def _build_historical_journals_section(self) -> str:
         """构建历史日记预热区块：注入最近 N 天日记摘要（仅 概要/心情，不含全文）。"""
         cfg = self._historical_memory_config
-        if not cfg or not cfg.enabled or not cfg.paths or cfg.preload_recent_days <= 0:
+        if not cfg or not cfg.enabled or not cfg.root or cfg.preload_recent_days <= 0:
             return ""
         from nanobot.agent.historical_memory import get_index as get_historical_index
 
