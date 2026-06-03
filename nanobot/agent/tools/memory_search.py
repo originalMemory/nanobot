@@ -8,7 +8,7 @@ from nanobot.agent.tools.base import Tool
 
 
 class MemorySearchTool(Tool):
-    """在配置的历史日记库中进行全文检索，返回命中的日记条目（日期/摘要/片段）。"""
+    """在配置的历史记忆库中全文检索，支持日记和笔记多种文档类型。"""
 
     _scopes = {"core", "subagent"}
 
@@ -34,7 +34,7 @@ class MemorySearchTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "在历史日记库中全文检索，返回命中的日记条目（日期、摘要、关键片段）。"
+            "在历史记忆库中全文检索，覆盖日记和笔记等多种文档类型，返回命中的条目（日期、摘要、关键片段、文档类型）。"
             "当用户提及过去的事件、人物、游戏、情绪或想回忆某段经历时调用此工具。"
             "支持中文关键词（包括 2 字词）、英文词、混合查询。"
             "多个关键词用空格分隔，结果要求全部出现（AND），如「FA 黄泉」同时匹配两个关键词；"
@@ -81,7 +81,7 @@ class MemorySearchTool(Tool):
         k = top_k if top_k is not None else self._top_k
         hits = index.search(query, top_k=k)
         if not hits:
-            return f"未找到与「{query}」相关的日记记录。"
+            return f"未找到与「{query}」相关的记录。"
 
         lines = [f"检索「{query}」，共 {len(hits)} 条结果：\n"]
         for i, hit in enumerate(hits, 1):
