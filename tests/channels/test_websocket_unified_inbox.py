@@ -294,37 +294,47 @@ async def test_no_duplicate_when_subscribed_to_both(bus: MagicMock, tmp_path: Pa
 @pytest.mark.asyncio
 async def test_non_ws_inbound_fan_out_to_inbox_unified(bus: MagicMock, tmp_path: Path) -> None:
     """Task 3.3 / 2.3: _unified_inbox_inbound shadow message fans out to inbox:unified."""
+    media_dir = tmp_path / "media"
+    media_dir.mkdir()
+    img = media_dir / "inbound.png"
+    img.write_bytes(b"fake image")
+
     ch = _ch(bus, _PORT_BASE + 7, unified_session=True, workspace_path=tmp_path)
-    t = asyncio.create_task(ch.start())
-    await asyncio.sleep(0.3)
-    try:
-        async with WsTestClient(
-            f"ws://127.0.0.1:{_PORT_BASE + 7}/", client_id="e"
-        ) as c:
-            await c.recv_ready()
-            await c.ws.send(json.dumps({"type": "attach", "chat_id": "inbox:unified"}))
-            attached = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
-            assert attached["event"] == "attached"
+    with patch("nanobot.channels.websocket.get_media_dir", return_value=media_dir):
+        t = asyncio.create_task(ch.start())
+        await asyncio.sleep(0.3)
+        try:
+            async with WsTestClient(
+                f"ws://127.0.0.1:{_PORT_BASE + 7}/", client_id="e"
+            ) as c:
+                await c.recv_ready()
+                await c.ws.send(json.dumps({"type": "attach", "chat_id": "inbox:unified"}))
+                attached = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+                assert attached["event"] == "attached"
 
-            # Simulate AgentLoop publishing an inbound shadow from Telegram
-            await ch.send(OutboundMessage(
-                channel="websocket",
-                chat_id="inbox:unified",
-                content="hi from telegram",
-                metadata={
-                    "_unified_inbox_inbound": True,
-                    "source_channel": "telegram",
-                    "source_chat_id": "tg-123",
-                },
-            ))
+                # Simulate AgentLoop publishing an inbound shadow from Telegram
+                await ch.send(OutboundMessage(
+                    channel="websocket",
+                    chat_id="inbox:unified",
+                    content="hi from telegram",
+                    media=[str(img)],
+                    metadata={
+                        "_unified_inbox_inbound": True,
+                        "source_channel": "telegram",
+                        "source_chat_id": "tg-123",
+                    },
+                ))
 
-            msg = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
-            assert msg["event"] == "user"
-            assert msg["text"] == "hi from telegram"
-            assert msg["source_channel"] == "telegram"
-    finally:
-        await ch.stop()
-        await t
+                msg = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+                assert msg["event"] == "user"
+                assert msg["text"] == "hi from telegram"
+                assert msg["source_channel"] == "telegram"
+                assert len(msg["media_urls"]) == 1
+                assert msg["media_urls"][0]["name"] == "inbound.png"
+                assert msg["media_urls"][0]["url"].startswith("/api/media/")
+        finally:
+            await ch.stop()
+            await t
 
 
 @pytest.mark.asyncio

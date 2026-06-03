@@ -1929,6 +1929,19 @@ class WebSocketChannel(BaseChannel):
                 "chat_id": INBOX_UNIFIED_CHAT_ID,
                 "text": msg.content,
             }
+            if msg.media:
+                urls: list[dict[str, str]] = []
+                for entry in msg.media:
+                    if not isinstance(entry, str) or not entry:
+                        continue
+                    if is_remote_media_url(entry):
+                        urls.append(self._remote_media_payload(entry))
+                        continue
+                    signed = self._sign_or_stage_media_path(Path(entry))
+                    if signed is not None:
+                        urls.append(signed)
+                if urls:
+                    user_obj["media_urls"] = urls
             await self._fan_out_to_unified_inbox(user_obj, source_ch, source_cid)
             return
 

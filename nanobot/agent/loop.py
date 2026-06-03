@@ -953,13 +953,14 @@ class AgentLoop:
         if (
             self._unified_session
             and msg.channel not in ("websocket", "cli")
-            and msg.content
+            and (msg.content or msg.media)
         ):
             try:
                 await self.bus.publish_outbound(OutboundMessage(
                     channel="websocket",
                     chat_id="inbox:unified",
                     content=msg.content,
+                    media=msg.media or None,
                     metadata={
                         "_unified_inbox_inbound": True,
                         "source_channel": msg.channel,
