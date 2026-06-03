@@ -583,6 +583,9 @@ class WebSocketChannel(BaseChannel):
         self._unified_session = unified_session
         self._settings_restart_sections: set[str] = set()
         self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
+        # 重启完成后、客户端重连前暂存的待投递消息（chat_id -> 消息列表）。
+        # _hydrate_after_subscribe 会在订阅时统一投递并清空。
+        self._pending_reconnect_messages: dict[str, list[Any]] = {}
         # Process-local secret used to HMAC-sign media URLs. The signed URL is
         # the capability — anyone who holds a valid URL can fetch that one
         # file, nothing else. The secret regenerates on restart so links
@@ -617,6 +620,16 @@ class WebSocketChannel(BaseChannel):
             if fut is not None and not fut.done():
                 fut.cancel()
 
+    def queue_pending_reconnect_message(self, msg: "OutboundMessage") -> None:
+        """将消息缓存，待客户端重连并订阅该 chat_id 后统一投递。
+
+        用于进程重启后、客户端尚未重连期间发出的重要消息（如"重启完成"通知）。
+        每个 chat_id 最多保留 10 条，防止无限堆积。
+        """
+        queue = self._pending_reconnect_messages.setdefault(msg.chat_id, [])
+        if len(queue) < 10:
+            queue.append(msg)
+
     async def _maybe_push_active_goal_state(self, chat_id: str) -> None:
         """Replay an active sustained goal from session metadata after *chat_id* is subscribed.
 
@@ -644,6 +657,9 @@ class WebSocketChannel(BaseChannel):
 
     async def _hydrate_after_subscribe(self, chat_id: str) -> None:
         """Replay goal/run strip state after subscribe (same-process refresh)."""
+        pending = self._pending_reconnect_messages.pop(chat_id, [])
+        for msg in pending:
+            await self.send(msg)
         await self._maybe_push_active_goal_state(chat_id)
         await self._maybe_push_turn_run_wall_clock(chat_id)
 
@@ -1696,6 +1712,7 @@ class WebSocketChannel(BaseChannel):
             if cid == INBOX_UNIFIED_CHAT_ID:
                 self._attach(connection, INBOX_UNIFIED_CHAT_ID)
                 await self._send_event(connection, "attached", chat_id=INBOX_UNIFIED_CHAT_ID)
+                await self._hydrate_after_subscribe(INBOX_UNIFIED_CHAT_ID)
                 return
             if not _is_valid_chat_id(cid):
                 await self._send_event(connection, "error", detail="invalid chat_id")

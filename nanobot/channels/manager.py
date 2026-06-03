@@ -239,15 +239,18 @@ class ChannelManager:
         target = self.channels.get(notice.channel)
         if not target:
             return
-        asyncio.create_task(self._send_with_retry(
-            target,
-            OutboundMessage(
-                channel=notice.channel,
-                chat_id=notice.chat_id,
-                content=format_restart_completed_message(notice.started_at_raw),
-                metadata=dict(notice.metadata or {}),
-            ),
-        ))
+        msg = OutboundMessage(
+            channel=notice.channel,
+            chat_id=notice.chat_id,
+            content=format_restart_completed_message(notice.started_at_raw),
+            metadata=dict(notice.metadata or {}),
+        )
+        # WebSocket 频道在重启后客户端尚未重连，直接发送会因无订阅者而静默丢失。
+        # 使用队列机制，等客户端重连并订阅后再投递。
+        if hasattr(target, "queue_pending_reconnect_message"):
+            target.queue_pending_reconnect_message(msg)
+        else:
+            asyncio.create_task(self._send_with_retry(target, msg))
 
     async def stop_all(self) -> None:
         """Stop all channels and the dispatcher."""

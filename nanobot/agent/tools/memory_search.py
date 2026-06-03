@@ -18,9 +18,9 @@ class MemorySearchTool(Tool):
 
     @classmethod
     def enabled(cls, ctx: Any) -> bool:
-        """仅在 historicalMemory.enabled=true 且 paths 非空时注册此工具。"""
+        """仅在 historicalMemory.enabled=true 且 root 非空时注册此工具。"""
         cfg = getattr(ctx, "historical_memory_config", None)
-        return bool(cfg and cfg.enabled and cfg.paths)
+        return bool(cfg and cfg.enabled and cfg.root)
 
     @classmethod
     def create(cls, ctx: Any) -> "MemorySearchTool":
