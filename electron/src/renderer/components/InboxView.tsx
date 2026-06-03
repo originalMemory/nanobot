@@ -1,13 +1,15 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
 import { useNanobotStream } from "@/hooks/useNanobotStream";
+import { fetchCliApps, fetchMcpPresets, listSlashCommands } from "@/lib/api";
 import { channelLabel } from "@/lib/channels";
 import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
-import type { SettingsPayload, UIMessage } from "@/lib/types";
+import type { CliAppInfo, McpPresetInfo, SettingsPayload, SlashCommand, UIMessage } from "@/lib/types";
+import { useClient } from "@/providers/ClientProvider";
 
 const INBOX_CHAT_ID = "inbox:unified";
 
@@ -50,6 +52,10 @@ export function InboxView({
   onReasoningEffortSelect,
 }: InboxViewProps) {
   const { t } = useTranslation();
+  const { token, apiBase } = useClient();
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
+  const [cliApps, setCliApps] = useState<CliAppInfo[]>([]);
+  const [mcpPresets, setMcpPresets] = useState<McpPresetInfo[]>([]);
   const {
     messages,
     isStreaming,
@@ -60,6 +66,30 @@ export function InboxView({
     streamError,
     dismissStreamError,
   } = useNanobotStream(INBOX_CHAT_ID, initialMessages);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [cmds, apps, presets] = await Promise.allSettled([
+        listSlashCommands(token, apiBase),
+        fetchCliApps(token, apiBase),
+        fetchMcpPresets(token, apiBase),
+      ]);
+      if (cancelled) return;
+      setSlashCommands(cmds.status === "fulfilled" ? cmds.value : []);
+      setCliApps(
+        apps.status === "fulfilled"
+          ? apps.value.apps.filter((app) => app.installed)
+          : [],
+      );
+      setMcpPresets(
+        presets.status === "fulfilled"
+          ? presets.value.presets.filter((p) => p.installed && p.configured)
+          : [],
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [apiBase, token]);
 
   // Derive unique channels from message history (7.5 sidebar entries)
   const allChannels = useMemo(() => {
@@ -97,6 +127,8 @@ export function InboxView({
         <ThreadViewport
           messages={displayMessages}
           isStreaming={isStreaming}
+          cliApps={cliApps}
+          mcpPresets={mcpPresets}
           composer={
             <ThreadComposer
               onSend={send}
@@ -107,6 +139,9 @@ export function InboxView({
               pendingScreenshot={pendingScreenshot}
               onScreenshotConsumed={onScreenshotConsumed}
               onCaptureScreenshot={onCaptureScreenshot}
+              slashCommands={slashCommands}
+              cliApps={cliApps}
+              mcpPresets={mcpPresets}
               modelSettings={modelSettings}
               modelSelectionPending={modelSelectionPending}
               modelSelectionError={modelSelectionError}

@@ -7,6 +7,12 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import EmojiPicker, {
+  EmojiStyle,
+  SuggestionMode,
+  Theme,
+  type EmojiClickData,
+} from "emoji-picker-react";
 
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import {
@@ -33,6 +39,7 @@ import {
   Plus,
   RotateCw,
   Shield,
+  Smile,
   Sparkles,
   Square,
   SquarePen,
@@ -72,6 +79,18 @@ import {
   logoFallbackUrls,
   providerBrand,
 } from "@/lib/provider-brand";
+import {
+  parseEmojiColonQuery,
+  type EmojiColonCandidate,
+  type EmojiColonQuery,
+} from "@/lib/emoji-colon";
+import {
+  filterEmojiColonCandidates,
+  getEmojiColonCandidates,
+  getEmojiPickerData,
+  recordEmojiSuggestion,
+} from "@/lib/emoji-picker-data";
+import { normalizeLocale } from "@/i18n/config";
 import { cn } from "@/lib/utils";
 import {
   REASONING_EFFORT_VALUES,
@@ -79,6 +98,7 @@ import {
   reasoningEffortLabelKey,
   type ReasoningEffortValue,
 } from "@/lib/reasoning-effort";
+import { isDarkTheme, useThemeValue } from "@/hooks/useTheme";
 
 /** ``<input accept>``: aligned with the server's MIME whitelist. SVG is
  * deliberately excluded to avoid an embedded-script XSS surface. */
@@ -521,22 +541,34 @@ export function ThreadComposer({
   onScreenshotConsumed,
   onCaptureScreenshot,
 }: ThreadComposerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const currentTheme = useThemeValue();
+  const isZhLocale = normalizeLocale(i18n.resolvedLanguage ?? i18n.language) === "zh-CN";
+  const emojiPickerData = useMemo(
+    () => getEmojiPickerData(isZhLocale),
+    [isZhLocale],
+  );
+  const emojiPickerTheme = isDarkTheme(currentTheme) ? Theme.DARK : Theme.LIGHT;
   const [value, setValue] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [cliAppMenuDismissed, setCliAppMenuDismissed] = useState(false);
+  const [emojiMenuDismissed, setEmojiMenuDismissed] = useState(false);
   const [selectedCliAppIndex, setSelectedCliAppIndex] = useState(0);
+  const [selectedEmojiIndex, setSelectedEmojiIndex] = useState(0);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [uncontrolledImageMode, setUncontrolledImageMode] = useState(false);
   const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>("auto");
   const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const [recentSlashCommands, setRecentSlashCommands] = useState<string[]>(() => readSlashRecents());
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const aspectControlRef = useRef<HTMLDivElement>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
   const isHero = variant === "hero";
   const imageMode = controlledImageMode ?? uncontrolledImageMode;
@@ -762,8 +794,29 @@ export function ThreadComposer({
     return [...cliCandidates, ...mcpCandidates].slice(0, 8);
   }, [cliAppMention, cliApps, mcpPresets]);
 
+  const emojiColonMention = useMemo<EmojiColonQuery | null>(() => {
+    if (disabled || emojiMenuDismissed) return null;
+    const caret = Math.min(Math.max(cursorPosition, 0), value.length);
+    return parseEmojiColonQuery(value, caret);
+  }, [cursorPosition, disabled, emojiMenuDismissed, value]);
+
+  const emojiColonCandidates = useMemo(
+    () => getEmojiColonCandidates(isZhLocale),
+    [isZhLocale],
+  );
+
+  const filteredEmojiColonCandidates = useMemo(() => {
+    if (!emojiColonMention) return [];
+    return filterEmojiColonCandidates(
+      emojiColonCandidates,
+      emojiColonMention.query,
+      isZhLocale,
+    );
+  }, [emojiColonCandidates, emojiColonMention, isZhLocale]);
+
   const showCliAppMenu = filteredMentionCandidates.length > 0;
-  const showAnyPalette = showSlashMenu || showCliAppMenu;
+  const showEmojiColonMenu = filteredEmojiColonCandidates.length > 0;
+  const showAnyPalette = showSlashMenu || showCliAppMenu || showEmojiColonMenu;
   const mentionSegments = useMemo(
     () => splitCapabilityMentionSegments(value, cliApps, mcpPresets),
     [cliApps, mcpPresets, value],
@@ -801,6 +854,10 @@ export function ThreadComposer({
   }, [cliAppMention?.query]);
 
   useEffect(() => {
+    setSelectedEmojiIndex(0);
+  }, [emojiColonMention?.query]);
+
+  useEffect(() => {
     if (selectedCommandIndex >= filteredSlashCommands.length) {
       setSelectedCommandIndex(0);
     }
@@ -813,6 +870,12 @@ export function ThreadComposer({
   }, [filteredMentionCandidates.length, selectedCliAppIndex]);
 
   useEffect(() => {
+    if (selectedEmojiIndex >= filteredEmojiColonCandidates.length) {
+      setSelectedEmojiIndex(0);
+    }
+  }, [filteredEmojiColonCandidates.length, selectedEmojiIndex]);
+
+  useEffect(() => {
     if (!showAnyPalette) return;
 
     const dismissOnPointerDown = (event: PointerEvent) => {
@@ -820,6 +883,7 @@ export function ThreadComposer({
       if (target instanceof Node && formRef.current?.contains(target)) return;
       setSlashMenuDismissed(true);
       setCliAppMenuDismissed(true);
+      setEmojiMenuDismissed(true);
     };
 
     document.addEventListener("pointerdown", dismissOnPointerDown, true);
@@ -861,7 +925,12 @@ export function ThreadComposer({
       window.removeEventListener("resize", updateLayout);
       document.removeEventListener("scroll", updateLayout, true);
     };
-  }, [filteredMentionCandidates.length, filteredSlashCommands.length, showAnyPalette]);
+  }, [
+    filteredEmojiColonCandidates.length,
+    filteredMentionCandidates.length,
+    filteredSlashCommands.length,
+    showAnyPalette,
+  ]);
 
   useEffect(() => {
     if (!aspectMenuOpen) return;
@@ -895,6 +964,25 @@ export function ThreadComposer({
     };
   }, [aspectMenuOpen]);
 
+  useEffect(() => {
+    if (!emojiPickerOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (emojiPickerRef.current?.contains(target)) return;
+      if (emojiButtonRef.current?.contains(target)) return;
+      setEmojiPickerOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setEmojiPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [emojiPickerOpen]);
+
   const resizeTextarea = useCallback(() => {
     requestAnimationFrame(() => {
       const el = textareaRef.current;
@@ -927,6 +1015,7 @@ export function ThreadComposer({
       setValue(command.argHint ? `${command.command} ` : command.command);
       setSlashMenuDismissed(true);
       setCliAppMenuDismissed(false);
+      setEmojiMenuDismissed(false);
       setInlineError(null);
       resizeTextarea();
     },
@@ -944,6 +1033,7 @@ export function ThreadComposer({
       setCursorPosition(nextCursor);
       setCliAppMenuDismissed(true);
       setSlashMenuDismissed(false);
+      setEmojiMenuDismissed(false);
       setInlineError(null);
       resizeTextarea();
       requestAnimationFrame(() => {
@@ -954,6 +1044,53 @@ export function ThreadComposer({
       });
     },
     [cliAppMention, resizeTextarea, value],
+  );
+
+  const chooseEmojiColonCandidate = useCallback(
+    (candidate: EmojiColonCandidate) => {
+      if (!emojiColonMention) return;
+      const suffix = value.slice(emojiColonMention.end);
+      const insertion = `${candidate.native}${suffix.startsWith(" ") ? "" : " "}`;
+      const next = `${value.slice(0, emojiColonMention.start)}${insertion}${suffix}`;
+      const nextCursor = emojiColonMention.start + insertion.length;
+      setValue(next);
+      setCursorPosition(nextCursor);
+      recordEmojiSuggestion(candidate.unified);
+      setEmojiMenuDismissed(true);
+      setSlashMenuDismissed(false);
+      setCliAppMenuDismissed(false);
+      setInlineError(null);
+      resizeTextarea();
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(nextCursor, nextCursor);
+      });
+    },
+    [emojiColonMention, resizeTextarea, value],
+  );
+
+  const insertEmoji = useCallback(
+    (emoji: EmojiClickData) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const start = el.selectionStart ?? value.length;
+      const end = el.selectionEnd ?? value.length;
+      const next = value.slice(0, start) + emoji.emoji + value.slice(end);
+      const nextCursor = start + emoji.emoji.length;
+      recordEmojiSuggestion(emoji.unified);
+      setValue(next);
+      setCursorPosition(nextCursor);
+      setEmojiPickerOpen(false);
+      setEmojiMenuDismissed(true);
+      resizeTextarea();
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(nextCursor, nextCursor);
+      });
+    },
+    [resizeTextarea, value],
   );
 
   const submit = useCallback(() => {
@@ -1014,6 +1151,30 @@ export function ThreadComposer({
   ]);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (showEmojiColonMenu) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedEmojiIndex((idx) => (idx + 1) % filteredEmojiColonCandidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedEmojiIndex(
+          (idx) => (idx - 1 + filteredEmojiColonCandidates.length) % filteredEmojiColonCandidates.length,
+        );
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        chooseEmojiColonCandidate(filteredEmojiColonCandidates[selectedEmojiIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setEmojiMenuDismissed(true);
+        return;
+      }
+    }
     if (showCliAppMenu) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -1153,6 +1314,16 @@ export function ThreadComposer({
           onChoose={chooseMentionCandidate}
         />
       ) : null}
+      {showEmojiColonMenu ? (
+        <EmojiColonPalette
+          candidates={filteredEmojiColonCandidates}
+          selectedIndex={selectedEmojiIndex}
+          layout={slashPaletteLayout}
+          isHero={isHero}
+          onHover={setSelectedEmojiIndex}
+          onChoose={chooseEmojiColonCandidate}
+        />
+      ) : null}
       <div
         className={cn(
           "relative mx-auto flex w-full flex-col overflow-visible transition-all duration-200",
@@ -1212,6 +1383,7 @@ export function ThreadComposer({
               setValue(e.target.value);
               setSlashMenuDismissed(false);
               setCliAppMenuDismissed(false);
+              setEmojiMenuDismissed(false);
               setCursorPosition(e.target.selectionStart ?? e.target.value.length);
             }}
             onInput={onInput}
@@ -1292,6 +1464,46 @@ export function ThreadComposer({
                 <Camera className={cn(isHero ? "h-4 w-4" : "h-3.5 w-3.5")} />
               </Button>
             ) : null}
+            <div className="relative">
+              {emojiPickerOpen ? (
+                <div
+                  ref={emojiPickerRef}
+                  className="absolute bottom-full left-0 z-30 mb-2 overflow-hidden rounded-2xl shadow-2xl"
+                >
+                  <EmojiPicker
+                    open
+                    emojiData={emojiPickerData}
+                    onEmojiClick={insertEmoji}
+                    theme={emojiPickerTheme}
+                    emojiStyle={EmojiStyle.NATIVE}
+                    suggestedEmojisMode={SuggestionMode.FREQUENT}
+                    searchPlaceholder={t("thread.composer.emoji.search", {
+                      defaultValue: "搜索",
+                    })}
+                    previewConfig={{ showPreview: true }}
+                    width={352}
+                    height={450}
+                  />
+                </div>
+              ) : null}
+              <Button
+                ref={emojiButtonRef}
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={disabled}
+                aria-label={t("thread.composer.emoji.button")}
+                aria-pressed={emojiPickerOpen}
+                onClick={() => setEmojiPickerOpen((o) => !o)}
+                className={cn(
+                  "rounded-full text-muted-foreground hover:text-foreground",
+                  "h-9 w-9 border border-border/55 bg-card shadow-[0_2px_8px_rgba(15,23,42,0.05)] hover:bg-card",
+                  emojiPickerOpen && "border-primary/30 bg-primary/10 text-primary hover:bg-primary/12",
+                )}
+              >
+                <Smile className={cn(isHero ? "h-4 w-4" : "h-3.5 w-3.5")} />
+              </Button>
+            </div>
             <div ref={aspectControlRef} className="relative flex items-center gap-1">
               <Button
                 type="button"
@@ -1790,6 +2002,21 @@ interface CliAppMentionPaletteProps {
   onChoose: (candidate: MentionCandidate) => void;
 }
 
+/** 键盘切换高亮时，将当前 option 滚入可滚动列表的可见区域。 */
+function useScrollSelectedListboxOptionIntoView(
+  listRef: React.RefObject<HTMLDivElement | null>,
+  selectedIndex: number,
+) {
+  useEffect(() => {
+    const container = listRef.current;
+    if (!container) return;
+    const option = container.querySelector<HTMLElement>(
+      '[role="option"][aria-selected="true"]',
+    );
+    option?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [listRef, selectedIndex]);
+}
+
 function ImageAspectMenu({
   selected,
   isHero,
@@ -1843,6 +2070,88 @@ function ImageAspectMenu({
   );
 }
 
+interface EmojiColonPaletteProps {
+  candidates: EmojiColonCandidate[];
+  selectedIndex: number;
+  layout: SlashPaletteLayout;
+  isHero: boolean;
+  onHover: (index: number) => void;
+  onChoose: (candidate: EmojiColonCandidate) => void;
+}
+
+function EmojiColonPalette({
+  candidates,
+  selectedIndex,
+  layout,
+  isHero,
+  onHover,
+  onChoose,
+}: EmojiColonPaletteProps) {
+  const { t } = useTranslation();
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollSelectedListboxOptionIntoView(listRef, selectedIndex);
+  const listMaxHeight = Math.max(
+    0,
+    layout.maxHeight - SLASH_PALETTE_CHROME_PX,
+  );
+  return (
+    <div
+      role="listbox"
+      aria-label={t("thread.composer.emoji.colonAriaLabel")}
+      style={{ maxHeight: layout.maxHeight }}
+      className={cn(
+        "absolute left-1/2 z-30 w-[calc(100%-0.5rem)] -translate-x-1/2 overflow-hidden rounded-[22px] border",
+        layout.placement === "above" ? "bottom-full mb-2" : "top-full mt-2",
+        "border-border/70 bg-popover p-2 text-popover-foreground shadow-[0_20px_60px_rgba(15,23,42,0.12)]",
+        "dark:border-white/10 dark:shadow-[0_24px_60px_rgba(0,0,0,0.42)]",
+        isHero ? "max-w-[64rem]" : "max-w-[58rem]",
+      )}
+    >
+      <div className="px-2 pb-1.5 pt-0.5 text-[13px] font-semibold text-muted-foreground/78">
+        {t("thread.composer.emoji.colonLabel")}
+      </div>
+      <div ref={listRef} className="overflow-y-auto" style={{ maxHeight: listMaxHeight }}>
+        {candidates.map((candidate, index) => {
+          const selected = index === selectedIndex;
+          const displayName = candidate.name;
+          return (
+            <button
+              key={candidate.unified}
+              type="button"
+              role="option"
+              aria-selected={selected}
+              aria-label={`${displayName} :${candidate.id}`}
+              onMouseEnter={() => onHover(index)}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChoose(candidate);
+              }}
+              className={cn(
+                "flex h-10 w-full items-center gap-2.5 rounded-[13px] px-2.5 text-left transition-colors",
+                selected
+                  ? "bg-foreground/[0.055] text-foreground"
+                  : "text-foreground/90 hover:bg-foreground/[0.04]",
+              )}
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[22px] leading-none">
+                {candidate.native}
+              </span>
+              <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                <span className="truncate text-[15px] font-medium tracking-normal text-foreground">
+                  {displayName}
+                </span>
+                <span className="truncate font-mono text-[13px] text-muted-foreground/72">
+                  :{candidate.id}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function CliAppMentionPalette({
   candidates,
   selectedIndex,
@@ -1852,6 +2161,8 @@ function CliAppMentionPalette({
   onChoose,
 }: CliAppMentionPaletteProps) {
   const { t } = useTranslation();
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollSelectedListboxOptionIntoView(listRef, selectedIndex);
   const listMaxHeight = Math.max(
     0,
     layout.maxHeight - SLASH_PALETTE_CHROME_PX,
@@ -1872,7 +2183,7 @@ function CliAppMentionPalette({
       <div className="px-2 pb-1.5 pt-0.5 text-[13px] font-semibold text-muted-foreground/78">
         {t("thread.composer.mentions.label")}
       </div>
-      <div className="overflow-y-auto" style={{ maxHeight: listMaxHeight }}>
+      <div ref={listRef} className="overflow-y-auto" style={{ maxHeight: listMaxHeight }}>
         {candidates.map((candidate, index) => {
           const selected = index === selectedIndex;
           const name = candidate.name;
@@ -1986,6 +2297,8 @@ function SlashCommandPalette({
   onChoose,
 }: SlashCommandPaletteProps) {
   const { t } = useTranslation();
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollSelectedListboxOptionIntoView(listRef, selectedIndex);
   const listMaxHeight = Math.max(
     0,
     layout.maxHeight - SLASH_PALETTE_CHROME_PX,
@@ -2003,7 +2316,7 @@ function SlashCommandPalette({
         isHero ? "max-w-[64rem]" : "max-w-[58rem]",
       )}
     >
-      <div className="overflow-y-auto pr-0.5" style={{ maxHeight: listMaxHeight }}>
+      <div ref={listRef} className="overflow-y-auto pr-0.5" style={{ maxHeight: listMaxHeight }}>
         {commands.map((command, index) => {
           const Icon = COMMAND_ICONS[command.icon] ?? CircleHelp;
           const selected = index === selectedIndex;
