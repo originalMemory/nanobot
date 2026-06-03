@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -297,7 +296,9 @@ def replay_transcript_to_ui_messages(
     active_activity_segment_id: str | None = None
     active_file_edit_segment_id: str | None = None
     activity_segment_counter = 0
-    _ts_base = int(time.time() * 1000)
+    # 固定为 0：历史回放消息的 createdAt 必须小于前端 RENDER_SESSION_START（Date.now()），
+    # 否则 isLiveArrival() 会把历史音频误判为直播到达并自动播放。
+    _ts_base = 0
 
     def _new_id(prefix: str, idx: int) -> str:
         return f"{prefix}-{idx}-{uuid.uuid4().hex[:8]}"

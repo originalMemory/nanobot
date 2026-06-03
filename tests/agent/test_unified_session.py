@@ -505,3 +505,46 @@ class TestStopCommandWithUnifiedSession:
 
         # Both tasks should be cancelled
         assert "Stopped 2 task" in result.content
+
+    @pytest.mark.asyncio
+    async def test_stop_from_inbox_unified_websocket(self, tmp_path: Path):
+        """Electron inbox:unified sends /stop with websocket:inbox:unified session key."""
+        from nanobot.agent.loop import UNIFIED_SESSION_KEY
+        from nanobot.bus.events import InboundMessage
+        from nanobot.command.builtin import cmd_stop
+        from nanobot.command.router import CommandContext
+
+        loop = _make_loop(tmp_path, unified_session=True)
+
+        cancelled = asyncio.Event()
+
+        async def long_running():
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        task = asyncio.create_task(long_running())
+        await asyncio.sleep(0)
+        loop._active_tasks[UNIFIED_SESSION_KEY] = [task]
+
+        msg = InboundMessage(
+            channel="websocket",
+            chat_id="inbox:unified",
+            sender_id="electron",
+            content="/stop",
+        )
+        assert msg.session_key == "websocket:inbox:unified"
+
+        ctx = CommandContext(
+            msg=msg,
+            session=None,
+            key=UNIFIED_SESSION_KEY,
+            raw="/stop",
+            loop=loop,
+        )
+        result = await cmd_stop(ctx)
+
+        assert cancelled.is_set()
+        assert "Stopped 1 task" in result.content

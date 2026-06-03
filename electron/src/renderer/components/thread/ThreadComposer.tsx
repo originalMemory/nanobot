@@ -566,7 +566,9 @@ export function ThreadComposer({
       .then((r) => r.blob())
       .then((blob) => {
         if (cancelled) return;
-        const file = new File([blob], 'screenshot.png', { type: blob.type || 'image/png' });
+        const file = new File([blob], "screenshot.jpg", {
+          type: blob.type || "image/jpeg",
+        });
         enqueue([file]);
         onScreenshotConsumed?.();
       });

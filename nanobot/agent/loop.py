@@ -891,13 +891,13 @@ class AgentLoop:
             if await agent_context.handle_runtime_control(self, msg, self.tools):
                 continue
             raw = msg.content.strip()
+            effective_key = self._effective_session_key(msg)
             if self.commands.is_priority(raw):
                 await self._dispatch_command_inline(
-                    msg, msg.session_key, raw,
+                    msg, effective_key, raw,
                     self.commands.dispatch_priority,
                 )
                 continue
-            effective_key = self._effective_session_key(msg)
             # If this session already has an active pending queue (i.e. a task
             # is processing this session), route the message there for mid-turn
             # injection instead of creating a competing task.

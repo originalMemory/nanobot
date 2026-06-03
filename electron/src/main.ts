@@ -23,6 +23,11 @@ if (started) {
   app.quit();
 }
 
+// 开发模式使用独立的 userData 目录，避免与打包版共用单实例锁导致 npm start 唤起打包版窗口
+if (!app.isPackaged) {
+  app.setPath('userData', app.getPath('userData') + '-dev');
+}
+
 // 只允许单实例；再次启动时聚焦已有窗口（与托盘「显示」一致）
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
