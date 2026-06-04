@@ -1,9 +1,17 @@
+x-unraid-icon: &unraid-icon
+  net.unraid.docker.icon: "https://nanobot.wiki/assets/nanobot_icon.png"
+
 x-common-config: &common-config
   build:
     context: .
     dockerfile: Dockerfile
+  user: "99:100"
+  environment:
+    PUID: "99"
+    PGID: "100"
   volumes:
-    - ~/.nanobot:/home/nanobot/.nanobot
+    - ./.nanobot:/home/nanobot/.nanobot
+    - /mnt/cache/ssd/note:/home/nanobot/note
   cap_drop:
     - ALL
   cap_add:
@@ -21,6 +29,8 @@ services:
     ports:
       - 18790:18790
       - 8765:8765
+    labels:
+      <<: *unraid-icon
     deploy:
       resources:
         limits:
@@ -33,11 +43,15 @@ services:
   nanobot-api:
     container_name: nanobot-api
     <<: *common-config
+    profiles:
+      - api
     command:
       ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace"]
     restart: unless-stopped
     ports:
       - 127.0.0.1:8900:8900
+    labels:
+      <<: *unraid-icon
     deploy:
       resources:
         limits:
@@ -54,3 +68,5 @@ services:
     command: ["status"]
     stdin_open: true
     tty: true
+    labels:
+      <<: *unraid-icon
