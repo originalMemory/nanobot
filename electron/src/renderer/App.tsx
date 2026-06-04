@@ -262,6 +262,18 @@ function Shell({
   // pendingAttach  = 用户已确认、等待 ThreadComposer 消费的截图
   const [pendingPreview, setPendingPreview] = useState<string | null>(null);
   const [pendingAttach, setPendingAttach] = useState<string | null>(null);
+  const [focusComposerSignal, setFocusComposerSignal] = useState(0);
+
+  const handleRaiseInboxShortcut = useCallback(() => {
+    setView("chat");
+    setActiveChannel(null);
+    setFocusComposerSignal((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.electronAPI?.shortcut?.onRaiseInbox) return;
+    return window.electronAPI.shortcut.onRaiseInbox(handleRaiseInboxShortcut);
+  }, [handleRaiseInboxShortcut]);
 
   // 订阅主进程全局快捷键推送的截图事件（8.1）
   useEffect(() => {
@@ -351,6 +363,7 @@ function Shell({
                 reasoningSelectionError={reasoningSelectionError}
                 onDismissReasoningSelectionError={dismissReasoningSelectionError}
                 onReasoningEffortSelect={handleSelectReasoningEffort}
+                focusComposerSignal={focusComposerSignal}
               />
             )}
           </main>

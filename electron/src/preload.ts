@@ -11,6 +11,9 @@ import { contextBridge, ipcRenderer } from 'electron';
  */
 type WindowAction = 'show' | 'hide' | 'minimize' | 'maximize' | 'close';
 type WindowState = 'maximized' | 'normal';
+type SetRaiseInboxResult =
+  | { ok: true; accelerator: string }
+  | { ok: false; error: 'empty' | 'register_failed' };
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: {
@@ -68,6 +71,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
         cb(payload.focused);
       ipcRenderer.on('window:presence', handler);
       return () => ipcRenderer.removeListener('window:presence', handler);
+    },
+  },
+
+  shortcut: {
+    getRaiseInbox: (): Promise<string> =>
+      ipcRenderer.invoke('shortcut:get-raise-inbox'),
+
+    setRaiseInbox: (accelerator: string): Promise<SetRaiseInboxResult> =>
+      ipcRenderer.invoke('shortcut:set-raise-inbox', accelerator),
+
+    /** 设置页录制时暂停/恢复全局「唤起收件箱」快捷键。 */
+    setRaiseInboxRecording: (recording: boolean): Promise<void> =>
+      ipcRenderer.invoke('shortcut:set-raise-inbox-recording', recording),
+
+    /** 全局快捷键唤起主界面并聚焦统一收件箱输入框。 */
+    onRaiseInbox: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('shortcut:raise-inbox', handler);
+      return () => ipcRenderer.removeListener('shortcut:raise-inbox', handler);
     },
   },
 });

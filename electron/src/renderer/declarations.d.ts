@@ -30,6 +30,19 @@ interface ElectronAPI {
     /** 订阅窗口焦点变更事件（focused=true 获焦，false 失焦），返回取消监听的清理函数。 */
     onChange(cb: (focused: boolean) => void): () => void;
   };
+  shortcut: {
+    getRaiseInbox(): Promise<string>;
+    setRaiseInbox(
+      accelerator: string,
+    ): Promise<
+      | { ok: true; accelerator: string }
+      | { ok: false; error: "empty" | "register_failed" }
+    >;
+    /** 设置页录制时暂停/恢复全局「唤起收件箱」快捷键。 */
+    setRaiseInboxRecording(recording: boolean): Promise<void>;
+    /** 全局快捷键唤起主界面并聚焦统一收件箱输入框。 */
+    onRaiseInbox(cb: () => void): () => void;
+  };
 }
 
 declare global {

@@ -143,6 +143,7 @@
       "activityMode": "Activity detail",
       "codeWrap": "Code wrapping",
       "brandLogos": "Brand logos",
+      "raiseInboxShortcut": "Raise inbox shortcut",
       "maxResults": "Max results",
       "timeout": "Timeout",
       "jinaReader": "Jina reader",
@@ -204,6 +205,7 @@
       "activityMode": "Choose how much agent activity chrome to show by default.",
       "codeWrap": "Keep long code lines readable on smaller screens.",
       "brandLogos": "Show third-party provider and CLI logos in Settings.",
+      "raiseInboxShortcut": "Global shortcut to show the main window, open the unified inbox, and focus the composer. Click the key area, press a combination, then Save.",
       "maxResults": "Results returned by each web_search call.",
       "timeout": "Seconds before a search provider request times out.",
       "jinaReader": "Use Jina Reader for web_fetch when available.",
@@ -350,6 +352,13 @@
       "restartAfterSaving": "Save changes, then restart when ready.",
       "savedRestartApply": "Saved. Restart when ready.",
       "imageProviderRestart": "Image provider changes saved. Restart when ready."
+    },
+    "shortcut": {
+      "recording": "Press a shortcut…"
+    },
+    "errors": {
+      "raiseInboxShortcutEmpty": "Shortcut cannot be empty.",
+      "raiseInboxShortcutRegisterFailed": "Could not register this shortcut. It may be in use or invalid — try another combination."
     },
     "actions": {
       "save": "Save",

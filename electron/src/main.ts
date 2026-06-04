@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs';
 import started from 'electron-squirrel-startup';
 
 const SCREENSHOT_ACCELERATOR = 'CmdOrCtrl+Shift+S';
+const DEFAULT_RAISE_INBOX_ACCELERATOR = 'CmdOrCtrl+Shift+E';
 import Store from 'electron-store';
 import { APP_ID } from '../app.meta';
 
@@ -78,6 +79,9 @@ interface AppConfig {
   };
   providers: Record<string, unknown>;
   models: Record<string, unknown>;
+  shortcuts: {
+    raiseInbox: string;
+  };
 }
 
 const store = new Store<AppConfig>({
@@ -103,6 +107,9 @@ const store = new Store<AppConfig>({
     },
     providers: {},
     models: {},
+    shortcuts: {
+      raiseInbox: DEFAULT_RAISE_INBOX_ACCELERATOR,
+    },
   },
 });
 
@@ -117,6 +124,33 @@ ipcMain.handle('config:get', (_event, key: string) => {
 ipcMain.handle('config:set', (_event, key: string, value: unknown) => {
   store.set(key, value);
 });
+
+type SetRaiseInboxResult =
+  | { ok: true; accelerator: string }
+  | { ok: false; error: 'empty' | 'register_failed' };
+
+ipcMain.handle('shortcut:get-raise-inbox', (): string => {
+  return getRaiseInboxAccelerator();
+});
+
+ipcMain.handle('shortcut:set-raise-inbox-recording', (_event, recording: boolean) => {
+  setRaiseInboxRecordingPaused(recording);
+});
+
+ipcMain.handle(
+  'shortcut:set-raise-inbox',
+  (_event, accelerator: string): SetRaiseInboxResult => {
+    const trimmed = accelerator.trim();
+    if (!trimmed) return { ok: false, error: 'empty' };
+    const previous = getRaiseInboxAccelerator();
+    if (!registerRaiseInboxShortcut(trimmed)) {
+      registerRaiseInboxShortcut(previous);
+      return { ok: false, error: 'register_failed' };
+    }
+    store.set('shortcuts.raiseInbox', trimmed);
+    return { ok: true, accelerator: trimmed };
+  },
+);
 
 type WindowAction = 'show' | 'hide' | 'minimize' | 'maximize' | 'close';
 
@@ -241,6 +275,64 @@ function loadTrayIcon(): Electron.NativeImage {
 // ---------------------------------------------------------------------------
 
 let mainWindow: BrowserWindow | null = null;
+let registeredRaiseInboxAccelerator: string | null = null;
+let pendingRaiseInboxEvent = false;
+/** 设置页录制快捷键时暂停全局注册，避免按下当前组合键触发跳转。 */
+let raiseInboxRecordingPaused = false;
+
+function getRaiseInboxAccelerator(): string {
+  const stored = store.get('shortcuts.raiseInbox');
+  if (typeof stored === 'string' && stored.trim()) return stored.trim();
+  return DEFAULT_RAISE_INBOX_ACCELERATOR;
+}
+
+function sendRaiseInboxToRenderer(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.webContents.isLoading()) {
+    pendingRaiseInboxEvent = true;
+    return;
+  }
+  mainWindow.webContents.send('shortcut:raise-inbox');
+}
+
+function handleRaiseInboxShortcut(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    pendingRaiseInboxEvent = true;
+    showMainWindow();
+    return;
+  }
+  showMainWindow();
+  sendRaiseInboxToRenderer();
+}
+
+function unregisterRaiseInboxShortcut(): void {
+  if (registeredRaiseInboxAccelerator) {
+    globalShortcut.unregister(registeredRaiseInboxAccelerator);
+    registeredRaiseInboxAccelerator = null;
+  }
+}
+
+function setRaiseInboxRecordingPaused(recording: boolean): void {
+  if (recording === raiseInboxRecordingPaused) return;
+  raiseInboxRecordingPaused = recording;
+  if (recording) {
+    unregisterRaiseInboxShortcut();
+  } else {
+    registerRaiseInboxShortcut();
+  }
+}
+
+function registerRaiseInboxShortcut(accelerator?: string): boolean {
+  if (raiseInboxRecordingPaused) return false;
+  const next = (accelerator ?? getRaiseInboxAccelerator()).trim();
+  if (!next) return false;
+  unregisterRaiseInboxShortcut();
+  const ok = globalShortcut.register(next, handleRaiseInboxShortcut);
+  if (ok) {
+    registeredRaiseInboxAccelerator = next;
+  }
+  return ok;
+}
 
 function showMainWindow(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -379,6 +471,10 @@ function createWindow(): void {
   // 新窗口建立时补发一次当前锁屏状态，避免 renderer 连接后状态不同步
   mainWindow.webContents.on('did-finish-load', () => {
     if (screenLocked) sendPresence({ locked: true });
+    if (pendingRaiseInboxEvent) {
+      pendingRaiseInboxEvent = false;
+      mainWindow?.webContents.send('shortcut:raise-inbox');
+    }
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -454,6 +550,7 @@ if (gotSingleInstanceLock) {
 
     createTray();
     createWindow();
+    registerRaiseInboxShortcut();
 
     app.on('activate', () => {
       // macOS: 点击 Dock 图标时恢复主窗口
@@ -472,5 +569,6 @@ if (gotSingleInstanceLock) {
 
   app.on('before-quit', () => {
     app.isQuitting = true;
+    unregisterRaiseInboxShortcut();
   });
 }

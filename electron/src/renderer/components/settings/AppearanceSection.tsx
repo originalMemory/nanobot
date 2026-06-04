@@ -1,7 +1,15 @@
+import { formatForDisplay, useHotkeyRecorder, type Hotkey } from "@tanstack/react-hotkeys";
 import { Check } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { Button } from "@/components/ui/button";
 import { ALL_THEMES, type Theme } from "@/hooks/useTheme";
+import { isElectron } from "@/lib/env";
+import {
+  electronAcceleratorToHotkey,
+  hotkeyToElectronAccelerator,
+} from "@/lib/hotkey-accelerator";
 import { cn } from "@/lib/utils";
 import {
   SegmentedControl,
@@ -143,9 +151,156 @@ export function AppearanceSection({
               label={localPrefs.brandLogos ? tx("settings.values.on", "On") : tx("settings.values.off", "Off")}
             />
           </SettingsRow>
+
+          {isElectron ? <RaiseInboxShortcutRow tx={tx} /> : null}
         </SettingsGroup>
       </section>
     </div>
+  );
+}
+
+function RaiseInboxShortcutRow({
+  tx,
+}: {
+  tx: (key: string, fallback: string) => string;
+}) {
+  const { t } = useTranslation();
+  const displayPlatform = window.electronAPI.platform.isMac ? "mac" : "windows";
+  const [savedElectron, setSavedElectron] = useState("CmdOrCtrl+Shift+E");
+  const [draftHotkey, setDraftHotkey] = useState<Hotkey | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const savedHotkey = useMemo(
+    () => electronAcceleratorToHotkey(savedElectron),
+    [savedElectron],
+  );
+  const activeHotkey = draftHotkey ?? savedHotkey;
+  const pendingElectron = hotkeyToElectronAccelerator(activeHotkey);
+
+  const setGlobalShortcutPaused = useCallback(async (paused: boolean) => {
+    await window.electronAPI.shortcut.setRaiseInboxRecording(paused);
+  }, []);
+
+  const endRecording = useCallback(async () => {
+    await setGlobalShortcutPaused(false);
+  }, [setGlobalShortcutPaused]);
+
+  const recorder = useHotkeyRecorder({
+    ignoreInputs: false,
+    onRecord: (hotkey) => {
+      setDraftHotkey(hotkey);
+      setError(null);
+      void endRecording();
+    },
+    onCancel: () => {
+      setDraftHotkey(null);
+      void endRecording();
+    },
+  });
+
+  const beginRecording = useCallback(async () => {
+    setError(null);
+    await setGlobalShortcutPaused(true);
+    recorder.startRecording();
+  }, [recorder, setGlobalShortcutPaused]);
+
+  useEffect(() => {
+    window.electronAPI.shortcut.getRaiseInbox().then((accelerator) => {
+      setSavedElectron(accelerator);
+      setDraftHotkey(null);
+    }).catch(() => { /* ignore load errors */ });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      void setGlobalShortcutPaused(false);
+    };
+  }, [setGlobalShortcutPaused]);
+
+  const handleSave = useCallback(async () => {
+    const accelerator = pendingElectron.trim();
+    if (!accelerator) {
+      setError(t("settings.errors.raiseInboxShortcutEmpty"));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await window.electronAPI.shortcut.setRaiseInbox(accelerator);
+      if ("accelerator" in result) {
+        setSavedElectron(result.accelerator);
+        setDraftHotkey(null);
+      } else if (result.error === "empty") {
+        setError(t("settings.errors.raiseInboxShortcutEmpty"));
+      } else {
+        setError(t("settings.errors.raiseInboxShortcutRegisterFailed"));
+      }
+    } catch {
+      setError(t("settings.errors.raiseInboxShortcutRegisterFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }, [pendingElectron, t]);
+
+  const dirty = pendingElectron.trim() !== savedElectron.trim();
+  const displayLabel = recorder.isRecording
+    ? t("settings.shortcut.recording")
+    : formatForDisplay(activeHotkey, { platform: displayPlatform });
+
+  return (
+    <SettingsRow
+      title={tx("settings.rows.raiseInboxShortcut", "Raise inbox shortcut")}
+      description={tx(
+        "settings.help.raiseInboxShortcut",
+        "Global shortcut to show the main window, open the unified inbox, and focus the composer. Click Record, press a key combination, then Save.",
+      )}
+    >
+      <div className="flex w-full flex-col gap-2">
+        <div className="flex w-full flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(
+              "min-w-[10rem] flex-1 justify-center font-mono text-xs",
+              recorder.isRecording && "ring-2 ring-primary",
+            )}
+            aria-label={tx("settings.rows.raiseInboxShortcut", "Raise inbox shortcut")}
+            onClick={() => {
+              if (recorder.isRecording) {
+                recorder.cancelRecording();
+              } else {
+                void beginRecording();
+              }
+            }}
+          >
+            {displayLabel}
+          </Button>
+          {recorder.isRecording ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => recorder.cancelRecording()}
+            >
+              {t("settings.actions.cancel")}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={saving || !dirty}
+            onClick={() => void handleSave()}
+          >
+            {saving ? t("settings.actions.saving") : t("settings.actions.save")}
+          </Button>
+        </div>
+        {error ? (
+          <p className="text-xs text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </SettingsRow>
   );
 }
 

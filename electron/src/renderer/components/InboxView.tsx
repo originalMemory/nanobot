@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
-import { ThreadComposer } from "@/components/thread/ThreadComposer";
+import { ThreadComposer, type ThreadComposerHandle } from "@/components/thread/ThreadComposer";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
 import { useNanobotStream } from "@/hooks/useNanobotStream";
 import { fetchCliApps, fetchMcpPresets, listSlashCommands } from "@/lib/api";
@@ -32,6 +32,8 @@ interface InboxViewProps {
   reasoningSelectionError?: string | null;
   onDismissReasoningSelectionError?: () => void;
   onReasoningEffortSelect?: (effort: ReasoningEffortValue) => void;
+  /** 递增时聚焦输入框（全局快捷键唤起收件箱）。 */
+  focusComposerSignal?: number;
 }
 
 export function InboxView({
@@ -50,8 +52,10 @@ export function InboxView({
   reasoningSelectionError,
   onDismissReasoningSelectionError,
   onReasoningEffortSelect,
+  focusComposerSignal = 0,
 }: InboxViewProps) {
   const { t } = useTranslation();
+  const composerRef = useRef<ThreadComposerHandle>(null);
   const { token, apiBase } = useClient();
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const [cliApps, setCliApps] = useState<CliAppInfo[]>([]);
@@ -104,6 +108,14 @@ export function InboxView({
     onChannelsChange?.(allChannels);
   }, [allChannels, onChannelsChange]);
 
+  useEffect(() => {
+    if (!focusComposerSignal) return;
+    const id = requestAnimationFrame(() => {
+      composerRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [focusComposerSignal]);
+
   // Filter by selected channel
   const displayMessages = useMemo<UIMessage[]>(() => {
     if (!activeChannel) return messages;
@@ -131,6 +143,7 @@ export function InboxView({
           mcpPresets={mcpPresets}
           composer={
             <ThreadComposer
+              ref={composerRef}
               onSend={send}
               onStop={stop}
               isStreaming={isStreaming}

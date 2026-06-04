@@ -1,6 +1,8 @@
 import {
+  forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -148,6 +150,10 @@ interface ThreadComposerProps {
   /** 点击截图按钮时触发，父组件负责调用 electronAPI 并展示确认弹窗。 */
   onCaptureScreenshot?: () => void;
 }
+
+export type ThreadComposerHandle = {
+  focus: () => void;
+};
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
   activity: Activity,
@@ -511,36 +517,40 @@ function RunElapsedStrip({
   );
 }
 
-export function ThreadComposer({
-  onSend,
-  disabled,
-  placeholder,
-  isStreaming = false,
-  modelLabel = null,
-  modelProvider = null,
-  modelProviderLabel = null,
-  modelSettings = null,
-  modelSelectionPending = false,
-  modelSelectionError = null,
-  onDismissModelSelectionError,
-  onModelPresetSelect,
-  reasoningSelectionPending = false,
-  reasoningSelectionError = null,
-  onDismissReasoningSelectionError,
-  onReasoningEffortSelect,
-  variant = "thread",
-  slashCommands = [],
-  cliApps = [],
-  mcpPresets = [],
-  imageMode: controlledImageMode,
-  onImageModeChange,
-  onStop,
-  runStartedAt = null,
-  goalState,
-  pendingScreenshot,
-  onScreenshotConsumed,
-  onCaptureScreenshot,
-}: ThreadComposerProps) {
+export const ThreadComposer = forwardRef<ThreadComposerHandle, ThreadComposerProps>(
+  function ThreadComposer(
+    {
+      onSend,
+      disabled,
+      placeholder,
+      isStreaming = false,
+      modelLabel = null,
+      modelProvider = null,
+      modelProviderLabel = null,
+      modelSettings = null,
+      modelSelectionPending = false,
+      modelSelectionError = null,
+      onDismissModelSelectionError,
+      onModelPresetSelect,
+      reasoningSelectionPending = false,
+      reasoningSelectionError = null,
+      onDismissReasoningSelectionError,
+      onReasoningEffortSelect,
+      variant = "thread",
+      slashCommands = [],
+      cliApps = [],
+      mcpPresets = [],
+      imageMode: controlledImageMode,
+      onImageModeChange,
+      onStop,
+      runStartedAt = null,
+      goalState,
+      pendingScreenshot,
+      onScreenshotConsumed,
+      onCaptureScreenshot,
+    },
+    ref,
+  ) {
   const { t, i18n } = useTranslation();
   const currentTheme = useThemeValue();
   const isZhLocale = normalizeLocale(i18n.resolvedLanguage ?? i18n.language) === "zh-CN";
@@ -564,6 +574,11 @@ export function ThreadComposer({
   const [recentSlashCommands, setRecentSlashCommands] = useState<string[]>(() => readSlashRecents());
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      textareaRef.current?.focus();
+    },
+  }), []);
   const formRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const aspectControlRef = useRef<HTMLDivElement>(null);
@@ -1622,7 +1637,7 @@ export function ThreadComposer({
       </div>
     </form>
   );
-}
+});
 
 function composerProviderLabel(settings: SettingsPayload, provider: string | null | undefined): string {
   if (!provider) return "";

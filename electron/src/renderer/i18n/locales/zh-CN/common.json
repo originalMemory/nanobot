@@ -143,6 +143,7 @@
       "activityMode": "活动细节",
       "codeWrap": "代码换行",
       "brandLogos": "品牌 Logo",
+      "raiseInboxShortcut": "唤起收件箱快捷键",
       "maxResults": "最大结果数",
       "timeout": "超时",
       "jinaReader": "Jina Reader",
@@ -204,6 +205,7 @@
       "activityMode": "选择默认显示多少 agent 活动细节。",
       "codeWrap": "让较小屏幕上的长代码行更易读。",
       "brandLogos": "在设置页显示第三方服务商和 CLI 的 Logo。",
+      "raiseInboxShortcut": "全局快捷键：显示主窗口、切换到统一收件箱并聚焦输入框。点击按键区域后按下组合键，再点保存。",
       "maxResults": "每次 web_search 返回的结果数量。",
       "timeout": "搜索服务商请求超时秒数。",
       "jinaReader": "可用时为 web_fetch 使用 Jina Reader。",
@@ -350,6 +352,13 @@
       "restartAfterSaving": "保存后，可在合适时重启。",
       "savedRestartApply": "已保存，可稍后重启。",
       "imageProviderRestart": "图片服务商改动已保存，可稍后重启。"
+    },
+    "shortcut": {
+      "recording": "请按下快捷键…"
+    },
+    "errors": {
+      "raiseInboxShortcutEmpty": "快捷键不能为空。",
+      "raiseInboxShortcutRegisterFailed": "无法注册该快捷键，可能已被占用或格式无效，请换一个组合。"
     },
     "actions": {
       "save": "保存",
