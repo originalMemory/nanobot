@@ -463,6 +463,92 @@
     background-color: transparent;
   }
 
+  /* ─── 音频附件（非壁纸模式保留轻底） ─── */
+
+  .audio-attachment {
+    border-radius: 12px;
+    padding: 0.25rem;
+    background-color: hsl(var(--muted) / 0.4);
+  }
+
+  .audio-attachment-player {
+    border-radius: 10px;
+  }
+
+  /* ─── 动态壁纸 — 表层半透明透出背景（经 tailwind --wp-alpha-* 乘算，避免 color-mix 自引用） ─── */
+
+  html[data-wallpaper="on"] {
+    --wp-alpha-bg: 0.68;
+    --wp-alpha-surface: 0.72;
+    --wp-alpha-muted: 0.65;
+    --wp-alpha-accent: 0.62;
+    --wp-alpha-sidebar: 0.52;
+    --wp-alpha-sidebar-accent: 0.58;
+    --wp-alpha-primary: 0.86;
+    --wp-alpha-chat-user: 0.68;
+    --wp-alpha-chat-assistant: 0.52;
+    --wp-alpha-composer: 0.52;
+  }
+
+  /* 布局壳层透明，避免 body / frame / shell 多层 bg-background 叠成实色 */
+  html[data-wallpaper="on"] body,
+  html[data-wallpaper="on"] .wallpaper-root {
+    background-color: transparent;
+  }
+
+  html[data-wallpaper="on"][data-theme="ink"] body,
+  html[data-wallpaper="on"][data-theme="rainbow"] body {
+    background-image: none;
+  }
+
+  html[data-wallpaper="on"] .chat-user-bubble {
+    background-image: linear-gradient(
+      to bottom right,
+      hsl(var(--primary) / var(--wp-alpha-chat-user)),
+      hsl(var(--primary) / calc(var(--wp-alpha-chat-user) * 0.82))
+    );
+  }
+
+  html[data-wallpaper="on"] .chat-ai-bubble {
+    background-color: hsl(var(--card) / var(--wp-alpha-chat-assistant));
+  }
+
+  html[data-wallpaper="on"] .thread-composer-shell {
+    background-color: hsl(var(--card) / var(--wp-alpha-composer));
+  }
+
+  /* 音频：去掉 figure + audio + 原生控件三层实色叠底 */
+  html[data-wallpaper="on"] .audio-attachment {
+    background-color: transparent;
+    padding: 0;
+  }
+
+  html[data-wallpaper="on"] .audio-attachment-player {
+    background-color: transparent;
+  }
+
+  html[data-wallpaper="on"] .audio-attachment-player::-webkit-media-controls-enclosure {
+    background-color: hsl(var(--card) / var(--wp-alpha-chat-assistant));
+    border-radius: 10px;
+  }
+
+  html[data-wallpaper="on"] .audio-attachment-player::-webkit-media-controls-panel {
+    background-color: hsl(var(--card) / var(--wp-alpha-chat-assistant));
+  }
+
+  html[data-wallpaper="on"] [data-testid="thread-composer-dock"] {
+    background-color: transparent;
+    backdrop-filter: none;
+  }
+
+  html[data-wallpaper="on"] .thread-viewport-top-fade {
+    background-image: linear-gradient(
+      to bottom,
+      hsl(var(--background) / 0.35),
+      transparent
+    );
+  }
+
   /* ─── 主题切换过渡动画（排除首次加载） ─── */
 
   @media (prefers-reduced-motion: no-preference) {

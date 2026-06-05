@@ -423,14 +423,14 @@ function AudioCell({ media, autoPlay = false }: { media: UIMediaAttachment; auto
   }
 
   return (
-    <figure className="w-full max-w-[min(100%,28rem)]">
+    <figure className="audio-attachment w-full max-w-[min(100%,28rem)]">
       <audio
         ref={audioRef}
         src={resolvedUrl}
         controls
         preload="auto"
         onError={() => setFailed(true)}
-        className="w-full rounded-[12px]"
+        className="audio-attachment-player w-full"
         aria-label={media.name ? `${t("message.audioAttachment", { defaultValue: "Audio attachment" })}: ${media.name}` : t("message.audioAttachment", { defaultValue: "Audio attachment" })}
       />
       {media.name ? (

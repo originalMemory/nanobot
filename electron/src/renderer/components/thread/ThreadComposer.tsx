@@ -1341,7 +1341,7 @@ export const ThreadComposer = forwardRef<ThreadComposerHandle, ThreadComposerPro
       ) : null}
       <div
         className={cn(
-          "relative mx-auto flex w-full flex-col overflow-visible transition-all duration-200",
+          "thread-composer-shell relative mx-auto flex w-full flex-col overflow-visible transition-all duration-200",
           isHero
             ? "max-w-[64rem] rounded-[28px] border border-black/[0.035] bg-card shadow-[0_20px_55px_rgba(15,23,42,0.08)] dark:border-white/[0.06] dark:shadow-[0_24px_55px_rgba(0,0,0,0.34)]"
             : "max-w-[58rem] rounded-[22px] border border-black/[0.035] bg-card shadow-[0_12px_30px_rgba(15,23,42,0.07)] dark:border-white/[0.06] dark:shadow-[0_16px_34px_rgba(0,0,0,0.28)]",

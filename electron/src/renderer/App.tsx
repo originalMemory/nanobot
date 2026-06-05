@@ -5,6 +5,7 @@ import { InboxSidebar } from "@/components/InboxSidebar";
 import { InboxView } from "@/components/InboxView";
 import { ScreenshotPreviewModal } from "@/components/ScreenshotPreviewModal";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { WallpaperLayer } from "@/components/WallpaperLayer";
 import { WindowTitleBar } from "@/components/WindowTitleBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,10 +54,12 @@ type BootState =
 
 function ElectronFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-background">
-      <WindowTitleBar />
-      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
-    </div>
+    <WallpaperLayer>
+      <div className="wallpaper-root relative z-10 flex h-full w-full flex-col overflow-hidden bg-background">
+        <WindowTitleBar />
+        <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+      </div>
+    </WallpaperLayer>
   );
 }
 
@@ -329,7 +332,7 @@ function Shell({
     <ThemeProvider theme={theme}>
       <ClientProvider client={client} token={token} modelName={modelName} apiBase={gatewayUrl}>
         <BotIdentityProvider value={botIdentity}>
-        <div className="flex h-full w-full overflow-hidden bg-background text-foreground">
+        <div className="wallpaper-root flex h-full w-full overflow-hidden bg-background text-foreground">
           {/* Sidebar */}
           <InboxSidebar
             activeChannel={activeChannel}

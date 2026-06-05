@@ -14,6 +14,10 @@ type WindowState = 'maximized' | 'normal';
 type SetRaiseInboxResult =
   | { ok: true; accelerator: string }
   | { ok: false; error: 'empty' | 'register_failed' };
+type WallpaperConfig = {
+  url: string;
+  intervalMinutes: number;
+};
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: {
@@ -71,6 +75,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
         cb(payload.focused);
       ipcRenderer.on('window:presence', handler);
       return () => ipcRenderer.removeListener('window:presence', handler);
+    },
+  },
+
+  wallpaper: {
+    getConfig: (): Promise<WallpaperConfig> =>
+      ipcRenderer.invoke('wallpaper:get-config'),
+
+    setConfig: (config: WallpaperConfig): Promise<WallpaperConfig> =>
+      ipcRenderer.invoke('wallpaper:set-config', config),
+
+    onUpdate: (cb: (dataUrl: string) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, dataUrl: string) =>
+        cb(dataUrl);
+      ipcRenderer.on('wallpaper:update', handler);
+      return () => ipcRenderer.removeListener('wallpaper:update', handler);
+    },
+
+    onDisabled: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('wallpaper:disabled', handler);
+      return () => ipcRenderer.removeListener('wallpaper:disabled', handler);
     },
   },
 

@@ -124,7 +124,7 @@ export function InboxView({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-9 shrink-0 items-center border-b border-border px-4 text-sm font-medium text-foreground">
+      <div className="flex h-9 shrink-0 items-center border-b border-sidebar-border/60 bg-sidebar px-4 text-sm font-medium text-foreground">
         {activeChannel ? channelLabel(activeChannel) : t("inbox.unified")}
       </div>
 

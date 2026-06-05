@@ -31,7 +31,7 @@ export function WindowTitleBar() {
   return (
     <header
       className={cn(
-        "flex h-[30px] shrink-0 select-none items-center border-b border-border/60 bg-background",
+        "flex h-[30px] shrink-0 select-none items-center border-b border-sidebar-border/60 bg-sidebar",
         isMac ? "pl-[78px]" : "pl-3",
       )}
       style={dragStyle}

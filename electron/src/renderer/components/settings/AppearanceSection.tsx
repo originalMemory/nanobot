@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ALL_THEMES, type Theme } from "@/hooks/useTheme";
 import { isElectron } from "@/lib/env";
 import {
@@ -155,7 +156,118 @@ export function AppearanceSection({
           {isElectron ? <RaiseInboxShortcutRow tx={tx} /> : null}
         </SettingsGroup>
       </section>
+
+      {isElectron ? (
+        <section>
+          <SettingsSectionTitle>
+            {tx("settings.sections.wallpaper", "Wallpaper")}
+          </SettingsSectionTitle>
+          <SettingsGroup>
+            <WallpaperSettingsRow tx={tx} />
+          </SettingsGroup>
+        </section>
+      ) : null}
     </div>
+  );
+}
+
+function WallpaperSettingsRow({
+  tx,
+}: {
+  tx: (key: string, fallback: string) => string;
+}) {
+  const { t } = useTranslation();
+  const [savedUrl, setSavedUrl] = useState("");
+  const [savedInterval, setSavedInterval] = useState(1);
+  const [draftUrl, setDraftUrl] = useState("");
+  const [draftInterval, setDraftInterval] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    window.electronAPI.wallpaper.getConfig().then((config) => {
+      setSavedUrl(config.url);
+      setSavedInterval(config.intervalMinutes);
+      setDraftUrl(config.url);
+      setDraftInterval(config.intervalMinutes);
+    }).catch(() => { /* ignore load errors */ });
+  }, []);
+
+  const dirty =
+    draftUrl.trim() !== savedUrl.trim() ||
+    Math.max(1, Math.floor(draftInterval) || 1) !== savedInterval;
+
+  const handleSave = useCallback(async () => {
+    const intervalMinutes = Math.max(1, Math.floor(draftInterval) || 1);
+    setSaving(true);
+    setError(null);
+    try {
+      const next = await window.electronAPI.wallpaper.setConfig({
+        url: draftUrl.trim(),
+        intervalMinutes,
+      });
+      setSavedUrl(next.url);
+      setSavedInterval(next.intervalMinutes);
+      setDraftUrl(next.url);
+      setDraftInterval(next.intervalMinutes);
+    } catch {
+      setError(t("settings.errors.wallpaperSaveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }, [draftInterval, draftUrl, t]);
+
+  return (
+    <SettingsRow
+      title={tx("settings.rows.wallpaper", "Dynamic wallpaper")}
+      description={tx(
+        "settings.help.wallpaper",
+        "Fetch a background image from a URL on a schedule while the window is visible. Leave URL empty to disable.",
+      )}
+    >
+      <div className="flex w-full flex-col gap-2">
+        <Input
+          value={draftUrl}
+          onChange={(event) => {
+            setDraftUrl(event.target.value);
+            setError(null);
+          }}
+          placeholder={tx("settings.placeholders.wallpaperUrl", "Image URL")}
+          className="h-9 rounded-full bg-background/80 text-[12.5px]"
+        />
+        <div className="flex w-full flex-wrap items-center gap-2">
+          <label className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
+            <span className="shrink-0">
+              {tx("settings.rows.wallpaperInterval", "Update every (minutes)")}
+            </span>
+            <Input
+              type="number"
+              min={1}
+              step={1}
+              value={draftInterval}
+              onChange={(event) => {
+                setDraftInterval(Number(event.target.value));
+                setError(null);
+              }}
+              className="h-9 w-24 rounded-full bg-background/80 text-[12.5px]"
+            />
+          </label>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={saving || !dirty}
+            onClick={() => void handleSave()}
+          >
+            {saving ? t("settings.actions.saving") : t("settings.actions.save")}
+          </Button>
+        </div>
+        {error ? (
+          <p className="text-xs text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </SettingsRow>
   );
 }
 

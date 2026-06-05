@@ -40,6 +40,7 @@ const LazyHighlightedCode = lazy(async () => {
             padding: "1rem",
             fontSize: "0.875rem",
             lineHeight: 1.6,
+            background: "transparent",
           }}
           PreTag="pre"
           wrapLongLines
@@ -91,8 +92,8 @@ export function CodeBlock({
         className={cn(
           "flex items-center justify-between px-4 py-1.5 text-xs font-medium",
           isDark
-            ? "bg-zinc-800 text-zinc-300"
-            : "bg-zinc-100 text-zinc-600",
+            ? "bg-muted text-muted-foreground"
+            : "bg-muted text-muted-foreground",
         )}
       >
         <span className="lowercase font-mono">
@@ -117,13 +118,15 @@ export function CodeBlock({
           <span>{copied ? t("code.copied") : t("code.copy")}</span>
         </button>
       </div>
-      {highlight ? (
-        <Suspense fallback={<PlainCodeFallback code={code} />}>
-          <LazyHighlightedCode language={language} code={code} isDark={isDark} />
-        </Suspense>
-      ) : (
-        <PlainCodeFallback code={code} />
-      )}
+      <div className="bg-muted">
+        {highlight ? (
+          <Suspense fallback={<PlainCodeFallback code={code} />}>
+            <LazyHighlightedCode language={language} code={code} isDark={isDark} />
+          </Suspense>
+        ) : (
+          <PlainCodeFallback code={code} />
+        )}
+      </div>
     </div>
   );
 }

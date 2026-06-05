@@ -102,6 +102,7 @@
       "system": "系统",
       "status": "状态",
       "localPreferences": "本地偏好",
+      "wallpaper": "动态壁纸",
       "presets": "预设",
       "imageGeneration": "图片生成",
       "imageDefaults": "默认值",
@@ -144,6 +145,8 @@
       "codeWrap": "代码换行",
       "brandLogos": "品牌 Logo",
       "raiseInboxShortcut": "唤起收件箱快捷键",
+      "wallpaper": "动态壁纸",
+      "wallpaperInterval": "更新间隔（分钟）",
       "maxResults": "最大结果数",
       "timeout": "超时",
       "jinaReader": "Jina Reader",
@@ -206,6 +209,7 @@
       "codeWrap": "让较小屏幕上的长代码行更易读。",
       "brandLogos": "在设置页显示第三方服务商和 CLI 的 Logo。",
       "raiseInboxShortcut": "全局快捷键：显示主窗口、切换到统一收件箱并聚焦输入框。点击按键区域后按下组合键，再点保存。",
+      "wallpaper": "从 URL 定时拉取背景图，仅在窗口可见时更换。留空 URL 可关闭壁纸。",
       "maxResults": "每次 web_search 返回的结果数量。",
       "timeout": "搜索服务商请求超时秒数。",
       "jinaReader": "可用时为 web_fetch 使用 Jina Reader。",
@@ -356,9 +360,13 @@
     "shortcut": {
       "recording": "请按下快捷键…"
     },
+    "placeholders": {
+      "wallpaperUrl": "图片 URL"
+    },
     "errors": {
       "raiseInboxShortcutEmpty": "快捷键不能为空。",
-      "raiseInboxShortcutRegisterFailed": "无法注册该快捷键，可能已被占用或格式无效，请换一个组合。"
+      "raiseInboxShortcutRegisterFailed": "无法注册该快捷键，可能已被占用或格式无效，请换一个组合。",
+      "wallpaperSaveFailed": "壁纸设置保存失败，请稍后重试。"
     },
     "actions": {
       "save": "保存",

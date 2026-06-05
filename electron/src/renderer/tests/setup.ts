@@ -55,8 +55,17 @@ export function mockElectronAPI(
   const get = vi.fn(async (key: string) => store[key] ?? undefined);
   const set = vi.fn(async (key: string, value: unknown) => { store[key] = value; });
   // Assign directly to window (not replace it) so document remains intact
+  const noop = () => () => {};
   Object.defineProperty(window, "electronAPI", {
-    value: { config: { get, set } },
+    value: {
+      config: { get, set },
+      wallpaper: {
+        getConfig: vi.fn(async () => ({ url: "", intervalMinutes: 1 })),
+        setConfig: vi.fn(async (config: { url: string; intervalMinutes: number }) => config),
+        onUpdate: noop,
+        onDisabled: noop,
+      },
+    },
     configurable: true,
     writable: true,
   });

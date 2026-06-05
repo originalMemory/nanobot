@@ -4,6 +4,10 @@
 
 type WindowAction = "show" | "hide" | "minimize" | "maximize" | "close";
 type WindowState = "maximized" | "normal";
+type WallpaperConfig = {
+  url: string;
+  intervalMinutes: number;
+};
 
 interface ElectronAPI {
   platform: {
@@ -29,6 +33,12 @@ interface ElectronAPI {
   presence: {
     /** 订阅窗口焦点变更事件（focused=true 获焦，false 失焦），返回取消监听的清理函数。 */
     onChange(cb: (focused: boolean) => void): () => void;
+  };
+  wallpaper: {
+    getConfig(): Promise<WallpaperConfig>;
+    setConfig(config: WallpaperConfig): Promise<WallpaperConfig>;
+    onUpdate(cb: (dataUrl: string) => void): () => void;
+    onDisabled(cb: () => void): () => void;
   };
   shortcut: {
     getRaiseInbox(): Promise<string>;

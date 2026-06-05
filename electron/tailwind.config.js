@@ -48,43 +48,52 @@ module.exports = {
         sm: "calc(var(--radius) - 4px)",
       },
       colors: {
-        background: "hsl(var(--background))",
+        background:
+          "hsl(var(--background) / calc(var(--wp-alpha-bg, 1) * <alpha-value>))",
         foreground: "hsl(var(--foreground))",
         card: {
-          DEFAULT: "hsl(var(--card))",
+          DEFAULT:
+            "hsl(var(--card) / calc(var(--wp-alpha-surface, 1) * <alpha-value>))",
           foreground: "hsl(var(--card-foreground))",
         },
         popover: {
-          DEFAULT: "hsl(var(--popover))",
+          DEFAULT:
+            "hsl(var(--popover) / calc(var(--wp-alpha-surface, 1) * <alpha-value>))",
           foreground: "hsl(var(--popover-foreground))",
         },
         primary: {
-          DEFAULT: "hsl(var(--primary))",
+          DEFAULT:
+            "hsl(var(--primary) / calc(var(--wp-alpha-primary, 1) * <alpha-value>))",
           foreground: "hsl(var(--primary-foreground))",
         },
         secondary: {
-          DEFAULT: "hsl(var(--secondary))",
+          DEFAULT:
+            "hsl(var(--secondary) / calc(var(--wp-alpha-muted, 1) * <alpha-value>))",
           foreground: "hsl(var(--secondary-foreground))",
         },
         muted: {
-          DEFAULT: "hsl(var(--muted))",
+          DEFAULT:
+            "hsl(var(--muted) / calc(var(--wp-alpha-muted, 1) * <alpha-value>))",
           foreground: "hsl(var(--muted-foreground))",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
+          DEFAULT:
+            "hsl(var(--accent) / calc(var(--wp-alpha-accent, 1) * <alpha-value>))",
           foreground: "hsl(var(--accent-foreground))",
         },
         destructive: {
-          DEFAULT: "hsl(var(--destructive))",
+          DEFAULT: "hsl(var(--destructive) / <alpha-value>)",
           foreground: "hsl(var(--destructive-foreground))",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         sidebar: {
-          DEFAULT: "hsl(var(--sidebar))",
+          DEFAULT:
+            "hsl(var(--sidebar) / calc(var(--wp-alpha-sidebar, 1) * <alpha-value>))",
           foreground: "hsl(var(--sidebar-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
+          accent:
+            "hsl(var(--sidebar-accent) / calc(var(--wp-alpha-sidebar-accent, 1) * <alpha-value>))",
           "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
           border: "hsl(var(--sidebar-border))",
         },

@@ -16,6 +16,9 @@ import started from 'electron-squirrel-startup';
 
 const SCREENSHOT_ACCELERATOR = 'CmdOrCtrl+Shift+S';
 const DEFAULT_RAISE_INBOX_ACCELERATOR = 'CmdOrCtrl+Shift+E';
+const DEFAULT_WALLPAPER_URL =
+  'https://nas.xuanniao.fun:49150/api/moneyAccounting/random-image?type=1,2,3&level=5,6,7,8&orientation=2&maxResolutionLevel=2';
+const MIN_WALLPAPER_INTERVAL_MINUTES = 1;
 import Store from 'electron-store';
 import { APP_ID } from '../app.meta';
 
@@ -55,6 +58,11 @@ interface LocalPreferences {
   brandLogos: boolean;
 }
 
+interface WallpaperConfig {
+  url: string;
+  intervalMinutes: number;
+}
+
 // Keep in sync with renderer: src/renderer/hooks/useTheme.ts → Theme
 type Theme =
   | 'light' | 'dark' | 'midnight' | 'desert'
@@ -70,6 +78,7 @@ interface AppConfig {
     theme: Theme;
     language: string;
     preferences: LocalPreferences;
+    wallpaper: WallpaperConfig;
   };
   window: {
     x?: number;
@@ -100,6 +109,10 @@ const store = new Store<AppConfig>({
         codeWrap: true,
         brandLogos: true,
       },
+      wallpaper: {
+        url: DEFAULT_WALLPAPER_URL,
+        intervalMinutes: 1,
+      },
     },
     window: {
       width: 1200,
@@ -123,6 +136,35 @@ ipcMain.handle('config:get', (_event, key: string) => {
 
 ipcMain.handle('config:set', (_event, key: string, value: unknown) => {
   store.set(key, value);
+});
+
+function getWallpaperConfig(): WallpaperConfig {
+  const stored = store.get('appearance').wallpaper;
+  const url =
+    typeof stored?.url === 'string' ? stored.url.trim() : DEFAULT_WALLPAPER_URL;
+  const rawInterval =
+    typeof stored?.intervalMinutes === 'number' ? stored.intervalMinutes : 1;
+  const intervalMinutes = Math.max(
+    MIN_WALLPAPER_INTERVAL_MINUTES,
+    Math.floor(rawInterval) || MIN_WALLPAPER_INTERVAL_MINUTES,
+  );
+  return { url, intervalMinutes };
+}
+
+ipcMain.handle('wallpaper:get-config', (): WallpaperConfig => getWallpaperConfig());
+
+ipcMain.handle('wallpaper:set-config', (_event, config: WallpaperConfig): WallpaperConfig => {
+  const url = typeof config.url === 'string' ? config.url.trim() : '';
+  const rawInterval =
+    typeof config.intervalMinutes === 'number' ? config.intervalMinutes : 1;
+  const intervalMinutes = Math.max(
+    MIN_WALLPAPER_INTERVAL_MINUTES,
+    Math.floor(rawInterval) || MIN_WALLPAPER_INTERVAL_MINUTES,
+  );
+  const next = { url, intervalMinutes };
+  store.set('appearance.wallpaper', next);
+  restartWallpaperScheduler();
+  return next;
 });
 
 type SetRaiseInboxResult =
@@ -279,6 +321,107 @@ let registeredRaiseInboxAccelerator: string | null = null;
 let pendingRaiseInboxEvent = false;
 /** 设置页录制快捷键时暂停全局注册，避免按下当前组合键触发跳转。 */
 let raiseInboxRecordingPaused = false;
+
+// ---------------------------------------------------------------------------
+// Dynamic wallpaper
+// ---------------------------------------------------------------------------
+
+let wallpaperInterval: ReturnType<typeof setInterval> | null = null;
+let wallpaperFetching = false;
+let lastWallpaperDataUrl: string | null = null;
+
+function isMainWindowWallpaperVisible(): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  return mainWindow.isVisible() && !mainWindow.isMinimized();
+}
+
+function sendWallpaperUpdate(dataUrl: string): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('wallpaper:update', dataUrl);
+}
+
+function sendWallpaperDisabled(): void {
+  lastWallpaperDataUrl = null;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('wallpaper:disabled');
+}
+
+async function fetchWallpaperAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error('[wallpaper] fetch failed:', response.status, response.statusText);
+      return null;
+    }
+    const contentType = response.headers.get('content-type') ?? 'image/jpeg';
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return `data:${contentType};base64,${buffer.toString('base64')}`;
+  } catch (err) {
+    console.error('[wallpaper] fetch failed:', err);
+    return null;
+  }
+}
+
+async function fetchAndSendWallpaper(): Promise<void> {
+  const { url } = getWallpaperConfig();
+  if (!url) {
+    sendWallpaperDisabled();
+    return;
+  }
+  if (wallpaperFetching) return;
+  wallpaperFetching = true;
+  try {
+    const dataUrl = await fetchWallpaperAsDataUrl(url);
+    if (dataUrl) {
+      lastWallpaperDataUrl = dataUrl;
+      sendWallpaperUpdate(dataUrl);
+    }
+  } finally {
+    wallpaperFetching = false;
+  }
+}
+
+function stopWallpaperScheduler(): void {
+  if (wallpaperInterval) {
+    clearInterval(wallpaperInterval);
+    wallpaperInterval = null;
+  }
+}
+
+function startWallpaperScheduler(): void {
+  stopWallpaperScheduler();
+  const { url, intervalMinutes } = getWallpaperConfig();
+  if (!url || !isMainWindowWallpaperVisible()) return;
+
+  void fetchAndSendWallpaper();
+  wallpaperInterval = setInterval(() => {
+    if (isMainWindowWallpaperVisible()) {
+      void fetchAndSendWallpaper();
+    }
+  }, intervalMinutes * 60_000);
+}
+
+function restartWallpaperScheduler(): void {
+  const { url } = getWallpaperConfig();
+  if (!url) {
+    stopWallpaperScheduler();
+    sendWallpaperDisabled();
+    return;
+  }
+  if (isMainWindowWallpaperVisible()) {
+    startWallpaperScheduler();
+  } else {
+    stopWallpaperScheduler();
+  }
+}
+
+function onWallpaperVisibilityChange(): void {
+  if (isMainWindowWallpaperVisible()) {
+    startWallpaperScheduler();
+  } else {
+    stopWallpaperScheduler();
+  }
+}
 
 function getRaiseInboxAccelerator(): string {
   const stored = store.get('shortcuts.raiseInbox');
@@ -442,8 +585,14 @@ function createWindow(): void {
   });
 
   mainWindow.on('closed', () => {
+    stopWallpaperScheduler();
     mainWindow = null;
   });
+
+  mainWindow.on('show', onWallpaperVisibilityChange);
+  mainWindow.on('hide', onWallpaperVisibilityChange);
+  mainWindow.on('minimize', onWallpaperVisibilityChange);
+  mainWindow.on('restore', onWallpaperVisibilityChange);
 
   // 截屏快捷键：仅窗口获焦时生效（8.1）
   const screenshotHandler = async () => {
@@ -484,6 +633,13 @@ function createWindow(): void {
       pendingRaiseInboxEvent = false;
       sendRaiseInboxToRenderer(false);
     }
+    const { url } = getWallpaperConfig();
+    if (url && lastWallpaperDataUrl) {
+      sendWallpaperUpdate(lastWallpaperDataUrl);
+    } else if (!url) {
+      sendWallpaperDisabled();
+    }
+    onWallpaperVisibilityChange();
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -578,6 +734,7 @@ if (gotSingleInstanceLock) {
 
   app.on('before-quit', () => {
     app.isQuitting = true;
+    stopWallpaperScheduler();
     unregisterRaiseInboxShortcut();
   });
 }
