@@ -286,13 +286,18 @@ function getRaiseInboxAccelerator(): string {
   return DEFAULT_RAISE_INBOX_ACCELERATOR;
 }
 
-function sendRaiseInboxToRenderer(): void {
+function isMainWindowRaisedAndFocused(): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  return mainWindow.isVisible() && !mainWindow.isMinimized() && mainWindow.isFocused();
+}
+
+function sendRaiseInboxToRenderer(toggle = false): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.webContents.isLoading()) {
     pendingRaiseInboxEvent = true;
     return;
   }
-  mainWindow.webContents.send('shortcut:raise-inbox');
+  mainWindow.webContents.send('shortcut:raise-inbox', { toggle });
 }
 
 function handleRaiseInboxShortcut(): void {
@@ -301,8 +306,12 @@ function handleRaiseInboxShortcut(): void {
     showMainWindow();
     return;
   }
+  if (isMainWindowRaisedAndFocused()) {
+    sendRaiseInboxToRenderer(true);
+    return;
+  }
   showMainWindow();
-  sendRaiseInboxToRenderer();
+  sendRaiseInboxToRenderer(false);
 }
 
 function unregisterRaiseInboxShortcut(): void {
@@ -473,7 +482,7 @@ function createWindow(): void {
     if (screenLocked) sendPresence({ locked: true });
     if (pendingRaiseInboxEvent) {
       pendingRaiseInboxEvent = false;
-      mainWindow?.webContents.send('shortcut:raise-inbox');
+      sendRaiseInboxToRenderer(false);
     }
   });
 

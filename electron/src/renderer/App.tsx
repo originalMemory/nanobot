@@ -264,11 +264,15 @@ function Shell({
   const [pendingAttach, setPendingAttach] = useState<string | null>(null);
   const [focusComposerSignal, setFocusComposerSignal] = useState(0);
 
-  const handleRaiseInboxShortcut = useCallback(() => {
+  const handleRaiseInboxShortcut = useCallback(({ toggle }: { toggle: boolean }) => {
+    if (toggle && view === "chat" && activeChannel === null) {
+      void window.electronAPI?.window?.action("close");
+      return;
+    }
     setView("chat");
     setActiveChannel(null);
     setFocusComposerSignal((n) => n + 1);
-  }, []);
+  }, [view, activeChannel]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.electronAPI?.shortcut?.onRaiseInbox) return;

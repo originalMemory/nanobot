@@ -85,9 +85,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setRaiseInboxRecording: (recording: boolean): Promise<void> =>
       ipcRenderer.invoke('shortcut:set-raise-inbox-recording', recording),
 
-    /** 全局快捷键唤起主界面并聚焦统一收件箱输入框。 */
-    onRaiseInbox: (cb: () => void): (() => void) => {
-      const handler = () => cb();
+    /** 全局快捷键唤起/切换统一收件箱；toggle=true 时若已在收件箱则隐藏窗口。 */
+    onRaiseInbox: (cb: (payload: { toggle: boolean }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload?: { toggle?: boolean }) =>
+        cb({ toggle: payload?.toggle ?? false });
       ipcRenderer.on('shortcut:raise-inbox', handler);
       return () => ipcRenderer.removeListener('shortcut:raise-inbox', handler);
     },

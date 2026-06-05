@@ -40,8 +40,8 @@ interface ElectronAPI {
     >;
     /** 设置页录制时暂停/恢复全局「唤起收件箱」快捷键。 */
     setRaiseInboxRecording(recording: boolean): Promise<void>;
-    /** 全局快捷键唤起主界面并聚焦统一收件箱输入框。 */
-    onRaiseInbox(cb: () => void): () => void;
+    /** 全局快捷键唤起/切换统一收件箱；toggle=true 时若已在收件箱则隐藏窗口。 */
+    onRaiseInbox(cb: (payload: { toggle: boolean }) => void): () => void;
   };
 }
 
