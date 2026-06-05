@@ -302,6 +302,7 @@ class HeartbeatConfig(Base):
     enabled: bool = True
     interval_s: int = 30 * 60  # 30 minutes
     keep_recent_messages: int = 8
+    context_messages: int = 50  # unified 模式下 heartbeat 注入的最近消息条数
 
 
 class TtsConfig(Base):

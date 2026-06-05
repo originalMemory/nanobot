@@ -32,7 +32,7 @@ _SESSION_LIST_PREVIEW_MAX_RECORDS = 200
 _SESSION_LIST_PREVIEW_MAX_CHARS = 1_000_000
 
 
-def _sanitize_assistant_replay_text(content: str) -> str:
+def sanitize_assistant_replay_text(content: str) -> str:
     """Remove internal replay artifacts that the model may have copied before.
 
     These strings are useful as runtime/session metadata, but when they appear
@@ -62,7 +62,7 @@ def _text_preview(content: Any) -> str:
         text = " ".join(parts)
     else:
         return ""
-    text = _sanitize_assistant_replay_text(text)
+    text = sanitize_assistant_replay_text(text)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) > _SESSION_PREVIEW_MAX_CHARS:
         text = text[: _SESSION_PREVIEW_MAX_CHARS - 1].rstrip() + "…"
@@ -176,7 +176,7 @@ class Session:
             content = message.get("content", "")
             role = message.get("role")
             if role == "assistant" and isinstance(content, str):
-                content = _sanitize_assistant_replay_text(content)
+                content = sanitize_assistant_replay_text(content)
             # Synthesize an ``[image: path]`` breadcrumb from the persisted
             # ``media`` kwarg so LLM replay still sees *something* where the
             # image used to be. Without this, an image-only user turn

@@ -43,6 +43,21 @@ def test_add_job_accepts_valid_timezone(tmp_path) -> None:
     assert job.state.next_run_at_ms is not None
 
 
+def test_add_job_preserves_context_messages(tmp_path) -> None:
+    service = CronService(tmp_path / "cron" / "jobs.json")
+    job = service.add_job(
+        name="context",
+        schedule=CronSchedule(kind="every", every_ms=60_000),
+        message="hello",
+        context_messages=20,
+    )
+    assert job.payload.context_messages == 20
+
+    reloaded = service.get_job(job.id)
+    assert reloaded is not None
+    assert reloaded.payload.context_messages == 20
+
+
 def test_add_job_preserves_channel_meta_and_session_key(tmp_path) -> None:
     service = CronService(tmp_path / "cron" / "jobs.json")
     meta = {"slack": {"thread_ts": "1234567890.123456", "channel_type": "channel"}}

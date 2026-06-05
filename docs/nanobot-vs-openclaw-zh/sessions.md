@@ -66,7 +66,7 @@ nanobot **没有** 名为 `main` 的配置键，但语义上默认的 `channel:c
 | DM 默认进 main session | 需显式 `unifiedSession: true` 才合并所有通道 |
 | 群 / 话题独立 session | 默认已是 `channel:chat_id` 隔离；话题可用 `session_key_override` |
 | `session.mainKey` / agent 多实例 | 单配置下仅一个 `unified:default`；多实例用不同 `--config` + workspace |
-| Heartbeat 跑在 main session | Heartbeat 用工作区 `HEARTBEAT.md`，投递到「最近活跃通道」，与 unified 无硬绑定 |
+| Heartbeat 跑在 main session | Heartbeat 用 `HEARTBEAT.md`；默认投递「最近活跃通道」；**unified 下固定投 `websocket:inbox:unified`**，并注入 unified 最近消息作上下文 |
 
 结论：**nanobot 有等价的「全通道一条会话」能力，但叫 unified session，且默认关闭**；OpenClaw 对私聊默认就更接近「主会话」，nanobot 对多通道默认是分开的。
 

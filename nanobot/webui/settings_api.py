@@ -784,6 +784,7 @@ def settings_payload(
                 "enabled": config.gateway.heartbeat.enabled,
                 "interval_s": config.gateway.heartbeat.interval_s,
                 "keep_recent_messages": config.gateway.heartbeat.keep_recent_messages,
+                "context_messages": config.gateway.heartbeat.context_messages,
             },
             "dream": {
                 "schedule": defaults.dream.describe_schedule(),

@@ -42,6 +42,14 @@ _CRON_PARAMETERS = tool_parameters_schema(
         description="Whether to deliver the execution result to the user channel (default true)",
         default=True,
     ),
+    context_messages=IntegerSchema(
+        0,
+        description=(
+            "When action='add', number of recent unified-session messages to include as "
+            "execution context (default 0, no injection)"
+        ),
+        minimum=0,
+    ),
     job_id=StringSchema("REQUIRED when action='remove'. Job ID to remove (obtain via action='list')."),
     required=["action"],
     description=(
@@ -122,6 +130,13 @@ class CronTool(Tool, ContextAware):
             f"If tz is omitted, cron expressions and naive ISO times default to {self._default_timezone}."
         )
 
+    @staticmethod
+    def _normalize_context_messages(value: Any) -> int:
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 0
+
     def validate_params(self, params: dict[str, Any]) -> list[str]:
         errors = super().validate_params(params)
         action = params.get("action")
@@ -142,12 +157,15 @@ class CronTool(Tool, ContextAware):
         at: str | None = None,
         job_id: str | None = None,
         deliver: bool = True,
+        context_messages: int = 0,
         **kwargs: Any,
     ) -> str:
         if action == "add":
             if self._in_cron_context.get():
                 return "Error: cannot schedule new jobs from within a cron job execution"
-            return self._add_job(name, message, every_seconds, cron_expr, tz, at, deliver)
+            return self._add_job(
+                name, message, every_seconds, cron_expr, tz, at, deliver, context_messages,
+            )
         elif action == "list":
             return self._list_jobs()
         elif action == "remove":
@@ -163,6 +181,7 @@ class CronTool(Tool, ContextAware):
         tz: str | None,
         at: str | None,
         deliver: bool = True,
+        context_messages: int = 0,
     ) -> str:
         if not message:
             return (
@@ -216,6 +235,7 @@ class CronTool(Tool, ContextAware):
             delete_after_run=delete_after,
             channel_meta=self._metadata.get(),
             session_key=self._session_key.get() or None,
+            context_messages=self._normalize_context_messages(context_messages),
         )
         return f"Created job '{job.name}' (id: {job.id})"
 
@@ -270,6 +290,10 @@ class CronTool(Tool, ContextAware):
             if j.payload.kind == "system_event":
                 parts.append(f"  Purpose: {self._system_job_purpose(j)}")
                 parts.append("  Protected: visible for inspection, but cannot be removed.")
+            if j.payload.context_messages > 0:
+                parts.append(
+                    f"  Context: {j.payload.context_messages} recent unified messages"
+                )
             parts.extend(self._format_state(j.state, j.schedule))
             lines.append("\n".join(parts))
         return "Scheduled jobs:\n" + "\n".join(lines)

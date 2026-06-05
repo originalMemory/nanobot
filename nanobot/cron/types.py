@@ -29,6 +29,7 @@ class CronPayload:
     to: str | None = None  # e.g. phone number
     channel_meta: dict = field(default_factory=dict)  # channel-specific routing (e.g. Slack thread_ts)
     session_key: str | None = None  # original session key for correct session recording
+    context_messages: int = 0  # unified 会话最近消息条数；0 表示不注入
 
 
 @dataclass

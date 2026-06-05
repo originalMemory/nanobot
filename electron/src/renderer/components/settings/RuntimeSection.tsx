@@ -175,7 +175,9 @@ export function RuntimeSection({
             title={tx("settings.rows.heartbeat", "Heartbeat")}
             value={
               settings.runtime.heartbeat.enabled
-                ? `${settings.runtime.heartbeat.interval_s}s`
+                ? settings.runtime.unified_session
+                  ? `${settings.runtime.heartbeat.interval_s}s · ctx ${settings.runtime.heartbeat.context_messages}`
+                  : `${settings.runtime.heartbeat.interval_s}s`
                 : tx("settings.values.disabled", "Disabled")
             }
           />

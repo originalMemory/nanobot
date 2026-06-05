@@ -294,6 +294,7 @@ export interface SettingsPayload {
       enabled: boolean;
       interval_s: number;
       keep_recent_messages: number;
+      context_messages: number;
     };
     dream: {
       schedule: string;

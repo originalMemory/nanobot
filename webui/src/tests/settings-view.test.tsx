@@ -78,6 +78,7 @@ function settingsPayload(): SettingsPayload {
         enabled: true,
         interval_s: 1800,
         keep_recent_messages: 8,
+        context_messages: 50,
       },
       dream: {
         schedule: "every 2h",

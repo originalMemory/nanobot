@@ -129,6 +129,35 @@ def _heartbeat_has_active_tasks(content: str) -> bool:
         return True
     return False
 
+
+def _pick_heartbeat_target(
+    *,
+    sessions: list[dict[str, Any]],
+    enabled_channels: set[str] | list[str],
+    unified_session: bool = False,
+) -> tuple[str, str]:
+    """为 heartbeat 选择可路由的 channel/chat_id 投递目标。
+
+    unified 模式下固定投递 websocket:inbox:unified（Electron 统一收件箱），
+    不回退到 Telegram 等 per-channel session。若无 websocket 通道则返回 cli。
+    """
+    enabled = set(enabled_channels)
+    if unified_session and "websocket" in enabled:
+        from nanobot.channels.websocket import INBOX_UNIFIED_CHAT_ID
+
+        return "websocket", INBOX_UNIFIED_CHAT_ID
+
+    for item in sorted(sessions, key=lambda x: x.get("updated_at") or "", reverse=True):
+        key = item.get("key") or ""
+        if ":" not in key:
+            continue
+        channel, chat_id = key.split(":", 1)
+        if channel in {"cli", "system"}:
+            continue
+        if channel in enabled and chat_id:
+            return channel, chat_id
+    return "cli", "direct"
+
 # ---------------------------------------------------------------------------
 # CLI input: prompt_toolkit for editing, paste, history, and display
 # ---------------------------------------------------------------------------
@@ -997,6 +1026,8 @@ def _run_gateway(
     # Set cron callback (needs agent)
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
+        from nanobot.cron.context import prepend_unified_context
+
         async def _silent(*_args, **_kwargs):
             pass
 
@@ -1058,13 +1089,16 @@ def _run_gateway(
                 logger.debug("Heartbeat: HEARTBEAT.md has no active tasks")
                 return None
 
-            channel, chat_id = _pick_heartbeat_target()
+            channel, chat_id = _resolve_heartbeat_target()
             if channel == "cli":
                 return None
 
-            prompt = (
+            prompt = prepend_unified_context(
                 _HEARTBEAT_PREAMBLE
-                + f"Review the following HEARTBEAT.md and report any active tasks:\n\n{content}"
+                + f"Review the following HEARTBEAT.md and report any active tasks:\n\n{content}",
+                session_manager,
+                unified_session=config.agents.defaults.unified_session,
+                context_messages=job.payload.context_messages,
             )
 
             # Internal check: funnel all output through the post-run gate so the
@@ -1108,12 +1142,15 @@ def _run_gateway(
                 logger.info("Heartbeat: silenced by post-run evaluation")
             return response
 
-        reminder_note = (
+        reminder_note = prepend_unified_context(
             "The scheduled time has arrived. Deliver this reminder to the user now, "
             "as a brief and natural message in their language. Speak directly to them — "
             "do not narrate progress, summarize, include user IDs, or add status reports "
             "like 'Done' or 'Reminded'.\n\n"
-            f"Reminder: {job.payload.message}"
+            f"Reminder: {job.payload.message}",
+            session_manager,
+            unified_session=config.agents.defaults.unified_session,
+            context_messages=job.payload.context_messages,
         )
 
         cron_tool = agent.tools.get("cron")
@@ -1191,19 +1228,12 @@ def _run_gateway(
         webui_runtime_capabilities=webui_runtime_capabilities,
     )
 
-    def _pick_heartbeat_target() -> tuple[str, str]:
-        """Pick a routable channel/chat target for heartbeat-triggered messages."""
-        enabled = set(channels.enabled_channels)
-        for item in session_manager.list_sessions():
-            key = item.get("key") or ""
-            if ":" not in key:
-                continue
-            channel, chat_id = key.split(":", 1)
-            if channel in {"cli", "system"}:
-                continue
-            if channel in enabled and chat_id:
-                return channel, chat_id
-        return "cli", "direct"
+    def _resolve_heartbeat_target() -> tuple[str, str]:
+        return _pick_heartbeat_target(
+            sessions=session_manager.list_sessions(),
+            enabled_channels=channels.enabled_channels,
+            unified_session=config.agents.defaults.unified_session,
+        )
 
     hb_cfg = config.gateway.heartbeat
 
@@ -1346,7 +1376,14 @@ def _run_gateway(
                 every_ms=hb_cfg.interval_s * 1000,
                 tz=config.agents.defaults.timezone,
             ),
-            payload=CronPayload(kind="system_event"),
+            payload=CronPayload(
+                kind="system_event",
+                context_messages=(
+                    hb_cfg.context_messages
+                    if config.agents.defaults.unified_session
+                    else 0
+                ),
+            ),
         ))
 
     # 初始化历史记忆索引（启动时后台增量构建，不阻塞 gateway）

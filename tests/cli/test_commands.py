@@ -952,6 +952,12 @@ def test_heartbeat_retains_recent_messages_by_default():
     assert config.gateway.heartbeat.keep_recent_messages == 8
 
 
+def test_heartbeat_context_messages_default():
+    config = Config()
+
+    assert config.gateway.heartbeat.context_messages == 50
+
+
 @pytest.mark.parametrize(
     "content, expected",
     [
@@ -977,6 +983,46 @@ def test_heartbeat_skips_bundled_template():
     from nanobot.utils.helpers import load_bundled_template
 
     assert _heartbeat_has_active_tasks(load_bundled_template("HEARTBEAT.md")) is False
+
+
+def test_pick_heartbeat_target_unified_session_uses_websocket_inbox():
+    from nanobot.channels.websocket import INBOX_UNIFIED_CHAT_ID
+    from nanobot.cli.commands import _pick_heartbeat_target
+
+    target = _pick_heartbeat_target(
+        sessions=[{"key": "unified:default", "updated_at": "2026-06-05T12:00:00"}],
+        enabled_channels=["telegram", "websocket"],
+        unified_session=True,
+    )
+
+    assert target == ("websocket", INBOX_UNIFIED_CHAT_ID)
+
+
+def test_pick_heartbeat_target_non_unified_prefers_recent_channel_session():
+    from nanobot.cli.commands import _pick_heartbeat_target
+
+    target = _pick_heartbeat_target(
+        sessions=[
+            {"key": "telegram:111", "updated_at": "2026-06-05T12:00:00"},
+            {"key": "websocket:uuid-1", "updated_at": "2026-06-05T11:00:00"},
+        ],
+        enabled_channels=["telegram", "websocket"],
+        unified_session=False,
+    )
+
+    assert target == ("telegram", "111")
+
+
+def test_pick_heartbeat_target_unified_without_websocket_falls_back_to_cli():
+    from nanobot.cli.commands import _pick_heartbeat_target
+
+    target = _pick_heartbeat_target(
+        sessions=[{"key": "unified:default", "updated_at": "2026-06-05T12:00:00"}],
+        enabled_channels=["telegram"],
+        unified_session=True,
+    )
+
+    assert target == ("cli", "direct")
 
 
 def _write_instance_config(tmp_path: Path) -> Path:
@@ -1304,6 +1350,7 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
             channel="telegram",
             chat_id="user-1",
             content="Time to stretch.",
+            metadata={"_channel_delivery": True, "source_channel": "telegram", "source_chat_id": "user-1"},
         )
     )
     assert seen["session_key"] == "telegram:user-1"
