@@ -6,7 +6,7 @@ if [ -d "$dir" ] && [ ! -w "$dir" ]; then
 Error: $dir is not writable (owned by UID $owner_uid, running as UID $(id -u)).
 
 Fix (pick one):
-  Host:   sudo chown -R 1000:1000 ~/.nanobot
+  Host:   sudo chown -R 99:100 ~/.nanobot
   Docker: docker run --user \$(id -u):\$(id -g) ...
   Podman: podman run --userns=keep-id ...
 EOF

@@ -13,8 +13,9 @@ RUN mkdir -p nanobot/web/dist bridge && \
     NANOBOT_SKIP_WEBUI_BUILD=1 uv pip install --system --no-cache . && \
     rm -rf nanobot bridge
 
-# Create non-root user and config directory
-RUN useradd -m -u 1000 -s /bin/bash nanobot && \
+# 与 compose user: "99:100" 对齐，确保 /etc/passwd 有 UID 99 条目（SSH/git 需要）
+RUN groupadd -g 100 -o nanobot && \
+    useradd -m -u 99 -g 100 -o -s /bin/bash nanobot && \
     mkdir -p /home/nanobot/.nanobot && \
     chown -R nanobot:nanobot /home/nanobot /app
 
