@@ -18,6 +18,9 @@ RUN useradd -m -u 1000 -s /bin/bash nanobot && \
     mkdir -p /home/nanobot/.nanobot && \
     chown -R nanobot:nanobot /home/nanobot /app
 
+# 系统级 git 配置，所有用户（含运行时的 uid 99）均可读
+RUN git config --system --add safe.directory /home/nanobot/src
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
