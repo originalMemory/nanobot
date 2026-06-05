@@ -11,6 +11,8 @@ x-common-config: &common-config
     PGID: "100"
     TZ: Asia/Shanghai
   volumes:
+    - .:/home/nanobot/src
+    - ${HOME}/.ssh:/home/nanobot/.ssh:ro
     - ./.nanobot:/home/nanobot/.nanobot
     - /mnt/cache/ssd/note:/home/nanobot/note
   cap_drop:
