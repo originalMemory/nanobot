@@ -155,6 +155,18 @@ class BaseChannel(ABC):
         """
         return
 
+    async def send_vision_caption_delta(
+        self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
+    ) -> None:
+        """Stream a chunk of auxiliary vision-model caption text for a user turn."""
+        return
+
+    async def send_vision_caption_end(
+        self, chat_id: str, metadata: dict[str, Any] | None = None, text: str = ""
+    ) -> None:
+        """Mark the end of one image's caption stream segment."""
+        return
+
     async def send_file_edit_events(
         self,
         chat_id: str,

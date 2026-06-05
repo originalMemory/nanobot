@@ -70,6 +70,8 @@ export interface UIMessage {
   /** True while ``reasoning_delta`` frames are still arriving for this turn.
    * Drives the shimmer header on ``ReasoningBubble``. */
   reasoningStreaming?: boolean;
+  /** User turn: auxiliary vision caption still streaming from ``vision_caption_*`` frames. */
+  visionCaptionStreaming?: boolean;
   /** End-to-end wall time for this assistant turn (persisted ``latency_ms`` / ``turn_end``). */
   latencyMs?: number;
   /** Token usage for this assistant turn (from ``turn_end`` / persisted ``usage`` field). */
@@ -599,6 +601,21 @@ export type InboundEvent =
       event: "reasoning_end";
       chat_id: string;
       stream_id?: string;
+    }
+  | {
+      event: "vision_caption_delta";
+      chat_id: string;
+      text: string;
+      image_index?: number;
+      stream_id?: string;
+    }
+  | {
+      event: "vision_caption_end";
+      chat_id: string;
+      image_index?: number;
+      stream_id?: string;
+      text?: string;
+      error?: string;
     }
   | {
       event: "runtime_model_updated";

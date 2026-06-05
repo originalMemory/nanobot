@@ -965,6 +965,50 @@ async def test_send_reasoning_end_emits_close_frame() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_vision_caption_delta_emits_streaming_frame() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send_vision_caption_delta(
+        "chat-1",
+        "识别中",
+        {"_vision_caption_delta": True, "_stream_id": "s1", "image_index": 0},
+    )
+
+    payload = json.loads(mock_ws.send.await_args.args[0])
+    assert payload["event"] == "vision_caption_delta"
+    assert payload["chat_id"] == "chat-1"
+    assert payload["text"] == "识别中"
+    assert payload["stream_id"] == "s1"
+    assert payload["image_index"] == 0
+
+
+@pytest.mark.asyncio
+async def test_send_vision_caption_end_emits_close_frame() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send_vision_caption_end(
+        "chat-1",
+        {"_vision_caption_end": True, "_stream_id": "s1", "image_index": 1},
+        "完整描述",
+    )
+
+    payload = json.loads(mock_ws.send.await_args.args[0])
+    assert payload == {
+        "event": "vision_caption_end",
+        "chat_id": "chat-1",
+        "stream_id": "s1",
+        "image_index": 1,
+        "text": "完整描述",
+    }
+
+
+@pytest.mark.asyncio
 async def test_send_reasoning_one_shot_expands_to_delta_plus_end() -> None:
     """``send_reasoning`` is back-compat for hooks that haven't migrated:
     the base implementation must produce one delta and one end so the

@@ -1377,6 +1377,62 @@ class WebSocketChannel(BaseChannel):
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" reasoning_end ")
 
+    async def send_vision_caption_delta(
+        self,
+        chat_id: str,
+        delta: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        conns = list(self._subs.get(chat_id, ()))
+        if not conns or not delta:
+            return
+        meta = metadata or {}
+        body: dict[str, Any] = {
+            "event": "vision_caption_delta",
+            "chat_id": chat_id,
+            "text": delta,
+        }
+        stream_id = meta.get("_stream_id")
+        if stream_id is not None:
+            body["stream_id"] = stream_id
+        image_index = meta.get("image_index")
+        if isinstance(image_index, int):
+            body["image_index"] = image_index
+        self._try_append_webui_transcript(chat_id, body)
+        raw = json.dumps(body, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" vision_caption ")
+
+    async def send_vision_caption_end(
+        self,
+        chat_id: str,
+        metadata: dict[str, Any] | None = None,
+        text: str = "",
+    ) -> None:
+        conns = list(self._subs.get(chat_id, ()))
+        if not conns:
+            return
+        meta = metadata or {}
+        body: dict[str, Any] = {
+            "event": "vision_caption_end",
+            "chat_id": chat_id,
+        }
+        stream_id = meta.get("_stream_id")
+        if stream_id is not None:
+            body["stream_id"] = stream_id
+        image_index = meta.get("image_index")
+        if isinstance(image_index, int):
+            body["image_index"] = image_index
+        error = meta.get("_vision_caption_error")
+        if isinstance(error, str) and error:
+            body["error"] = error
+        if text:
+            body["text"] = text
+        self._try_append_webui_transcript(chat_id, body)
+        raw = json.dumps(body, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" vision_caption_end ")
+
     async def send_file_edit_events(
         self,
         chat_id: str,

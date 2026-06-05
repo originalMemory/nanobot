@@ -36,10 +36,19 @@ def _fake_msg(content: str = "hello", media: list[str] | None = None) -> Inbound
 
 
 def _make_provider(text: str = "这是图片描述") -> MagicMock:
-    """创建 mock provider，chat_with_retry 固定返回含 text 的 LLMResponse。"""
+    """创建 mock provider，chat_stream_with_retry 固定返回含 text 的 LLMResponse。"""
     from nanobot.providers.base import LLMResponse
 
     provider = MagicMock()
+
+    async def _chat_stream_with_retry(**kwargs):
+        content = text
+        cb = kwargs.get("on_content_delta")
+        if cb and content:
+            await cb(content)
+        return LLMResponse(content=content, tool_calls=[])
+
+    provider.chat_stream_with_retry = _chat_stream_with_retry
     provider.chat_with_retry = AsyncMock(
         return_value=LLMResponse(content=text, tool_calls=[])
     )
@@ -90,7 +99,7 @@ async def test_caption_images_partial_failure() -> None:
             return LLMResponse(content="成功描述", tool_calls=[])
         raise RuntimeError("网络超时")
 
-    provider.chat_with_retry = side_effect
+    provider.chat_stream_with_retry = side_effect
 
     with patch("nanobot.agent.vision_caption._build_image_message") as mock_build:
         mock_build.return_value = [{"role": "user", "content": []}]
@@ -107,7 +116,7 @@ async def test_caption_images_partial_failure() -> None:
 async def test_caption_images_all_failure() -> None:
     """全部图片失败时返回全部错误结果。"""
     provider = MagicMock()
-    provider.chat_with_retry = AsyncMock(side_effect=RuntimeError("模型不可用"))
+    provider.chat_stream_with_retry = AsyncMock(side_effect=RuntimeError("模型不可用"))
 
     with patch("nanobot.agent.vision_caption._build_image_message") as mock_build:
         mock_build.return_value = [{"role": "user", "content": []}]
@@ -136,6 +145,96 @@ async def test_caption_images_invalid_file_returns_error() -> None:
     assert len(results) == 1
     assert not results[0].success
     assert results[0].error is not None
+
+
+@pytest.mark.asyncio
+async def test_caption_images_streams_deltas_via_callback() -> None:
+    """流式 callback 应逐 chunk 收到 delta。"""
+    provider = _make_provider("逐字描述")
+    deltas: list[tuple[int, str]] = []
+
+    async def on_delta(index: int, chunk: str) -> None:
+        deltas.append((index, chunk))
+
+    with patch("nanobot.agent.vision_caption._build_image_message") as mock_build:
+        mock_build.return_value = [{"role": "user", "content": []}]
+        results = await caption_images(
+            ["a.png"],
+            provider,
+            "vision-model",
+            on_delta=on_delta,
+        )
+
+    assert len(results) == 1
+    assert results[0].success
+    assert deltas == [(0, "逐字描述")]
+
+
+@pytest.mark.asyncio
+async def test_caption_images_gather_failure_still_calls_on_image_end() -> None:
+    """``on_image_end`` 抛错导致 ``gather`` 异常时，仍应补发 end 回调。"""
+    provider = _make_provider()
+    ends: list[tuple[int, CaptionResult]] = []
+    end_calls = 0
+
+    async def on_image_end(index: int, result: CaptionResult) -> None:
+        nonlocal end_calls
+        end_calls += 1
+        if end_calls == 1:
+            raise RuntimeError("callback exploded")
+        ends.append((index, result))
+
+    with patch("nanobot.agent.vision_caption._build_image_message") as mock_build:
+        mock_build.return_value = [{"role": "user", "content": []}]
+        results = await caption_images(
+            ["a.png"],
+            provider,
+            "vision-model",
+            on_image_end=on_image_end,
+        )
+
+    assert len(results) == 1
+    assert not results[0].success
+    assert "callback exploded" in (results[0].error or "")
+    assert len(ends) == 1
+    assert ends[0][0] == 0
+    assert ends[0][1].error is not None
+
+
+@pytest.mark.asyncio
+async def test_state_caption_publishes_stream_events_for_websocket() -> None:
+    """WebSocket + _wants_stream 时应推送 vision_caption_* 事件。"""
+    from dataclasses import replace
+
+    from nanobot.agent.loop import AgentLoop
+
+    loop = _make_fake_loop(vision_provider=MagicMock(), vision_model="vision-model")
+    ctx = _make_turn_ctx(content="看图", media=["/img/a.png"])
+    ctx.msg = replace(
+        ctx.msg,
+        channel="websocket",
+        metadata={"_wants_stream": True},
+    )
+
+    ok_results = [CaptionResult(index=0, path="/img/a.png", text="识别结果")]
+
+    async def fake_caption_images(*args, **kwargs):
+        on_delta = kwargs.get("on_delta")
+        on_image_end = kwargs.get("on_image_end")
+        if on_delta:
+            await on_delta(0, "识别")
+        if on_image_end:
+            await on_image_end(0, ok_results[0])
+        return ok_results
+
+    with patch("nanobot.agent.vision_caption.caption_images", new=fake_caption_images), \
+         patch("nanobot.agent.vision_caption.format_captions", return_value="图片描述：识别结果"):
+        result = await AgentLoop._state_caption(loop, ctx)
+
+    assert result == "ok"
+    events = loop._outbound_calls
+    assert any((m.metadata or {}).get("_vision_caption_delta") for m in events)
+    assert any((m.metadata or {}).get("_vision_caption_end") for m in events)
 
 
 # ── task 4.2: _state_caption ─────────────────────────────────────────────────

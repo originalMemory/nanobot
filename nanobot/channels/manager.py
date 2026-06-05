@@ -576,6 +576,10 @@ class ChannelManager:
             await channel.send_reasoning_end(msg.chat_id, msg.metadata)
         elif msg.metadata.get("_reasoning_delta"):
             await channel.send_reasoning_delta(msg.chat_id, msg.content, msg.metadata)
+        elif msg.metadata.get("_vision_caption_end"):
+            await channel.send_vision_caption_end(msg.chat_id, msg.metadata, msg.content or "")
+        elif msg.metadata.get("_vision_caption_delta"):
+            await channel.send_vision_caption_delta(msg.chat_id, msg.content, msg.metadata)
         elif msg.metadata.get("_reasoning"):
             # Back-compat: one-shot reasoning. BaseChannel translates this
             # to a single delta + end pair so plugins only implement the

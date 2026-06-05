@@ -1492,10 +1492,54 @@ class AgentLoop:
         ctx.caption_original_media = list(ctx.msg.media)
         n = len(ctx.msg.media)
         t0 = time.monotonic()
+
+        stream_caption = (
+            ctx.msg.channel == "websocket"
+            and bool(ctx.msg.metadata.get("_wants_stream"))
+        )
+        caption_kwargs: dict[str, Any] = {}
+        if stream_caption:
+            from nanobot.agent.vision_caption import CaptionResult
+
+            async def _on_caption_delta(index: int, text: str) -> None:
+                stream_id = f"{ctx.session_key}:caption:{index}"
+                await self.bus.publish_outbound(OutboundMessage(
+                    channel=ctx.msg.channel,
+                    chat_id=ctx.msg.chat_id,
+                    content=text,
+                    metadata={
+                        "_vision_caption_delta": True,
+                        "image_index": index,
+                        "_stream_id": stream_id,
+                    },
+                ))
+
+            async def _on_caption_image_end(index: int, result: CaptionResult) -> None:
+                stream_id = f"{ctx.session_key}:caption:{index}"
+                meta: dict[str, Any] = {
+                    "_vision_caption_end": True,
+                    "image_index": index,
+                    "_stream_id": stream_id,
+                }
+                if not result.success and result.error:
+                    meta["_vision_caption_error"] = result.error
+                await self.bus.publish_outbound(OutboundMessage(
+                    channel=ctx.msg.channel,
+                    chat_id=ctx.msg.chat_id,
+                    content=result.text or "",
+                    metadata=meta,
+                ))
+
+            caption_kwargs = {
+                "on_delta": _on_caption_delta,
+                "on_image_end": _on_caption_image_end,
+            }
+
         results = await caption_images(
             image_paths=ctx.msg.media,
             provider=self._vision_provider,
             model=self._vision_model,
+            **caption_kwargs,
         )
         elapsed = time.monotonic() - t0
 

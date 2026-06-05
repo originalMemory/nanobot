@@ -20,6 +20,12 @@ import type {
   UIFileEdit,
   UIMessage,
 } from "@/lib/types";
+import {
+  allVisionCaptionsDone,
+  applyVisionCaptionParts,
+  userMessageImageCount,
+  type VisionCaptionPart,
+} from "@/lib/vision-caption";
 
 interface StreamBuffer {
   /** ID of the assistant message currently receiving deltas (cleared on ``stream_end``). */
@@ -34,6 +40,10 @@ interface ActiveAssistantCursor {
 type PendingStreamEvent =
   | { kind: "delta"; text: string }
   | { kind: "reasoning"; text: string };
+
+type PendingCaptionEvent =
+  | { kind: "delta"; index: number; text: string }
+  | { kind: "end"; index: number; text?: string; error?: string };
 
 /**
  * 查找仍可接收正文 delta 的 assistant 流。
@@ -144,6 +154,81 @@ function replaceMessageAt(prev: UIMessage[], index: number, message: UIMessage):
   const next = prev.slice();
   next[index] = message;
   return next;
+}
+
+function findLastUserIndex(prev: UIMessage[]): number {
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    if (prev[i].role === "user") return i;
+  }
+  return -1;
+}
+
+function patchLastUserVisionCaption(
+  prev: UIMessage[],
+  parts: ReadonlyMap<number, VisionCaptionPart>,
+  imageCount: number,
+  streaming: boolean,
+): UIMessage[] {
+  const idx = findLastUserIndex(prev);
+  if (idx === -1) return prev;
+  const msg = prev[idx];
+  const count = imageCount > 0 ? imageCount : userMessageImageCount(msg);
+  if (count <= 0) return prev;
+  return replaceMessageAt(prev, idx, {
+    ...msg,
+    content: applyVisionCaptionParts(msg.content, parts, count),
+    visionCaptionStreaming: streaming,
+  });
+}
+
+function finalizeUserVisionCaptionStreaming(prev: UIMessage[]): UIMessage[] {
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    const message = prev[i];
+    if (message.role !== "user") continue;
+    if (!message.visionCaptionStreaming) return prev;
+    return replaceMessageAt(prev, i, { ...message, visionCaptionStreaming: false });
+  }
+  return prev;
+}
+
+function applyPendingCaptionEvents(
+  prev: UIMessage[],
+  events: PendingCaptionEvent[],
+  parts: Map<number, VisionCaptionPart>,
+  imageCount: number,
+): { messages: UIMessage[]; imageCount: number } {
+  if (events.length === 0) {
+    return { messages: prev, imageCount };
+  }
+
+  let maxIndex = -1;
+  for (const event of events) {
+    maxIndex = Math.max(maxIndex, event.index);
+    if (event.kind === "delta") {
+      const existing = parts.get(event.index) ?? { text: "", done: false };
+      parts.set(event.index, { ...existing, text: existing.text + event.text });
+      continue;
+    }
+    const existing = parts.get(event.index) ?? { text: "", done: false };
+    parts.set(event.index, {
+      text: existing.text || event.text || "",
+      done: true,
+      ...(event.error ? { error: event.error } : {}),
+    });
+  }
+
+  const lastUser = findLastUserIndex(prev);
+  if (lastUser === -1) {
+    return { messages: prev, imageCount };
+  }
+  const count = imageCount
+    || userMessageImageCount(prev[lastUser])
+    || maxIndex + 1;
+  const streaming = !allVisionCaptionsDone(parts, count);
+  return {
+    messages: patchLastUserVisionCaption(prev, parts, count, streaming),
+    imageCount: count,
+  };
 }
 
 /**
@@ -394,6 +479,8 @@ export function useNanobotStream(
   const activitySegmentCounterRef = useRef(0);
   const pendingStreamEventsRef = useRef<PendingStreamEvent[]>([]);
   const streamFrameRef = useRef<number | null>(null);
+  const pendingCaptionEventsRef = useRef<PendingCaptionEvent[]>([]);
+  const captionFrameRef = useRef<number | null>(null);
   const suppressStreamUntilTurnEndRef = useRef(false);
   /** Timer that defers ``isStreaming = false`` after ``stream_end``.
    *
@@ -403,6 +490,8 @@ export function useNanobotStream(
    * the loading spinner alive across tool-call boundaries without needing
    * backend changes. */
   const streamEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captionPartsRef = useRef<Map<number, VisionCaptionPart>>(new Map());
+  const captionImageCountRef = useRef(0);
 
   useEffect(() => {
     return client.onError((err) => setStreamError(err));
@@ -416,6 +505,11 @@ export function useNanobotStream(
       streamFrameRef.current = null;
     }
     pendingStreamEventsRef.current = [];
+    if (captionFrameRef.current !== null) {
+      window.cancelAnimationFrame(captionFrameRef.current);
+      captionFrameRef.current = null;
+    }
+    pendingCaptionEventsRef.current = [];
   }, []);
 
   const createActivitySegmentId = useCallback((activate = true) => {
@@ -594,6 +688,43 @@ export function useNanobotStream(
     });
   }, [applyPendingStreamEvents]);
 
+  const mergePendingCaptionEvents = useCallback((prev: UIMessage[], events: PendingCaptionEvent[]) => {
+    const nextParts = new Map(captionPartsRef.current);
+    const merged = applyPendingCaptionEvents(
+      prev,
+      events,
+      nextParts,
+      captionImageCountRef.current,
+    );
+    captionPartsRef.current = nextParts;
+    if (merged.imageCount > 0) {
+      captionImageCountRef.current = merged.imageCount;
+    }
+    return merged.messages;
+  }, []);
+
+  const flushPendingCaptionEvents = useCallback(() => {
+    if (captionFrameRef.current !== null) {
+      window.cancelAnimationFrame(captionFrameRef.current);
+      captionFrameRef.current = null;
+    }
+    const events = pendingCaptionEventsRef.current;
+    if (events.length === 0) return;
+    pendingCaptionEventsRef.current = [];
+    setMessages((prev) => mergePendingCaptionEvents(prev, events));
+  }, [mergePendingCaptionEvents]);
+
+  const schedulePendingCaptionFlush = useCallback(() => {
+    if (captionFrameRef.current !== null) return;
+    captionFrameRef.current = window.requestAnimationFrame(() => {
+      captionFrameRef.current = null;
+      const events = pendingCaptionEventsRef.current;
+      if (events.length === 0) return;
+      pendingCaptionEventsRef.current = [];
+      setMessages((prev) => mergePendingCaptionEvents(prev, events));
+    });
+  }, [mergePendingCaptionEvents]);
+
   // Reset local state when switching chats. Do not reset on every
   // ``initialMessages`` update: a brand-new chat can receive an empty/404
   // history response after the optimistic first message has already rendered.
@@ -658,6 +789,28 @@ export function useNanobotStream(
         return;
       }
 
+      if (ev.event === "vision_caption_delta") {
+        const chunk = ev.text;
+        if (!chunk) return;
+        const index = typeof ev.image_index === "number" ? ev.image_index : 0;
+        setIsStreaming(true);
+        pendingCaptionEventsRef.current.push({ kind: "delta", index, text: chunk });
+        schedulePendingCaptionFlush();
+        return;
+      }
+
+      if (ev.event === "vision_caption_end") {
+        const index = typeof ev.image_index === "number" ? ev.image_index : 0;
+        pendingCaptionEventsRef.current.push({
+          kind: "end",
+          index,
+          ...(typeof ev.text === "string" && ev.text ? { text: ev.text } : {}),
+          ...(typeof ev.error === "string" && ev.error ? { error: ev.error } : {}),
+        });
+        schedulePendingCaptionFlush();
+        return;
+      }
+
       if (ev.event === "stream_end") {
         flushPendingStreamEvents({
           closeAnswerSegment: true,
@@ -696,6 +849,13 @@ export function useNanobotStream(
         if ("goal_state" in ev && ev.goal_state != null && typeof ev.goal_state === "object") {
           setGoalState(ev.goal_state);
         }
+        flushPendingStreamEvents();
+        if (captionFrameRef.current !== null) {
+          window.cancelAnimationFrame(captionFrameRef.current);
+          captionFrameRef.current = null;
+        }
+        const pendingCaptionEvents = pendingCaptionEventsRef.current;
+        pendingCaptionEventsRef.current = [];
         // Definitive signal that the turn is fully complete.  Cancel any
         // pending debounce timer and stop the loading indicator immediately.
         if (streamEndTimerRef.current !== null) {
@@ -705,8 +865,12 @@ export function useNanobotStream(
         setIsStreaming(false);
         setRunStartedAt(null);
         setMessages((prev) => {
-          let finalized = prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
+          let finalized = pendingCaptionEvents.length > 0
+            ? mergePendingCaptionEvents(prev, pendingCaptionEvents)
+            : prev;
+          finalized = finalized.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
           finalized = pruneReasoningOnlyPlaceholders(finalized);
+          finalized = finalizeUserVisionCaptionStreaming(finalized);
           if (typeof ev.latency_ms === "number" && ev.latency_ms >= 0) {
             finalized = stampLastAssistantLatency(finalized, Math.round(ev.latency_ms));
           }
@@ -721,6 +885,8 @@ export function useNanobotStream(
           return finalized;
         });
         suppressStreamUntilTurnEndRef.current = false;
+        captionPartsRef.current = new Map();
+        captionImageCountRef.current = 0;
         onTurnEnd?.();
         return;
       }
@@ -929,7 +1095,10 @@ export function useNanobotStream(
     detachedActivitySegmentId,
     ensureActivitySegmentId,
     flushPendingStreamEvents,
+    flushPendingCaptionEvents,
+    mergePendingCaptionEvents,
     onTurnEnd,
+    schedulePendingCaptionFlush,
     schedulePendingStreamFlush,
   ]);
 
@@ -942,6 +1111,9 @@ export function useNanobotStream(
       if (!hasImages && !content.trim()) return;
 
       flushPendingStreamEvents();
+      flushPendingCaptionEvents();
+      captionPartsRef.current = new Map();
+      captionImageCountRef.current = hasImages ? images!.length : 0;
       const previews = hasImages ? images!.map((i) => i.preview) : undefined;
       setMessages((prev) => {
         buffer.current = null;

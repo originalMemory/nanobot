@@ -33,6 +33,7 @@ import type {
   UIMediaAttachment,
   UIMessage,
 } from "@/lib/types";
+import { extractCaptionBlocks } from "@/lib/vision-caption";
 
 /**
  * Electron 渲染进程是 file:// origin，/api/... 相对路径需要拼上网关绝对地址才能发起 HTTP 请求。
@@ -53,25 +54,6 @@ interface MessageBubbleProps {
   showAssistantCopyAction?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
-}
-
-/** 与后端 _VISION_CAPTION_SENTINEL 保持一致。 */
-const VISION_CAPTION_SENTINEL = "\n\u200b[vision-caption]\u200b\n";
-
-/**
- * 从用户消息 content 中分离出 caption 段。
- * caption 段由后端在 _state_caption 中用 sentinel 拼接到原文末尾。
- */
-function extractCaptionBlocks(content: string): {
-  displayText: string;
-  captionText: string | null;
-} {
-  const idx = content.indexOf(VISION_CAPTION_SENTINEL);
-  if (idx === -1) return { displayText: content, captionText: null };
-  return {
-    displayText: content.slice(0, idx),
-    captionText: content.slice(idx + VISION_CAPTION_SENTINEL.length) || null,
-  };
 }
 
 /**
@@ -164,7 +146,11 @@ export function MessageBubble({
             ) : null}
             {captionText ? (
               <div className={cn("px-2 pb-2", hasText && "border-t border-primary-foreground/20")}>
-                <CaptionBubble text={captionText} inverted />
+                <CaptionBubble
+                  text={captionText}
+                  inverted
+                  streaming={!!message.visionCaptionStreaming}
+                />
               </div>
             ) : null}
           </div>
@@ -898,9 +884,23 @@ export function ReasoningBubble({
  * 默认收起，避免与图片缩略图重复展示。
  * 单图时后端加了 `图片描述：\n` 前缀供 LLM 理解，展示前剥掉。
  */
-function CaptionBubble({ text, inverted = false }: { text: string; inverted?: boolean }) {
+function CaptionBubble({
+  text,
+  inverted = false,
+  streaming = false,
+}: {
+  text: string;
+  inverted?: boolean;
+  streaming?: boolean;
+}) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [userToggled, setUserToggled] = useState(false);
+  const [openLocal, setOpenLocal] = useState(true);
+  const open = userToggled ? openLocal : streaming;
+  const onToggle = () => {
+    setUserToggled(true);
+    setOpenLocal((v) => (userToggled ? !v : !open));
+  };
   const SINGLE_PREFIX = "图片描述：";
   const displayText = text.trimStart().startsWith(SINGLE_PREFIX)
     ? text.trimStart().slice(SINGLE_PREFIX.length)
@@ -909,7 +909,7 @@ function CaptionBubble({ text, inverted = false }: { text: string; inverted?: bo
     <div className="w-full animate-in fade-in-0 slide-in-from-top-1 duration-200">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
         className={cn(
           "group flex w-full items-center gap-2 rounded-md px-2 py-1.5",
           "text-xs transition-colors",
@@ -919,10 +919,15 @@ function CaptionBubble({ text, inverted = false }: { text: string; inverted?: bo
         )}
         aria-expanded={open}
       >
-        <ImageIcon className="h-3.5 w-3.5" aria-hidden />
-        <span className="min-w-0 flex-1 text-left">
-          {t("message.visionCaption", { defaultValue: "图片识别结果" })}
-        </span>
+        <ImageIcon className={cn("h-3.5 w-3.5", streaming && "animate-pulse")} aria-hidden />
+        <StreamingLabelSheen
+          active={streaming}
+          className={cn("min-w-0 flex-1 text-left", inverted && streaming && "text-primary-foreground/85")}
+        >
+          {streaming
+            ? t("message.visionCaptionStreaming", { defaultValue: "正在识别图片…" })
+            : t("message.visionCaption", { defaultValue: "图片识别结果" })}
+        </StreamingLabelSheen>
         <ChevronRight
           aria-hidden
           className={cn(
@@ -931,26 +936,27 @@ function CaptionBubble({ text, inverted = false }: { text: string; inverted?: bo
           )}
         />
       </button>
-      {open && (
-        <div
+      <div
+        aria-live={streaming ? "polite" : undefined}
+        aria-atomic="false"
+        hidden={!open}
+        className={cn(
+          "mt-1 min-w-0 animate-in fade-in-0 slide-in-from-top-1 duration-200 border-l pl-3",
+          inverted ? "border-primary-foreground/20" : "border-muted-foreground/20",
+        )}
+      >
+        <MarkdownText
           className={cn(
-            "mt-1 min-w-0 animate-in fade-in-0 slide-in-from-top-1 duration-200 border-l pl-3",
-            inverted ? "border-primary-foreground/20" : "border-muted-foreground/20",
+            "text-[12.5px] italic",
+            inverted
+              ? "prose-invert text-primary-foreground/80 prose-headings:text-primary-foreground prose-strong:text-primary-foreground"
+              : "text-muted-foreground/88",
+            "prose-p:my-1.5 prose-li:my-0.5",
           )}
         >
-          <MarkdownText
-            className={cn(
-              "text-[12.5px] italic",
-              inverted
-                ? "prose-invert text-primary-foreground/80 prose-headings:text-primary-foreground prose-strong:text-primary-foreground"
-                : "text-muted-foreground/88",
-              "prose-p:my-1.5 prose-li:my-0.5",
-            )}
-          >
-            {displayText}
-          </MarkdownText>
-        </div>
-      )}
+          {displayText}
+        </MarkdownText>
+      </div>
     </div>
   );
 }

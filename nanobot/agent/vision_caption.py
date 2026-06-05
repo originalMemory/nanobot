@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import mimetypes
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -73,6 +74,8 @@ async def _caption_single(
     provider: LLMProvider,
     model: str,
     prompt: str,
+    *,
+    on_delta: Callable[[str], Awaitable[None]] | None = None,
 ) -> CaptionResult:
     """对单张图片调用视觉模型；返回含描述文本或错误信息的 CaptionResult。"""
     messages = _build_image_message(path, prompt)
@@ -80,7 +83,15 @@ async def _caption_single(
         return CaptionResult(index=index, path=path, error="文件不存在或不是有效图片")
 
     try:
-        response = await provider.chat_with_retry(messages=messages, model=model)
+        async def _stream(delta: str) -> None:
+            if delta and on_delta:
+                await on_delta(delta)
+
+        response = await provider.chat_stream_with_retry(
+            messages=messages,
+            model=model,
+            on_content_delta=_stream if on_delta else None,
+        )
     except Exception as exc:
         return CaptionResult(index=index, path=path, error=f"调用视觉模型异常: {exc}")
     text = response.content.strip() if response.content else ""
@@ -93,6 +104,9 @@ async def caption_images(
     image_paths: list[str],
     provider: LLMProvider,
     model: str,
+    *,
+    on_delta: Callable[[int, str], Awaitable[None]] | None = None,
+    on_image_end: Callable[[int, CaptionResult], Awaitable[None]] | None = None,
 ) -> list[CaptionResult]:
     """并发调用视觉 provider 对每张图片生成文字描述。
 
@@ -102,16 +116,33 @@ async def caption_images(
     if not image_paths:
         return []
 
-    tasks = [
-        _caption_single(i, path, provider, model, _CAPTION_PROMPT)
-        for i, path in enumerate(image_paths)
-    ]
+    async def _run_one(i: int, path: str) -> CaptionResult:
+        async def _delta(chunk: str) -> None:
+            if on_delta:
+                await on_delta(i, chunk)
+
+        result = await _caption_single(
+            i,
+            path,
+            provider,
+            model,
+            _CAPTION_PROMPT,
+            on_delta=_delta if on_delta else None,
+        )
+        if on_image_end:
+            await on_image_end(i, result)
+        return result
+
+    tasks = [_run_one(i, path) for i, path in enumerate(image_paths)]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
     results: list[CaptionResult] = []
     for i, (path, raw) in enumerate(zip(image_paths, raw_results)):
         if isinstance(raw, BaseException):
-            results.append(CaptionResult(index=i, path=path, error=str(raw)))
+            result = CaptionResult(index=i, path=path, error=str(raw))
+            if on_image_end:
+                await on_image_end(i, result)
+            results.append(result)
         else:
             results.append(raw)
 
