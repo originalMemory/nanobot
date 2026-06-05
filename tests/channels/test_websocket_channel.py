@@ -659,7 +659,8 @@ async def test_send_stages_external_media_as_signed_url(monkeypatch, tmp_path) -
         return ws_media if channel == "websocket" else media_root
 
     monkeypatch.setattr("nanobot.channels.websocket.get_media_dir", fake_media_dir)
-    monkeypatch.setattr("nanobot.webui.media_gateway.get_media_dir", fake_media_dir)
+    monkeypatch.setattr("nanobot.webui.fork_http.get_media_dir", fake_media_dir)
+    monkeypatch.setattr("nanobot.utils.media_staging.get_media_dir", fake_media_dir)
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")

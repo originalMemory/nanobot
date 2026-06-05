@@ -98,6 +98,7 @@ git merge main
 2. **fork 独有模块**（`electron/`、`nanobot/proactive_chat/`、`nanobot/agent/historical_memory.py`）：保留 fork 版本
 3. **上游新功能**：接受上游，检查是否与 fork 功能冲突
 4. **同一函数双方都改**：读懂两边意图后手动合并；写测试覆盖
+5. **上游删除的模块**：检查 fork 里是否还残留对已删模块的调用（如 `nanobot/heartbeat/`、`nanobot/heartbeat/service.py` 在 v0.2.1 已删）；若有，须一并清理，否则运行时会 NameError
 
 ```bash
 # 列出所有冲突文件
@@ -158,6 +159,7 @@ git push origin lover
 
 | 模块                               | 说明                          |
 | ---------------------------------- | ----------------------------- |
+| `nanobot/webui/fork_http.py`        | fork HTTP 路由（替代 upstream `ws_http.py` 的生产路径） |
 | `electron/`                        | Electron 桌面客户端           |
 | `nanobot/proactive_chat/`          | 主动陪伴服务                  |
 | `nanobot/agent/historical_memory.py` | 外部日记库 FTS 检索         |
@@ -169,6 +171,13 @@ git push origin lover
 | `docs/nanobot-vs-openclaw-zh/`     | 架构对比文档                  |
 | `docs/electron-unified-inbox.md`   | 统一收件箱文档                |
 | `docs/poc-baseline-comparison.md`  | POC 基底分析                  |
+
+### 与 upstream 的有意差异
+
+| 项目 | upstream | fork |
+| ---- | -------- | ---- |
+| HTTP handler | `ws_http.GatewayHTTPHandler` | `fork_http.ForkGatewayHTTPHandler`（生产路径） |
+| `GET /api/workspaces` | 有，供 WebUI 工作区选择器 | **不实现** — 生产跑 Docker，容器已隔离文件系统，不需要 WebUI 工作区沙箱限制 |
 
 ---
 
