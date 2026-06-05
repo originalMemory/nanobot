@@ -24,6 +24,21 @@ HKUDS/nanobot  (upstream)        originalMemory/nanobot  (origin)
 
 ---
 
+## 一次性配置（首次操作）
+
+```bash
+# 添加上游 remote（每个本地仓库只需执行一次）
+git remote add upstream https://github.com/HKUDS/nanobot.git
+
+# 验证
+git remote -v
+# 应看到：
+# origin    git@github.com:originalMemory/nanobot.git (fetch)
+# upstream  https://github.com/HKUDS/nanobot.git (fetch)
+```
+
+---
+
 ## 定期合并流程
 
 ### 0. 前置检查
@@ -196,8 +211,8 @@ git checkout lover && git merge --no-commit --no-ff main && git diff --name-only
 
 ## 历史合并记录
 
-在每次合并后追加一行，便于追溯。
+在每次合并后追加一行，详细冲突解决记录见 `docs/merges/` 文件夹。
 
-| 日期       | 上游版本  | 合并到     | 冲突数 | 备注                    |
-| ---------- | --------- | ---------- | ------ | ----------------------- |
-| 2026-06-05 | *(待执行)* | —         | —      | 创建本文档，尚未合并 v0.2.1 |
+| 日期       | 上游版本 | merge commit | 冲突数 | 详细记录                                              |
+| ---------- | -------- | ------------ | ------ | ----------------------------------------------------- |
+| 2026-06-05 | v0.2.1   | `e7240cad`   | 16     | [详情](merges/2026-06-05-upstream-v0.2.1.md)          |
