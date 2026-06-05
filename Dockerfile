@@ -8,9 +8,10 @@ WORKDIR /app
 
 # Install Python dependencies (cached layer). Source code is mounted at runtime.
 COPY pyproject.toml README.md LICENSE THIRD_PARTY_NOTICES.md hatch_build.py ./
-RUN mkdir -p nanobot && touch nanobot/__init__.py && \
-    uv pip install --system --no-cache . && \
-    rm -rf nanobot
+RUN mkdir -p nanobot/web/dist bridge && \
+    touch nanobot/__init__.py nanobot/web/dist/index.html && \
+    NANOBOT_SKIP_WEBUI_BUILD=1 uv pip install --system --no-cache . && \
+    rm -rf nanobot bridge
 
 # Create non-root user and config directory
 RUN useradd -m -u 1000 -s /bin/bash nanobot && \
