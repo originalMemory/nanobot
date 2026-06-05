@@ -1,6 +1,6 @@
 [project]
 name = "nanobot-ai"
-version = "0.2.0"
+version = "0.2.1"
 description = "A lightweight personal AI assistant framework"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -68,6 +68,9 @@ dependencies = [
 api = [
     "aiohttp>=3.9.0,<4.0.0",
 ]
+azure = [
+    "azure-identity>=1.19.0,<2.0.0",
+]
 wecom = [
     "wecom-aibot-sdk-python>=0.1.5",
 ]
@@ -82,6 +85,7 @@ msteams = [
 
 matrix = [
     "matrix-nio[e2e]>=0.25.2; sys_platform != 'win32'",
+    "aiohttp>=3.9.0,<4.0.0",
     "mistune>=3.0.0,<4.0.0",
     "nh3>=0.2.17,<1.0.0",
 ]

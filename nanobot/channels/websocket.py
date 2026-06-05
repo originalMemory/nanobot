@@ -3,39 +3,31 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
-import email.utils
-import hashlib
 import hmac
-import http
 import json
-import mimetypes
 import re
 import secrets
 import ssl
-import time
 import uuid
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Self
-from urllib.parse import parse_qs, unquote, urlparse
+from typing import Any, Self
 
-from loguru import logger
 from pydantic import Field, field_validator, model_validator
-from websockets.asyncio.server import ServerConnection, serve
-from websockets.datastructures import Headers
+from websockets.asyncio.server import ServerConnection, serve, unix_serve
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as WsRequest
-from websockets.http11 import Response
 
-from nanobot.agent.tools.mcp import request_mcp_reload
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
-from nanobot.command.builtin import builtin_command_palette
-from nanobot.config.paths import get_media_dir, get_workspace_path
+from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
+from nanobot.security.workspace_access import (
+    WORKSPACE_SCOPE_METADATA_KEY,
+    WorkspaceScopeError,
+)
 from nanobot.session import UNIFIED_SESSION_KEY
 from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
@@ -50,10 +42,13 @@ from nanobot.webui.cli_apps_api import (
     cli_apps_payload,
     normalize_cli_app_mentions,
 )
-from nanobot.webui.mcp_presets_api import (
-    mcp_presets_settings_action,
-    normalize_mcp_preset_mentions,
+from nanobot.webui.http_utils import (
+    parse_request_path as _parse_request_path,
 )
+from nanobot.webui.http_utils import (
+    query_first as _query_first,
+)
+from nanobot.webui.mcp_presets_api import normalize_mcp_preset_mentions
 from nanobot.webui.settings_api import (
     WebUISettingsError,
     create_model_configuration,
@@ -74,6 +69,7 @@ from nanobot.webui.transcript import (
     build_webui_thread_response,
     rewrite_local_markdown_images,
 )
+from nanobot.webui.websocket_logging import websockets_server_logger
 
 _MCP_PRESET_ACTIONS_BY_PATH = {
     "/api/settings/mcp-presets/enable": "enable",
@@ -124,6 +120,7 @@ class WebSocketConfig(Base):
     enabled: bool = False
     host: str = "127.0.0.1"
     port: int = 8765
+    unix_socket_path: str = ""
     path: str = "/"
     token: str = ""
     token_issue_path: str = ""
@@ -141,6 +138,19 @@ class WebSocketConfig(Base):
     ping_timeout_s: float = Field(default=20.0, ge=5.0, le=300.0)
     ssl_certfile: str = ""
     ssl_keyfile: str = ""
+
+    @field_validator("unix_socket_path")
+    @classmethod
+    def unix_socket_path_format(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        if "\x00" in value:
+            raise ValueError("unix_socket_path must not contain NUL bytes")
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            raise ValueError("unix_socket_path must be an absolute path")
+        return str(path)
 
     @field_validator("path")
     @classmethod
@@ -179,20 +189,6 @@ class WebSocketConfig(Base):
         )
 
 
-def _http_json_response(data: dict[str, Any], *, status: int = 200) -> Response:
-    body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-    headers = Headers(
-        [
-            ("Date", email.utils.formatdate(usegmt=True)),
-            ("Connection", "close"),
-            ("Content-Length", str(len(body))),
-            ("Content-Type", "application/json; charset=utf-8"),
-        ]
-    )
-    reason = http.HTTPStatus(status).phrase
-    return Response(status, reason, headers, body)
-
-
 def publish_runtime_model_update(
     bus: MessageBus,
     model: str,
@@ -209,85 +205,6 @@ def publish_runtime_model_update(
             "model_preset": model_preset,
         },
     ))
-
-
-def _default_model_name_from_config() -> str | None:
-    """Resolved model string from on-disk config (bootstrap fallback)."""
-    try:
-        from nanobot.config.loader import load_config
-
-        model = load_config().resolve_preset().model.strip()
-        return model or None
-    except Exception as e:
-        logger.debug("bootstrap model_name could not load from config: {}", e)
-        return None
-
-
-def _resolve_bootstrap_model_name(
-    runtime_name: Callable[[], str | None] | None,
-) -> str | None:
-    """Prefer an in-process resolver (e.g. AgentLoop); else config-derived default."""
-    if runtime_name is not None:
-        try:
-            raw = runtime_name()
-        except Exception as e:
-            logger.debug("bootstrap runtime model resolver failed: {}", e)
-        else:
-            if isinstance(raw, str):
-                stripped = raw.strip()
-                if stripped:
-                    return stripped
-    return _default_model_name_from_config()
-
-
-def _parse_request_path(path_with_query: str) -> tuple[str, dict[str, list[str]]]:
-    """Parse normalized path and query parameters in one pass."""
-    parsed = urlparse("ws://x" + path_with_query)
-    path = _strip_trailing_slash(parsed.path or "/")
-    return path, parse_qs(parsed.query, keep_blank_values=True)
-
-
-def _normalize_http_path(path_with_query: str) -> str:
-    """Return the path component (no query string), with trailing slash normalized (root stays ``/``)."""
-    return _parse_request_path(path_with_query)[0]
-
-
-def _parse_query(path_with_query: str) -> dict[str, list[str]]:
-    return _parse_request_path(path_with_query)[1]
-
-
-def _parse_mcp_settings_query(request: WsRequest) -> dict[str, list[str]]:
-    query = _parse_query(request.path)
-    raw = request.headers.get(_MCP_VALUES_HEADER)
-    if not raw:
-        return query
-    if len(raw.encode("utf-8")) > _MCP_VALUES_HEADER_MAX_BYTES:
-        raise WebUISettingsError("MCP settings payload is too large")
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise WebUISettingsError("invalid MCP settings payload") from exc
-    if not isinstance(payload, dict):
-        raise WebUISettingsError("MCP settings payload must be a JSON object")
-    merged = {key: list(values) for key, values in query.items()}
-    for key, value in payload.items():
-        if not isinstance(key, str) or not key:
-            raise WebUISettingsError("MCP settings payload contains an invalid key")
-        if value is None:
-            continue
-        if isinstance(value, str):
-            text = value.strip()
-        else:
-            text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-        if text:
-            merged[key] = [text]
-    return merged
-
-
-def _query_first(query: dict[str, list[str]], key: str) -> str | None:
-    """Return the first value for *key*, or None."""
-    values = query.get(key)
-    return values[0] if values else None
 
 
 def _parse_inbound_payload(raw: str) -> str | None:
@@ -384,67 +301,6 @@ def _extract_data_url_mime(url: str) -> str | None:
     return m.group(1).strip().lower() or None
 
 
-_LOCALHOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
-
-# Matches the legacy chat-id pattern but allows file-system-safe stems too,
-# so the API can address sessions whose keys came from non-WebSocket channels.
-_API_KEY_RE = re.compile(r"^[A-Za-z0-9_:.-]{1,128}$")
-
-
-def _decode_api_key(raw_key: str) -> str | None:
-    """Decode a percent-encoded API path segment, then validate the result."""
-    key = unquote(raw_key)
-    if _API_KEY_RE.match(key) is None:
-        return None
-    return key
-
-
-def _is_localhost(connection: Any) -> bool:
-    """Return True if *connection* originated from the loopback interface."""
-    addr = getattr(connection, "remote_address", None)
-    if not addr:
-        return False
-    host = addr[0] if isinstance(addr, tuple) else addr
-    if not isinstance(host, str):
-        return False
-    # ``::ffff:127.0.0.1`` is loopback in IPv6-mapped form.
-    if host.startswith("::ffff:"):
-        host = host[7:]
-    return host in _LOCALHOSTS
-
-
-def _http_response(
-    body: bytes,
-    *,
-    status: int = 200,
-    content_type: str = "text/plain; charset=utf-8",
-    extra_headers: list[tuple[str, str]] | None = None,
-) -> Response:
-    headers = [
-        ("Date", email.utils.formatdate(usegmt=True)),
-        ("Connection", "close"),
-        ("Content-Length", str(len(body))),
-        ("Content-Type", content_type),
-    ]
-    if extra_headers:
-        headers.extend(extra_headers)
-    reason = http.HTTPStatus(status).phrase
-    return Response(status, reason, Headers(headers), body)
-
-
-def _http_error(status: int, message: str | None = None) -> Response:
-    body = (message or http.HTTPStatus(status).phrase).encode("utf-8")
-    return _http_response(body, status=status)
-
-
-def _bearer_token(headers: Any) -> str | None:
-    """Pull a Bearer token out of standard or query-style headers."""
-    auth = headers.get("Authorization") or headers.get("authorization")
-    if auth and auth.lower().startswith("bearer "):
-        return auth[7:].strip() or None
-    return None
-
-
 def _is_websocket_upgrade(request: WsRequest) -> bool:
     """Detect an actual WS upgrade; plain HTTP GETs to the same path should fall through."""
     upgrade = request.headers.get("Upgrade") or request.headers.get("upgrade")
@@ -520,6 +376,7 @@ def _issue_route_secret_matches(headers: Any, configured_secret: str) -> bool:
     if not header_token:
         return False
     return hmac.compare_digest(header_token.strip(), configured_secret)
+
 
 
 class WebSocketChannel(BaseChannel):
@@ -637,9 +494,9 @@ class WebSocketChannel(BaseChannel):
         connected clients normally see it via ``goal_state`` / ``turn_end`` frames.
         Pushing here makes refresh + reconnect restore the strip without a new model turn.
         """
-        if self._session_manager is None:
+        if self.gateway.session_manager is None:
             return
-        row = self._session_manager.read_session_file(f"websocket:{chat_id}")
+        row = self.gateway.session_manager.read_session_file(f"websocket:{chat_id}")
         meta = row.get("metadata", {}) if isinstance(row, dict) else {}
         if not isinstance(meta, dict):
             meta = {}
@@ -696,58 +553,10 @@ class WebSocketChannel(BaseChannel):
         ctx.load_cert_chain(certfile=cert, keyfile=key)
         return ctx
 
-    _MAX_ISSUED_TOKENS = 10_000
-
-    def _purge_expired_issued_tokens(self) -> None:
-        now = time.monotonic()
-        for token_key, expiry in list(self._issued_tokens.items()):
-            if now > expiry:
-                self._issued_tokens.pop(token_key, None)
-
-    def _take_issued_token_if_valid(self, token_value: str | None) -> bool:
-        """Validate and consume one issued token (single use per connection attempt).
-
-        Uses single-step pop to minimize the window between lookup and removal;
-        safe under asyncio's single-threaded cooperative model.
-        """
-        if not token_value:
-            return False
-        self._purge_expired_issued_tokens()
-        expiry = self._issued_tokens.pop(token_value, None)
-        if expiry is None:
-            return False
-        if time.monotonic() > expiry:
-            return False
-        return True
-
-    def _handle_token_issue_http(self, connection: Any, request: Any) -> Any:
-        secret = self.config.token_issue_secret.strip()
-        if secret:
-            if not _issue_route_secret_matches(request.headers, secret):
-                return connection.respond(401, "Unauthorized")
-        else:
-            self.logger.warning(
-                "token_issue_path is set but token_issue_secret is empty; "
-                "any client can obtain connection tokens — set token_issue_secret for production."
-            )
-        self._purge_expired_issued_tokens()
-        if len(self._issued_tokens) >= self._MAX_ISSUED_TOKENS:
-            self.logger.error(
-                "too many outstanding issued tokens ({}), rejecting issuance",
-                len(self._issued_tokens),
-            )
-            return _http_json_response({"error": "too many outstanding tokens"}, status=429)
-        token_value = f"nbwt_{secrets.token_urlsafe(32)}"
-        self._issued_tokens[token_value] = time.monotonic() + float(self.config.token_ttl_s)
-
-        return _http_json_response(
-            {"token": token_value, "expires_in": self.config.token_ttl_s}
-        )
-
     # -- HTTP dispatch ------------------------------------------------------
 
     async def _dispatch_http(self, connection: Any, request: WsRequest) -> Any:
-        """Route an inbound HTTP request to a handler or to the WS upgrade path."""
+        """Route an inbound HTTP request to the HTTP handler or WS upgrade."""
         got, query = _parse_request_path(request.path)
 
         # 1. Token issue endpoint (legacy, optional, gated by configured secret).
@@ -1490,23 +1299,27 @@ class WebSocketChannel(BaseChannel):
         if static_token:
             if supplied and hmac.compare_digest(supplied, static_token):
                 return None
-            if supplied and self._take_issued_token_if_valid(supplied):
+            if supplied and self._tokens.take_issued_token_if_valid(supplied):
                 return None
             return connection.respond(401, "Unauthorized")
 
         if self.config.websocket_requires_token:
-            if supplied and self._take_issued_token_if_valid(supplied):
+            if supplied and self._tokens.take_issued_token_if_valid(supplied):
                 return None
             return connection.respond(401, "Unauthorized")
 
         if supplied:
-            self._take_issued_token_if_valid(supplied)
+            self._tokens.take_issued_token_if_valid(supplied)
         return None
+
+    # -- Server lifecycle and connection ingress ---------------------------
+    # -- Server lifecycle and connection ingress ---------------------------
 
     async def start(self) -> None:
         from nanobot.utils.logging_bridge import redirect_lib_logging
 
         redirect_lib_logging("websockets", level="WARNING")
+        ws_logger = websockets_server_logger()
 
         self._running = True
         self._stop_event = asyncio.Event()
@@ -1524,34 +1337,65 @@ class WebSocketChannel(BaseChannel):
             await self._connection_loop(connection)
 
         self.logger.info(
-            "WebSocket server listening on {}://{}:{}{}",
-            scheme,
-            self.config.host,
-            self.config.port,
-            self.config.path,
+            "WebSocket server listening on {}",
+            (
+                f"unix:{self.config.unix_socket_path}{self.config.path}"
+                if self.config.unix_socket_path
+                else f"{scheme}://{self.config.host}:{self.config.port}{self.config.path}"
+            ),
         )
         if self.config.token_issue_path:
             self.logger.info(
-                "WebSocket token issue route: {}://{}:{}{}",
-                scheme,
-                self.config.host,
-                self.config.port,
-                _normalize_config_path(self.config.token_issue_path),
+                "WebSocket token issue route: {}",
+                (
+                    f"unix:{self.config.unix_socket_path}{_normalize_config_path(self.config.token_issue_path)}"
+                    if self.config.unix_socket_path
+                    else (
+                        f"{scheme}://{self.config.host}:{self.config.port}"
+                        f"{_normalize_config_path(self.config.token_issue_path)}"
+                    )
+                ),
             )
 
         async def runner() -> None:
-            async with serve(
-                handler,
-                self.config.host,
-                self.config.port,
-                process_request=process_request,
-                max_size=self.config.max_message_bytes,
-                ping_interval=self.config.ping_interval_s,
-                ping_timeout=self.config.ping_timeout_s,
-                ssl=ssl_context,
-            ):
+            socket_path = self.config.unix_socket_path
+            if socket_path:
+                path_obj = Path(socket_path)
+                path_obj.parent.mkdir(parents=True, exist_ok=True)
+                with suppress(FileNotFoundError):
+                    path_obj.unlink()
+                server = await unix_serve(
+                    handler,
+                    socket_path,
+                    process_request=process_request,
+                    max_size=self.config.max_message_bytes,
+                    ping_interval=self.config.ping_interval_s,
+                    ping_timeout=self.config.ping_timeout_s,
+                    logger=ws_logger,
+                )
+                with suppress(OSError):
+                    path_obj.chmod(0o600)
+            else:
+                server = await serve(
+                    handler,
+                    self.config.host,
+                    self.config.port,
+                    process_request=process_request,
+                    max_size=self.config.max_message_bytes,
+                    ping_interval=self.config.ping_interval_s,
+                    ping_timeout=self.config.ping_timeout_s,
+                    ssl=ssl_context,
+                    logger=ws_logger,
+                )
+            try:
                 assert self._stop_event is not None
                 await self._stop_event.wait()
+            finally:
+                server.close()
+                await server.wait_closed()
+                if socket_path:
+                    with suppress(FileNotFoundError):
+                        Path(socket_path).unlink()
 
         self._server_task = asyncio.create_task(runner())
         await self._server_task
@@ -1622,6 +1466,8 @@ class WebSocketChannel(BaseChannel):
             self.logger.debug("connection ended: {}", e)
         finally:
             self._cleanup_connection(connection)
+
+    # -- Inbound WebSocket envelopes ---------------------------------------
 
     def _save_envelope_media(
         self,
@@ -1701,8 +1547,25 @@ class WebSocketChannel(BaseChannel):
         t = envelope.get("type")
         if t == "new_chat":
             new_id = str(uuid.uuid4())
+            scope = await self._workspace_scope_or_error(
+                connection,
+                lambda: self._workspaces.scope_for_new_chat(
+                    envelope,
+                    controls_available=_is_localhost(connection),
+                ),
+            )
+            if scope is None:
+                return
+            self._workspaces.persist_scope(new_id, scope)
             self._attach(connection, new_id)
             await self._send_event(connection, "attached", chat_id=new_id)
+            await self._send_event(
+                connection,
+                "session_updated",
+                chat_id=new_id,
+                scope="metadata",
+                workspace_scope=scope.payload(),
+            )
             await self._hydrate_after_subscribe(new_id)
             return
         if t == "attach":
@@ -1723,6 +1586,32 @@ class WebSocketChannel(BaseChannel):
                 self._session_manager.get_or_create(f"websocket:{cid}")
             await self._send_event(connection, "attached", chat_id=cid)
             await self._hydrate_after_subscribe(cid)
+            return
+        if t == "set_workspace_scope":
+            cid = envelope.get("chat_id")
+            if not _is_valid_chat_id(cid):
+                await self._send_event(connection, "error", detail="invalid chat_id")
+                return
+            scope = await self._workspace_scope_or_error(
+                connection,
+                lambda: self._workspaces.scope_for_set_request(
+                    envelope,
+                    chat_id=cid,
+                    chat_running=websocket_turn_wall_started_at(cid) is not None,
+                    controls_available=_is_localhost(connection),
+                ),
+                chat_id=cid,
+            )
+            if scope is None:
+                return
+            self._workspaces.persist_scope(cid, scope)
+            await self._send_event(
+                connection,
+                "session_updated",
+                chat_id=cid,
+                scope="metadata",
+                workspace_scope=scope.payload(),
+            )
             return
         if t == "message":
             cid = envelope.get("chat_id")
@@ -1755,6 +1644,18 @@ class WebSocketChannel(BaseChannel):
             if not content.strip() and not media_paths:
                 await self._send_event(connection, "error", detail="missing content")
                 return
+            scope = await self._workspace_scope_or_error(
+                connection,
+                lambda: self._workspaces.scope_for_message(
+                    envelope,
+                    chat_id=cid,
+                    chat_running=websocket_turn_wall_started_at(cid) is not None,
+                    controls_available=_is_localhost(connection),
+                ),
+                chat_id=cid,
+            )
+            if scope is None:
+                return
 
             # Auto-attach on first use so clients can one-shot without a separate attach.
             self._attach(connection, cid)
@@ -1770,6 +1671,8 @@ class WebSocketChannel(BaseChannel):
             mcp_presets = normalize_mcp_preset_mentions(envelope.get("mcp_presets"))
             if mcp_presets:
                 metadata["mcp_presets"] = mcp_presets
+            metadata[WORKSPACE_SCOPE_METADATA_KEY] = scope.metadata()
+            self._workspaces.persist_scope(cid, scope)
             image_generation = envelope.get("image_generation")
             if isinstance(image_generation, dict) and image_generation.get("enabled") is True:
                 aspect_ratio = image_generation.get("aspect_ratio")
@@ -1837,6 +1740,27 @@ class WebSocketChannel(BaseChannel):
             fut.set_result(out)
             return
         await self._send_event(connection, "error", detail=f"unknown type: {t!r}")
+
+    async def _workspace_scope_or_error(
+        self,
+        connection: Any,
+        resolver: Callable[[], Any],
+        *,
+        chat_id: str | None = None,
+    ) -> Any | None:
+        try:
+            return resolver()
+        except WorkspaceScopeError as exc:
+            await self._send_event(
+                connection,
+                "error",
+                detail="workspace_scope_rejected",
+                reason=exc.message,
+                **({"chat_id": chat_id} if chat_id else {}),
+            )
+            return None
+
+    # -- Outbound WebSocket events -----------------------------------------
 
     async def stop(self) -> None:
         if not self._running:
@@ -2018,18 +1942,15 @@ class WebSocketChannel(BaseChannel):
             )
             return
         if msg.metadata.get("_file_edit_events"):
-            payload: dict[str, Any] = {
-                "event": "file_edit",
-                "chat_id": msg.chat_id,
-                "edits": msg.metadata["_file_edit_events"],
-            }
-            self._try_append_webui_transcript(msg.chat_id, payload)
-            raw = json.dumps(payload, ensure_ascii=False)
-            for connection in conns:
-                await self._safe_send_to(connection, raw, label=" ")
+            edits = msg.metadata.get("_file_edit_events")
+            await self.send_file_edit_events(
+                msg.chat_id,
+                edits if isinstance(edits, list) else [],
+                msg.metadata,
+            )
             return
         text = msg.content
-        wire_text = self._rewrite_local_markdown_images(text)
+        wire_text = self._media.rewrite_local_markdown_images(text)
         payload: dict[str, Any] = {
             "event": "message",
             "chat_id": msg.chat_id,
@@ -2140,6 +2061,25 @@ class WebSocketChannel(BaseChannel):
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" reasoning_end ")
 
+    async def send_file_edit_events(
+        self,
+        chat_id: str,
+        edits: list[dict[str, Any]],
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        conns = list(self._subs.get(chat_id, ()))
+        if not conns:
+            return
+        payload: dict[str, Any] = {
+            "event": "file_edit",
+            "chat_id": chat_id,
+            "edits": edits,
+        }
+        self._try_append_webui_transcript(chat_id, payload)
+        raw = json.dumps(payload, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" file_edit ")
+
     async def send_delta(
         self,
         chat_id: str,
@@ -2158,7 +2098,7 @@ class WebSocketChannel(BaseChannel):
             if delta:
                 buffered.append(delta)
             full_text = "".join(buffered)
-            rewritten = self._rewrite_local_markdown_images(full_text)
+            rewritten = self._media.rewrite_local_markdown_images(full_text)
             if rewritten != full_text:
                 body["text"] = rewritten
         else:
