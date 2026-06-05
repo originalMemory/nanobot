@@ -14,7 +14,7 @@ x-common-config: &common-config
     - .:/home/nanobot/src
     - ./.nanobot:/home/nanobot/.nanobot
     # SSH key 放 .nanobot/.ssh，挂载到标准路径供 git 使用
-    - ./.nanobot/.ssh:/home/nanobot/.ssh:ro
+    - ./.nanobot/.ssh:/home/nanobot/.ssh
     - /mnt/cache/ssd/note:/home/nanobot/note
   cap_drop:
     - ALL
