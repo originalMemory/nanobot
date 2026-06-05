@@ -34,6 +34,15 @@ def _default_webui_dist() -> Path | None:
 # Retry delays for message sending (exponential backoff: 1s, 2s, 4s)
 _SEND_RETRY_DELAYS = (1, 2, 4)
 
+# shadow 到 inbox:unified 时需剥离的流式元数据，避免 _send_once 因 _streamed 跳过 send()
+_UNIFIED_SHADOW_STRIP_KEYS = frozenset({
+    "_streamed",
+    "_stream_delta",
+    "_stream_end",
+    "_stream_id",
+    "_resuming",
+})
+
 _BOOL_CAMEL_ALIASES: dict[str, str] = {
     "send_progress": "sendProgress",
     "send_tool_hints": "sendToolHints",
@@ -73,6 +82,8 @@ class ChannelManager:
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
         self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
+        # 跨通道流式 fan-out 到 inbox:unified 的文本累积器
+        self._unified_inbox_stream_bufs: dict[tuple[str, str, str], list[str]] = {}
         self._unified_session: bool = bool(
             getattr(getattr(config, "agents", None), "defaults", None)
             and config.agents.defaults.unified_session
@@ -303,6 +314,177 @@ class ChannelManager:
 
         return False
 
+    @staticmethod
+    def _unified_stream_key(msg: OutboundMessage) -> tuple[str, str, str]:
+        meta = msg.metadata or {}
+        stream_id = str(meta.get("_stream_id") or "")
+        return (msg.channel, msg.chat_id, stream_id)
+
+    def _clear_unified_inbox_stream_bufs(self, channel: str, chat_id: str) -> None:
+        """清除指定会话残留的流式累积，避免异常中断后泄漏。"""
+        stale = [
+            k for k in self._unified_inbox_stream_bufs
+            if k[0] == channel and k[1] == chat_id
+        ]
+        for key in stale:
+            self._unified_inbox_stream_bufs.pop(key, None)
+
+    @staticmethod
+    def _is_unified_inbox_system_meta(msg: OutboundMessage) -> bool:
+        meta = msg.metadata or {}
+        return bool(
+            meta.get("_progress")
+            or meta.get("_session_updated")
+            or meta.get("_turn_end")
+            or meta.get("_goal_status")
+            or meta.get("_goal_state_sync")
+        )
+
+    def _build_unified_inbox_shadow(
+        self,
+        msg: OutboundMessage,
+        *,
+        content: str,
+    ) -> OutboundMessage:
+        """构造写入 inbox:unified 的 shadow 消息，剥离会干扰路由的流式标记。"""
+        clean_meta = {
+            k: v
+            for k, v in (msg.metadata or {}).items()
+            if k not in _UNIFIED_SHADOW_STRIP_KEYS
+        }
+        return OutboundMessage(
+            channel="websocket",
+            chat_id="inbox:unified",
+            content=content,
+            media=msg.media,
+            metadata={
+                **clean_meta,
+                "_unified_inbox_write": True,
+                "source_channel": msg.channel,
+                "source_chat_id": msg.chat_id,
+            },
+        )
+
+    async def _fan_out_unified_inbox_message(
+        self,
+        ws_channel: BaseChannel,
+        msg: OutboundMessage,
+        *,
+        content: str,
+    ) -> None:
+        shadow = self._build_unified_inbox_shadow(msg, content=content)
+        try:
+            await self._send_once(ws_channel, shadow)
+        except Exception:
+            logger.warning(
+                "unified inbox shadow send failed for {}:{}",
+                msg.channel,
+                msg.chat_id,
+            )
+
+    async def _fan_out_unified_inbox_stream(
+        self,
+        ws_channel: BaseChannel,
+        msg: OutboundMessage,
+        *,
+        event: str,
+        text: str,
+    ) -> None:
+        """将流式 wire 事件实时推送到 inbox:unified 订阅者。"""
+        fan_out = getattr(ws_channel, "fan_out_unified_inbox_event", None)
+        if fan_out is None:
+            # WebSocketChannel 未实现 fan_out_unified_inbox_event，delta 静默丢弃。
+            # 若未来重构导致此方法消失，debug 日志可帮助定位 inbox delta 丢失问题。
+            logger.debug(
+                "ws_channel has no fan_out_unified_inbox_event, skipping delta fan-out for {}:{}",
+                msg.channel,
+                msg.chat_id,
+            )
+            return
+        meta = msg.metadata or {}
+        payload: dict[str, Any] = {
+            "event": event,
+            "chat_id": "inbox:unified",
+            "text": text,
+        }
+        stream_id = meta.get("_stream_id")
+        if stream_id is not None:
+            payload["stream_id"] = stream_id
+        try:
+            await fan_out(payload, msg.channel, msg.chat_id)
+        except Exception:
+            logger.warning(
+                "unified inbox stream fan-out failed for {}:{}",
+                msg.channel,
+                msg.chat_id,
+            )
+
+    async def _maybe_fan_out_unified_inbox(
+        self,
+        msg: OutboundMessage,
+    ) -> None:
+        """统一会话模式下，将非 WebSocket 通道出站消息 fan-out 到 inbox:unified。"""
+        if not self._unified_session or msg.channel == "websocket":
+            return
+        if msg.metadata.get("_unified_inbox_write"):
+            return
+        if self._is_unified_inbox_system_meta(msg):
+            return
+
+        ws_channel = self.channels.get("websocket")
+        if ws_channel is None:
+            return
+
+        meta = msg.metadata or {}
+
+        # 仅有 _stream_delta 而无 _stream_end：中间分片，实时推 delta 并积累到 buf。
+        # 当 _stream_delta=True 且 _stream_end=True（队列积压后被 _coalesce_stream_deltas
+        # 合并成单包）时，此分支不命中，直接落到下方 _stream_end 分支处理整包。
+        if meta.get("_stream_delta") and not meta.get("_stream_end"):
+            key = self._unified_stream_key(msg)
+            if msg.content:
+                buf = self._unified_inbox_stream_bufs.setdefault(key, [])
+                buf.append(msg.content)
+                await self._fan_out_unified_inbox_stream(
+                    ws_channel, msg, event="delta", text=msg.content,
+                )
+            return
+
+        if meta.get("_stream_end"):
+            # 收集 buf + 本包末尾内容，拼成完整文本后推 message。
+            # 不推 stream_end 事件——否则 Electron 会先关 buffer，后续 message 会叠一条。
+            # 合并包（_stream_delta+_stream_end）同样走这里，buf 为空则 full_text = msg.content。
+            key = self._unified_stream_key(msg)
+            buf = self._unified_inbox_stream_bufs.pop(key, [])
+            if msg.content:
+                buf.append(msg.content)
+            full_text = "".join(buf)
+            if full_text.strip():
+                await self._fan_out_unified_inbox_message(
+                    ws_channel, msg, content=full_text,
+                )
+            else:
+                # 空流（如纯工具调用无文本输出），清理可能残留的同会话其他 stream buf。
+                self._clear_unified_inbox_stream_bufs(msg.channel, msg.chat_id)
+            return
+
+        # _stream_end 已推过完整文本，_streamed 占位消息不再重复推送。
+        # 同时清掉该会话所有残留 buf，防止异常中断后跨 turn 泄漏。
+        if meta.get("_streamed"):
+            self._clear_unified_inbox_stream_bufs(msg.channel, msg.chat_id)
+            return
+
+        if not msg.content and not msg.media:
+            # 无有效内容（如纯元数据更新），清理残留 buf 后跳过。
+            self._clear_unified_inbox_stream_bufs(msg.channel, msg.chat_id)
+            return
+
+        # 非流式普通消息，清残留 buf（如 error 路径未收到 _stream_end）后直接 fan-out。
+        self._clear_unified_inbox_stream_bufs(msg.channel, msg.chat_id)
+        await self._fan_out_unified_inbox_message(
+            ws_channel, msg, content=msg.content or "",
+        )
+
     async def _dispatch_outbound(self) -> None:
         """Dispatch outbound messages to the appropriate channel."""
         logger.info("Outbound dispatcher started")
@@ -378,40 +560,7 @@ class ChannelManager:
                             logger.info("Suppressing duplicate outbound message to {}:{}", msg.channel, msg.chat_id)
                             continue
                     await self._send_with_retry(channel, msg)
-                    # 统一会话模式下，将非 WebSocket 通道的出站消息也路由给 WebSocket 通道，
-                    # 使 Electron 的 inbox:unified 订阅能收到，同时写入统一 transcript。
-                    # NOTE: 黑名单须与 websocket.send() 中的早期 return 保持同步——
-                    # 新增系统元数据类型时需在此处同步排除。
-                    if (
-                        self._unified_session
-                        and msg.channel != "websocket"
-                        and not msg.metadata.get("_unified_inbox_write")
-                        and msg.content
-                        and not msg.metadata.get("_progress")
-                        and not msg.metadata.get("_stream_delta")
-                        and not msg.metadata.get("_session_updated")
-                        and not msg.metadata.get("_turn_end")
-                        and not msg.metadata.get("_goal_status")
-                        and not msg.metadata.get("_goal_state_sync")
-                    ):
-                        ws_channel = self.channels.get("websocket")
-                        if ws_channel is not None:
-                            shadow = OutboundMessage(
-                                channel="websocket",
-                                chat_id="inbox:unified",
-                                content=msg.content,
-                                media=msg.media,
-                                metadata={
-                                    **dict(msg.metadata),
-                                    "_unified_inbox_write": True,
-                                    "source_channel": msg.channel,
-                                    "source_chat_id": msg.chat_id,
-                                },
-                            )
-                            try:
-                                await self._send_once(ws_channel, shadow)
-                            except Exception:
-                                logger.warning("unified inbox shadow send failed for {}:{}", msg.channel, msg.chat_id)
+                    await self._maybe_fan_out_unified_inbox(msg)
                 else:
                     logger.warning("Unknown channel: {}", msg.channel)
 
@@ -441,7 +590,7 @@ class ChannelManager:
             )
         elif msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end"):
             await channel.send_delta(msg.chat_id, msg.content, msg.metadata)
-        elif not msg.metadata.get("_streamed"):
+        elif not msg.metadata.get("_streamed") or msg.metadata.get("_unified_inbox_write"):
             await channel.send(msg)
 
     def _coalesce_stream_deltas(

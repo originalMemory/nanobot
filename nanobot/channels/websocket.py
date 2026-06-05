@@ -1128,6 +1128,17 @@ class WebSocketChannel(BaseChannel):
                 continue
             await self._safe_send_to(connection, fan_raw, label=" inbox:unified ")
 
+    async def fan_out_unified_inbox_event(
+        self,
+        payload: dict[str, Any],
+        source_channel: str,
+        source_chat_id: str,
+    ) -> None:
+        """将任意 wire 事件推送给 ``inbox:unified`` 订阅者（供 ChannelManager 跨通道 fan-out）。"""
+        if not self._unified_session:
+            return
+        await self._fan_out_to_unified_inbox(payload, source_channel, source_chat_id)
+
     async def send(self, msg: OutboundMessage) -> None:
         if msg.metadata.get("_runtime_model_updated"):
             await self.send_runtime_model_updated(
