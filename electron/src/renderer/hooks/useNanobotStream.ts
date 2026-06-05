@@ -807,7 +807,8 @@ export function useNanobotStream(
           ...(typeof ev.text === "string" && ev.text ? { text: ev.text } : {}),
           ...(typeof ev.error === "string" && ev.error ? { error: ev.error } : {}),
         });
-        schedulePendingCaptionFlush();
+        // end 立即 flush，确保 caption 折叠标题从「识别中」切到「识别结果」
+        flushPendingCaptionEvents();
         return;
       }
 
@@ -897,6 +898,13 @@ export function useNanobotStream(
           ? ev.media_urls.map((m) => toMediaAttachment(m))
           : undefined;
         if (!content.trim() && !media) return;
+
+        // 外部 channel 带图入站：重置 caption 累积器，供后续 vision_caption_* 事件使用。
+        const mediaCount = media?.length ?? 0;
+        if (mediaCount > 0 && ev.source_channel) {
+          captionPartsRef.current = new Map();
+          captionImageCountRef.current = mediaCount;
+        }
 
         // 外部 channel 推来的用户消息：仅追加，不干扰本地正在进行的流式状态。
         setMessages((prev) => [

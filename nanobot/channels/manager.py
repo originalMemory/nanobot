@@ -335,7 +335,6 @@ class ChannelManager:
         return bool(
             meta.get("_progress")
             or meta.get("_session_updated")
-            or meta.get("_turn_end")
             or meta.get("_goal_status")
             or meta.get("_goal_state_sync")
         )
@@ -388,7 +387,7 @@ class ChannelManager:
         msg: OutboundMessage,
         *,
         event: str,
-        text: str,
+        text: str = "",
     ) -> None:
         """将流式 wire 事件实时推送到 inbox:unified 订阅者。"""
         fan_out = getattr(ws_channel, "fan_out_unified_inbox_event", None)
@@ -405,16 +404,56 @@ class ChannelManager:
         payload: dict[str, Any] = {
             "event": event,
             "chat_id": "inbox:unified",
-            "text": text,
         }
+        if text:
+            payload["text"] = text
         stream_id = meta.get("_stream_id")
         if stream_id is not None:
             payload["stream_id"] = stream_id
+        image_index = meta.get("image_index")
+        if isinstance(image_index, int):
+            payload["image_index"] = image_index
+        error = meta.get("_vision_caption_error")
+        if isinstance(error, str) and error:
+            payload["error"] = error
         try:
             await fan_out(payload, msg.channel, msg.chat_id)
         except Exception:
             logger.warning(
                 "unified inbox stream fan-out failed for {}:{}",
+                msg.channel,
+                msg.chat_id,
+            )
+
+    async def _fan_out_unified_inbox_turn_end(
+        self,
+        ws_channel: BaseChannel,
+        msg: OutboundMessage,
+    ) -> None:
+        """将 turn_end 推送给 inbox:unified 订阅者，结束 Electron 侧 loading 态。"""
+        fan_out = getattr(ws_channel, "fan_out_unified_inbox_event", None)
+        if fan_out is None:
+            return
+        meta = msg.metadata or {}
+        payload: dict[str, Any] = {
+            "event": "turn_end",
+            "chat_id": "inbox:unified",
+        }
+        lat = meta.get("latency_ms")
+        if isinstance(lat, (int, float)):
+            payload["latency_ms"] = int(lat)
+        gs = meta.get("goal_state")
+        if isinstance(gs, dict):
+            payload["goal_state"] = gs
+        usg = meta.get("usage")
+        if isinstance(usg, dict) and usg:
+            payload["usage"] = usg
+        self._clear_unified_inbox_stream_bufs(msg.channel, msg.chat_id)
+        try:
+            await fan_out(payload, msg.channel, msg.chat_id)
+        except Exception:
+            logger.warning(
+                "unified inbox turn_end fan-out failed for {}:{}",
                 msg.channel,
                 msg.chat_id,
             )
@@ -428,14 +467,32 @@ class ChannelManager:
             return
         if msg.metadata.get("_unified_inbox_write"):
             return
-        if self._is_unified_inbox_system_meta(msg):
-            return
 
         ws_channel = self.channels.get("websocket")
         if ws_channel is None:
             return
 
         meta = msg.metadata or {}
+
+        if meta.get("_turn_end"):
+            await self._fan_out_unified_inbox_turn_end(ws_channel, msg)
+            return
+
+        if self._is_unified_inbox_system_meta(msg):
+            return
+
+        if meta.get("_vision_caption_delta"):
+            if msg.content:
+                await self._fan_out_unified_inbox_stream(
+                    ws_channel, msg, event="vision_caption_delta", text=msg.content,
+                )
+            return
+
+        if meta.get("_vision_caption_end"):
+            await self._fan_out_unified_inbox_stream(
+                ws_channel, msg, event="vision_caption_end", text=msg.content or "",
+            )
+            return
 
         # 仅有 _stream_delta 而无 _stream_end：中间分片，实时推 delta 并积累到 buf。
         # 当 _stream_delta=True 且 _stream_end=True（队列积压后被 _coalesce_stream_deltas

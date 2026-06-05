@@ -1496,6 +1496,9 @@ class AgentLoop:
         stream_caption = (
             ctx.msg.channel == "websocket"
             and bool(ctx.msg.metadata.get("_wants_stream"))
+        ) or (
+            self._unified_session
+            and ctx.msg.channel not in ("websocket", "cli")
         )
         caption_kwargs: dict[str, Any] = {}
         if stream_caption:

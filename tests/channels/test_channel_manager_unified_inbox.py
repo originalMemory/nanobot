@@ -56,6 +56,7 @@ class CaptureWsChannel(BaseChannel):
         super().__init__(config, bus)
         self.sent: list[OutboundMessage] = []
         self.stream_events: list[tuple[str, str, str]] = []
+        self.stream_payloads: list[dict] = []
 
     async def start(self) -> None:
         pass
@@ -75,6 +76,7 @@ class CaptureWsChannel(BaseChannel):
         self.stream_events.append(
             (payload.get("event", ""), payload.get("text", ""), source_channel),
         )
+        self.stream_payloads.append(payload)
 
 
 @pytest.fixture
@@ -197,6 +199,75 @@ async def test_stream_delta_and_end_fan_out_to_inbox(
     )
     await manager._maybe_fan_out_unified_inbox(streamed_final)
     assert len(ws.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_vision_caption_stream_fan_out_to_inbox(
+    manager: ChannelManager,
+) -> None:
+    """外部通道 vision caption 流式事件应实时 fan-out 到 inbox:unified。"""
+    ws = manager.channels["websocket"]
+    assert isinstance(ws, CaptureWsChannel)
+
+    delta = OutboundMessage(
+        channel="telegram",
+        chat_id="123",
+        content="一只",
+        metadata={
+            "_vision_caption_delta": True,
+            "image_index": 0,
+            "_stream_id": "unified:default:caption:0",
+        },
+    )
+    await manager._maybe_fan_out_unified_inbox(delta)
+    assert ws.stream_events[-1] == ("vision_caption_delta", "一只", "telegram")
+    assert ws.stream_payloads[-1]["image_index"] == 0
+    assert ws.stream_payloads[-1]["chat_id"] == "inbox:unified"
+
+    end = OutboundMessage(
+        channel="telegram",
+        chat_id="123",
+        content="一只橘猫",
+        metadata={
+            "_vision_caption_end": True,
+            "image_index": 0,
+            "_stream_id": "unified:default:caption:0",
+        },
+    )
+    await manager._maybe_fan_out_unified_inbox(end)
+    assert ws.stream_events[-1] == ("vision_caption_end", "一只橘猫", "telegram")
+    assert ws.stream_payloads[-1]["event"] == "vision_caption_end"
+    assert len(ws.sent) == 0
+
+
+@pytest.mark.asyncio
+async def test_turn_end_fan_out_to_inbox(
+    manager: ChannelManager,
+) -> None:
+    """外部通道 turn_end 应 fan-out 到 inbox:unified，携带 latency/goal_state。"""
+    ws = manager.channels["websocket"]
+    assert isinstance(ws, CaptureWsChannel)
+
+    goal_state = {"active": False}
+    end = OutboundMessage(
+        channel="telegram",
+        chat_id="123",
+        content="",
+        metadata={
+            "_turn_end": True,
+            "latency_ms": 1200,
+            "goal_state": goal_state,
+        },
+    )
+    await manager._maybe_fan_out_unified_inbox(end)
+
+    assert ws.stream_events[-1] == ("turn_end", "", "telegram")
+    payload = ws.stream_payloads[-1]
+    assert payload["event"] == "turn_end"
+    assert payload["chat_id"] == "inbox:unified"
+    assert payload["latency_ms"] == 1200
+    assert payload["goal_state"] == goal_state
+    assert len(ws.sent) == 0
 
 
 @pytest.mark.asyncio
@@ -358,6 +429,111 @@ async def test_dispatch_telegram_stream_fan_out_to_inbox_ws(
             assert message_events[0]["text"] == "你好"
             assert message_events[0]["source_channel"] == "telegram"
             assert message_events[0]["source_chat_id"] == "999"
+    finally:
+        dispatch_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await dispatch_task
+        await ws.stop()
+        ws_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await ws_task
+
+    assert mgr._unified_inbox_stream_bufs == {}
+
+
+@pytest.mark.asyncio
+async def test_dispatch_telegram_caption_and_turn_end_fan_out_to_inbox_ws(
+    tmp_path: Path,
+) -> None:
+    """集成：Telegram caption 流式与 turn_end 经 WebSocket fan-out 到 inbox。"""
+    bus = MessageBus()
+    config = Config()
+    config.agents.defaults.unified_session = True
+
+    port = _get_free_port()
+    ws = WebSocketChannel(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "host": "127.0.0.1",
+            "port": port,
+            "path": "/",
+            "websocketRequiresToken": False,
+        },
+        bus,
+        unified_session=True,
+        workspace_path=tmp_path,
+    )
+    tg = StreamMockChannel({}, bus)
+
+    mgr = ChannelManager(config, bus)
+    mgr._unified_session = True
+    mgr.channels = {"telegram": tg, "websocket": ws}
+
+    ws_task = asyncio.create_task(ws.start())
+    dispatch_task = asyncio.create_task(mgr._dispatch_outbound())
+    await asyncio.sleep(0.3)
+
+    try:
+        async with WsTestClient(f"ws://127.0.0.1:{port}/", client_id="inbox") as c:
+            await c.recv_ready()
+            await c.ws.send(json.dumps({"type": "attach", "chat_id": "inbox:unified"}))
+            attached = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+            assert attached["event"] == "attached"
+
+            await bus.publish_outbound(OutboundMessage(
+                channel="telegram",
+                chat_id="999",
+                content="一只",
+                metadata={
+                    "_vision_caption_delta": True,
+                    "image_index": 0,
+                    "_stream_id": "unified:default:caption:0",
+                },
+            ))
+            await asyncio.sleep(0.05)
+            await bus.publish_outbound(OutboundMessage(
+                channel="telegram",
+                chat_id="999",
+                content="一只猫",
+                metadata={
+                    "_vision_caption_end": True,
+                    "image_index": 0,
+                    "_stream_id": "unified:default:caption:0",
+                },
+            ))
+            await asyncio.sleep(0.05)
+            await bus.publish_outbound(OutboundMessage(
+                channel="telegram",
+                chat_id="999",
+                content="",
+                metadata={
+                    "_turn_end": True,
+                    "latency_ms": 900,
+                    "goal_state": {"active": False},
+                },
+            ))
+
+            events: list[dict] = []
+            for _ in range(6):
+                try:
+                    events.append(
+                        json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+                    )
+                except asyncio.TimeoutError:
+                    break
+
+            caption_deltas = [e for e in events if e.get("event") == "vision_caption_delta"]
+            caption_ends = [e for e in events if e.get("event") == "vision_caption_end"]
+            turn_ends = [e for e in events if e.get("event") == "turn_end"]
+            assert len(caption_deltas) == 1
+            assert caption_deltas[0]["text"] == "一只"
+            assert caption_deltas[0]["source_channel"] == "telegram"
+            assert len(caption_ends) == 1
+            assert caption_ends[0]["text"] == "一只猫"
+            assert len(turn_ends) == 1
+            assert turn_ends[0]["latency_ms"] == 900
+            assert turn_ends[0]["chat_id"] == "inbox:unified"
     finally:
         dispatch_task.cancel()
         with suppress(asyncio.CancelledError):

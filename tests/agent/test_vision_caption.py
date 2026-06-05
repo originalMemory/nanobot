@@ -237,12 +237,50 @@ async def test_state_caption_publishes_stream_events_for_websocket() -> None:
     assert any((m.metadata or {}).get("_vision_caption_end") for m in events)
 
 
+@pytest.mark.asyncio
+async def test_state_caption_publishes_stream_events_for_unified_external_channel() -> None:
+    """统一会话下，Telegram 等外部通道入站带图消息也应推送 vision_caption_* 事件。"""
+    from dataclasses import replace
+
+    from nanobot.agent.loop import AgentLoop
+
+    loop = _make_fake_loop(
+        vision_provider=MagicMock(),
+        vision_model="vision-model",
+        unified_session=True,
+    )
+    ctx = _make_turn_ctx(content="看图", media=["/img/a.png"])
+    ctx.msg = replace(ctx.msg, channel="telegram", metadata={})
+
+    ok_results = [CaptionResult(index=0, path="/img/a.png", text="识别结果")]
+
+    async def fake_caption_images(*args, **kwargs):
+        on_delta = kwargs.get("on_delta")
+        on_image_end = kwargs.get("on_image_end")
+        if on_delta:
+            await on_delta(0, "识别")
+        if on_image_end:
+            await on_image_end(0, ok_results[0])
+        return ok_results
+
+    with patch("nanobot.agent.vision_caption.caption_images", new=fake_caption_images), \
+         patch("nanobot.agent.vision_caption.format_captions", return_value="图片描述：识别结果"):
+        result = await AgentLoop._state_caption(loop, ctx)
+
+    assert result == "ok"
+    events = loop._outbound_calls
+    assert all(m.channel == "telegram" for m in events)
+    assert any((m.metadata or {}).get("_vision_caption_delta") for m in events)
+    assert any((m.metadata or {}).get("_vision_caption_end") for m in events)
+
+
 # ── task 4.2: _state_caption ─────────────────────────────────────────────────
 
 def _make_fake_loop(
     *,
     vision_provider: object = None,
     vision_model: str | None = None,
+    unified_session: bool = False,
 ) -> types.SimpleNamespace:
     """构造最小化的 fake AgentLoop，仅含 _state_caption 所需属性。"""
     outbound_calls: list = []
@@ -254,6 +292,7 @@ def _make_fake_loop(
     loop = types.SimpleNamespace(
         _vision_provider=vision_provider,
         _vision_model=vision_model,
+        _unified_session=unified_session,
         bus=bus,
         _outbound_calls=outbound_calls,
     )

@@ -233,6 +233,7 @@ class WebuiTurnCoordinator:
     bus: MessageBus
     sessions: SessionManager
     schedule_background: Callable[[Awaitable[None]], None]
+    unified_session: bool = False
     _title_contexts: dict[str, LLMRuntime] = field(default_factory=dict)
 
     def subscribe(self, runtime_events: RuntimeEventBus) -> Callable[[], None]:
@@ -298,15 +299,22 @@ class WebuiTurnCoordinator:
         )
 
     async def _handle_turn_completed_event(self, event: TurnCompleted) -> None:
-        if not self._is_websocket_event(event.context):
+        ctx = event.context
+        is_ws = self._is_websocket_event(ctx)
+        is_unified_external = (
+            self.unified_session
+            and ctx.channel not in ("websocket", "cli")
+        )
+        if not is_ws and not is_unified_external:
             return
-        msg = self._ctx_msg(event.context)
+        msg = self._ctx_msg(ctx)
         await self.handle_turn_end(
             msg,
-            session_key=event.context.session_key,
+            session_key=ctx.session_key,
             latency_ms=event.latency_ms,
         )
-        self._schedule_title_update_from_event(event)
+        if is_ws:
+            self._schedule_title_update_from_event(event)
 
     async def _handle_goal_state_changed(self, event: GoalStateChanged) -> None:
         if not self._is_websocket_event(event.context):
@@ -369,7 +377,9 @@ class WebuiTurnCoordinator:
         latency_ms: int | None,
         usage: dict[str, int] | None = None,
     ) -> None:
-        if msg.channel != "websocket":
+        if msg.channel == "cli":
+            return
+        if msg.channel != "websocket" and not self.unified_session:
             return
 
         turn_metadata: dict[str, Any] = {**msg.metadata, "_turn_end": True}

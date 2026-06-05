@@ -958,6 +958,7 @@ def _run_gateway(
         bus=bus,
         sessions=session_manager,
         schedule_background=lambda coro: agent._schedule_background(coro),
+        unified_session=config.agents.defaults.unified_session,
     ).subscribe(runtime_events)
 
     from nanobot.agent.loop import UNIFIED_SESSION_KEY
