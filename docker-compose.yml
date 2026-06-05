@@ -12,8 +12,9 @@ x-common-config: &common-config
     TZ: Asia/Shanghai
   volumes:
     - .:/home/nanobot/src
-    - ${HOME}/.ssh:/home/nanobot/.ssh:ro
     - ./.nanobot:/home/nanobot/.nanobot
+    # SSH key 放 .nanobot/.ssh，挂载到标准路径供 git 使用
+    - ./.nanobot/.ssh:/home/nanobot/.ssh:ro
     - /mnt/cache/ssd/note:/home/nanobot/note
   cap_drop:
     - ALL
