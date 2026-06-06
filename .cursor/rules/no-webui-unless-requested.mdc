@@ -1,0 +1,27 @@
+---
+description: 默认不修改 webui，Electron 相关 UI 改动只动 electron/
+alwaysApply: true
+---
+
+# 默认不改 webui
+
+本仓库同时包含浏览器版 **WebUI**（`webui/`）与 **Electron 桌面客户端**（`electron/`）。二者 UI 代码各自维护，**不要默认同步改动**。
+
+## 规则
+
+- **默认禁止**修改 `webui/` 下的任何文件（组件、测试、配置、i18n 等）。
+- 面向 Electron 的 UI/交互改动，只改 `electron/` 内对应代码。
+- 即使用户描述的是「输入框」「斜杠命令」等通用 UI 行为，在未点名 webui 前，也按 Electron 范围处理。
+
+## 例外
+
+仅在用户**明确要求**改 webui 时才可修改 `webui/`，例如：
+
+- 「也改一下 webui」
+- 「webui 也要同步」
+- 「只改 webui / 浏览器版」
+
+## 说明
+
+- 读 `webui/` 作参考、对照实现方式，**不算**违反本规则。
+- 若改动确实需要两端一致，先只完成用户指定的一侧，再询问是否同步另一侧。

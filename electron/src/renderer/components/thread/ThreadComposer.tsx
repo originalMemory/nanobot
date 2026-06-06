@@ -206,6 +206,37 @@ function slashCommandI18nKey(command: string): string {
   return command.replace(/^\//, "").replace(/-/g, "_");
 }
 
+function slashCommandToken(command: string): string {
+  return command.replace(/^\//, "").toLowerCase();
+}
+
+function compareSlashPaletteCommands(
+  a: Pick<SlashCommand, "command">,
+  b: Pick<SlashCommand, "command">,
+  slashQuery: string,
+  isStreaming: boolean,
+  recentSlashCommands: string[],
+): number {
+  if (isStreaming) {
+    if (a.command === "/stop") return -1;
+    if (b.command === "/stop") return 1;
+  }
+  if (slashQuery !== "") {
+    const aPrefix = slashCommandToken(a.command).startsWith(slashQuery);
+    const bPrefix = slashCommandToken(b.command).startsWith(slashQuery);
+    if (aPrefix !== bPrefix) return aPrefix ? -1 : 1;
+    return 0;
+  }
+  const aRecent = recentSlashCommands.indexOf(a.command);
+  const bRecent = recentSlashCommands.indexOf(b.command);
+  if (aRecent !== -1 || bRecent !== -1) {
+    if (aRecent === -1) return 1;
+    if (bRecent === -1) return -1;
+    return aRecent - bRecent;
+  }
+  return 0;
+}
+
 function readSlashRecents(): string[] {
   if (typeof window === "undefined") return [];
   try {
@@ -743,21 +774,9 @@ export const ThreadComposer = forwardRef<ThreadComposerHandle, ThreadComposerPro
           recent: recentSlashCommands.includes(command.command),
         };
       })
-      .sort((a, b) => {
-        if (isStreaming) {
-          if (a.command === "/stop") return -1;
-          if (b.command === "/stop") return 1;
-        }
-        if (slashQuery !== "") return 0;
-        const aRecent = recentSlashCommands.indexOf(a.command);
-        const bRecent = recentSlashCommands.indexOf(b.command);
-        if (aRecent !== -1 || bRecent !== -1) {
-          if (aRecent === -1) return 1;
-          if (bRecent === -1) return -1;
-          return aRecent - bRecent;
-        }
-        return 0;
-      });
+      .sort((a, b) =>
+        compareSlashPaletteCommands(a, b, slashQuery, isStreaming, recentSlashCommands),
+      );
 
     return withDetails
       .slice(0, 8);

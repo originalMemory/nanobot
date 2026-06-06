@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadComposer, type ThreadComposerHandle } from "@/components/thread/ThreadComposer";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
-import { useNanobotStream } from "@/hooks/useNanobotStream";
+import { useNanobotStream, type SendImage, type SendOptions } from "@/hooks/useNanobotStream";
 import { fetchCliApps, fetchMcpPresets, listSlashCommands } from "@/lib/api";
 import { channelLabel } from "@/lib/channels";
 import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
@@ -57,6 +57,7 @@ export function InboxView({
   const { t } = useTranslation();
   const composerRef = useRef<ThreadComposerHandle>(null);
   const { token, apiBase } = useClient();
+  const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const [cliApps, setCliApps] = useState<CliAppInfo[]>([]);
   const [mcpPresets, setMcpPresets] = useState<McpPresetInfo[]>([]);
@@ -70,6 +71,14 @@ export function InboxView({
     streamError,
     dismissStreamError,
   } = useNanobotStream(INBOX_CHAT_ID, initialMessages);
+
+  const handleSend = useCallback(
+    (content: string, images?: SendImage[], options?: SendOptions) => {
+      setScrollToBottomSignal((value) => value + 1);
+      send(content, images, options);
+    },
+    [send],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -139,12 +148,13 @@ export function InboxView({
         <ThreadViewport
           messages={displayMessages}
           isStreaming={isStreaming}
+          scrollToBottomSignal={scrollToBottomSignal}
           cliApps={cliApps}
           mcpPresets={mcpPresets}
           composer={
             <ThreadComposer
               ref={composerRef}
-              onSend={send}
+              onSend={handleSend}
               onStop={stop}
               isStreaming={isStreaming}
               runStartedAt={runStartedAt}
