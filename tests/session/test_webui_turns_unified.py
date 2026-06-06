@@ -46,6 +46,45 @@ async def test_unified_session_publishes_turn_end_for_external_channel() -> None
 
 
 @pytest.mark.asyncio
+async def test_unified_session_turn_end_includes_usage() -> None:
+    """统一会话 turn_end 应携带 token/ctx usage，供直播客户端渲染 footer。"""
+    bus = MessageBus()
+    sessions = MagicMock()
+    sessions.get_or_create.return_value = MagicMock(metadata={})
+
+    coordinator = WebuiTurnCoordinator(
+        bus=bus,
+        sessions=sessions,
+        schedule_background=lambda coro: asyncio.create_task(coro),
+        unified_session=True,
+    )
+
+    usage = {
+        "last_prompt_tokens": 11000,
+        "turn_prompt_tokens": 152835,
+        "turn_completion_tokens": 340,
+        "context_tokens": 10800,
+        "context_pct": 1,
+    }
+    event = TurnCompleted(
+        context=RuntimeEventContext(
+            channel="telegram",
+            chat_id="999",
+            session_key="unified:default",
+            metadata={},
+        ),
+        latency_ms=800,
+        usage=usage,
+    )
+    await coordinator._handle_turn_completed_event(event)
+
+    assert bus.outbound_size == 1
+    msg = await bus.consume_outbound()
+    assert (msg.metadata or {}).get("_turn_end") is True
+    assert (msg.metadata or {}).get("usage") == usage
+
+
+@pytest.mark.asyncio
 async def test_non_unified_session_skips_external_turn_end() -> None:
     """未开启统一会话时，外部通道 turn 完成不应发布 turn_end。"""
     bus = MessageBus()

@@ -97,6 +97,11 @@ async def test_runtime_event_publisher_consumes_turn_metadata_on_complete() -> N
     bus.subscribe(seen.append)
     publisher.record_turn_runtime("cli:direct", "runtime")
     publisher.record_turn_latency("cli:direct", 123)
+    publisher.record_turn_usage("cli:direct", {
+        "last_prompt_tokens": 11000,
+        "turn_completion_tokens": 340,
+        "context_pct": 1,
+    })
 
     await publisher.turn_completed(
         channel="cli",
@@ -116,7 +121,13 @@ async def test_runtime_event_publisher_consumes_turn_metadata_on_complete() -> N
     assert isinstance(first, TurnCompleted)
     assert first.context.metadata == {"source": "test"}
     assert first.latency_ms == 123
+    assert first.usage == {
+        "last_prompt_tokens": 11000,
+        "turn_completion_tokens": 340,
+        "context_pct": 1,
+    }
     assert first.runtime == "runtime"
     assert isinstance(second, TurnCompleted)
     assert second.latency_ms is None
+    assert second.usage is None
     assert second.runtime is None

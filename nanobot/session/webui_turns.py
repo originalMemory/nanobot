@@ -312,6 +312,7 @@ class WebuiTurnCoordinator:
             msg,
             session_key=ctx.session_key,
             latency_ms=event.latency_ms,
+            usage=event.usage,
         )
         if is_ws:
             self._schedule_title_update_from_event(event)

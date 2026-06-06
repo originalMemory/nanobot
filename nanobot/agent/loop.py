@@ -1715,6 +1715,10 @@ class AgentLoop:
             ctx.session_key,
             ctx.turn_latency_ms,
         )
+        self._runtime_events().record_turn_usage(
+            ctx.session_key,
+            ctx.turn_usage or None,
+        )
         if not ctx.ephemeral:
             ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
             self._schedule_background(

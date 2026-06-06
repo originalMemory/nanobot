@@ -51,6 +51,7 @@ class TurnCompleted:
 
     context: RuntimeEventContext
     latency_ms: int | None = None
+    usage: dict[str, int] | None = None
     runtime: Any | None = None
 
 
@@ -143,6 +144,7 @@ class RuntimeEventPublisher:
     def __init__(self, bus: RuntimeEventBus | None = None) -> None:
         self.bus = bus or RuntimeEventBus()
         self._turn_latency_ms: dict[str, int] = {}
+        self._turn_usage: dict[str, dict[str, int]] = {}
         self._turn_runtime: dict[str, Any] = {}
 
     @staticmethod
@@ -167,8 +169,13 @@ class RuntimeEventPublisher:
         if latency_ms is not None:
             self._turn_latency_ms[session_key] = int(latency_ms)
 
+    def record_turn_usage(self, session_key: str, usage: dict[str, int] | None) -> None:
+        if usage:
+            self._turn_usage[session_key] = dict(usage)
+
     def clear_turn(self, session_key: str) -> None:
         self._turn_latency_ms.pop(session_key, None)
+        self._turn_usage.pop(session_key, None)
         self._turn_runtime.pop(session_key, None)
 
     async def session_turn_started(
@@ -225,6 +232,7 @@ class RuntimeEventPublisher:
                     metadata=metadata,
                 ),
                 latency_ms=self._turn_latency_ms.pop(session_key, None),
+                usage=self._turn_usage.pop(session_key, None),
                 runtime=self._turn_runtime.pop(session_key, None),
             )
         )
