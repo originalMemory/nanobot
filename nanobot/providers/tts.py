@@ -192,7 +192,7 @@ class OpenAICompatTTSProvider:
 def build_tts_provider(config: TtsConfig) -> OpenAICompatTTSProvider:
     """从 :class:`~nanobot.config.schema.TtsConfig` 构造 :class:`OpenAICompatTTSProvider`。
 
-    生命周期由调用方持有；通常在主动陪伴服务初始化时构造一次，跨 tick 复用。
+    生命周期由调用方持有；通常由 TTS 工具构造一次并跨调用复用。
     """
     return OpenAICompatTTSProvider(
         api_key=config.api_key,

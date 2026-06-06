@@ -253,7 +253,7 @@ def test_cleanup_connection_removes_locked_state(bus: MagicMock) -> None:
 
 
 def test_last_user_connection_none_when_locked(bus: MagicMock) -> None:
-    """最近用户连接失焦但屏幕已锁时返回 None（不触发主动陪伴）。"""
+    """最近用户连接失焦但屏幕已锁时返回 None（不允许截图）。"""
     ch = _ch(bus)
     conn = _mock_conn()
     ch._conn_default[conn] = "chat-a"

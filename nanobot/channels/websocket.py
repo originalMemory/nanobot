@@ -406,11 +406,11 @@ class WebSocketChannel(BaseChannel):
         # connection -> 是否处于前台（获焦）；Electron 连接建立后立即上报初值，
         # 字段缺失时兜底 True 以避免误触主动推送。
         self._conn_focused: dict[Any, bool] = {}
-        # connection -> 是否处于锁屏状态；锁屏时不触发主动陪伴。
+        # connection -> 是否处于锁屏状态；锁屏时不允许桌面上下文截图。
         # 字段缺失时兜底 False（未锁屏），锁屏事件由 Electron powerMonitor 上报。
         self._conn_locked: dict[Any, bool] = {}
-        # 最近一条 user 消息来源的连接（Electron）。主动陪伴只针对用户最后交互的窗口，
-        # 且仅当该窗口当前失焦时才触发。连接断开时清空。
+        # 最近一条 user 消息来源的连接（Electron）。桌面上下文只针对用户最后交互的窗口，
+        # 且仅当该窗口当前失焦时才允许截图。连接断开时清空。
         self._last_user_conn: Any | None = None
         # request_id -> Future[Path | None]：等待 screenshot_result 的挂起请求。
         self._screenshot_futures: dict[str, asyncio.Future[Any]] = {}
@@ -958,7 +958,7 @@ class WebSocketChannel(BaseChannel):
 
             # Auto-attach on first use so clients can one-shot without a separate attach.
             self._attach(connection, cid)
-            # 记录最近一条 user 消息来源连接，供主动陪伴判断目标窗口。
+            # 记录最近一条 user 消息来源连接，供桌面上下文判断目标窗口。
             self._last_user_conn = connection
             await self._hydrate_after_subscribe(cid)
             metadata: dict[str, Any] = {"remote": getattr(connection, "remote_address", None)}
@@ -1009,13 +1009,13 @@ class WebSocketChannel(BaseChannel):
             # 校验 data URL 为 JPEG 且体积在允许范围内
             mime = _extract_data_url_mime(data)
             if mime != "image/jpeg":
-                logger.warning("screenshot_result: 期望 image/jpeg，收到 {}", mime)
+                self.logger.warning("screenshot_result: 期望 image/jpeg，收到 {}", mime)
                 fut.set_result(None)
                 return
             # base64 body 长度换算为字节：每 4 字符约 3 字节
             estimated_bytes = len(data) * 3 // 4
             if estimated_bytes > _MAX_SCREENSHOT_BYTES:
-                logger.warning(
+                self.logger.warning(
                     "screenshot_result: 体积 {} 字节超过上限 {}，丢弃",
                     estimated_bytes, _MAX_SCREENSHOT_BYTES,
                 )
@@ -1025,7 +1025,7 @@ class WebSocketChannel(BaseChannel):
                 b64_start = data.index(",") + 1
                 raw = base64.b64decode(data[b64_start:])
             except Exception as e:
-                logger.warning("screenshot_result: base64 解码失败: {}", e)
+                self.logger.warning("screenshot_result: base64 解码失败: {}", e)
                 fut.set_result(None)
                 return
             try:
@@ -1033,7 +1033,7 @@ class WebSocketChannel(BaseChannel):
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(raw)
             except OSError as e:
-                logger.exception("screenshot_result: 写文件失败: {}", e)
+                self.logger.exception("screenshot_result: 写文件失败: {}", e)
                 fut.set_result(None)
                 return
             fut.set_result(out)
@@ -1593,10 +1593,10 @@ class WebSocketChannel(BaseChannel):
             # 超时即放弃：wait_for 取消 fut，迟到的 screenshot_result 因 fut.done() 被安全丢弃。
             return await asyncio.wait_for(fut, timeout=timeout_s)
         except asyncio.TimeoutError:
-            logger.warning("截图请求超时 request_id={}", request_id)
+            self.logger.warning("截图请求超时 request_id={}", request_id)
             return None
         except Exception as e:
-            logger.warning("截图请求失败: {}", e)
+            self.logger.warning("截图请求失败: {}", e)
             return None
         finally:
             self._screenshot_futures.pop(request_id, None)
@@ -1615,7 +1615,7 @@ class WebSocketChannel(BaseChannel):
     def get_unfocused_last_user_connection(self) -> "tuple[Any, str] | None":
         """返回最近一条 user 消息来源连接及其默认 chat_id（若它仍在线且当前失焦且未锁屏）。
 
-        主动陪伴据此决定是否触发。下列情况返回 ``None``（不触发）：
+        桌面上下文据此决定是否允许截图。下列情况返回 ``None``：
         - 尚无任何 user 消息来源连接；
         - 该连接已断开（清理后不在默认映射中）；
         - 该连接当前在前台（获焦）；
@@ -1629,7 +1629,7 @@ class WebSocketChannel(BaseChannel):
         if self._conn_focused.get(conn, True):
             return None
         if self._conn_locked.get(conn, False):
-            logger.debug("主动陪伴：屏幕已锁，跳过")
+            self.logger.debug("桌面上下文：屏幕已锁，跳过")
             return None
         return (conn, self._conn_default.get(conn, ""))
 

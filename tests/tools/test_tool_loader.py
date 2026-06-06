@@ -94,6 +94,14 @@ def test_discover_finds_concrete_tools():
     assert "WriteStdinTool" in class_names
 
 
+def test_desktop_context_tool_is_registered_manually():
+    loader = ToolLoader()
+    discovered = loader.discover()
+    class_names = {cls.__name__ for cls in discovered}
+
+    assert "DesktopContextTool" not in class_names
+
+
 def test_discover_excludes_abstract_and_mcp():
     loader = ToolLoader()
     discovered = loader.discover()

@@ -958,6 +958,26 @@ def test_heartbeat_context_messages_default():
     assert config.gateway.heartbeat.context_messages == 50
 
 
+def test_desktop_context_tool_disabled_by_default():
+    config = Config()
+
+    assert config.tools.desktop_context.enabled is False
+
+
+def test_desktop_context_tool_config_accepts_camel_case():
+    config = Config.model_validate({
+        "tools": {
+            "desktopContext": {
+                "enabled": True,
+                "screenshotTimeoutS": 3,
+            },
+        },
+    })
+
+    assert config.tools.desktop_context.enabled is True
+    assert config.tools.desktop_context.screenshot_timeout_s == 3
+
+
 @pytest.mark.parametrize(
     "content, expected",
     [

@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-import re
 import select
 import signal
 import sys
@@ -1102,11 +1101,9 @@ def _run_gateway(
                 context_messages=job.payload.context_messages,
             )
 
-            # Internal check: funnel all output through the post-run gate so the
-            # turn can't deliver directly via the message tool and skip it.
-            suppress_token = None
+            message_record_token = None
             if isinstance(message_tool, MessageTool):
-                suppress_token = message_tool.set_suppress_delivery(True)
+                message_record_token = message_tool.set_record_channel_delivery(True)
             try:
                 resp = await agent.process_direct(
                     prompt,
@@ -1116,14 +1113,17 @@ def _run_gateway(
                     on_progress=_silent,
                 )
             finally:
-                if isinstance(message_tool, MessageTool) and suppress_token is not None:
-                    message_tool.reset_suppress_delivery(suppress_token)
+                if isinstance(message_tool, MessageTool) and message_record_token is not None:
+                    message_tool.reset_record_channel_delivery(message_record_token)
             response = resp.content if resp else ""
 
             # Keep a small tail of heartbeat history so the loop stays bounded.
             session = agent.sessions.get_or_create("heartbeat")
             session.retain_recent_legal_suffix(hb_cfg.keep_recent_messages)
             agent.sessions.save(session)
+
+            if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
+                return response
 
             if not response:
                 return None
@@ -1238,53 +1238,20 @@ def _run_gateway(
 
     hb_cfg = config.gateway.heartbeat
 
-    # 主动陪伴服务：仅当 websocket 通道存在时才有意义
-    from nanobot.agent.skills import BUILTIN_SKILLS_DIR
-    from nanobot.channels.websocket import INBOX_UNIFIED_CHAT_ID
+    # 桌面上下文工具只在 gateway 持有 WebSocket 通道时手动注册。
+    from nanobot.agent.tools.desktop_context import DesktopContextTool
     from nanobot.channels.websocket import WebSocketChannel as _WSChannel
-    from nanobot.proactive_chat.service import ProactiveChatService
 
-    _ws_channel = channels.channels.get("websocket")
-
-    async def _on_proactive_chat_trigger(media: list[str]) -> None:
-        """主动陪伴触发回调：以专用 session 发起一次 agent turn。
-
-        按顺序执行 proactive-chat SKILL.md 定义的流程：
-        截图上下文 → 生成文案 → tts 合成 → message 工具发送。
-        """
-        async def _silent(*_args: object, **_kwargs: object) -> None:
-            pass
-
-        # 加载 proactive-chat SKILL.md 作为 preamble，使 agent 遵循完整执行步骤
-        skill_path = BUILTIN_SKILLS_DIR / "proactive-chat" / "SKILL.md"
-        try:
-            skill_content = skill_path.read_text(encoding="utf-8")
-            skill_content = re.sub(r"^---\s*\n.*?\n---\s*\n", "", skill_content, flags=re.DOTALL)
-        except OSError:
-            skill_content = (
-                "你处于主动陪伴模式：根据截图和近期对话生成简短问候，"
-                "调用 tts 工具合成语音，再用 message 工具将文案和音频一起发送。"
-            )
-
-        # 发给 INBOX_UNIFIED_CHAT_ID，确保消息进入 InboxView 的订阅队列。
-        # default_chat_id（随机 UUID）不与 Electron InboxView 绑定，直接发 UUID 会导致消息不渲染。
-        await agent.process_direct(
-            skill_content.strip(),
-            session_key="proactive_chat",
-            channel="websocket",
-            chat_id=INBOX_UNIFIED_CHAT_ID,
-            on_progress=_silent,
-            media=media if media else None,
-        )
-
-    proactive_chat: ProactiveChatService | None = None
-    if isinstance(_ws_channel, _WSChannel):
-        proactive_chat = ProactiveChatService(
-            cfg=config.proactive_chat,
-            ws_channel=_ws_channel,
-            on_trigger=_on_proactive_chat_trigger,
-            timezone=config.agents.defaults.timezone,
-        )
+    _ws_channel = getattr(channels, "channels", {}).get("websocket")
+    desktop_context_registered = False
+    desktop_cfg = config.tools.desktop_context
+    if desktop_cfg.enabled and isinstance(_ws_channel, _WSChannel):
+        agent.tools.register(DesktopContextTool(
+            _ws_channel,
+            config=desktop_cfg,
+            vision_provider_getter=lambda: (agent._vision_provider, agent._vision_model),
+        ))
+        desktop_context_registered = True
 
 
     if channels.enabled_channels:
@@ -1300,16 +1267,15 @@ def _run_gateway(
         console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
     else:
         console.print("[yellow]✗[/yellow] Heartbeat: disabled")
-    pc_cfg = config.proactive_chat
-    if pc_cfg.enabled:
-        console.print(f"[green]✓[/green] Proactive chat: every {pc_cfg.interval_s}s")
+    if desktop_context_registered:
+        console.print("[green]✓[/green] Desktop context tool: enabled")
         console.print(
-            "[yellow bold]⚠ 隐私提示[/yellow bold] 主动陪伴已启用。"
-            "当 Electron 客户端处于后台时，nanobot 会定期截取屏幕并将图像发送给 AI 模型进行分析。"
-            "请确认你知晓并同意此数据流向。如需关闭，设置 proactiveChat.enabled = false。"
+            "[yellow bold]⚠ 隐私提示[/yellow bold] desktop_context 已启用。"
+            "当 agent 调用该工具且 Electron 客户端处于后台时，nanobot 可截取屏幕并发送给 AI 模型分析。"
+            "如需关闭，设置 tools.desktopContext.enabled = false。"
         )
     else:
-        console.print("[dim]  Proactive chat: disabled[/dim]")
+        console.print("[dim]  Desktop context tool: disabled[/dim]")
 
     async def _health_server(host: str, health_port: int):
         """Lightweight HTTP health endpoint on the gateway port."""
@@ -1431,8 +1397,6 @@ def _run_gateway(
     async def run():
         try:
             await cron.start()
-            if proactive_chat is not None:
-                await proactive_chat.start()
             if _hist_index is not None:
                 async def _build_hist_index() -> None:
                     changed = await _hist_index.refresh_async()
@@ -1470,8 +1434,6 @@ def _run_gateway(
             console.print(traceback.format_exc())
         finally:
             await agent.close_mcp()
-            if proactive_chat is not None:
-                proactive_chat.stop()
             cron.stop()
             agent.stop()
             await channels.stop_all()

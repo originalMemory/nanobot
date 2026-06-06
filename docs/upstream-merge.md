@@ -14,7 +14,7 @@ HKUDS/nanobot  (upstream)        originalMemory/nanobot  (origin)
      ▼                                    ▼
   v0.2.0 ── v0.2.1 ── ...          main ← upstream/main
                                       │
-                                   lover (Electron / Inbox / 主动陪伴 / 历史记忆 …)
+                                   lover (Electron / Inbox / heartbeat 桌面感知 / 历史记忆 …)
 ```
 
 | 分支     | 用途                                             |
@@ -95,7 +95,7 @@ git merge main
 冲突解决原则：
 
 1. **版本号**：取上游值
-2. **fork 独有模块**（`electron/`、`nanobot/proactive_chat/`、`nanobot/agent/historical_memory.py`）：保留 fork 版本
+2. **fork 独有模块**（`electron/`、`nanobot/agent/tools/desktop_context.py`、`nanobot/agent/historical_memory.py`）：保留 fork 版本
 3. **上游新功能**：接受上游，检查是否与 fork 功能冲突
 4. **同一函数双方都改**：读懂两边意图后手动合并；写测试覆盖
 5. **上游删除的模块**：检查 fork 里是否还残留对已删模块的调用（如 `nanobot/heartbeat/`、`nanobot/heartbeat/service.py` 在 v0.2.1 已删）；若有，须一并清理，否则运行时会 NameError
@@ -146,7 +146,7 @@ git push origin lover
 - [ ] 上游新增的 channel/provider 是否影响统一收件箱的 source badge 映射
 - [ ] 上游 WebUI 新组件/改动是否需要移植到 `electron/src/renderer/`
 - [ ] 上游新增/修改的 i18n key 是否需要在 `electron/` 侧的 `zh-CN/common.json` 同步
-- [ ] `nanobot/agent/loop.py` 的改动是否影响 unified session / proactive chat 逻辑
+- [ ] `nanobot/agent/loop.py` 的改动是否影响 unified session / heartbeat 主动感知逻辑
 - [ ] 历史记忆（`historical_memory.py`）的 `memory_search` 工具描述是否与上游 tool 注册方式兼容
 - [ ] 上游安全修复是否已完整合入（搜索 `[security]` 标记的 PR）
 - [ ] 测试通过
@@ -161,11 +161,10 @@ git push origin lover
 | ---------------------------------- | ----------------------------- |
 | `nanobot/webui/fork_http.py`        | fork HTTP 路由（替代 upstream `ws_http.py` 的生产路径） |
 | `electron/`                        | Electron 桌面客户端           |
-| `nanobot/proactive_chat/`          | 主动陪伴服务                  |
+| `nanobot/agent/tools/desktop_context.py` | heartbeat 桌面上下文工具 |
 | `nanobot/agent/historical_memory.py` | 外部日记库 FTS 检索         |
 | `nanobot/agent/tools/tts.py`       | TTS 工具                      |
 | `nanobot/providers/tts.py`         | TTS provider                  |
-| `nanobot/skills/proactive-chat/`   | 主动陪伴编排 skill            |
 | `openspec/`                        | OpenSpec 变更管理              |
 | `specs/`                           | Spec-lite 规格                 |
 | `docs/nanobot-vs-openclaw-zh/`     | 架构对比文档                  |

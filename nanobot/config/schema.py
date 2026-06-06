@@ -12,6 +12,7 @@ from nanobot.cron.types import CronSchedule
 
 if TYPE_CHECKING:
     from nanobot.agent.tools.cli_apps import CliAppsToolConfig
+    from nanobot.agent.tools.desktop_context import DesktopContextToolConfig
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
@@ -333,27 +334,6 @@ class TtsConfig(Base):
     # GLM-TTS 去水印示例：extra_body = {"watermark_enabled": false}
 
 
-class ProactiveChatConfig(Base):
-    """主动陪伴功能配置（默认关闭，需显式开启）。
-
-    用户切到后台且未锁屏时，助手基于屏幕截图和近期对话主动生成一句话并以语音播放。
-
-    quiet_periods 格式：每项为字符串，支持两种形式：
-      - "HH:MM-HH:MM"            每天均生效的静默段（支持跨午夜）
-      - "weekday:HH:MM-HH:MM"    仅周一至周五生效
-    示例：["22:00-08:00", "weekday:09:00-18:00"]
-    空列表表示不设静默时段。
-    """
-
-    enabled: bool = False
-    interval_s: int = Field(default=30 * 60, ge=60)  # 触发间隔，最短 60 秒
-    quiet_periods: list[str] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("quietPeriods", "quiet_periods"),
-        serialization_alias="quietPeriods",
-    )
-
-
 class ApiConfig(Base):
     """OpenAI-compatible API server configuration."""
 
@@ -406,6 +386,11 @@ class ToolsConfig(Base):
     image_generation: ImageGenerationToolConfig = Field(
         default_factory=lambda: _lazy_default("nanobot.agent.tools.image_generation", "ImageGenerationToolConfig"),
     )
+    desktop_context: DesktopContextToolConfig = Field(
+        default_factory=lambda: _lazy_default("nanobot.agent.tools.desktop_context", "DesktopContextToolConfig"),
+        validation_alias=AliasChoices("desktopContext", "desktop_context"),
+        serialization_alias="desktopContext",
+    )
     tts: TtsToolConfig = Field(
         default_factory=lambda: _lazy_default("nanobot.agent.tools.tts", "TtsToolConfig"),
     )
@@ -432,10 +417,6 @@ class Config(BaseSettings):
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
-    proactive_chat: ProactiveChatConfig = Field(
-        default_factory=ProactiveChatConfig,
-        validation_alias=AliasChoices("proactiveChat", "proactive_chat"),
-    )
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("modelPresets", "model_presets"),
@@ -610,6 +591,7 @@ def _resolve_tool_config_refs() -> None:
     import sys
 
     from nanobot.agent.tools.cli_apps import CliAppsToolConfig
+    from nanobot.agent.tools.desktop_context import DesktopContextToolConfig
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
@@ -625,6 +607,7 @@ def _resolve_tool_config_refs() -> None:
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.ImageGenerationToolConfig = ImageGenerationToolConfig  # type: ignore[attr-defined]
+    mod.DesktopContextToolConfig = DesktopContextToolConfig  # type: ignore[attr-defined]
     mod.TtsToolConfig = TtsToolConfig  # type: ignore[attr-defined]
 
     ToolsConfig.model_rebuild()

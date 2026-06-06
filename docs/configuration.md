@@ -1692,22 +1692,25 @@ Set `agents.defaults.toolHintMaxLength` to control the truncation threshold:
 |--------|---------|-------------|
 | `agents.defaults.toolHintMaxLength` | `40` | Maximum characters for tool hint display. Range: 20–500. Higher values show more of the command or path; lower values keep hints compact. |
 
-## Proactive Chat
+## Heartbeat Desktop Context
 
-> **Privacy notice** — when enabled, nanobot periodically captures a screenshot of the Electron desktop window and sends the image to your configured AI model. Only enable this if you understand and accept that data flow.
+> **Privacy notice** — when enabled, the `desktop_context` tool can capture a screenshot from the Electron desktop client and send it to your configured AI model. Only enable this if you understand and accept that data flow.
 
-Proactive chat lets nanobot act as a companion that reaches out to you while you're away. When the Electron app moves to the background, nanobot wakes up on a configurable interval, takes a screenshot, and generates a short voice message based on your recent conversation and what it sees on screen.
+Heartbeat is the single proactive decision loop. Put recurring follow-up rules in workspace `HEARTBEAT.md`; when a heartbeat turn needs desktop awareness, it can call `desktop_context`, inspect the returned state (and caption or attached screenshot), then use `message` and optional `tts` to deliver text, screenshots, or audio.
 
-**Disabled by default.** You must opt in explicitly.
+**Screenshot access is disabled by default.** You must opt in explicitly.
 
-> **Two switches are required.** `proactiveChat.enabled` only starts the trigger loop — the spoken voice is produced by the `tts` agent tool. You must **also** set `tools.tts.enabled = true` with a valid API key. If `tools.tts` is left disabled (or its API key is missing), proactive chat still fires but degrades to a **text-only** message with no audio.
+If you previously used `proactiveChat`, remove that top-level config block. The standalone proactive loop has been replaced by `gateway.heartbeat` plus the `desktop_context` tool; leaving `proactiveChat` in `config.json` will make config validation fail.
 
 ### Minimal setup
 
 ```json
 {
-  "proactiveChat": { "enabled": true },
+  "gateway": {
+    "heartbeat": { "enabled": true, "intervalS": 1800 }
+  },
   "tools": {
+    "desktopContext": { "enabled": true },
     "tts": {
       "enabled": true,
       "apiBase": "https://open.bigmodel.cn/api/paas/v4",
@@ -1720,19 +1723,27 @@ Proactive chat lets nanobot act as a companion that reaches out to you while you
 
 ### Options
 
-**Proactive Chat (`proactiveChat`):**
+**Heartbeat (`gateway.heartbeat`):**
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `proactiveChat.enabled` | `false` | Enable or disable the feature. |
-| `proactiveChat.intervalS` | `1800` (30 min) | Seconds between proactive checks. Minimum: `60`. |
-| `proactiveChat.quietHours` | `[]` | Silence window as `["HH:MM", "HH:MM"]` (24h, start–end). Supports cross-midnight ranges, e.g. `["22:00", "08:00"]`. Empty list means always active. |
+| `gateway.heartbeat.enabled` | `true` | Enable the heartbeat cron job. |
+| `gateway.heartbeat.intervalS` | `1800` (30 min) | Seconds between heartbeat checks. |
+| `gateway.heartbeat.keepRecentMessages` | `8` | Number of recent heartbeat session messages to retain. |
+| `gateway.heartbeat.contextMessages` | `50` | Recent unified messages injected into heartbeat turns when unified session is enabled. |
+
+**Desktop context tool (`tools.desktopContext`):**
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `tools.desktopContext.enabled` | `false` | Register the `desktop_context` agent tool. |
+| `tools.desktopContext.screenshotTimeoutS` | `10` | Seconds to wait for Electron screenshot response. |
 
 **TTS tool (`tools.tts`):**
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `tools.tts.enabled` | `false` | Enable the TTS agent tool (required for proactive chat voice). |
+| `tools.tts.enabled` | `false` | Enable the TTS agent tool for optional proactive audio. |
 | `tools.tts.defaultVoice` | `"tongtong"` | Default voice name or ID. GLM system voices: `tongtong`, `chuichui`. Custom cloned voices use a UUID. |
 | `tools.tts.provider` | `"glm-tts"` | Label used in logs (does not affect routing). |
 | `tools.tts.apiBase` | GLM endpoint | Base URL for the OpenAI-compatible `/audio/speech` endpoint. |
@@ -1798,30 +1809,18 @@ For custom cloned voices, pass the voice UUID as `defaultVoice`.
 }
 ```
 
-### Quiet hours
-
-Only trigger between 09:00 and 21:00:
-
-```json
-{
-  "proactiveChat": {
-    "enabled": true,
-    "quietHours": ["21:00", "09:00"]
-  }
-}
-```
-
 ### How it works
 
-1. `ProactiveChatService` wakes up every `intervalS` seconds.
-2. It checks whether the Electron window that sent the **most recent user message** is still connected and currently **unfocused** (in the background). Only that window is targeted; if it is in the foreground, or the user last interacted elsewhere (e.g. the WebUI), nothing fires.
-3. If eligible, it sends a `screenshot_request` event to that connection; the Electron renderer captures the screen and returns a JPEG via `screenshot_result`.
-4. The screenshot (if received) is passed as a vision image to the agent, along with the `proactive-chat` skill as the prompt.
-5. The agent generates a short message in the style of an intimate companion, calls `tts` to synthesize audio, and calls `message` to deliver text + audio to the target chat.
-6. The Electron renderer receives the message and auto-plays the audio attachment.
+1. The heartbeat cron job reads workspace `HEARTBEAT.md`.
+2. If `## Active Tasks` contains tasks, heartbeat starts an agent turn with recent unified context.
+3. The agent may call `desktop_context` from any session. The tool targets the Electron window that sent the most recent user message.
+4. Screenshots are only requested when that window is still connected, unfocused, and not locked.
+5. If a screenshot is captured and `agents.defaults.visionModel` is configured, the auxiliary vision model describes it in the tool result. Otherwise the screenshot is attached for the main model, like a user image upload.
+6. The agent can call `message` directly. If it does, heartbeat does not append a second final response.
 
 ### Requirements
 
 - Electron desktop client (WebSocket channel must be enabled and connected).
-- A configured TTS provider with a valid API key.
-- The AI model must support vision (multimodal) for screenshot analysis. If `agents.defaults.visionModel` is set, that auxiliary model is used for image captioning instead.
+- `tools.desktopContext.enabled = true` for screenshot access.
+- Optional: a configured TTS provider with a valid API key.
+- Optional: `agents.defaults.visionModel` for screenshot captioning.
