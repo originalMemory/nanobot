@@ -779,6 +779,10 @@
   },
   "inbox": {
     "unified": "统一收件箱",
+    "refreshHistory": "刷新历史消息",
+    "refreshHistoryDisabledStreaming": "请等待当前回复结束",
+    "refreshHistoryNotFound": "服务端暂无已保存的历史消息",
+    "refreshHistoryFailed": "刷新历史消息失败",
     "sidebarNav": "侧边栏导航",
     "settings": "设置",
     "quit": "退出",

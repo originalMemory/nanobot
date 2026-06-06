@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadComposer, type ThreadComposerHandle } from "@/components/thread/ThreadComposer";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNanobotStream, type SendImage, type SendOptions } from "@/hooks/useNanobotStream";
-import { fetchCliApps, fetchMcpPresets, listSlashCommands } from "@/lib/api";
+import { ApiError, fetchCliApps, fetchInboxThread, fetchMcpPresets, listSlashCommands } from "@/lib/api";
 import { channelLabel } from "@/lib/channels";
 import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
 import type { CliAppInfo, McpPresetInfo, SettingsPayload, SlashCommand, UIMessage } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
 const INBOX_CHAT_ID = "inbox:unified";
+const TOAST_DURATION_MS = 3_500;
 
 interface InboxViewProps {
   initialMessages: UIMessage[];
@@ -58,6 +63,10 @@ export function InboxView({
   const composerRef = useRef<ThreadComposerHandle>(null);
   const { token, apiBase } = useClient();
   const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const toastTimerRef = useRef<number | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const [cliApps, setCliApps] = useState<CliAppInfo[]>([]);
   const [mcpPresets, setMcpPresets] = useState<McpPresetInfo[]>([]);
@@ -68,9 +77,52 @@ export function InboxView({
     goalState,
     send,
     stop,
+    replaceMessagesFromSnapshot,
     streamError,
     dismissStreamError,
   } = useNanobotStream(INBOX_CHAT_ID, initialMessages);
+
+  const showToast = useCallback((message: string) => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    setToastMessage(message);
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null;
+      setToastMessage(null);
+    }, TOAST_DURATION_MS);
+  }, []);
+
+  useEffect(() => () => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+  }, []);
+
+  const handleRefreshHistory = useCallback(async () => {
+    if (isStreaming || refreshingRef.current) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    try {
+      const thread = await fetchInboxThread(token, apiBase);
+      if (thread === null) {
+        showToast(t("inbox.refreshHistoryNotFound"));
+        return;
+      }
+      replaceMessagesFromSnapshot(thread.messages ?? []);
+      setScrollToBottomSignal((value) => value + 1);
+    } catch (err) {
+      console.warn("[nanobot] fetchInboxThread refresh failed:", err);
+      if (err instanceof ApiError && err.status === 404) {
+        showToast(t("inbox.refreshHistoryNotFound"));
+        return;
+      }
+      showToast(t("inbox.refreshHistoryFailed"));
+    } finally {
+      refreshingRef.current = false;
+      setRefreshing(false);
+    }
+  }, [apiBase, isStreaming, replaceMessagesFromSnapshot, showToast, t, token]);
 
   const handleSend = useCallback(
     (content: string, images?: SendImage[], options?: SendOptions) => {
@@ -131,10 +183,50 @@ export function InboxView({
     return messages.filter((m) => m.sourceChannel === activeChannel);
   }, [messages, activeChannel]);
 
+  const refreshDisabled = isStreaming || refreshing;
+  const refreshTooltip = isStreaming
+    ? t("inbox.refreshHistoryDisabledStreaming")
+    : t("inbox.refreshHistory");
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-9 shrink-0 items-center border-b border-sidebar-border/60 bg-sidebar px-4 text-sm font-medium text-foreground">
-        {activeChannel ? channelLabel(activeChannel) : t("inbox.unified")}
+      {toastMessage ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full border border-border/70 bg-popover px-4 py-2 text-sm font-medium text-popover-foreground shadow-lg"
+        >
+          {toastMessage}
+        </div>
+      ) : null}
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-sidebar-border/60 bg-sidebar px-4">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+          {activeChannel ? channelLabel(activeChannel) : t("inbox.unified")}
+        </span>
+        <TooltipProvider delayDuration={400}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  disabled={refreshDisabled}
+                  aria-label={refreshTooltip}
+                  onClick={() => {
+                    void handleRefreshHistory();
+                  }}
+                >
+                  <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              {refreshTooltip}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       {/* Thread + Composer (ThreadViewport owns the layout) */}

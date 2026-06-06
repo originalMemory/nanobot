@@ -451,6 +451,7 @@ export function useNanobotStream(
   send: (content: string, images?: SendImage[], options?: SendOptions) => void;
   stop: () => void;
   setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>;
+  replaceMessagesFromSnapshot: (nextMessages: UIMessage[]) => void;
   /** Latest transport-level fault raised since the last ``dismissStreamError``.
    * ``null`` when there is nothing to show. */
   streamError: StreamError | null;
@@ -724,6 +725,27 @@ export function useNanobotStream(
       setMessages((prev) => mergePendingCaptionEvents(prev, events));
     });
   }, [mergePendingCaptionEvents]);
+
+  const replaceMessagesFromSnapshot = useCallback((nextMessages: UIMessage[]) => {
+    const snapshotIsStreaming = nextMessages.length > 0
+      ? nextMessages[nextMessages.length - 1].kind === "trace"
+      : false;
+
+    setMessages(nextMessages);
+    setIsStreaming(snapshotIsStreaming || hasPendingToolCalls);
+    setRunStartedAt(chatId ? client.getRunStartedAt(chatId) : null);
+    setGoalState(chatId ? client.getGoalState(chatId) : undefined);
+    buffer.current = null;
+    activeAssistantRef.current = null;
+    closedAssistantStreamIdsRef.current.clear();
+    clearActivitySegment();
+    clearPendingStreamWork();
+    suppressStreamUntilTurnEndRef.current = false;
+    if (streamEndTimerRef.current !== null) {
+      clearTimeout(streamEndTimerRef.current);
+      streamEndTimerRef.current = null;
+    }
+  }, [chatId, clearActivitySegment, clearPendingStreamWork, client, hasPendingToolCalls]);
 
   // Reset local state when switching chats. Do not reset on every
   // ``initialMessages`` update: a brand-new chat can receive an empty/404
@@ -1177,6 +1199,7 @@ export function useNanobotStream(
     send,
     stop,
     setMessages,
+    replaceMessagesFromSnapshot,
     streamError,
     dismissStreamError,
   };

@@ -779,6 +779,10 @@
   },
   "inbox": {
     "unified": "Unified Inbox",
+    "refreshHistory": "Refresh message history",
+    "refreshHistoryDisabledStreaming": "Wait for the current reply to finish",
+    "refreshHistoryNotFound": "No saved message history on the server",
+    "refreshHistoryFailed": "Could not refresh history",
     "sidebarNav": "Sidebar navigation",
     "settings": "Settings",
     "quit": "Quit",
