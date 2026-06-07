@@ -712,7 +712,8 @@
       }
     },
     "scrollToBottom": "Scroll to bottom",
-    "loadEarlier": "Load earlier messages"
+    "loadEarlier": "Load earlier messages",
+    "unreadDivider": "{{count}} unread messages"
   },
   "message": {
     "streaming": "streaming",

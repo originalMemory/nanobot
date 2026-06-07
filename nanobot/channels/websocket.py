@@ -30,6 +30,12 @@ from nanobot.security.workspace_access import (
     WorkspaceScopeError,
 )
 from nanobot.session import UNIFIED_SESSION_KEY
+from nanobot.session.inbox_unread import (
+    clear_inbox_unread,
+    ensure_inbox_delivery_baseline,
+    mark_inbox_delivered_after_fanout,
+    should_track_unread_fanout,
+)
 from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
 from nanobot.utils.media_decode import (
@@ -874,6 +880,8 @@ class WebSocketChannel(BaseChannel):
             if cid == INBOX_UNIFIED_CHAT_ID:
                 self._attach(connection, INBOX_UNIFIED_CHAT_ID)
                 await self._send_event(connection, "attached", chat_id=INBOX_UNIFIED_CHAT_ID)
+                if self._session_manager is not None:
+                    clear_inbox_unread(self._session_manager)
                 await self._hydrate_after_subscribe(INBOX_UNIFIED_CHAT_ID)
                 return
             if not _is_valid_chat_id(cid):
@@ -1117,16 +1125,45 @@ class WebSocketChannel(BaseChannel):
         和 ``inbox:unified`` 的客户端收到重复消息（按连接集合去重）。
         """
         inbox_conns = list(self._subs.get(INBOX_UNIFIED_CHAT_ID, ()))
-        if not inbox_conns:
+        eligible = [
+            connection
+            for connection in inbox_conns
+            if not (exclude_conns and connection in exclude_conns)
+        ]
+        if not eligible:
+            if (
+                self._unified_session
+                and self._session_manager is not None
+                and should_track_unread_fanout(payload)
+            ):
+                if inbox_conns:
+                    # 同连接已通过 chat_id 收到，视为 inbox 已实时投递。
+                    mark_inbox_delivered_after_fanout(
+                        self._session_manager,
+                        payload,
+                        source_channel,
+                        source_chat_id,
+                    )
+                else:
+                    ensure_inbox_delivery_baseline(self._session_manager)
             return
         fan_payload = dict(payload)
         fan_payload["source_channel"] = source_channel
         fan_payload["source_chat_id"] = source_chat_id
         fan_raw = json.dumps(fan_payload, ensure_ascii=False)
-        for connection in inbox_conns:
-            if exclude_conns and connection in exclude_conns:
-                continue
+        for connection in eligible:
             await self._safe_send_to(connection, fan_raw, label=" inbox:unified ")
+        if (
+            self._unified_session
+            and self._session_manager is not None
+            and should_track_unread_fanout(payload)
+        ):
+            mark_inbox_delivered_after_fanout(
+                self._session_manager,
+                payload,
+                source_channel,
+                source_chat_id,
+            )
 
     async def fan_out_unified_inbox_event(
         self,

@@ -23,6 +23,12 @@ from nanobot.channels.websocket import (
     _is_valid_chat_id,
 )
 from nanobot.session.manager import SessionManager
+from nanobot.session.inbox_unread import (
+    INBOX_LAST_DELIVERED_UI_COUNT_KEY,
+    compute_inbox_unread_count,
+    inbox_ui_message_count,
+)
+from nanobot.webui.transcript import build_inbox_thread_from_session
 from ws_test_client import WsTestClient
 
 
@@ -534,6 +540,215 @@ async def test_inbox_thread_returns_messages_from_session(
         roles = [m["role"] for m in data["messages"]]
         assert "user" in roles
         assert "assistant" in roles
+    finally:
+        await ch.stop()
+        await t
+
+
+@pytest.mark.asyncio
+async def test_fan_out_without_inbox_subscribers_increments_unread(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    """无 inbox:unified 订阅者时 fan-out 失败应保留未投递水位，thread 显示未读。"""
+    sm = SessionManager(workspace=tmp_path)
+    session = sm.get_or_create("unified:default")
+    session.add_message(
+        "assistant",
+        "offline msg",
+        source_channel="telegram",
+        source_chat_id="tg-1",
+    )
+    sm.save(session)
+
+    ch = _ch(bus, _PORT_BASE + 14, session_manager=sm, unified_session=True)
+    t = asyncio.create_task(ch.start())
+    await asyncio.sleep(0.3)
+    try:
+        await ch.fan_out_unified_inbox_event(
+            {
+                "event": "message",
+                "chat_id": INBOX_UNIFIED_CHAT_ID,
+                "text": "offline msg",
+            },
+            "telegram",
+            "tg-1",
+        )
+        session = sm.get_or_create("unified:default")
+        ui_count = inbox_ui_message_count(session)
+        assert compute_inbox_unread_count(session, ui_count) == ui_count
+    finally:
+        await ch.stop()
+        await t
+
+
+@pytest.mark.asyncio
+async def test_inbox_thread_returns_unread_count(bus: MagicMock, tmp_path: Path) -> None:
+    """GET /api/inbox/thread 应返回 unreadCount 字段。"""
+    sm = SessionManager(workspace=tmp_path)
+    session = sm.get_or_create("unified:default")
+    session.add_message(
+        "user",
+        "hey telegram",
+        source_channel="telegram",
+        source_chat_id="tg-1",
+    )
+    session.add_message(
+        "assistant",
+        "hello back",
+        source_channel="telegram",
+        source_chat_id="tg-1",
+    )
+    session.metadata[INBOX_LAST_DELIVERED_UI_COUNT_KEY] = 0
+    sm.save(session)
+
+    ch = _ch(bus, _PORT_BASE + 15, session_manager=sm, workspace_path=tmp_path)
+    t = asyncio.create_task(ch.start())
+    await asyncio.sleep(0.3)
+    try:
+        resp_bs = await asyncio.to_thread(
+            functools.partial(
+                httpx.get,
+                f"http://127.0.0.1:{_PORT_BASE + 15}/webui/bootstrap",
+                timeout=5.0,
+            )
+        )
+        token = resp_bs.json()["token"]
+        resp = await _http_get(
+            f"http://127.0.0.1:{_PORT_BASE + 15}/api/inbox/thread",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        data = resp.json()
+        assert data["unreadCount"] == 2
+    finally:
+        await ch.stop()
+        await t
+
+
+@pytest.mark.asyncio
+async def test_attach_inbox_unified_clears_unread(bus: MagicMock, tmp_path: Path) -> None:
+    """attach inbox:unified 后应将投递水位推进到当前 UI 消息条数。"""
+    sm = SessionManager(workspace=tmp_path)
+    session = sm.get_or_create("unified:default")
+    session.add_message("user", "hey", source_channel="telegram", source_chat_id="tg-1")
+    session.metadata[INBOX_LAST_DELIVERED_UI_COUNT_KEY] = 0
+    sm.save(session)
+
+    ch = _ch(bus, _PORT_BASE + 16, session_manager=sm, unified_session=True)
+    t = asyncio.create_task(ch.start())
+    await asyncio.sleep(0.3)
+    try:
+        async with WsTestClient(f"ws://127.0.0.1:{_PORT_BASE + 16}/", client_id="c") as c:
+            await c.recv_ready()
+            await c.ws.send(json.dumps({"type": "attach", "chat_id": INBOX_UNIFIED_CHAT_ID}))
+            raw = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+            assert raw["event"] == "attached"
+        session = sm.get_or_create("unified:default")
+        ui_count = inbox_ui_message_count(session)
+        assert session.metadata.get(INBOX_LAST_DELIVERED_UI_COUNT_KEY) == ui_count
+        assert compute_inbox_unread_count(session, ui_count) == 0
+    finally:
+        await ch.stop()
+        await t
+
+
+@pytest.mark.asyncio
+async def test_dual_subscribe_does_not_mark_unread(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    """同连接双订阅时消息已通过 chat_id 收到，不应产生未读。"""
+    sm = SessionManager(workspace=tmp_path)
+    session = sm.get_or_create("unified:default")
+    session.metadata[INBOX_LAST_DELIVERED_UI_COUNT_KEY] = 0
+    sm.save(session)
+
+    ch = _ch(
+        bus,
+        _PORT_BASE + 17,
+        session_manager=sm,
+        unified_session=True,
+        workspace_path=tmp_path,
+    )
+    t = asyncio.create_task(ch.start())
+    await asyncio.sleep(0.3)
+    try:
+        async with WsTestClient(
+            f"ws://127.0.0.1:{_PORT_BASE + 17}/", client_id="e"
+        ) as c:
+            ready = await c.recv_ready()
+            chat_id = ready.chat_id
+            await c.ws.send(json.dumps({"type": "attach", "chat_id": "inbox:unified"}))
+            attached = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+            assert attached["event"] == "attached"
+
+            await ch.send(OutboundMessage(
+                channel="websocket",
+                chat_id=chat_id,
+                content="dedup unread test",
+            ))
+            msg1 = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+            assert msg1["event"] == "message"
+
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(c.ws.recv(), timeout=0.3)
+
+        session = sm.get_or_create("unified:default")
+        ui_count = inbox_ui_message_count(session)
+        assert compute_inbox_unread_count(session, ui_count) == 0
+    finally:
+        await ch.stop()
+        await t
+
+
+@pytest.mark.asyncio
+async def test_online_inbox_fanout_before_persist_is_reconciled(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    """在线 inbox 已收到消息，即使 fan-out 早于落盘，thread 也不应显示未读。"""
+    sm = SessionManager(workspace=tmp_path)
+    ch = _ch(
+        bus,
+        _PORT_BASE + 18,
+        session_manager=sm,
+        unified_session=True,
+        workspace_path=tmp_path,
+    )
+    t = asyncio.create_task(ch.start())
+    await asyncio.sleep(0.3)
+    try:
+        async with WsTestClient(
+            f"ws://127.0.0.1:{_PORT_BASE + 18}/", client_id="inbox"
+        ) as c:
+            await c.recv_ready()
+            await c.ws.send(json.dumps({"type": "attach", "chat_id": INBOX_UNIFIED_CHAT_ID}))
+            attached = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+            assert attached["event"] == "attached"
+
+            await ch.fan_out_unified_inbox_event(
+                {
+                    "event": "user",
+                    "chat_id": INBOX_UNIFIED_CHAT_ID,
+                    "text": "online before persist",
+                },
+                "telegram",
+                "tg-1",
+            )
+            raw = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+            assert raw["event"] == "user"
+
+        session = sm.get_or_create("unified:default")
+        session.add_message(
+            "user",
+            "online before persist",
+            source_channel="telegram",
+            source_chat_id="tg-1",
+        )
+        sm.save(session)
+
+        data = build_inbox_thread_from_session(
+            sm.get_or_create("unified:default"),
+            session_manager=sm,
+        )
+        assert data["unreadCount"] == 0
     finally:
         await ch.stop()
         await t

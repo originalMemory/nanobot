@@ -691,6 +691,8 @@ export interface WebuiThreadPersistedPayload {
   sessionKey?: string;
   savedAt?: string;
   messages: UIMessage[];
+  /** 统一收件箱 thread：末尾未读 UI 消息条数。 */
+  unreadCount?: number;
 }
 
 export type Outbound =

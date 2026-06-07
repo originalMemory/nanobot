@@ -18,6 +18,9 @@ interface ThreadMessagesProps {
   isStreaming?: boolean;
   hiddenMessageCount?: number;
   onLoadEarlier?: () => void;
+  /** 在此消息 id 对应的展示单元前插入未读提示条。 */
+  unreadDividerBeforeMessageId?: string | null;
+  unreadCount?: number;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
 }
@@ -314,11 +317,42 @@ export function buildFinalDisplayUnits(
   return coalesceAssistantTurnUnits(buildDisplayUnits(messages), globalStreaming);
 }
 
+function unitContainsMessageId(unit: DisplayUnit, messageId: string): boolean {
+  if (unit.type === "single") {
+    return unit.message.id === messageId;
+  }
+  for (const segment of unit.segments) {
+    if (segment.kind === "text" && segment.message.id === messageId) {
+      return true;
+    }
+    if (segment.kind === "activity" && segment.messages.some((m) => m.id === messageId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function unitScrollMessageId(unit: DisplayUnit): string | undefined {
+  if (unit.type === "single") {
+    return unit.message.id;
+  }
+  const first = unit.segments[0];
+  if (first?.kind === "text") {
+    return first.message.id;
+  }
+  if (first?.kind === "activity") {
+    return first.messages[0]?.id;
+  }
+  return undefined;
+}
+
 export function ThreadMessages({
   messages,
   isStreaming = false,
   hiddenMessageCount = 0,
   onLoadEarlier,
+  unreadDividerBeforeMessageId = null,
+  unreadCount = 0,
   cliApps = [],
   mcpPresets = [],
 }: ThreadMessagesProps) {
@@ -328,6 +362,9 @@ export function ThreadMessages({
     [messages, isStreaming],
   );
   const copyFlags = useMemo(() => assistantCopyFlags(units), [units]);
+  const unreadUnitIndex = unreadDividerBeforeMessageId
+    ? units.findIndex((unit) => unitContainsMessageId(unit, unreadDividerBeforeMessageId))
+    : -1;
 
   return (
     <div className="flex w-full flex-col">
@@ -346,27 +383,50 @@ export function ThreadMessages({
         </div>
       ) : null}
       {units.map((unit, index) => (
-        <div key={unitKey(unit, index)} className={index > 0 ? "mt-5" : ""}>
-          {unit.type === "assistant-turn" ? (
-            <AssistantTurnBubble
-              segments={unit.segments}
-              isTurnStreaming={unit.isStreaming}
-              showCopyAction={copyFlags[index]}
-              cliApps={cliApps}
-              mcpPresets={mcpPresets}
-            />
-          ) : (
-            <MessageBubble
-              message={unit.message}
-              showAssistantCopyAction={
-                unit.message.role === "assistant"
-                  ? copyFlags[index]
-                  : true
-              }
-              cliApps={cliApps}
-              mcpPresets={mcpPresets}
-            />
-          )}
+        <div key={unitKey(unit, index)}>
+          {unreadUnitIndex === index && unreadCount > 0 ? (
+            <div
+              className="mb-4 flex justify-center"
+              data-testid="unread-divider"
+            >
+              <div className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                {t("thread.unreadDivider", {
+                  count: unreadCount,
+                  defaultValue: "{{count}} unread messages",
+                })}
+              </div>
+            </div>
+          ) : null}
+          <div
+            className={index > 0 ? "mt-5" : ""}
+            data-message-id={
+              unreadDividerBeforeMessageId
+              && unitContainsMessageId(unit, unreadDividerBeforeMessageId)
+                ? unreadDividerBeforeMessageId
+                : unitScrollMessageId(unit)
+            }
+          >
+            {unit.type === "assistant-turn" ? (
+              <AssistantTurnBubble
+                segments={unit.segments}
+                isTurnStreaming={unit.isStreaming}
+                showCopyAction={copyFlags[index]}
+                cliApps={cliApps}
+                mcpPresets={mcpPresets}
+              />
+            ) : (
+              <MessageBubble
+                message={unit.message}
+                showAssistantCopyAction={
+                  unit.message.role === "assistant"
+                    ? copyFlags[index]
+                    : true
+                }
+                cliApps={cliApps}
+                mcpPresets={mcpPresets}
+              />
+            )}
+          </div>
         </div>
       ))}
     </div>

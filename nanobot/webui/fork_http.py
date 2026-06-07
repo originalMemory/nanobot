@@ -577,6 +577,7 @@ class ForkGatewayHTTPHandler:
             "messages": [],
             "schemaVersion": 3,
             "sessionKey": UNIFIED_SESSION_KEY,
+            "unreadCount": 0,
         }
         if self._session_manager is None:
             return _http_json_response(empty)
@@ -585,6 +586,7 @@ class ForkGatewayHTTPHandler:
             return _http_json_response(empty)
         data = build_inbox_thread_from_session(
             session,
+            session_manager=self._session_manager,
             augment_media_paths=self.augment_transcript_media_paths,
             augment_assistant_text=self.rewrite_local_markdown_images,
         )

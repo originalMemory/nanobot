@@ -20,6 +20,7 @@ const TOAST_DURATION_MS = 3_500;
 
 interface InboxViewProps {
   initialMessages: UIMessage[];
+  initialUnreadCount?: number;
   /** null = 统一收件箱（all channels），string = filter to that channel */
   activeChannel: string | null;
   onChannelsChange?: (channels: string[]) => void;
@@ -43,6 +44,7 @@ interface InboxViewProps {
 
 export function InboxView({
   initialMessages,
+  initialUnreadCount = 0,
   activeChannel,
   onChannelsChange,
   pendingScreenshot,
@@ -63,6 +65,10 @@ export function InboxView({
   const composerRef = useRef<ThreadComposerHandle>(null);
   const { token, apiBase } = useClient();
   const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
+  const [unreadScrollSignal, setUnreadScrollSignal] = useState(
+    initialUnreadCount > 0 ? 1 : 0,
+  );
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   const toastTimerRef = useRef<number | null>(null);
@@ -110,7 +116,13 @@ export function InboxView({
         return;
       }
       replaceMessagesFromSnapshot(thread.messages ?? []);
-      setScrollToBottomSignal((value) => value + 1);
+      const nextUnread = thread.unreadCount ?? 0;
+      setUnreadCount(nextUnread);
+      if (nextUnread > 0) {
+        setUnreadScrollSignal((value) => value + 1);
+      } else {
+        setScrollToBottomSignal((value) => value + 1);
+      }
     } catch (err) {
       console.warn("[nanobot] fetchInboxThread refresh failed:", err);
       if (err instanceof ApiError && err.status === 404) {
@@ -183,6 +195,9 @@ export function InboxView({
     return messages.filter((m) => m.sourceChannel === activeChannel);
   }, [messages, activeChannel]);
 
+  /** 未读计数对应完整 thread 尾部；频道过滤时不做未读定位。 */
+  const effectiveUnreadCount = activeChannel == null ? unreadCount : 0;
+
   const refreshDisabled = isStreaming || refreshing;
   const refreshTooltip = isStreaming
     ? t("inbox.refreshHistoryDisabledStreaming")
@@ -241,6 +256,8 @@ export function InboxView({
           messages={displayMessages}
           isStreaming={isStreaming}
           scrollToBottomSignal={scrollToBottomSignal}
+          unreadCount={effectiveUnreadCount}
+          unreadScrollSignal={activeChannel == null ? unreadScrollSignal : 0}
           cliApps={cliApps}
           mcpPresets={mcpPresets}
           composer={

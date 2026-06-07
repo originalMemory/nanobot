@@ -22,6 +22,10 @@ interface ThreadViewportProps {
   composer: ReactNode;
   emptyState?: ReactNode;
   scrollToBottomSignal?: number;
+  /** 末尾未读 UI 消息条数；>0 时首屏滚到第一条未读并居中。 */
+  unreadCount?: number;
+  /** 递增以重新触发未读定位（例如刷新历史后）。 */
+  unreadScrollSignal?: number;
   conversationKey?: string | null;
   showScrollToBottomButton?: boolean;
   cliApps?: CliAppInfo[];
@@ -47,12 +51,32 @@ export function windowMessages(messages: UIMessage[], visibleCount: number): UIM
   return messages.slice(start);
 }
 
+/** 第一条未读消息在 ``messages`` 中的索引。 */
+export function firstUnreadMessageIndex(
+  messageCount: number,
+  unreadCount: number,
+): number | null {
+  if (unreadCount <= 0 || messageCount <= 0) return null;
+  return messageCount - Math.min(unreadCount, messageCount);
+}
+
+export function firstUnreadMessageId(
+  messages: UIMessage[],
+  unreadCount: number,
+): string | null {
+  const index = firstUnreadMessageIndex(messages.length, unreadCount);
+  if (index == null) return null;
+  return messages[index]?.id ?? null;
+}
+
 export function ThreadViewport({
   messages,
   isStreaming,
   composer,
   emptyState,
   scrollToBottomSignal = 0,
+  unreadCount = 0,
+  unreadScrollSignal = 0,
   conversationKey = null,
   showScrollToBottomButton = true,
   cliApps = [],
@@ -69,8 +93,8 @@ export function ThreadViewport({
   const restoreScrollAfterPrependRef =
     useRef<{ height: number; top: number } | null>(null);
   /** User scrolled away from the bottom; do not auto-yank until they return or we reset (new chat / send). */
-  const userReadingHistoryRef = useRef(false);
-  const [atBottom, setAtBottom] = useState(true);
+  const userReadingHistoryRef = useRef(unreadCount > 0);
+  const [atBottom, setAtBottom] = useState(unreadCount <= 0);
   const [composerDockHeight, setComposerDockHeight] = useState(0);
   const [visibleMessageCount, setVisibleMessageCount] =
     useState(INITIAL_HISTORY_WINDOW);
@@ -80,6 +104,10 @@ export function ThreadViewport({
     [messages, visibleMessageCount],
   );
   const hiddenMessageCount = messages.length - visibleMessages.length;
+  const unreadDividerBeforeMessageId = useMemo(
+    () => firstUnreadMessageId(messages, unreadCount),
+    [messages, unreadCount],
+  );
   const scrollButtonBottom = composerDockHeight > 0
     ? composerDockHeight + SCROLL_BUTTON_COMPOSER_GAP_PX
     : DEFAULT_SCROLL_BUTTON_BOTTOM_PX;
@@ -183,13 +211,56 @@ export function ThreadViewport({
     if (!pendingConversationScrollRef.current) return;
     if (!conversationKey) {
       pendingConversationScrollRef.current = false;
+      if (unreadCount > 0) return;
       scrollToBottom(false, 4);
       return;
     }
     scrollToBottom(false, 8);
     if (!hasMessages) return;
     pendingConversationScrollRef.current = false;
-  }, [conversationKey, hasMessages, messages, scrollToBottom]);
+  }, [conversationKey, hasMessages, messages, scrollToBottom, unreadCount]);
+
+  useLayoutEffect(() => {
+    if (unreadCount <= 0 || unreadScrollSignal <= 0 || !hasMessages) return;
+    const unreadIndex = firstUnreadMessageIndex(messages.length, unreadCount);
+    if (unreadIndex == null) return;
+    const messageId = messages[unreadIndex]?.id;
+    if (!messageId) return;
+
+    const neededVisible = messages.length - unreadIndex;
+    if (visibleMessageCount < neededVisible) {
+      setVisibleMessageCount(neededVisible);
+      return;
+    }
+
+    pendingConversationScrollRef.current = false;
+    userReadingHistoryRef.current = true;
+    setAtBottom(false);
+
+    const root = contentRef.current;
+    const target = root?.querySelector(
+      `[data-message-id="${CSS.escape(messageId)}"]`,
+    );
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({ block: "center", behavior: "auto" });
+      return;
+    }
+    const retryId = window.requestAnimationFrame(() => {
+      const retryTarget = root?.querySelector(
+        `[data-message-id="${CSS.escape(messageId)}"]`,
+      );
+      if (retryTarget instanceof HTMLElement) {
+        retryTarget.scrollIntoView({ block: "center", behavior: "auto" });
+      }
+    });
+    return () => window.cancelAnimationFrame(retryId);
+  }, [
+    unreadCount,
+    unreadScrollSignal,
+    messages,
+    visibleMessageCount,
+    hasMessages,
+  ]);
 
   useLayoutEffect(() => {
     measureComposerDock();
@@ -253,6 +324,8 @@ export function ThreadViewport({
                   isStreaming={isStreaming}
                   hiddenMessageCount={hiddenMessageCount}
                   onLoadEarlier={loadEarlierMessages}
+                  unreadDividerBeforeMessageId={unreadDividerBeforeMessageId}
+                  unreadCount={unreadCount}
                   cliApps={cliApps}
                   mcpPresets={mcpPresets}
                 />
