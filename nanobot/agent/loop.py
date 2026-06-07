@@ -1257,7 +1257,10 @@ class AgentLoop:
             **self._source_extras(msg),
         )
         self._runtime_events().record_turn_latency(key, latency_ms)
-        session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
+        session.enforce_file_cap(
+            on_archive=self.context.memory.raw_archive,
+            on_trim=lambda msgs: self.archiver.append(session.key, msgs, "file_cap"),
+        )
         self._clear_runtime_checkpoint(session)
         self.sessions.save(session)
         self._schedule_background(
@@ -1720,7 +1723,10 @@ class AgentLoop:
             ctx.turn_usage or None,
         )
         if not ctx.ephemeral:
-            ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
+            ctx.session.enforce_file_cap(
+                on_archive=self.context.memory.raw_archive,
+                on_trim=lambda msgs: self.archiver.append(ctx.session.key, msgs, "file_cap"),
+            )
             self._schedule_background(
                 self.consolidator.maybe_consolidate_by_tokens(
                     ctx.session,

@@ -165,3 +165,55 @@ class TestEnforceFileCapOnTrim:
         called = []
         session.enforce_file_cap(on_trim=lambda m: called.append(m))
         assert called == []
+
+    def test_prefix_trim_when_over_cap_with_last_consolidated(self) -> None:
+        """超限时优先整段裁掉 consolidated 前缀，并重置 last_consolidated。"""
+        msgs = _make_messages(FILE_MAX_MESSAGES + 1)
+        session = Session(
+            key="cli:test",
+            messages=msgs,
+            last_consolidated=FILE_MAX_MESSAGES - 300,
+        )
+
+        trimmed: list[list] = []
+        raw_archived: list[list] = []
+        session.enforce_file_cap(
+            on_archive=lambda m: raw_archived.append(list(m)),
+            on_trim=lambda m: trimmed.append(list(m)),
+        )
+
+        assert len(trimmed) == 1
+        assert len(trimmed[0]) == FILE_MAX_MESSAGES - 300
+        assert session.last_consolidated == 0
+        assert len(session.messages) == 301
+        assert raw_archived == []
+
+    def test_prefix_trim_then_hard_cap_when_still_over_limit(self) -> None:
+        """prefix trim 后仍超限时继续走 legal suffix hard cap。"""
+        prefix_len = 500
+        msgs = _make_messages(FILE_MAX_MESSAGES + 800)
+        session = Session(
+            key="cli:test",
+            messages=msgs,
+            last_consolidated=prefix_len,
+        )
+
+        trimmed: list[list] = []
+        raw_archived: list[list] = []
+        session.enforce_file_cap(
+            on_archive=lambda m: raw_archived.append(list(m)),
+            on_trim=lambda m: trimmed.append(list(m)),
+        )
+
+        assert len(trimmed) == 2
+        assert len(trimmed[0]) == prefix_len
+        assert len(trimmed[1]) >= 200
+        assert session.last_consolidated == 0
+        assert len(session.messages) <= FILE_MAX_MESSAGES
+        if raw_archived:
+            archived_contents = {m["content"] for m in raw_archived[0]}
+            assert all(
+                content.startswith("message ")
+                and int(content.removeprefix("message ")) >= prefix_len
+                for content in archived_contents
+            )

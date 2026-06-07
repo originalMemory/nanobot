@@ -371,10 +371,31 @@ class Session:
         if limit <= 0 or len(self.messages) <= limit:
             return
 
+        # 第一阶段：优先裁掉已整合前缀，避免顶格后每轮小批量 trim。
+        if self.last_consolidated > 0:
+            prefix = list(self.messages[: self.last_consolidated])
+            if prefix:
+                if on_trim:
+                    on_trim(prefix)
+                self.messages = self.messages[self.last_consolidated :]
+                self.last_consolidated = 0
+                self.updated_at = datetime.now()
+                logger.info(
+                    "Session consolidated prefix trimmed for {}: dropped {}, kept {}",
+                    self.key,
+                    len(prefix),
+                    len(self.messages),
+                )
+
+        if len(self.messages) <= limit:
+            return
+
         dropped, already_consolidated = self.retain_recent_legal_suffix(limit)
         if not dropped:
             return
 
+        if on_trim:
+            on_trim(dropped)
         archive_chunk = dropped[already_consolidated:]
         if archive_chunk and on_archive:
             on_archive(archive_chunk)
