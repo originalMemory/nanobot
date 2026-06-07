@@ -25,6 +25,13 @@ function createMockClient() {
   return { client, chatHandlers };
 }
 
+function setupElectronTrayMock() {
+  window.electronAPI = {
+    ...window.electronAPI,
+    tray: { notifyIncoming: vi.fn().mockResolvedValue(undefined) },
+  } as Window["electronAPI"];
+}
+
 describe("useNanobotStream inbox user events", () => {
   beforeEach(() => {
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
@@ -32,6 +39,7 @@ describe("useNanobotStream inbox user events", () => {
       return 1;
     });
     vi.stubGlobal("cancelAnimationFrame", () => {});
+    setupElectronTrayMock();
   });
 
   afterEach(() => {
@@ -71,6 +79,34 @@ describe("useNanobotStream inbox user events", () => {
       sourceChannel: "telegram",
     });
     expect(result.current.isStreaming).toBe(false);
+    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledOnce();
+  });
+
+  it("频道过滤时不为其他 channel 的 user 入站触发托盘", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+
+    renderHook(
+      () => useNanobotStream("inbox:unified", [], false, undefined, "telegram"),
+      { wrapper },
+    );
+
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "user",
+        chat_id: "inbox:unified",
+        text: "hi from discord",
+        source_channel: "discord",
+      });
+    });
+
+    expect(window.electronAPI.tray.notifyIncoming).not.toHaveBeenCalled();
   });
 
   it("streams vision caption onto external user message with media", () => {
@@ -167,10 +203,143 @@ describe("useNanobotStream inbox user events", () => {
       handle({
         event: "turn_end",
         chat_id: "inbox:unified",
-        source_channel: "telegram",
       });
     });
 
     expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("turn_end 在流式 assistant delta 后触发托盘通知", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+
+    renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "user",
+        chat_id: "inbox:unified",
+        text: "question",
+        source_channel: "telegram",
+      });
+    });
+
+    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledOnce();
+    vi.mocked(window.electronAPI.tray.notifyIncoming).mockClear();
+
+    act(() => {
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        text: "answer chunk",
+      });
+    });
+
+    expect(window.electronAPI.tray.notifyIncoming).not.toHaveBeenCalled();
+
+    act(() => {
+      handle({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+      });
+    });
+
+    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledOnce();
+  });
+
+  it("频道过滤时流式 turn_end 不匹配 source_channel 不触发", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+
+    renderHook(
+      () => useNanobotStream("inbox:unified", [], false, undefined, "telegram"),
+      { wrapper },
+    );
+
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "user",
+        chat_id: "inbox:unified",
+        text: "question",
+        source_channel: "discord",
+      });
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        text: "answer chunk",
+      });
+      handle({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+      });
+    });
+
+    expect(window.electronAPI.tray.notifyIncoming).not.toHaveBeenCalled();
+  });
+
+  it("流式 turn_end 后清理 source_channel，避免下一轮无来源 delta 误触发", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+
+    renderHook(
+      () => useNanobotStream("inbox:unified", [], false, undefined, "telegram"),
+      { wrapper },
+    );
+
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "user",
+        chat_id: "inbox:unified",
+        text: "question",
+        source_channel: "telegram",
+      });
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        text: "answer chunk",
+      });
+      handle({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+      });
+    });
+
+    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledTimes(2);
+    vi.mocked(window.electronAPI.tray.notifyIncoming).mockClear();
+
+    act(() => {
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        text: "local answer chunk",
+      });
+      handle({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+      });
+    });
+
+    expect(window.electronAPI.tray.notifyIncoming).not.toHaveBeenCalled();
   });
 });

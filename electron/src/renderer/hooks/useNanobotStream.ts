@@ -26,6 +26,11 @@ import {
   userMessageImageCount,
   type VisionCaptionPart,
 } from "@/lib/vision-caption";
+import {
+  getInboundSourceChannel,
+  requestTrayBlinkForInboxEvent,
+  requestTrayBlinkForStreamTurnEnd,
+} from "@/lib/tray-notify";
 
 interface StreamBuffer {
   /** ID of the assistant message currently receiving deltas (cleared on ``stream_end``). */
@@ -441,6 +446,8 @@ export function useNanobotStream(
   initialMessages: UIMessage[] = [],
   hasPendingToolCalls = false,
   onTurnEnd?: () => void,
+  /** 统一收件箱托盘提醒：null = 全部频道，string = 仅该 channel */
+  inboxActiveChannel: string | null = null,
 ): {
   messages: UIMessage[];
   isStreaming: boolean;
@@ -493,6 +500,13 @@ export function useNanobotStream(
   const streamEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const captionPartsRef = useRef<Map<number, VisionCaptionPart>>(new Map());
   const captionImageCountRef = useRef(0);
+  /** 当前 agent 回合是否收到过 answer delta（供 turn_end 流式补通知）。 */
+  const streamTurnHadAssistantDeltaRef = useRef(false);
+  /** 当前回合关联的 source_channel（delta 常不带该字段，从 user/message 继承）。 */
+  const streamTurnSourceChannelRef = useRef<string | undefined>(undefined);
+
+  const trayNotifyOptions = useRef({ activeChannel: inboxActiveChannel });
+  trayNotifyOptions.current = { activeChannel: inboxActiveChannel };
 
   useEffect(() => {
     return client.onError((err) => setStreamError(err));
@@ -793,6 +807,9 @@ export function useNanobotStream(
         if (suppressStreamUntilTurnEndRef.current) return;
         const chunk = typeof ev.text === "string" ? ev.text : "";
         if (!chunk) return;
+        streamTurnHadAssistantDeltaRef.current = true;
+        const deltaSource = getInboundSourceChannel(ev);
+        if (deltaSource) streamTurnSourceChannelRef.current = deltaSource;
         clearActivitySegment();
         setIsStreaming(true);
         pendingStreamEventsRef.current.push({ kind: "delta", text: chunk });
@@ -910,6 +927,14 @@ export function useNanobotStream(
         suppressStreamUntilTurnEndRef.current = false;
         captionPartsRef.current = new Map();
         captionImageCountRef.current = 0;
+        requestTrayBlinkForStreamTurnEnd(
+          chatId,
+          streamTurnHadAssistantDeltaRef.current,
+          streamTurnSourceChannelRef.current,
+          trayNotifyOptions.current,
+        );
+        streamTurnHadAssistantDeltaRef.current = false;
+        streamTurnSourceChannelRef.current = undefined;
         onTurnEnd?.();
         return;
       }
@@ -927,6 +952,9 @@ export function useNanobotStream(
           captionPartsRef.current = new Map();
           captionImageCountRef.current = mediaCount;
         }
+        if (ev.source_channel) {
+          streamTurnSourceChannelRef.current = ev.source_channel;
+        }
 
         // 外部 channel 推来的用户消息：仅追加，不干扰本地正在进行的流式状态。
         setMessages((prev) => [
@@ -940,6 +968,7 @@ export function useNanobotStream(
             ...(ev.source_channel ? { sourceChannel: ev.source_channel } : {}),
           },
         ]);
+        requestTrayBlinkForInboxEvent(chatId, ev, trayNotifyOptions.current);
         return;
       }
 
@@ -1053,6 +1082,10 @@ export function useNanobotStream(
         if (hasMedia) {
           suppressStreamUntilTurnEndRef.current = true;
         }
+        const messageSource = getInboundSourceChannel(ev);
+        if (messageSource) streamTurnSourceChannelRef.current = messageSource;
+        streamTurnHadAssistantDeltaRef.current = false;
+        requestTrayBlinkForInboxEvent(chatId, ev, trayNotifyOptions.current);
         return;
       }
       if (ev.event === "file_edit") {
@@ -1139,6 +1172,9 @@ export function useNanobotStream(
       // Text is optional when images are attached — the agent will still see
       // the image blocks via ``media`` paths.
       if (!hasImages && !content.trim()) return;
+
+      streamTurnHadAssistantDeltaRef.current = false;
+      streamTurnSourceChannelRef.current = undefined;
 
       flushPendingStreamEvents();
       flushPendingCaptionEvents();

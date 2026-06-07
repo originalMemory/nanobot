@@ -53,6 +53,10 @@ interface ElectronAPI {
     /** 全局快捷键唤起/切换统一收件箱；toggle=true 时若已在收件箱则隐藏窗口。 */
     onRaiseInbox(cb: (payload: { toggle: boolean }) => void): () => void;
   };
+  tray: {
+    /** Windows：主窗口无焦点时收到实时 inbox 消息后托盘闪烁。 */
+    notifyIncoming(): Promise<void>;
+  };
 }
 
 declare global {

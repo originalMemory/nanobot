@@ -118,4 +118,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('shortcut:raise-inbox', handler);
     },
   },
+
+  tray: {
+    notifyIncoming: (): Promise<void> => ipcRenderer.invoke('tray:notify-incoming'),
+  },
 });

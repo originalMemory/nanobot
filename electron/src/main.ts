@@ -21,6 +21,7 @@ const DEFAULT_WALLPAPER_URL =
 const MIN_WALLPAPER_INTERVAL_MINUTES = 1;
 import Store from 'electron-store';
 import { APP_ID } from '../app.meta';
+import { initTrayBlink, notifyTrayIncoming, stopTrayBlink } from './tray-blink';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -256,6 +257,13 @@ async function captureScreen(): Promise<string | null> {
 
 ipcMain.handle('screenshot:capture', () => captureScreen());
 
+ipcMain.handle('tray:notify-incoming', () => {
+  notifyTrayIncoming(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    return mainWindow.isFocused();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // App icons (sourced from webui/public/brand/)
 // ---------------------------------------------------------------------------
@@ -487,6 +495,7 @@ function registerRaiseInboxShortcut(accelerator?: string): boolean {
 }
 
 function showMainWindow(): void {
+  stopTrayBlink();
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) {
       mainWindow.restore();
@@ -585,6 +594,7 @@ function createWindow(): void {
   });
 
   mainWindow.on('closed', () => {
+    stopTrayBlink();
     stopWallpaperScheduler();
     mainWindow = null;
   });
@@ -608,6 +618,7 @@ function createWindow(): void {
   };
 
   mainWindow.on('focus', () => {
+    stopTrayBlink();
     globalShortcut.register(SCREENSHOT_ACCELERATOR, screenshotHandler);
     sendPresence({ focused: true });
   });
@@ -668,6 +679,7 @@ function createTray(): void {
 
   tray = new Tray(icon);
   tray.setToolTip('Nanobot');
+  initTrayBlink(tray, icon);
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -734,6 +746,7 @@ if (gotSingleInstanceLock) {
 
   app.on('before-quit', () => {
     app.isQuitting = true;
+    stopTrayBlink();
     stopWallpaperScheduler();
     unregisterRaiseInboxShortcut();
   });

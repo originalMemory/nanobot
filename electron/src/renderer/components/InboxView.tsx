@@ -86,7 +86,7 @@ export function InboxView({
     replaceMessagesFromSnapshot,
     streamError,
     dismissStreamError,
-  } = useNanobotStream(INBOX_CHAT_ID, initialMessages);
+  } = useNanobotStream(INBOX_CHAT_ID, initialMessages, false, undefined, activeChannel);
 
   const showToast = useCallback((message: string) => {
     if (toastTimerRef.current !== null) {
