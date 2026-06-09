@@ -239,3 +239,7 @@ What this means in daily use is simple:
 Memory should not feel like a dump. It should feel like continuity.
 
 That is what this design is trying to protect.
+
+## See also
+
+- [Dream vs Hermes skills (中文)](./dream-vs-hermes-skills-zh.md) — how Dream discovers and creates workspace skills, compared to Hermes Agent's self-learning loop

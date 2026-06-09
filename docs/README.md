@@ -29,6 +29,7 @@ Use these when you want deeper customization, integration, or extension details.
 | Topic | Repo docs | What it covers |
 |---|---|---|
 | Memory | [`memory.md`](./memory.md) | How nanobot stores, consolidates, and restores memory |
+| Dream vs Hermes skills | [`dream-vs-hermes-skills-zh.md`](./dream-vs-hermes-skills-zh.md) | How nanobot Dream skill discovery compares to Hermes self-learning |
 | Python SDK | [`python-sdk.md`](./python-sdk.md) | Use nanobot programmatically from Python |
 | Channel plugin guide | [`channel-plugin-guide.md`](./channel-plugin-guide.md) | Build and test custom chat channel plugins |
 | WebSocket channel | [`websocket.md`](./websocket.md) | Real-time WebSocket access and protocol details |
