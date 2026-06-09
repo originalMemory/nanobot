@@ -5,10 +5,9 @@ import { useTranslation } from "react-i18next";
 import { channelAccentColor, channelLogoUrls } from "@/lib/channel-brand";
 import { resolveMessageSourceBadge, type MessageSourceBadgePart } from "@/lib/message-source";
 import { cn } from "@/lib/utils";
-import type { UIMessage } from "@/lib/types";
 
 interface MessageSourceBadgeProps {
-  message: Pick<UIMessage, "sourceChannel" | "channelDelivery" | "userInitiatedDelivery">;
+  message: import("@/lib/message-source").MessageSourceFields;
 }
 
 const BADGE_PILL_CLASS =
@@ -69,6 +68,19 @@ function SourceBadgePart({ part }: { part: MessageSourceBadgePart }) {
     );
   }
 
+  if (part.kind === "cron_job") {
+    return (
+      <span
+        className={cn(
+          BADGE_PILL_CLASS,
+          "border-border/60 bg-muted/40 text-muted-foreground/80",
+        )}
+      >
+        <BadgeLabel>{part.label}</BadgeLabel>
+      </span>
+    );
+  }
+
   const accent = channelAccentColor(part.channel);
   return (
     <span
@@ -101,6 +113,7 @@ export function MessageSourceBadge({ message }: MessageSourceBadgeProps) {
     () =>
       resolveMessageSourceBadge(message, {
         proactive: t("message.source.proactive"),
+        heartbeat: t("message.source.heartbeat"),
       }),
     [message, t],
   );

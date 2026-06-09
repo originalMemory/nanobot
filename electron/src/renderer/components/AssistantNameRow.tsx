@@ -1,9 +1,9 @@
 import { MessageSourceBadge } from "@/components/MessageSourceBadge";
-import type { UIMessage } from "@/lib/types";
+import type { MessageSourceFields } from "@/lib/message-source";
 
 interface AssistantNameRowProps {
   botName: string;
-  message?: Pick<UIMessage, "sourceChannel" | "channelDelivery" | "userInitiatedDelivery">;
+  message?: MessageSourceFields;
 }
 
 /** assistant 气泡顶行：bot 名称 + 可选来源徽章。 */

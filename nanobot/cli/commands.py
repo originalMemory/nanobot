@@ -970,6 +970,9 @@ def _run_gateway(
             else f"{channel}:{chat_id}"
         )
 
+    def _cron_job_delivery_metadata(job: CronJob) -> dict[str, str]:
+        return {"_cron_job_id": job.id, "_cron_job_name": job.name}
+
     async def _deliver_to_channel(
         msg: OutboundMessage, *, record: bool = False, session_key: str | None = None,
     ) -> None:
@@ -979,6 +982,8 @@ def _run_gateway(
         metadata = dict(msg.metadata or {})
         record = record or bool(metadata.pop("_record_channel_delivery", False))
         user_initiated = bool(metadata.pop("_user_initiated_channel_delivery", False))
+        cron_job_id = metadata.pop("_cron_job_id", None)
+        cron_job_name = metadata.pop("_cron_job_name", None)
         media = list(msg.media or [])
         if media:
             media = normalize_outbound_media(media, channel=msg.channel)
@@ -998,6 +1003,10 @@ def _run_gateway(
             }
             if user_initiated:
                 extra["_user_initiated_channel_delivery"] = True
+            if isinstance(cron_job_id, str) and cron_job_id:
+                extra["_cron_job_id"] = cron_job_id
+            if isinstance(cron_job_name, str) and cron_job_name:
+                extra["_cron_job_name"] = cron_job_name
             if media:
                 extra["media"] = list(media)
             session.add_message("assistant", msg.content, **extra)
@@ -1007,6 +1016,10 @@ def _run_gateway(
             metadata["source_chat_id"] = msg.chat_id
             if user_initiated:
                 metadata["_user_initiated_channel_delivery"] = True
+            if isinstance(cron_job_id, str) and cron_job_id:
+                metadata["_cron_job_id"] = cron_job_id
+            if isinstance(cron_job_name, str) and cron_job_name:
+                metadata["_cron_job_name"] = cron_job_name
         if metadata != (msg.metadata or {}) or media != list(msg.media or []):
             msg = OutboundMessage(
                 channel=msg.channel,
@@ -1102,8 +1115,10 @@ def _run_gateway(
             )
 
             message_record_token = None
+            delivery_source_token = None
             if isinstance(message_tool, MessageTool):
                 message_record_token = message_tool.set_record_channel_delivery(True)
+                delivery_source_token = message_tool.set_delivery_source(job.id, job.name)
             try:
                 resp = await agent.process_direct(
                     prompt,
@@ -1115,6 +1130,8 @@ def _run_gateway(
             finally:
                 if isinstance(message_tool, MessageTool) and message_record_token is not None:
                     message_tool.reset_record_channel_delivery(message_record_token)
+                if isinstance(message_tool, MessageTool) and delivery_source_token is not None:
+                    message_tool.reset_delivery_source(delivery_source_token)
             response = resp.content if resp else ""
 
             # Keep a small tail of heartbeat history so the loop stays bounded.
@@ -1136,7 +1153,12 @@ def _run_gateway(
             if should_notify:
                 logger.info("Heartbeat: completed, delivering response")
                 await _deliver_to_channel(
-                    OutboundMessage(channel=channel, chat_id=chat_id, content=response),
+                    OutboundMessage(
+                        channel=channel,
+                        chat_id=chat_id,
+                        content=response,
+                        metadata=_cron_job_delivery_metadata(job),
+                    ),
                     record=True,
                 )
             else:
@@ -1160,8 +1182,10 @@ def _run_gateway(
             cron_token = cron_tool.set_cron_context(True)
 
         message_record_token = None
+        delivery_source_token = None
         if isinstance(message_tool, MessageTool):
             message_record_token = message_tool.set_record_channel_delivery(True)
+            delivery_source_token = message_tool.set_delivery_source(job.id, job.name)
 
         try:
             resp = await agent.process_direct(
@@ -1176,6 +1200,8 @@ def _run_gateway(
                 cron_tool.reset_cron_context(cron_token)
             if isinstance(message_tool, MessageTool) and message_record_token is not None:
                 message_tool.reset_record_channel_delivery(message_record_token)
+            if isinstance(message_tool, MessageTool) and delivery_source_token is not None:
+                message_tool.reset_delivery_source(delivery_source_token)
 
         response = resp.content if resp else ""
 
@@ -1192,7 +1218,10 @@ def _run_gateway(
                         channel=job.payload.channel or "cli",
                         chat_id=job.payload.to,
                         content=response,
-                        metadata=dict(job.payload.channel_meta),
+                        metadata={
+                            **dict(job.payload.channel_meta),
+                            **_cron_job_delivery_metadata(job),
+                        },
                     ),
                     record=True,
                     session_key=job.payload.session_key,

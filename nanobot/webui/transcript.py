@@ -998,6 +998,12 @@ def replay_transcript_to_ui_messages(
                 extra["channelDelivery"] = True
             if rec.get("user_initiated_delivery"):
                 extra["userInitiatedDelivery"] = True
+            cji = rec.get("cron_job_id")
+            if isinstance(cji, str) and cji:
+                extra["cronJobId"] = cji
+            cjn = rec.get("cron_job_name")
+            if isinstance(cjn, str) and cjn:
+                extra["cronJobName"] = cjn
             absorb_complete(extra, idx)
             if media and not rec.get("channel_delivery"):
                 suppress_until_turn_end = True
@@ -1121,6 +1127,12 @@ def session_messages_to_wire_events(
         scid = msg.get("source_chat_id")
         if scid:
             base["source_chat_id"] = scid
+        cji = msg.get("_cron_job_id")
+        if isinstance(cji, str) and cji:
+            base["cron_job_id"] = cji
+        cjn = msg.get("_cron_job_name")
+        if isinstance(cjn, str) and cjn:
+            base["cron_job_name"] = cjn
 
         if role == "user":
             flush_user_delivery_events()

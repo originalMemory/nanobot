@@ -45,6 +45,10 @@ export interface UIMessage {
   channelDelivery?: boolean;
   /** 用户在本轮通过 message 工具外发到其他通道的镜像行（数据区分；徽章仍可与主动推送并存）。 */
   userInitiatedDelivery?: boolean;
+  /** cron / heartbeat 主动投递来源任务 id。 */
+  cronJobId?: string;
+  /** cron / heartbeat 主动投递来源任务名（heartbeat 存字面量，UI 特判 i18n）。 */
+  cronJobName?: string;
   /** For trace rows: each individual hint line, so consecutive hints can
    * render as a single collapsible group. */
   traces?: string[];
@@ -564,6 +568,10 @@ export type InboundEvent =
       channel_delivery?: boolean;
       /** 用户触发的跨通道外发镜像（数据区分，供重放保留）。 */
       user_initiated_delivery?: boolean;
+      /** cron / heartbeat 主动投递来源任务 id。 */
+      cron_job_id?: string;
+      /** cron / heartbeat 主动投递来源任务名。 */
+      cron_job_name?: string;
     }
   | {
       event: "user";

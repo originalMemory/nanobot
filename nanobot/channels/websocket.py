@@ -1206,6 +1206,12 @@ class WebSocketChannel(BaseChannel):
             delivery_chat = msg.metadata.get("source_chat_id")
             if isinstance(delivery_chat, str) and delivery_chat:
                 payload["source_chat_id"] = delivery_chat
+            cron_job_id = msg.metadata.get("_cron_job_id")
+            if isinstance(cron_job_id, str) and cron_job_id:
+                payload["cron_job_id"] = cron_job_id
+            cron_job_name = msg.metadata.get("_cron_job_name")
+            if isinstance(cron_job_name, str) and cron_job_name:
+                payload["cron_job_name"] = cron_job_name
             if msg.media:
                 urls: list[dict[str, str]] = []
                 for entry in msg.media:
@@ -1350,6 +1356,12 @@ class WebSocketChannel(BaseChannel):
         delivery_chat = msg.metadata.get("source_chat_id")
         if isinstance(delivery_chat, str) and delivery_chat:
             payload["source_chat_id"] = delivery_chat
+        cron_job_id = msg.metadata.get("_cron_job_id")
+        if isinstance(cron_job_id, str) and cron_job_id:
+            payload["cron_job_id"] = cron_job_id
+        cron_job_name = msg.metadata.get("_cron_job_name")
+        if isinstance(cron_job_name, str) and cron_job_name:
+            payload["cron_job_name"] = cron_job_name
         transcript_payload = dict(payload)
         transcript_payload["text"] = text
         self._try_append_webui_transcript(msg.chat_id, transcript_payload)

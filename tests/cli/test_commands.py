@@ -1370,7 +1370,13 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
             channel="telegram",
             chat_id="user-1",
             content="Time to stretch.",
-            metadata={"_channel_delivery": True, "source_channel": "telegram", "source_chat_id": "user-1"},
+            metadata={
+                "_channel_delivery": True,
+                "source_channel": "telegram",
+                "source_chat_id": "user-1",
+                "_cron_job_id": "cron-1",
+                "_cron_job_name": "stretch",
+            },
         )
     )
     assert seen["session_key"] == "telegram:user-1"
@@ -1383,6 +1389,8 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
             "_channel_delivery": True,
             "source_channel": "telegram",
             "source_chat_id": "user-1",
+            "_cron_job_id": "cron-1",
+            "_cron_job_name": "stretch",
         }
     ]
 

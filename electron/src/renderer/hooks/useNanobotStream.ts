@@ -1077,6 +1077,8 @@ export function useNanobotStream(
             ...(ev.source_channel ? { sourceChannel: ev.source_channel } : {}),
             ...(ev.channel_delivery ? { channelDelivery: true } : {}),
             ...(ev.user_initiated_delivery ? { userInitiatedDelivery: true } : {}),
+            ...(ev.cron_job_id ? { cronJobId: ev.cron_job_id } : {}),
+            ...(ev.cron_job_name ? { cronJobName: ev.cron_job_name } : {}),
           });
         });
         if (hasMedia) {

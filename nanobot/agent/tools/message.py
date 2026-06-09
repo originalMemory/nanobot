@@ -85,6 +85,10 @@ class MessageTool(Tool, ContextAware):
             "message_record_channel_delivery",
             default=False,
         )
+        self._delivery_source_var: ContextVar[tuple[str, str] | None] = ContextVar(
+            "message_delivery_source",
+            default=None,
+        )
         self._suppress_delivery_var: ContextVar[bool] = ContextVar(
             "message_suppress_delivery",
             default=False,
@@ -126,6 +130,14 @@ class MessageTool(Tool, ContextAware):
     def reset_record_channel_delivery(self, token) -> None:
         """Restore previous proactive delivery recording state."""
         self._record_channel_delivery_var.reset(token)
+
+    def set_delivery_source(self, job_id: str, job_name: str):
+        """Attach cron/heartbeat job identity to proactive channel deliveries."""
+        return self._delivery_source_var.set((job_id, job_name))
+
+    def reset_delivery_source(self, token) -> None:
+        """Restore previous delivery source state."""
+        self._delivery_source_var.reset(token)
 
     def set_suppress_delivery(self, active: bool):
         """Acknowledge but don't deliver tool sends (heartbeat internal check)."""
@@ -248,6 +260,11 @@ class MessageTool(Tool, ContextAware):
             # 用户在本轮通过 message 工具外发（含附件）时标记，与会话里 cron/heartbeat 外发区分。
             if media and not self._record_channel_delivery_var.get():
                 metadata["_user_initiated_channel_delivery"] = True
+            elif self._record_channel_delivery_var.get():
+                source = self._delivery_source_var.get()
+                if source is not None:
+                    metadata["_cron_job_id"] = source[0]
+                    metadata["_cron_job_name"] = source[1]
 
         msg = OutboundMessage(
             channel=channel,

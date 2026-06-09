@@ -81,7 +81,31 @@ async def test_message_tool_marks_channel_delivery_only_when_enabled() -> None:
 
 
 @pytest.mark.asyncio
-async def test_message_tool_records_media_deliveries() -> None:
+async def test_message_tool_records_cron_delivery_source_when_enabled() -> None:
+    sent: list[OutboundMessage] = []
+
+    async def _send(msg: OutboundMessage) -> None:
+        sent.append(msg)
+
+    tool = MessageTool(send_callback=_send)
+
+    record_token = tool.set_record_channel_delivery(True)
+    source_token = tool.set_delivery_source("job-1", "喝水提醒")
+    try:
+        await tool.execute(content="cron", channel="telegram", chat_id="1")
+    finally:
+        tool.reset_record_channel_delivery(record_token)
+        tool.reset_delivery_source(source_token)
+
+    assert sent[0].metadata == {
+        "_record_channel_delivery": True,
+        "_cron_job_id": "job-1",
+        "_cron_job_name": "喝水提醒",
+    }
+
+
+@pytest.mark.asyncio
+async def test_message_tool_media_delivery_does_not_include_cron_source() -> None:
     sent: list[OutboundMessage] = []
 
     async def _send(msg: OutboundMessage) -> None:

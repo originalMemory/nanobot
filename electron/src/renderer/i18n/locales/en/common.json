@@ -749,7 +749,8 @@
     "copiedReply": "Copied reply",
     "turnLatencyTitle": "Response time (end-to-end)",
     "source": {
-      "proactive": "Proactive"
+      "proactive": "Proactive",
+      "heartbeat": "Heartbeat"
     },
     "tokenUsageTitle": "↑ context at cutoff · ↓ turn output · R cache read · ctx% window used",
     "tokenUsageContextSize": "Context at this message (estimated size for replay on next turn)",

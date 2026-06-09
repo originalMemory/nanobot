@@ -749,7 +749,8 @@
     "copiedReply": "已复制回复",
     "turnLatencyTitle": "本轮耗时（端到端）",
     "source": {
-      "proactive": "主动推送"
+      "proactive": "主动推送",
+      "heartbeat": "心跳"
     },
     "tokenUsageTitle": "↑ 截止本条时的上下文规模 · ↓ 本轮输出合计 · R 末次缓存命中 · ctx% 窗口占用",
     "tokenUsageContextSize": "截止本条时的上下文规模（预估下次回放时的 prompt 大小）",

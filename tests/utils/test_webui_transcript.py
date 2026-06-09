@@ -612,6 +612,42 @@ def test_session_messages_to_wire_events_marks_channel_delivery() -> None:
     assert delivery[0]["text"] == "morning"
 
 
+def test_session_messages_to_wire_events_includes_cron_job_source() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {
+            "role": "assistant",
+            "content": "记得喝水",
+            "_channel_delivery": True,
+            "_cron_job_id": "job-1",
+            "_cron_job_name": "喝水提醒",
+        },
+    ])
+    message = next(event for event in events if event.get("event") == "message")
+    assert message["channel_delivery"] is True
+    assert message["cron_job_id"] == "job-1"
+    assert message["cron_job_name"] == "喝水提醒"
+
+
+def test_replay_channel_delivery_preserves_cron_job_source() -> None:
+    msgs = replay_transcript_to_ui_messages([
+        {
+            "event": "message",
+            "chat_id": "x",
+            "text": "记得喝水",
+            "channel_delivery": True,
+            "cron_job_id": "job-1",
+            "cron_job_name": "喝水提醒",
+        },
+        {"event": "turn_end", "chat_id": "x"},
+    ])
+    assistant = next(m for m in msgs if m.get("role") == "assistant")
+    assert assistant.get("channelDelivery") is True
+    assert assistant.get("cronJobId") == "job-1"
+    assert assistant.get("cronJobName") == "喝水提醒"
+
+
 def test_replay_channel_delivery_preserves_ui_flag() -> None:
     msgs = replay_transcript_to_ui_messages([
         {"event": "user", "chat_id": "x", "text": "hi"},
