@@ -43,6 +43,21 @@ Each line is a JSON object:
 
 It is not the final memory. It is the material from which final memory is shaped.
 
+When a chunk is consolidated, nanobot also **eager-trims** the corresponding prefix from `session.messages` and writes each removed message into `sessions/history.db` (SQLite). This keeps live sessions small while preserving searchable raw turns.
+
+The flow is: `archive()` (LLM summary → `history.jsonl`) → physical trim → SQLite insert → `last_consolidated = 0`. Consolidation, deletion, and raw-message archival happen in one step instead of waiting for a later file-cap trim.
+
+The agent can retrieve trimmed turns with the **`search_session_history`** tool:
+
+- `query` (required): keyword search over message text
+- `session_key` (optional): limit to one session, e.g. `cli:default`
+- `since` / `until` (optional): ISO date or datetime filter
+- `limit` (optional): max results (default 20, max 100)
+
+`idle_compact` (AutoCompact on idle sessions) uses the same SQLite path with reason `idle_compact`.
+
+**What is not in `history.db`:** `enforce_file_cap` — the last-resort guard when a session exceeds `FILE_MAX_MESSAGES` — still raw-archives dropped turns into `memory/history.jsonl` via `on_archive`, but does **not** write full message JSON to SQLite. Those turns are summarized breadcrumbs only, not searchable through `search_session_history`.
+
 ### Stage 2: Dream
 
 `Dream` is the slower, more thoughtful layer. It runs on a cron schedule by default and can also be triggered manually.
@@ -64,6 +79,8 @@ This is why nanobot's memory is not just archival. It is interpretive.
 workspace/
 ├── SOUL.md              # The bot's long-term voice and communication style
 ├── USER.md              # Stable knowledge about the user
+├── sessions/
+│   └── history.db       # SQLite archive of trimmed session messages (searchable)
 └── memory/
     ├── MEMORY.md        # Project facts, decisions, and durable context
     ├── history.jsonl    # Append-only history summaries

@@ -27,6 +27,7 @@ from nanobot.agent.tools.context import RequestContext, bind_request_context, re
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.agent.tools.search_history import SearchSessionHistoryTool
 from nanobot.agent.tools.self import MyTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.progress import build_bus_progress_callback
@@ -46,7 +47,7 @@ from nanobot.security.workspace_access import (
     reset_workspace_scope,
 )
 from nanobot.session import UNIFIED_SESSION_KEY, turn_continuation
-from nanobot.session.archiver import SessionArchiver
+from nanobot.session.history_store import SessionHistoryStore
 from nanobot.session.goal_state import (
     goal_state_runtime_lines,
     runner_wall_llm_timeout_s,
@@ -325,7 +326,7 @@ class AgentLoop:
         self._concurrency_gate: asyncio.Semaphore | None = (
             asyncio.Semaphore(_max) if _max > 0 else None
         )
-        self.archiver = SessionArchiver(self.sessions.sessions_dir)
+        self.history_store = SessionHistoryStore(self.sessions.sessions_dir)
         self.consolidator = Consolidator(
             store=self.context.memory,
             provider=provider,
@@ -336,7 +337,7 @@ class AgentLoop:
             get_tool_definitions=self.tools.get_definitions,
             max_completion_tokens=provider.generation.max_tokens,
             consolidation_ratio=consolidation_ratio,
-            archiver=self.archiver,
+            history_store=self.history_store,
         )
         self.auto_compact = AutoCompact(
             sessions=self.sessions,
@@ -554,6 +555,9 @@ class AgentLoop:
                 MyTool(runtime_state=self, modify_allowed=self.tools_config.my.allow_set)
             )
             registered.append("my")
+
+        self.tools.register(SearchSessionHistoryTool(history_store=self.history_store))
+        registered.append("search_session_history")
 
         logger.info("Registered {} tools: {}", len(registered), registered)
 
@@ -1257,10 +1261,7 @@ class AgentLoop:
             **self._source_extras(msg),
         )
         self._runtime_events().record_turn_latency(key, latency_ms)
-        session.enforce_file_cap(
-            on_archive=self.context.memory.raw_archive,
-            on_trim=lambda msgs: self.archiver.append(session.key, msgs, "file_cap"),
-        )
+        session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
         self._clear_runtime_checkpoint(session)
         self.sessions.save(session)
         self._schedule_background(
@@ -1723,10 +1724,7 @@ class AgentLoop:
             ctx.turn_usage or None,
         )
         if not ctx.ephemeral:
-            ctx.session.enforce_file_cap(
-                on_archive=self.context.memory.raw_archive,
-                on_trim=lambda msgs: self.archiver.append(ctx.session.key, msgs, "file_cap"),
-            )
+            ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
             self._schedule_background(
                 self.consolidator.maybe_consolidate_by_tokens(
                     ctx.session,

@@ -30,6 +30,7 @@ from nanobot.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
     from nanobot.providers.base import LLMProvider
+    from nanobot.session.history_store import SessionHistoryStore
     from nanobot.session.manager import SessionManager
 
 
@@ -570,7 +571,7 @@ class Consolidator:
         get_tool_definitions: Callable[[], list[dict[str, Any]]],
         max_completion_tokens: int = 4096,
         consolidation_ratio: float = 0.5,
-        archiver: SessionArchiver | None = None,
+        history_store: SessionHistoryStore | None = None,
     ):
         self.store = store
         self.provider = provider
@@ -581,10 +582,40 @@ class Consolidator:
         self.consolidation_ratio = consolidation_ratio
         self._build_messages = build_messages
         self._get_tool_definitions = get_tool_definitions
-        self.archiver = archiver
+        self.history_store = history_store
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
             weakref.WeakValueDictionary()
         )
+
+    def _eager_trim_consolidated_prefix(
+        self,
+        session: Session,
+        end_idx: int,
+        reason: str = "consolidation",
+    ) -> None:
+        """整合后立刻物理删除前缀，并写入 SQLite 历史库。"""
+        if end_idx <= 0 or end_idx > len(session.messages):
+            return
+        trimmed = list(session.messages[:end_idx])
+        session.messages = session.messages[end_idx:]
+        session.last_consolidated = 0
+        if self.history_store:
+            self.history_store.insert_messages(session.key, trimmed, reason)
+        self.sessions.save(session)
+
+    def _migrate_legacy_consolidated_prefix(
+        self,
+        session: Session,
+        *,
+        reason: str = "consolidation",
+    ) -> None:
+        """旧 session 已推进 last_consolidated 但消息仍在磁盘时，补 eager trim。"""
+        if session.last_consolidated > 0:
+            self._eager_trim_consolidated_prefix(
+                session,
+                session.last_consolidated,
+                reason=reason,
+            )
 
     def set_provider(
         self,
@@ -688,8 +719,7 @@ class Consolidator:
             replay_max_messages,
         )
         summary = await self.archive(chunk)
-        session.last_consolidated = end_idx
-        self.sessions.save(session)
+        self._eager_trim_consolidated_prefix(session, end_idx)
         return summary
 
     def _persist_last_summary(self, session: Session, summary: str | None) -> None:
@@ -867,8 +897,7 @@ class Consolidator:
                 # would just emit duplicate [RAW] entries.
                 if summary:
                     last_summary = summary
-                session.last_consolidated = end_idx
-                self.sessions.save(session)
+                self._eager_trim_consolidated_prefix(session, end_idx)
                 if not summary:
                     # LLM is degraded — stop hammering it this call;
                     # the next invocation can retry a fresh chunk.
@@ -930,15 +959,9 @@ class Consolidator:
                 self.sessions.save(session)
                 return ""
 
-            # 真正要 drop 消息时才写 trim archive，避免 early-return 路径重复归档。
-            if consolidated_prefix and self.archiver:
-                self.archiver.append(session_key, consolidated_prefix, "idle_compact")
-
             last_active = session.updated_at
             summary: str | None = ""
             if archive_msgs:
-                if self.archiver:
-                    self.archiver.append(session_key, archive_msgs, "idle_compact")
                 summary = await self.archive(archive_msgs)
 
             if summary and summary != "(nothing)":
@@ -946,6 +969,12 @@ class Consolidator:
                     "text": summary,
                     "last_active": last_active.isoformat(),
                 }
+
+            trimmed_all = consolidated_prefix + archive_msgs
+            if self.history_store and trimmed_all:
+                self.history_store.insert_messages(
+                    session_key, trimmed_all, "idle_compact",
+                )
 
             session.messages = kept
             session.last_consolidated = 0

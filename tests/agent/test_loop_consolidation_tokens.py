@@ -80,7 +80,8 @@ async def test_prompt_above_threshold_archives_until_next_user_boundary(tmp_path
 
     archived_chunk = loop.consolidator.archive.await_args.args[0]
     assert [message["content"] for message in archived_chunk] == ["u1", "a1", "u2", "a2"]
-    assert session.last_consolidated == 4
+    assert session.last_consolidated == 0
+    assert [message["content"] for message in session.messages] == ["u3"]
 
 
 @pytest.mark.asyncio
@@ -116,7 +117,8 @@ async def test_consolidation_loops_until_target_met(tmp_path, monkeypatch) -> No
     await loop.consolidator.maybe_consolidate_by_tokens(session)
 
     assert loop.consolidator.archive.await_count == 2
-    assert session.last_consolidated == 6
+    assert session.last_consolidated == 0
+    assert [message["content"] for message in session.messages] == ["u4"]
 
 
 @pytest.mark.asyncio
@@ -153,7 +155,8 @@ async def test_consolidation_continues_below_trigger_until_half_target(tmp_path,
     await loop.consolidator.maybe_consolidate_by_tokens(session)
 
     assert loop.consolidator.archive.await_count == 2
-    assert session.last_consolidated == 6
+    assert session.last_consolidated == 0
+    assert [message["content"] for message in session.messages] == ["u4"]
 
 
 @pytest.mark.asyncio

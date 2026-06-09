@@ -184,7 +184,8 @@ class TestConsolidatorTokenBudget:
         archived_chunk = consolidator.archive.await_args.args[0]
         assert archived_chunk[0]["content"] == "u0"
         assert archived_chunk[-1]["content"] == "a6"
-        assert session.last_consolidated == 14
+        assert session.last_consolidated == 0
+        assert len(session.messages) == 6
         assert session.metadata["_last_summary"]["text"] == "old conversation summary"
         consolidator.sessions.save.assert_called()
 
@@ -216,7 +217,8 @@ class TestConsolidatorTokenBudget:
 
         archived_chunk = consolidator.archive.await_args.args[0]
         assert [m["role"] for m in archived_chunk] == ["user", "assistant", "tool"]
-        assert session.last_consolidated == 3
+        assert session.last_consolidated == 0
+        assert len(session.messages) == 1
         assert session.get_history(max_messages=2) == [{"role": "assistant", "content": "final answer"}]
 
     async def test_large_chunk_archived_without_cap(self, consolidator):
@@ -243,9 +245,9 @@ class TestConsolidatorTokenBudget:
         await consolidator.maybe_consolidate_by_tokens(session)
 
         archived_chunk = consolidator.archive.await_args.args[0]
-        # pick_consolidation_boundary returns (50, tokens) — user turn at idx 50
         assert archived_chunk[0]["content"] == "m0"
-        assert session.last_consolidated > 0
+        assert session.last_consolidated == 0
+        assert len(session.messages) == 70 - len(archived_chunk)
 
     async def test_raw_archive_fallback_advances_last_consolidated(self, consolidator):
         """When archive() falls back to raw-archive (LLM failed), the cursor
@@ -271,9 +273,11 @@ class TestConsolidatorTokenBudget:
         await consolidator.maybe_consolidate_by_tokens(session)
 
         consolidator.archive.assert_awaited_once()
+        archived_chunk = consolidator.archive.await_args.args[0]
         # The chunk is considered "materialized" (as a raw-archive breadcrumb),
-        # so last_consolidated must have moved past it.
-        assert session.last_consolidated == 50
+        # so the consolidated prefix must be physically removed.
+        assert session.last_consolidated == 0
+        assert len(session.messages) == 70 - len(archived_chunk)
 
     async def test_raw_archive_fallback_breaks_round_loop(self, consolidator):
         """A degraded LLM should not trigger more archive() calls within the
@@ -322,7 +326,8 @@ class TestConsolidatorTokenBudget:
 
         consolidator.archive.assert_awaited_once()
         # pick_consolidation_boundary finds the only boundary at idx=61
-        assert session.last_consolidated == 61
+        assert session.last_consolidated == 0
+        assert len(session.messages) == 9
 
 
 class TestCompactIdleSession:
