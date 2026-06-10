@@ -936,24 +936,24 @@ function CaptionBubble({
           )}
         />
       </button>
-      <div
-        aria-live={streaming ? "polite" : undefined}
-        aria-atomic="false"
-        hidden={!open}
-        className={cn(
-          "mt-1 min-w-0 animate-in fade-in-0 slide-in-from-top-1 duration-200 border-l pl-3",
-          inverted ? "border-primary-foreground/20" : "border-muted-foreground/20",
-        )}
-      >
-        <MarkdownText
+        <div
+          aria-live={streaming ? "polite" : undefined}
+          aria-atomic="false"
+          hidden={!open}
           className={cn(
-            "text-[12.5px] italic",
-            inverted
-              ? "prose-invert text-primary-foreground/80 prose-headings:text-primary-foreground prose-strong:text-primary-foreground"
-              : "text-muted-foreground/88",
-            "prose-p:my-1.5 prose-li:my-0.5",
+            "mt-1 min-w-0 animate-in fade-in-0 slide-in-from-top-1 duration-200 border-l pl-3",
+            inverted ? "border-primary-foreground/20" : "border-muted-foreground/20",
           )}
         >
+          <MarkdownText
+            className={cn(
+              "text-[12.5px] italic break-words",
+              inverted
+                ? "prose-invert text-primary-foreground/80 prose-headings:text-primary-foreground prose-strong:text-primary-foreground"
+                : "text-muted-foreground/88",
+              "prose-p:my-1.5 prose-li:my-0.5",
+            )}
+          >
           {displayText}
         </MarkdownText>
       </div>
