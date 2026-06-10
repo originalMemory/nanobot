@@ -1,4 +1,4 @@
-"""历史记忆检索工具：对外部日记库做 FTS5 全文检索。"""
+"""个人日记全文检索工具。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any
 from nanobot.agent.tools.base import Tool
 
 
-class MemorySearchTool(Tool):
-    """在配置的历史记忆库中全文检索，支持日记和笔记多种文档类型。"""
+class SearchDiaryTool(Tool):
+    """在配置的日记库中全文检索，支持日记和笔记多种文档类型。"""
 
     _scopes = {"core", "subagent"}
 
@@ -23,19 +23,19 @@ class MemorySearchTool(Tool):
         return bool(cfg and cfg.enabled and cfg.root)
 
     @classmethod
-    def create(cls, ctx: Any) -> "MemorySearchTool":
+    def create(cls, ctx: Any) -> "SearchDiaryTool":
         cfg = ctx.historical_memory_config
         return cls(workspace=ctx.workspace, top_k=cfg.search_top_k)
 
     @property
     def name(self) -> str:
-        return "memory_search"
+        return "search_diary"
 
     @property
     def description(self) -> str:
         return (
-            "在历史记忆库中全文检索，覆盖日记和笔记等多种文档类型，返回命中的条目（日期、摘要、关键片段、文档类型）。"
-            "当用户提及过去的事件、人物、游戏、情绪或想回忆某段经历时调用此工具。"
+            "搜个人日记/笔记，包含用户记录的事件、心情、饮食、健康、购物、游戏经历等。"
+            "当用户问起『上次什么时候去过植物园』『上个月体脂多少』『之前吃过什么』这类自己记录过的事实类问题时调用。"
             "支持中文关键词（包括 2 字词）、英文词、混合查询。"
             "多个关键词用空格分隔，结果要求全部出现（AND），如「FA 黄泉」同时匹配两个关键词；"
             "单个关键词则精确匹配，如「鸣潮」。"

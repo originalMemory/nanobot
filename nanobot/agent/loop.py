@@ -27,7 +27,7 @@ from nanobot.agent.tools.context import RequestContext, bind_request_context, re
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.search_history import SearchSessionHistoryTool
+from nanobot.agent.tools.search_chat import SearchChatTool
 from nanobot.agent.tools.self import MyTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.progress import build_bus_progress_callback
@@ -556,8 +556,8 @@ class AgentLoop:
             )
             registered.append("my")
 
-        self.tools.register(SearchSessionHistoryTool(history_store=self.history_store))
-        registered.append("search_session_history")
+        self.tools.register(SearchChatTool(history_store=self.history_store))
+        registered.append("search_chat")
 
         logger.info("Registered {} tools: {}", len(registered), registered)
 

@@ -22,10 +22,12 @@ CREATE TABLE IF NOT EXISTS session_messages (
     reason       TEXT    NOT NULL,
     role         TEXT    NOT NULL,
     content_text TEXT,
-    raw_json     TEXT    NOT NULL
+    raw_json     TEXT    NOT NULL,
+    msg_timestamp TEXT   NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_sk ON session_messages(session_key);
 CREATE INDEX IF NOT EXISTS idx_time ON session_messages(trimmed_at);
+CREATE INDEX IF NOT EXISTS idx_msg_time ON session_messages(msg_timestamp);
 """
 
 _MAX_SEARCH_LIMIT = 100
@@ -152,6 +154,7 @@ class SessionHistoryStore:
         rows: list[tuple[Any, ...]] = []
         for message in messages:
             raw_json = json.dumps(message, ensure_ascii=False)
+            msg_ts = message.get("timestamp", "") or ""
             rows.append((
                 session_key,
                 trimmed_at,
@@ -159,15 +162,26 @@ class SessionHistoryStore:
                 str(message.get("role", "unknown")),
                 _content_text_for_row(message, raw_json),
                 raw_json,
+                msg_ts,
             ))
+        try:
+            with self._lock:
+                with conn:
+                    # 保证旧库有 msg_timestamp 列
+                    conn.executescript(
+                        "ALTER TABLE session_messages ADD COLUMN msg_timestamp TEXT NOT NULL DEFAULT ''"
+                    )
+        except Exception:
+            pass  # 列已存在，忽略
+
         try:
             with self._lock:
                 with conn:
                     conn.executemany(
                         """
                         INSERT INTO session_messages (
-                            session_key, trimmed_at, reason, role, content_text, raw_json
-                        ) VALUES (?, ?, ?, ?, ?, ?)
+                            session_key, trimmed_at, reason, role, content_text, raw_json, msg_timestamp
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         rows,
                     )
@@ -204,17 +218,17 @@ class SessionHistoryStore:
             clauses.append("session_key = ?")
             params.append(session_key)
         if since:
-            clauses.append("trimmed_at >= ?")
+            clauses.append("msg_timestamp >= ?")
             params.append(since)
         if until:
-            clauses.append("trimmed_at <= ?")
+            clauses.append("msg_timestamp <= ?")
             params.append(_normalize_until(until))
 
         sql = f"""
-            SELECT session_key, trimmed_at, role, content_text
+            SELECT session_key, trimmed_at, msg_timestamp, role, content_text
             FROM session_messages
             WHERE {" AND ".join(clauses)}
-            ORDER BY trimmed_at DESC
+            ORDER BY msg_timestamp DESC
             LIMIT ?
         """
         params.append(capped_limit)
@@ -236,6 +250,7 @@ class SessionHistoryStore:
             results.append({
                 "session_key": row["session_key"],
                 "trimmed_at": row["trimmed_at"],
+                "msg_timestamp": row["msg_timestamp"],
                 "role": row["role"],
                 "content_text": display_text,
                 "snippet": _make_snippet(content_text, query),

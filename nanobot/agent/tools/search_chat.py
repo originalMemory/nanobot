@@ -1,4 +1,4 @@
-"""检索 consolidation 裁掉并写入 SQLite 的会话历史。"""
+"""检索 consolidation 裁掉并写入 SQLite 的聊天记录。"""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from nanobot.agent.tools.base import Tool
 from nanobot.session.history_store import SessionHistoryStore
 
 
-class SearchSessionHistoryTool(Tool):
-    """在 sessions/history.db 中检索被整合裁掉的历史消息。"""
+class SearchChatTool(Tool):
+    """在 sessions/history.db 中检索被整合裁掉的聊天记录。"""
 
     _plugin_discoverable = False
     _scopes = {"core", "subagent"}
@@ -20,14 +20,14 @@ class SearchSessionHistoryTool(Tool):
 
     @property
     def name(self) -> str:
-        return "search_session_history"
+        return "search_chat"
 
     @property
     def description(self) -> str:
         return (
-            "在本地会话历史库中检索被整合裁掉的消息原文。"
-            "当用户询问过去某次对话里说过什么、做过什么决策、或需要回溯较早的会话细节时调用。"
-            "支持关键词搜索，可选按 session_key 或时间范围过滤。"
+            "搜与焰的聊天记录，包含对话中讨论过的决策、菜谱规划、项目讨论、技术问题等。"
+            "当用户问起『上周菜谱规划是什么』『之前讨论过什么 bug 』『某个决策是怎么定的』这类对话中提到的事时调用。"
+            "支持关键词搜索，可选按会话来源或时间范围过滤。"
         )
 
     @property
@@ -46,11 +46,11 @@ class SearchSessionHistoryTool(Tool):
                 },
                 "since": {
                     "type": "string",
-                    "description": "起始时间（ISO 日期或日期时间）",
+                    "description": "起始时间（ISO 日期或日期时间），按原始消息时间过滤",
                 },
                 "until": {
                     "type": "string",
-                    "description": "结束时间（ISO 日期或日期时间）",
+                    "description": "结束时间（ISO 日期或日期时间），按原始消息时间过滤",
                 },
                 "limit": {
                     "type": "integer",
