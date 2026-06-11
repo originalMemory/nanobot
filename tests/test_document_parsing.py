@@ -27,6 +27,8 @@ class TestSupportedExtensions:
         assert ".json" in SUPPORTED_EXTENSIONS
         assert ".yaml" in SUPPORTED_EXTENSIONS
         assert ".yml" in SUPPORTED_EXTENSIONS
+        assert ".py" in SUPPORTED_EXTENSIONS
+        assert ".sh" in SUPPORTED_EXTENSIONS
 
         # Image formats
         assert ".png" in SUPPORTED_EXTENSIONS
@@ -99,6 +101,24 @@ class TestExtractText:
         json_file.write_text(content, encoding="utf-8")
 
         result = extract_text(json_file)
+        assert result == content
+
+    def test_extract_text_py_file(self, tmp_path: Path):
+        """Test extracting text from a .py file."""
+        py_file = tmp_path / "script.py"
+        content = 'def main():\n    print("hi")\n'
+        py_file.write_text(content, encoding="utf-8")
+
+        result = extract_text(py_file)
+        assert result == content
+
+    def test_extract_text_sh_file(self, tmp_path: Path):
+        """Test extracting text from a .sh file."""
+        sh_file = tmp_path / "run.sh"
+        content = '#!/bin/sh\necho "hello"\n'
+        sh_file.write_text(content, encoding="utf-8")
+
+        result = extract_text(sh_file)
         assert result == content
 
     def test_extract_text_xlsx(self, tmp_path: Path):

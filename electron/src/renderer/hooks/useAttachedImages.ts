@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  IMAGE_WORKER_MIMES,
+  inferAttachmentKind,
+  mimeForAttachment,
+  type AttachmentKind,
+} from "@/lib/attachmentTypes";
 import { encodeImage, type EncodeFailure } from "@/lib/imageEncode";
 
 /** Lifecycle stages of one attachment:
  *
- * - ``encoding``  — posted to the Worker; chip shows a spinner
+ * - ``encoding``  — posted to the Worker / FileReader; chip shows a spinner
  * - ``ready``     — ``dataUrl`` available; safe to submit
  * - ``error``     — validation / decode failure; chip shows inline error
  */
@@ -13,8 +19,9 @@ export type AttachmentStatus = "encoding" | "ready" | "error";
 export interface AttachedImage {
   id: string;
   file: File;
+  kind: AttachmentKind;
   /** Optimistic ``blob:`` preview URL; revoked on ``remove`` / ``clear`` /
-   * unmount. */
+   * unmount. 文档附件无预览图时为空字符串。 */
   previewUrl: string;
   status: AttachmentStatus;
   /** Populated when ``status === "ready"``. */
@@ -31,22 +38,17 @@ export interface AttachedImage {
  *
  * Callers localize these via the ``composer.imageRejected.*`` i18n table. */
 export type AttachmentError =
-  | "unsupported_type"   // server whitelist excludes this MIME
-  | "too_many_images"    // per-message cap (4) reached before enqueue
+  | "unsupported_type"   // 扩展名不在 extract_documents 白名单
+  | "too_many_images"    // 图片数达上限
+  | "too_many_attachments" // 总附件数达上限
   | "magic_mismatch"     // extension lies about the real content
   | "decode_failed"      // Worker couldn't decode / re-encode
   | "too_large"          // even after normalization we exceed the budget
   | "io";                // file read failed at the browser layer
 
 export const MAX_IMAGES_PER_MESSAGE = 4;
-
-/** MIME whitelist — mirrors the server's and the ``<input accept>`` attr. */
-const ACCEPTED_MIMES: ReadonlySet<string> = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/gif",
-]);
+export const MAX_ATTACHMENTS_PER_MESSAGE = 8;
+const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
 
 function uuid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -70,6 +72,38 @@ function mapEncodeFailure(reason: EncodeFailure["reason"]): AttachmentError {
   }
 }
 
+async function readDocumentDataUrl(file: File): Promise<
+  | { ok: true; dataUrl: string; bytes: number }
+  | { ok: false; reason: AttachmentError }
+> {
+  if (file.size > MAX_DOCUMENT_BYTES) {
+    return { ok: false, reason: "too_large" };
+  }
+  const targetMime = mimeForAttachment(file);
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = reader.result;
+      if (typeof raw !== "string" || !raw.includes(",")) {
+        resolve({ ok: false, reason: "decode_failed" });
+        return;
+      }
+      const base64 = raw.split(",", 2)[1] ?? "";
+      let bytes = 0;
+      try {
+        bytes = atob(base64).length;
+      } catch {
+        resolve({ ok: false, reason: "decode_failed" });
+        return;
+      }
+      const dataUrl = `data:${targetMime};base64,${base64}`;
+      resolve({ ok: true, dataUrl, bytes });
+    };
+    reader.onerror = () => resolve({ ok: false, reason: "io" });
+    reader.readAsDataURL(file);
+  });
+}
+
 export interface UseAttachedImagesApi {
   images: AttachedImage[];
   /** Enqueue new files. Returns the list of rejected files so the caller can
@@ -84,25 +118,22 @@ export interface UseAttachedImagesApi {
    * successful submit — the optimistic bubble holds onto an independent
    * ``data:`` URL so tearing down blob previews here is safe. */
   clear: () => void;
-  /** ``true`` when at least one image is still encoding — Send should wait. */
+  /** ``true`` when at least one attachment is still encoding — Send should wait. */
   encoding: boolean;
-  /** ``true`` when we've hit ``MAX_IMAGES_PER_MESSAGE``. */
+  /** ``true`` when we've hit ``MAX_ATTACHMENTS_PER_MESSAGE``. */
   full: boolean;
 }
 
-/** Manage the lifecycle of images attached to the Composer.
+/** Manage the lifecycle of files attached to the Composer.
  *
  * Responsibilities in one place:
- *   - validation (MIME whitelist, count cap)
+ *   - validation (extension whitelist, count cap)
  *   - blob URL creation + revocation
- *   - Worker orchestration
+ *   - Worker orchestration for images; FileReader for documents
  *   - focus bookkeeping so keyboard delete doesn't strand the user
  */
 export function useAttachedImages(): UseAttachedImagesApi {
   const [images, setImages] = useState<AttachedImage[]>([]);
-  // Ref mirror so ``enqueue`` can see the authoritative length when invoked
-  // multiple times in a single tick (rapid file selection, drag of many
-  // files, paste storms). ``state`` is stale for that second + call.
   const imagesRef = useRef<AttachedImage[]>([]);
   imagesRef.current = images;
 
@@ -118,22 +149,38 @@ export function useAttachedImages(): UseAttachedImagesApi {
     (files: Iterable<File>) => {
       const rejected: Array<{ file: File; reason: AttachmentError }> = [];
       const toAdd: AttachedImage[] = [];
-      let slot = MAX_IMAGES_PER_MESSAGE - imagesRef.current.length;
+      let imageSlots =
+        MAX_IMAGES_PER_MESSAGE
+        - imagesRef.current.filter((item) => item.kind === "image").length;
+      let totalSlots = MAX_ATTACHMENTS_PER_MESSAGE - imagesRef.current.length;
 
       for (const file of files) {
-        if (!ACCEPTED_MIMES.has(file.type)) {
+        const kind = inferAttachmentKind(file);
+        if (!kind) {
           rejected.push({ file, reason: "unsupported_type" });
           continue;
         }
-        if (slot <= 0) {
-          rejected.push({ file, reason: "too_many_images" });
+        if (totalSlots <= 0) {
+          rejected.push({ file, reason: "too_many_attachments" });
           continue;
         }
-        slot -= 1;
+        if (kind === "image") {
+          if (!IMAGE_WORKER_MIMES.has(mimeForAttachment(file))) {
+            rejected.push({ file, reason: "unsupported_type" });
+            continue;
+          }
+          if (imageSlots <= 0) {
+            rejected.push({ file, reason: "too_many_images" });
+            continue;
+          }
+          imageSlots -= 1;
+        }
+        totalSlots -= 1;
         toAdd.push({
           id: uuid(),
           file,
-          previewUrl: URL.createObjectURL(file),
+          kind,
+          previewUrl: kind === "image" ? URL.createObjectURL(file) : "",
           status: "encoding",
         });
       }
@@ -142,32 +189,48 @@ export function useAttachedImages(): UseAttachedImagesApi {
         const next = [...imagesRef.current, ...toAdd];
         imagesRef.current = next;
         setImages(next);
-        // Fire the Worker after the commit so chips render first (good INP).
         for (const entry of toAdd) {
           queueMicrotask(() => {
-            encodeImage(entry.file).then(
-              (result) => {
-                if (result.ok) {
-                  setEntry(entry.id, {
-                    status: "ready",
-                    dataUrl: result.dataUrl,
-                    encodedBytes: result.bytes,
-                    normalized: result.normalized,
-                  });
-                } else {
+            if (entry.kind === "image") {
+              encodeImage(entry.file).then(
+                (result) => {
+                  if (result.ok) {
+                    setEntry(entry.id, {
+                      status: "ready",
+                      dataUrl: result.dataUrl,
+                      encodedBytes: result.bytes,
+                      normalized: result.normalized,
+                    });
+                  } else {
+                    setEntry(entry.id, {
+                      status: "error",
+                      error: mapEncodeFailure((result as EncodeFailure).reason),
+                    });
+                  }
+                },
+                () => {
                   setEntry(entry.id, {
                     status: "error",
-                    error: mapEncodeFailure((result as EncodeFailure).reason),
+                    error: "decode_failed",
                   });
-                }
-              },
-              () => {
+                },
+              );
+              return;
+            }
+            readDocumentDataUrl(entry.file).then((result) => {
+              if (result.ok) {
+                setEntry(entry.id, {
+                  status: "ready",
+                  dataUrl: result.dataUrl,
+                  encodedBytes: result.bytes,
+                });
+              } else {
                 setEntry(entry.id, {
                   status: "error",
-                  error: "decode_failed",
+                  error: result.reason,
                 });
-              },
-            );
+              }
+            });
           });
         }
       }
@@ -182,14 +245,15 @@ export function useAttachedImages(): UseAttachedImagesApi {
       const idx = prev.findIndex((img) => img.id === id);
       if (idx === -1) return prev;
       const target = prev[idx];
-      try {
-        URL.revokeObjectURL(target.previewUrl);
-      } catch {
-        // No-op: previewUrl revocation is best-effort.
+      if (target.previewUrl) {
+        try {
+          URL.revokeObjectURL(target.previewUrl);
+        } catch {
+          // No-op: previewUrl revocation is best-effort.
+        }
       }
       const next = [...prev.slice(0, idx), ...prev.slice(idx + 1)];
       imagesRef.current = next;
-      // Prefer moving focus to the chip at the same index, else previous.
       const candidate = next[idx] ?? next[idx - 1];
       nextFocusId = candidate?.id ?? null;
       return next;
@@ -200,6 +264,7 @@ export function useAttachedImages(): UseAttachedImagesApi {
   const clear = useCallback(() => {
     setImages((prev) => {
       for (const img of prev) {
+        if (!img.previewUrl) continue;
         try {
           URL.revokeObjectURL(img.previewUrl);
         } catch {
@@ -211,12 +276,10 @@ export function useAttachedImages(): UseAttachedImagesApi {
     });
   }, []);
 
-  // Final safety net: revoke any outstanding blob URLs on unmount. Safe
-  // under StrictMode double-invoke because revoked blob URLs are only
-  // referenced from in-hook chip state, which is rebuilt on remount.
   useEffect(() => {
     return () => {
       for (const img of imagesRef.current) {
+        if (!img.previewUrl) continue;
         try {
           URL.revokeObjectURL(img.previewUrl);
         } catch {
@@ -227,7 +290,7 @@ export function useAttachedImages(): UseAttachedImagesApi {
   }, []);
 
   const encoding = images.some((img) => img.status === "encoding");
-  const full = images.length >= MAX_IMAGES_PER_MESSAGE;
+  const full = images.length >= MAX_ATTACHMENTS_PER_MESSAGE;
 
   return { images, enqueue, remove, clear, encoding, full };
 }

@@ -38,6 +38,7 @@ from nanobot.session.inbox_unread import (
 )
 from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
+from nanobot.utils.document import SUPPORTED_EXTENSIONS
 from nanobot.utils.media_decode import (
     FileSizeExceeded,
     save_base64_data_url,
@@ -267,10 +268,12 @@ def _parse_envelope(raw: str) -> dict[str, Any] | None:
 # client's ``Worker`` normalization target (6 MB) — tolerate client slop, but
 # still cap total ingress at ``_MAX_IMAGES_PER_MESSAGE * _MAX_IMAGE_BYTES``
 # which fits comfortably inside ``max_message_bytes``.
+_MAX_ATTACHMENTS_PER_MESSAGE = 8
 _MAX_IMAGES_PER_MESSAGE = 4
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024
 _MAX_VIDEOS_PER_MESSAGE = 1
 _MAX_VIDEO_BYTES = 20 * 1024 * 1024
+_MAX_DOCUMENT_BYTES = 8 * 1024 * 1024
 
 # Image MIME whitelist — matches the Composer's ``accept`` list. SVG is
 # explicitly excluded to avoid the XSS surface inside embedded scripts.
@@ -281,13 +284,69 @@ _IMAGE_MIME_ALLOWED: frozenset[str] = frozenset({
     "image/gif",
 })
 
+_IMAGE_EXTENSIONS: frozenset[str] = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
+})
+
+_DOCUMENT_EXTENSIONS: frozenset[str] = frozenset(
+    ext for ext in SUPPORTED_EXTENSIONS if ext not in _IMAGE_EXTENSIONS
+)
+
 _VIDEO_MIME_ALLOWED: frozenset[str] = frozenset({
     "video/mp4",
     "video/webm",
     "video/quicktime",
 })
 
-_UPLOAD_MIME_ALLOWED: frozenset[str] = _IMAGE_MIME_ALLOWED | _VIDEO_MIME_ALLOWED
+_DOCUMENT_MIME_ALLOWED: frozenset[str] = frozenset({
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "application/json",
+    "text/xml",
+    "application/xml",
+    "text/html",
+    "text/yaml",
+    "application/x-yaml",
+    "application/toml",
+    "text/x-python",
+    "text/x-script.python",
+    "application/x-sh",
+    "text/x-sh",
+})
+
+_UPLOAD_MIME_ALLOWED: frozenset[str] = (
+    _IMAGE_MIME_ALLOWED | _VIDEO_MIME_ALLOWED | _DOCUMENT_MIME_ALLOWED
+)
+
+_BLOCKED_UPLOAD_EXTENSIONS: frozenset[str] = frozenset({".svg"})
+_BLOCKED_UPLOAD_MIMES: frozenset[str] = frozenset({"image/svg+xml"})
+
+
+def _upload_extension(name: Any) -> str | None:
+    if not isinstance(name, str) or not name.strip():
+        return None
+    ext = Path(name).suffix.lower()
+    if not ext or ext in _BLOCKED_UPLOAD_EXTENSIONS:
+        return None
+    if ext in SUPPORTED_EXTENSIONS:
+        return ext
+    return None
+
+
+def _upload_allowed(mime: str | None, name: Any) -> bool:
+    if mime in _BLOCKED_UPLOAD_MIMES:
+        return False
+    ext = _upload_extension(name)
+    if mime in _UPLOAD_MIME_ALLOWED:
+        if mime == "application/octet-stream":
+            return ext is not None
+        return True
+    return ext is not None
 
 _DATA_URL_MIME_RE = re.compile(r"^data:([^;]+);base64,", re.DOTALL)
 
@@ -791,12 +850,22 @@ class WebSocketChannel(BaseChannel):
         """
         image_count = 0
         video_count = 0
+        document_count = 0
         for item in media:
-            mime = _extract_data_url_mime(item.get("data_url", "")) if isinstance(item, dict) else None
+            if not isinstance(item, dict):
+                continue
+            mime = _extract_data_url_mime(item.get("data_url", ""))
+            name = item.get("name")
+            ext = _upload_extension(name)
             if mime in _VIDEO_MIME_ALLOWED:
                 video_count += 1
-            elif mime in _IMAGE_MIME_ALLOWED:
+            elif mime in _IMAGE_MIME_ALLOWED or ext in _IMAGE_EXTENSIONS:
                 image_count += 1
+            elif _upload_allowed(mime, name):
+                document_count += 1
+        total = image_count + video_count + document_count
+        if total > _MAX_ATTACHMENTS_PER_MESSAGE:
+            return [], "too_many_attachments"
         if image_count > _MAX_IMAGES_PER_MESSAGE:
             return [], "too_many_images"
         if video_count > _MAX_VIDEOS_PER_MESSAGE:
@@ -824,13 +893,22 @@ class WebSocketChannel(BaseChannel):
             mime = _extract_data_url_mime(data_url)
             if mime is None:
                 return _abort("decode")
-            if mime not in _UPLOAD_MIME_ALLOWED:
+            item_name = item.get("name")
+            if not _upload_allowed(mime, item_name):
                 return _abort("mime")
+            ext = _upload_extension(item_name)
             is_video = mime in _VIDEO_MIME_ALLOWED
-            max_bytes = _MAX_VIDEO_BYTES if is_video else _MAX_IMAGE_BYTES
+            is_image = mime in _IMAGE_MIME_ALLOWED or ext in _IMAGE_EXTENSIONS
+            if is_video:
+                max_bytes = _MAX_VIDEO_BYTES
+            elif is_image:
+                max_bytes = _MAX_IMAGE_BYTES
+            else:
+                max_bytes = _MAX_DOCUMENT_BYTES
+            save_name = item_name if isinstance(item_name, str) else None
             try:
                 saved = save_base64_data_url(
-                    data_url, media_dir, max_bytes=max_bytes,
+                    data_url, media_dir, max_bytes=max_bytes, name=save_name,
                 )
             except FileSizeExceeded:
                 return _abort("size")

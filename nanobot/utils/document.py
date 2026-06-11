@@ -28,6 +28,8 @@ SUPPORTED_EXTENSIONS: set[str] = {
     ".toml",
     ".ini",
     ".cfg",
+    ".py",
+    ".sh",
     # Image formats (for future OCR support)
     ".png",
     ".jpg",
@@ -221,6 +223,8 @@ def _is_text_extension(ext: str) -> bool:
         ".toml",
         ".ini",
         ".cfg",
+        ".py",
+        ".sh",
     }
 
 

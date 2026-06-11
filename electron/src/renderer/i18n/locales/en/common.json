@@ -589,6 +589,7 @@
       "send": "Send message",
       "stop": "Stop response",
       "attachImage": "Attach image",
+      "attachFile": "Attach file",
       "imageMode": {
         "label": "Image Generation",
         "toggle": "Toggle image generation mode",
@@ -704,10 +705,11 @@
       "normalizedSizeHint": "{{orig}} → {{current}} (auto)",
       "imageRejected": {
         "unsupported_type": "Unsupported file type",
-        "too_many_images": "Max {{max}} images per message",
+        "too_many_images": "Max {{maxImages}} images per message",
+        "too_many_attachments": "Max {{maxAttachments}} attachments per message",
         "magic_mismatch": "File doesn't look like a real image",
-        "decode_failed": "Couldn't decode this image",
-        "too_large": "Image is too large — try a smaller one",
+        "decode_failed": "Couldn't decode this file",
+        "too_large": "File is too large — try a smaller one",
         "io": "Couldn't read this file"
       }
     },

@@ -36,6 +36,7 @@ import {
   ChevronUp,
   CircleHelp,
   History,
+  FileText,
   ImageIcon,
   Loader2,
   Plus,
@@ -63,8 +64,10 @@ import {
   useAttachedImages,
   type AttachedImage,
   type AttachmentError,
+  MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_IMAGES_PER_MESSAGE,
 } from "@/hooks/useAttachedImages";
+import { ACCEPT_ATTR } from "@/lib/attachmentTypes";
 import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
 import type { SendImage, SendOptions } from "@/hooks/useNanobotStream";
 import type {
@@ -101,10 +104,6 @@ import {
   type ReasoningEffortValue,
 } from "@/lib/reasoning-effort";
 import { isDarkTheme, useThemeValue } from "@/hooks/useTheme";
-
-/** ``<input accept>``: aligned with the server's MIME whitelist. SVG is
- * deliberately excluded to avoid an embedded-script XSS surface. */
-const ACCEPT_ATTR = "image/png,image/jpeg,image/webp,image/gif";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -657,7 +656,10 @@ export const ThreadComposer = forwardRef<ThreadComposerHandle, ThreadComposerPro
   const formatRejection = useCallback(
     (reason: AttachmentError): string => {
       const key = `thread.composer.imageRejected.${reason}`;
-      return t(key, { max: MAX_IMAGES_PER_MESSAGE });
+      return t(key, {
+        maxImages: MAX_IMAGES_PER_MESSAGE,
+        maxAttachments: MAX_ATTACHMENTS_PER_MESSAGE,
+      });
     },
     [t],
   );
@@ -1141,7 +1143,9 @@ export const ThreadComposer = forwardRef<ThreadComposerHandle, ThreadComposerPro
               data_url: img.dataUrl,
               name: img.file.name,
             },
-            preview: { url: img.dataUrl, name: img.file.name },
+            preview: img.kind === "image"
+              ? { url: img.dataUrl, name: img.file.name }
+              : { name: img.file.name },
           }))
         : undefined;
     const attachedCliApps = activeCliMentionApps.map(cliAppMentionPayload);
@@ -1374,7 +1378,7 @@ export const ThreadComposer = forwardRef<ThreadComposerHandle, ThreadComposerPro
         {images.length > 0 ? (
           <div
             className="flex flex-wrap gap-2 px-3 pt-3"
-            aria-label={t("thread.composer.attachImage")}
+            aria-label={t("thread.composer.attachFile")}
           >
             {images.map((img) => (
               <AttachmentChip
@@ -1470,7 +1474,7 @@ export const ThreadComposer = forwardRef<ThreadComposerHandle, ThreadComposerPro
               size="icon"
               variant="ghost"
               disabled={attachButtonDisabled}
-              aria-label={t("thread.composer.attachImage")}
+              aria-label={t("thread.composer.attachFile")}
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 "rounded-full text-muted-foreground hover:text-foreground",
@@ -2453,7 +2457,7 @@ function AttachmentChip({
       data-testid="composer-chip"
     >
       <div className="relative h-10 w-10 overflow-hidden rounded-md bg-background">
-        {image.previewUrl ? (
+        {image.kind === "image" && image.previewUrl ? (
           <img
             src={image.previewUrl}
             alt=""
@@ -2464,7 +2468,11 @@ function AttachmentChip({
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
+            {image.kind === "document" ? (
+              <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+            ) : (
+              <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
+            )}
           </div>
         )}
         {image.status === "encoding" ? (

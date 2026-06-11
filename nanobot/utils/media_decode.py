@@ -25,11 +25,21 @@ class FileSizeExceeded(Exception):
     """Raised when a decoded payload exceeds the caller's size limit."""
 
 
+def _resolve_saved_extension(mime_type: str, name: str | None) -> str:
+    """优先用客户端原始文件名后缀，保证 ``extract_documents`` 能识别类型。"""
+    if name:
+        name_ext = Path(name).suffix.lower()
+        if name_ext:
+            return name_ext
+    return mimetypes.guess_extension(mime_type) or ".bin"
+
+
 def save_base64_data_url(
     data_url: str,
     media_dir: Path,
     *,
     max_bytes: int | None = None,
+    name: str | None = None,
 ) -> str | None:
     """Decode a ``data:<mime>;base64,<payload>`` URL and persist it.
 
@@ -48,7 +58,7 @@ def save_base64_data_url(
     limit = DEFAULT_MAX_BYTES if max_bytes is None else max_bytes
     if len(raw) > limit:
         raise FileSizeExceeded(f"File exceeds {limit // (1024 * 1024)}MB limit")
-    ext = mimetypes.guess_extension(mime_type) or ".bin"
+    ext = _resolve_saved_extension(mime_type, name)
     filename = f"{uuid.uuid4().hex[:12]}{ext}"
     dest = media_dir / safe_filename(filename)
     dest.write_bytes(raw)
