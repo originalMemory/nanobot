@@ -214,7 +214,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     # VolcEngine (火山引擎): OpenAI-compatible gateway, pay-per-use models
     ProviderSpec(
         name="volcengine",
-        keywords=("volcengine", "volces", "ark"),
+        keywords=("volcengine", "volces", "ark", "doubao"),
         env_key="OPENAI_API_KEY",
         display_name="VolcEngine",
         backend="openai_compat",
