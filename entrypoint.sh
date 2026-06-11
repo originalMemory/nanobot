@@ -12,7 +12,7 @@ Fix (pick one):
 EOF
     exit 1
 fi
-bootstrap="$HOME/.nanobot/workspace/bin/bootstrap.sh"
+bootstrap="$HOME/.nanobot/workspace/scripts/bootstrap.sh"
 if [ -f "$bootstrap" ]; then
     bash "$bootstrap" || exit 1
 fi
