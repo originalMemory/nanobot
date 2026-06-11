@@ -295,12 +295,18 @@ class HistoricalMemoryIndex:
     # -- 文件扫描 -------------------------------------------------------------
 
     def _iter_paths(self) -> list[Path]:
-        """遍历根目录，返回匹配 glob 的文件列表。"""
+        """遍历根目录，返回匹配 glob 的文件列表，排除备份/冲突目录。"""
         if self._root is None or not self._root.exists():
             if self._root is not None:
                 logger.warning("历史记忆路径不存在，跳过: {}", self._root)
             return []
-        return [p for p in sorted(self._root.rglob(self._config.glob)) if p.is_file()]
+        return [
+            p for p in sorted(self._root.rglob(self._config.glob))
+            if p.is_file()
+            and ".stversions" not in p.parts
+            and ".trash" not in p.parts
+            and "sync-conflict" not in p.name
+        ]
 
     def _doc_type(self, path: Path) -> str:
         """判断文件类型：位于 diary_root 下为 'diary'，否则为 'note'。"""
