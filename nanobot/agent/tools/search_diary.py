@@ -76,7 +76,7 @@ class SearchDiaryTool(Tool):
         if index.error:
             return f"历史记忆索引构建失败：{index.error}"
         if not index.is_ready:
-            return "历史记忆索引未就绪（可能 FTS5 不可用或路径配置有误）。"
+            return "历史记忆索引未就绪（可能路径配置有误或索引尚未构建）。"
 
         k = top_k if top_k is not None else self._top_k
         hits = index.search(query, top_k=k)
