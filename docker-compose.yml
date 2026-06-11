@@ -10,6 +10,8 @@ x-common-config: &common-config
     PUID: "99"
     PGID: "100"
     TZ: Asia/Shanghai
+  group_add:
+    - "281"
   volumes:
     - .:/home/nanobot/src
     - ./.nanobot:/home/nanobot/.nanobot
@@ -19,6 +21,8 @@ x-common-config: &common-config
     - /mnt/cache/ssd:/nas/ssd
     - /mnt/cache/appdata:/nas/appdata
     - /mnt/user/hdd:/nas/hdd
+    # Docker socket — 用于操作宿主机 Docker 容器
+    - /var/run/docker.sock:/var/run/docker.sock
   cap_drop:
     - ALL
   cap_add:
