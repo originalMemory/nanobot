@@ -31,7 +31,8 @@ CREATE INDEX IF NOT EXISTS idx_msg_time ON session_messages(msg_timestamp);
 """
 
 _MAX_SEARCH_LIMIT = 100
-_SNIPPET_RADIUS = 50
+_DEFAULT_SEARCH_LIMIT = 10
+_SNIPPET_RADIUS = 120
 _RESULT_CONTENT_MAX = 300
 
 
@@ -81,14 +82,27 @@ def _content_text_for_row(message: dict[str, Any], raw_json: str) -> str:
     return raw_json[:500]
 
 
-def _make_snippet(content_text: str, query: str) -> str:
-    if not content_text or not query:
-        return content_text[: _SNIPPET_RADIUS * 2] if content_text else ""
-    match = re.search(re.escape(query), content_text, flags=re.IGNORECASE)
-    if not match:
+def _make_snippet(content_text: str, keywords: list[str]) -> str:
+    """在 content_text 中找到第一个关键词，提取上下文作为 snippet。"""
+    if not content_text:
+        return ""
+    if not keywords:
         return content_text[: _SNIPPET_RADIUS * 2]
-    start = max(0, match.start() - _SNIPPET_RADIUS)
-    end = min(len(content_text), match.end() + _SNIPPET_RADIUS)
+
+    lower_content = content_text.lower()
+    best_pos = -1
+    best_len = 0
+    for kw in keywords:
+        pos = lower_content.find(kw.lower())
+        if pos != -1 and (best_pos == -1 or pos < best_pos):
+            best_pos = pos
+            best_len = len(kw)
+
+    if best_pos == -1:
+        return content_text[: _SNIPPET_RADIUS * 2]
+
+    start = max(0, best_pos - _SNIPPET_RADIUS)
+    end = min(len(content_text), best_pos + best_len + _SNIPPET_RADIUS)
     snippet = content_text[start:end]
     if start > 0:
         snippet = "…" + snippet
@@ -200,59 +214,95 @@ class SessionHistoryStore:
         session_key: str | None = None,
         since: str | None = None,
         until: str | None = None,
-        limit: int = 20,
+        limit: int = _DEFAULT_SEARCH_LIMIT,
     ) -> list[dict[str, Any]]:
-        """关键词检索历史消息，返回带 snippet 的结果列表。"""
-        if not query.strip():
+        """关键词检索历史消息，返回带 snippet 的结果列表。
+
+        策略与 search_diary 一致：多关键词 AND 优先，不足时 OR 补充；
+        各组内按 msg_timestamp 倒序，结果含 match_type 字段（and/or）。
+        """
+        keywords = query.strip().split()
+        if not keywords:
             return []
 
         conn = self._ensure_conn()
         if conn is None:
             return []
 
-        capped_limit = max(1, min(limit, _MAX_SEARCH_LIMIT))
-        clauses = ["content_text LIKE ? COLLATE NOCASE"]
-        params: list[Any] = [f"%{query}%"]
+        k = max(1, min(limit, _MAX_SEARCH_LIMIT))
 
-        if session_key:
-            clauses.append("session_key = ?")
-            params.append(session_key)
-        if since:
-            clauses.append("msg_timestamp >= ?")
-            params.append(since)
-        if until:
-            clauses.append("msg_timestamp <= ?")
-            params.append(_normalize_until(until))
+        def _build_filter_clauses() -> tuple[list[str], list[Any]]:
+            clauses: list[str] = []
+            params: list[Any] = []
+            if session_key:
+                clauses.append("session_key = ?")
+                params.append(session_key)
+            if since:
+                clauses.append("msg_timestamp >= ?")
+                params.append(since)
+            if until:
+                clauses.append("msg_timestamp <= ?")
+                params.append(_normalize_until(until))
+            return clauses, params
 
-        sql = f"""
-            SELECT session_key, trimmed_at, msg_timestamp, role, content_text
-            FROM session_messages
-            WHERE {" AND ".join(clauses)}
-            ORDER BY msg_timestamp DESC
-            LIMIT ?
-        """
-        params.append(capped_limit)
+        def _run_query(operator: str, sql_limit: int | None) -> list[sqlite3.Row]:
+            filter_clauses, filter_params = _build_filter_clauses()
+            kw_clauses = ["content_text LIKE ? COLLATE NOCASE" for _ in keywords]
+            kw_join = f" {'{op}'} ".format(op=operator).join(kw_clauses)
+            all_clauses = filter_clauses + [kw_join]
+            params = filter_params + [f"%{kw}%" for kw in keywords]
+            sql = f"""
+                SELECT session_key, trimmed_at, msg_timestamp, role, content_text
+                FROM session_messages
+                WHERE {" AND ".join(all_clauses)}
+                ORDER BY msg_timestamp DESC
+            """
+            if sql_limit is not None:
+                sql += " LIMIT ?"
+                params.append(sql_limit)
+            try:
+                with self._lock:
+                    return conn.execute(sql, params).fetchall()
+            except Exception:
+                logger.warning("SessionHistoryStore: search failed for query={!r}", query)
+                return []
 
-        try:
-            with self._lock:
-                cursor = conn.execute(sql, params)
-                rows = cursor.fetchall()
-        except Exception:
-            logger.warning("SessionHistoryStore: search failed for query={!r}", query)
-            return []
+        def _rows_to_results(rows: list[sqlite3.Row], match_type: str) -> list[dict[str, Any]]:
+            results: list[dict[str, Any]] = []
+            for row in rows:
+                content_text = row["content_text"] or ""
+                display_text = content_text
+                if len(display_text) > _RESULT_CONTENT_MAX:
+                    display_text = display_text[: _RESULT_CONTENT_MAX - 1] + "…"
+                results.append({
+                    "session_key": row["session_key"],
+                    "trimmed_at": row["trimmed_at"],
+                    "msg_timestamp": row["msg_timestamp"],
+                    "role": row["role"],
+                    "content_text": display_text,
+                    "snippet": _make_snippet(content_text, keywords),
+                    "match_type": match_type,
+                })
+            return results
 
-        results: list[dict[str, Any]] = []
-        for row in rows:
-            content_text = row["content_text"] or ""
-            display_text = content_text
-            if len(display_text) > _RESULT_CONTENT_MAX:
-                display_text = display_text[: _RESULT_CONTENT_MAX - 1] + "…"
-            results.append({
-                "session_key": row["session_key"],
-                "trimmed_at": row["trimmed_at"],
-                "msg_timestamp": row["msg_timestamp"],
-                "role": row["role"],
-                "content_text": display_text,
-                "snippet": _make_snippet(content_text, query),
-            })
-        return results
+        and_rows = _run_query("AND", sql_limit=k)
+        and_results = _rows_to_results(and_rows, "and")
+
+        if len(and_results) >= k:
+            return and_results[:k]
+
+        and_keys = {
+            (r["session_key"], r["msg_timestamp"], r["role"])
+            for r in and_results
+        }
+        or_rows = _run_query("OR", sql_limit=None)
+        or_results: list[dict[str, Any]] = []
+        for row in or_rows:
+            key = (row["session_key"], row["msg_timestamp"], row["role"])
+            if key in and_keys:
+                continue
+            or_results.append(_rows_to_results([row], "or")[0])
+            if len(and_results) + len(or_results) >= k:
+                break
+
+        return and_results + or_results

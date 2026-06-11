@@ -37,8 +37,9 @@ class SearchDiaryTool(Tool):
             "搜个人日记/笔记，包含用户记录的事件、心情、饮食、健康、购物、游戏经历等。"
             "当用户问起『上次什么时候去过植物园』『上个月体脂多少』『之前吃过什么』这类自己记录过的事实类问题时调用。"
             "支持中文关键词（包括 2 字词）、英文词、混合查询。"
-            "多个关键词用空格分隔，结果要求全部出现（AND），如「FA 黄泉」同时匹配两个关键词；"
-            "单个关键词则精确匹配，如「鸣潮」。"
+            "多个关键词用空格分隔时，优先返回全部关键词都命中（AND）的记录，如「FA 黄泉」；"
+            "若 AND 结果不足，再补充任一关键词命中（OR）的记录；"
+            "单个关键词按子串匹配，如「鸣潮」。"
         )
 
     @property
@@ -83,7 +84,15 @@ class SearchDiaryTool(Tool):
         if not hits:
             return f"未找到与「{query}」相关的记录。"
 
+        and_hits = [h for h in hits if h.match_type == "and"]
+        or_hits = [h for h in hits if h.match_type == "or"]
         lines = [f"检索「{query}」，共 {len(hits)} 条结果：\n"]
-        for i, hit in enumerate(hits, 1):
-            lines.append(f"{i}. {hit.format()}")
+        if and_hits:
+            lines.append(f"全部匹配（AND，{len(and_hits)} 条）：")
+            for i, hit in enumerate(and_hits, 1):
+                lines.append(f"  {i}. {hit.format()}")
+        if or_hits:
+            lines.append(f"部分匹配（OR，{len(or_hits)} 条）：")
+            for i, hit in enumerate(or_hits, 1):
+                lines.append(f"  {i}. {hit.format()}")
         return "\n".join(lines)

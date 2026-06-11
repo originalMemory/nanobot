@@ -17,9 +17,8 @@ from nanobot.agent.historical_memory import (
     _extract_date,
     _extract_date_from_frontmatter,
     _extract_frontmatter_text,
+    _make_snippet,
     _parse_frontmatter,
-    _segment_query,
-    _segment_text,
     get_index,
     register_index,
 )
@@ -31,34 +30,35 @@ from nanobot.config.schema import HistoricalMemoryConfig
 # ---------------------------------------------------------------------------
 
 
-def test_segment_text_cjk():
-    """CJK 字符拆成单字，ASCII 词保留整体。"""
-    result = _segment_text("今天鸣潮上线了nanobot测试")
-    tokens = result.split()
-    assert "鸣" in tokens
-    assert "潮" in tokens
-    assert "nanobot" in tokens
+def test_make_snippet_truncates_with_ellipsis():
+    """长文本截断时在首尾加省略号。"""
+    content = "a" * 200 + "鸣潮" + "b" * 200
+    snippet = _make_snippet(content, ["鸣潮"], context_chars=20)
+    assert snippet.startswith("…")
+    assert snippet.endswith("…")
+    assert "鸣潮" in snippet
 
 
-def test_segment_query_two_char():
-    """两字中文词转为 phrase 表达式。"""
-    assert _segment_query("鸣潮") == '"鸣 潮"'
-    assert _segment_query("迁移") == '"迁 移"'
+def test_make_snippet_short_content_no_ellipsis():
+    """短文本无需截断时不加省略号。"""
+    content = "今天鸣潮上线了"
+    snippet = _make_snippet(content, ["鸣潮"])
+    assert snippet == content
+    assert "…" not in snippet
 
 
-def test_segment_query_single_char():
-    """单字中文不加 phrase 引号。"""
-    assert _segment_query("潮") == "潮"
-
-
-def test_segment_query_multi_word():
-    """多字短语转 phrase。"""
-    assert _segment_query("暗色神具的魔王") == '"暗 色 神 具 的 魔 王"'
-
-
-def test_segment_query_ascii():
-    """纯 ASCII 查询保持原样。"""
-    assert _segment_query("nanobot") == "nanobot"
+def test_search_hit_format_no_double_ellipsis():
+    """format() 不再额外包裹省略号，避免与 snippet 重复。"""
+    hit = SearchHit(
+        path="/x.md",
+        date="2024-01-01",
+        summary="概要",
+        snippet="…关键词上下文…",
+        match_type="and",
+    )
+    formatted = hit.format()
+    assert "……" not in formatted
+    assert formatted.count("…") == 2
 
 
 def test_extract_date_from_filename():
@@ -194,7 +194,6 @@ def _make_config(note_root: Path, tmp_path: Path) -> HistoricalMemoryConfig:
         root=str(note_root),
         diary_path="日记",
         glob="**/*.md",
-        index_path=str(tmp_path / "test_index.db"),
         preload_recent_days=2,
         search_top_k=5,
     )

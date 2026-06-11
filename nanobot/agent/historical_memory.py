@@ -168,7 +168,7 @@ class SearchHit:
         if self.summary:
             parts.append(self.summary)
         if self.snippet:
-            parts.append(f"…{self.snippet}…")
+            parts.append(self.snippet)
         parts.append(f"({self.path})")
         return " | ".join(parts)
 
@@ -198,7 +198,7 @@ class RecentNote:
 # HistoricalMemoryIndex
 # ---------------------------------------------------------------------------
 
-_SNIPPET_CHARS = 80  # snippet 前后各取多少字符
+_SNIPPET_CHARS = 120  # snippet 前后各取多少字符
 
 
 def _make_snippet(content: str, keywords: list[str], context_chars: int = _SNIPPET_CHARS) -> str:
@@ -242,11 +242,7 @@ class HistoricalMemoryIndex:
         self._config = config
         self._workspace = workspace
         self._date_pattern = re.compile(config.date_pattern)
-        db_path = (
-            Path(config.index_path).expanduser()
-            if config.index_path
-            else workspace / "memory" / "historical.db"
-        )
+        db_path = workspace / "memory" / "historical.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
 
@@ -440,22 +436,25 @@ class HistoricalMemoryIndex:
         con = self._read_connect()
 
         # 辅助函数：执行 LIKE 查询
-        def _query(operator: str) -> list[tuple[str, str, str, str]]:
+        def _query(operator: str, limit: int | None = None) -> list[tuple[str, str, str, str]]:
             clauses = [f"content LIKE ? COLLATE NOCASE" for _ in keywords]
             sql = (
                 f"SELECT path, date, summary, content FROM docs "
                 f"WHERE {' {} '.format(operator).join(clauses)} "
                 f"ORDER BY date DESC"
             )
-            params = [f"%{kw}%" for kw in keywords]
+            params: list[str | int] = [f"%{kw}%" for kw in keywords]
+            if limit is not None:
+                sql += " LIMIT ?"
+                params.append(limit)
             try:
                 return con.execute(sql, params).fetchall()
             except sqlite3.OperationalError as e:
                 logger.warning("历史记忆检索出错 (query={!r}): {}", query, e)
                 return []
 
-        # Step 1: AND 查询
-        and_rows = _query("AND")
+        # Step 1: AND 查询（SQL 层限制条数，避免大库全表扫描）
+        and_rows = _query("AND", limit=k)
         and_hits = []
         for path, date_str, summary, content in and_rows:
             snippet = _make_snippet(content, keywords)

@@ -27,7 +27,8 @@ class SearchChatTool(Tool):
         return (
             "搜与焰的聊天记录，包含对话中讨论过的决策、菜谱规划、项目讨论、技术问题等。"
             "当用户问起『上周菜谱规划是什么』『之前讨论过什么 bug 』『某个决策是怎么定的』这类对话中提到的事时调用。"
-            "支持关键词搜索，可选按会话来源或时间范围过滤。"
+            "支持中文/英文关键词；多个关键词用空格分隔时，优先返回全部命中（AND），不足时补充任一命中（OR）。"
+            "可选按会话来源或时间范围过滤。"
         )
 
     @property
@@ -54,7 +55,7 @@ class SearchChatTool(Tool):
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "最多返回条数（默认 20，最大 100）",
+                    "description": "最多返回条数（默认 10，最大 100）",
                     "minimum": 1,
                     "maximum": 100,
                 },
@@ -72,7 +73,7 @@ class SearchChatTool(Tool):
         session_key: str | None = None,
         since: str | None = None,
         until: str | None = None,
-        limit: int = 20,
+        limit: int = 10,
     ) -> str:
         results = self._history_store.search(
             query,
@@ -83,4 +84,14 @@ class SearchChatTool(Tool):
         )
         if not results:
             return f"未找到与「{query}」相关的会话历史。"
-        return json.dumps(results, ensure_ascii=False, indent=2)
+
+        and_results = [r for r in results if r.get("match_type") == "and"]
+        or_results = [r for r in results if r.get("match_type") == "or"]
+        lines = [f"检索「{query}」，共 {len(results)} 条结果：\n"]
+        if and_results:
+            lines.append(f"全部匹配（AND，{len(and_results)} 条）：")
+            lines.append(json.dumps(and_results, ensure_ascii=False, indent=2))
+        if or_results:
+            lines.append(f"部分匹配（OR，{len(or_results)} 条）：")
+            lines.append(json.dumps(or_results, ensure_ascii=False, indent=2))
+        return "\n".join(lines)

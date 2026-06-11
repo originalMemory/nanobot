@@ -122,6 +122,24 @@ class TestSessionHistoryStore:
         assert len(store.search("timed", since="2025-01-01")) == 1
         assert len(store.search("timed", until="2026-06-01")) == 1
 
+    def test_search_and_or_match_type(self, tmp_path: Path):
+        store = SessionHistoryStore(tmp_path)
+        store.insert_messages(
+            "cli:test",
+            [
+                {"role": "user", "content": "deploy alpha release"},
+                {"role": "user", "content": "alpha only"},
+                {"role": "user", "content": "beta only"},
+            ],
+            "consolidation",
+        )
+        hits = store.search("alpha beta", limit=10)
+        and_hits = [h for h in hits if h["match_type"] == "and"]
+        or_hits = [h for h in hits if h["match_type"] == "or"]
+        assert len(and_hits) == 0
+        assert len(or_hits) >= 2
+        assert all(h["match_type"] in ("and", "or") for h in hits)
+
     def test_limit(self, tmp_path: Path):
         store = SessionHistoryStore(tmp_path)
         msgs = [{"role": "user", "content": f"match {i}"} for i in range(5)]

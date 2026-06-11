@@ -194,20 +194,22 @@ This is useful when a user has years of personal writing that captures decisions
 
 ### How it works
 
-At startup, nanobot scans the configured diary paths and builds a SQLite FTS5 full-text index. Only changed files (by `mtime`) are re-indexed on subsequent startups, so the process stays fast over time.
+At startup, nanobot scans the configured note root and builds a SQLite index. Only changed files (by `mtime`) are re-indexed on subsequent startups, so the process stays fast over time.
 
 Two things happen automatically when historical journals are enabled:
 
 1. **Context preloading**: the most recent N days of diary summaries are injected into the system prompt under `# Historical Journals`, giving the agent immediate background on recent life events without requiring an explicit search.
-2. **`memory_search` tool**: the agent can actively query the index by keyword, returning matched entries with their date, summary, and a relevant text snippet.
+2. **`search_diary` tool**: the agent can actively query the index by keyword, returning matched entries with their date, summary, and a relevant text snippet.
 
 The diary files are **read-only**. `read_file` and `grep` can access them; `edit_file` and `write_file` cannot, even when `restrictToWorkspace` is enabled.
 
-### Indexing and Chinese text
+### Indexing and search
 
 Diary content is cleaned before indexing: weather API JSON blocks, image embeds (`![[...]]`), nested callout lines (`>>`), callout markers, HTML tags, and Markdown table separators are stripped. The Obsidian frontmatter fields `概要` (summary), `心情` (mood), and `tags` are extracted separately and stored as dedicated columns.
 
-For Chinese text, nanobot uses character-level segmentation by default: each CJK character becomes its own token, while ASCII words are kept whole. FTS5 phrase queries ensure that multi-character Chinese words still match precisely. This requires no external dependencies and handles common two-character words reliably.
+Search uses SQLite `LIKE` on the stored plain text (no FTS5 dependency). Multi-word queries try **AND** first (all keywords must appear), then fall back to **OR** if results are insufficient. Results are ordered by date descending within each group. Chinese and English keywords are matched as substrings.
+
+If the index schema changes, delete `workspace/memory/historical.db` and let nanobot rebuild it on the next startup.
 
 ### Configuration
 
@@ -219,13 +221,13 @@ Historical journals are configured under `agents.defaults.historicalMemory`:
     "defaults": {
       "historicalMemory": {
         "enabled": true,
-        "paths": ["/Users/you/notes/日记"],
+        "root": "/Users/you/notes",
+        "diaryPath": "日记",
         "glob": "**/*.md",
         "datePattern": "(\\d{4}-\\d{2}-\\d{2})",
         "preloadRecentDays": 2,
-        "searchTopK": 5,
-        "indexPath": null,
-        "tokenizer": "char"
+        "searchTopK": 10,
+        "refreshIntervalM": 1440
       }
     }
   }
@@ -235,15 +237,17 @@ Historical journals are configured under `agents.defaults.historicalMemory`:
 | Field | Meaning |
 |-------|---------|
 | `enabled` | Whether to activate historical memory. Defaults to `false` |
-| `paths` | List of absolute paths to scan for diary files |
-| `glob` | Glob pattern for diary files within each path. Defaults to `**/*.md` |
-| `datePattern` | Regex to extract `YYYY-MM-DD` from the filename or path. Falls back to file `mtime` |
-| `preloadRecentDays` | How many recent days to inject into the system prompt. Defaults to `2` |
-| `searchTopK` | Maximum number of results returned by `memory_search`. Defaults to `5` |
-| `indexPath` | Path to the SQLite index file. Defaults to `workspace/memory/historical.db` |
-| `tokenizer` | Segmentation mode: `char` (default, zero-dependency). `trigram`, `jieba`, `simple` are reserved for future use |
+| `root` | Absolute path to the note library root (e.g. `~/note`) |
+| `diaryPath` | Subdirectory under `root` treated as diary files (date from filename, `概要`/`心情` parsed). Other files are indexed as notes (date from frontmatter `created`/`date`). Empty means all files are notes |
+| `glob` | Glob pattern for files under `root`. Defaults to `**/*.md` |
+| `datePattern` | Regex to extract `YYYY-MM-DD` from diary filenames or paths. Falls back to file `mtime` |
+| `preloadRecentDays` | How many recent days of diary summaries to inject into the system prompt. Defaults to `2` |
+| `searchTopK` | Maximum number of results returned by `search_diary`. Defaults to `10` |
+| `refreshIntervalM` | Background re-index interval in minutes. `0` means build once at startup only |
 
-The index is built in the background at startup. If a search is requested before indexing completes, `memory_search` returns a polite notice rather than blocking.
+The SQLite index is always stored at `workspace/memory/historical.db`.
+
+The index is built in the background at startup. If a search is requested before indexing completes, `search_diary` returns a polite notice rather than blocking.
 
 ## In Practice
 
