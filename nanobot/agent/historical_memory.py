@@ -300,11 +300,12 @@ class HistoricalMemoryIndex:
             if self._root is not None:
                 logger.warning("历史记忆路径不存在，跳过: {}", self._root)
             return []
+        # 排除隐藏目录（.开头的目录）下的所有文件，如 .stversions、.trash 等
+        # 同时排除文件名含 sync-conflict 的冲突文件
         return [
             p for p in sorted(self._root.rglob(self._config.glob))
             if p.is_file()
-            and ".stversions" not in p.parts
-            and ".trash" not in p.parts
+            and not any(part.startswith(".") for part in p.relative_to(self._root).parts[:-1])
             and "sync-conflict" not in p.name
         ]
 
