@@ -81,6 +81,13 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "<goal>",
     ),
     BuiltinCommandSpec(
+        "/compact",
+        "Compact context",
+        "Manually compress conversation history to fit the current context limit.",
+        "shrink",
+        "[ratio]",
+    ),
+    BuiltinCommandSpec(
         "/dream",
         "Run Dream",
         "Manually trigger memory consolidation.",
@@ -437,6 +444,76 @@ def _format_dream_restore_list(commits: list) -> str:
     return "\n".join(lines)
 
 
+async def cmd_compact(ctx: CommandContext) -> OutboundMessage:
+    """Manually compress conversation history."""
+    loop = ctx.loop
+    msg = ctx.msg
+    parts = (msg.content or "").strip().split(maxsplit=1)
+    ratio_str = parts[1] if len(parts) > 1 else None
+
+    session = ctx.session or loop.sessions.get_or_create(ctx.key)
+    consolidator = loop.consolidator
+    ctx_est, _ = consolidator.estimate_session_prompt_tokens(session)
+    budget = consolidator._input_token_budget
+
+    if budget <= 0:
+        return OutboundMessage(
+            channel=msg.channel, chat_id=msg.chat_id,
+            content="Context window is not configured; /compact is unavailable.",
+        )
+
+    if ctx_est < budget:
+        return OutboundMessage(
+            channel=msg.channel, chat_id=msg.chat_id,
+            content=(
+                f"Context is ~{ctx_est}/{budget} tokens, within budget — nothing to compact."
+            ),
+        )
+
+    original_ratio = consolidator.consolidation_ratio
+    if ratio_str is not None:
+        try:
+            custom_ratio = float(ratio_str)
+        except ValueError:
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content=(
+                    "Usage: /compact [ratio] — ratio must be a number between 0 and 1, "
+                    "e.g. /compact 0.3"
+                ),
+            )
+        if not 0 < custom_ratio <= 1:
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content=(
+                    "Usage: /compact [ratio] — ratio must be between 0 and 1, "
+                    "e.g. /compact 0.3"
+                ),
+            )
+        consolidator.consolidation_ratio = custom_ratio
+
+    t0 = time.monotonic()
+    try:
+        await consolidator.maybe_consolidate_by_tokens(session)
+        elapsed = int(time.monotonic() - t0)
+        new_est, _ = consolidator.estimate_session_prompt_tokens(session)
+        return OutboundMessage(
+            channel=msg.channel, chat_id=msg.chat_id,
+            content=(
+                f"✅ /compact done ({elapsed}s)\n"
+                f"Before: {ctx_est}/{budget} ({ctx_est / budget:.0%})\n"
+                f"After: {new_est}/{budget}"
+            ),
+        )
+    except Exception as e:
+        return OutboundMessage(
+            channel=msg.channel, chat_id=msg.chat_id,
+            content=f"❌ Compact failed: {e}",
+        )
+    finally:
+        consolidator.consolidation_ratio = original_ratio
+
+
 async def cmd_dream_log(ctx: CommandContext) -> OutboundMessage:
     """Show what the last Dream changed.
 
@@ -681,6 +758,8 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.exact("/goal", cmd_goal)
     router.prefix("/goal ", cmd_goal)
     router.exact("/dream", cmd_dream)
+    router.exact("/compact", cmd_compact)
+    router.prefix("/compact ", cmd_compact)
     router.exact("/dream-log", cmd_dream_log)
     router.prefix("/dream-log ", cmd_dream_log)
     router.exact("/dream-restore", cmd_dream_restore)

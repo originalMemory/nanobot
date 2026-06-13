@@ -658,6 +658,10 @@
             "title": "Show conversation history",
             "description": "Print the last N persisted conversation messages."
           },
+          "compact": {
+            "title": "Compact context",
+            "description": "Manually compress conversation history to fit the current context limit."
+          },
           "dream": {
             "title": "Run Dream",
             "description": "Manually trigger memory consolidation."
