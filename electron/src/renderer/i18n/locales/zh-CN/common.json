@@ -659,7 +659,7 @@
           },
           "compact": {
             "title": "压缩上下文",
-            "description": "手动压缩对话历史以适配当前上下文上限。"
+            "description": "手动将对话历史压缩到上下文预算的指定比例（如切换模型前 /compact 0.1）。"
           },
           "dream": {
             "title": "运行 Dream",

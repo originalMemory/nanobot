@@ -572,7 +572,7 @@
       "settings": "Open settings"
     },
     "composer": {
-      "placeholderThread": "Type your message…",
+      "placeholderThread": "Type your message… Press / for commands",
       "placeholderHero": "Ask anything...",
       "placeholderOpening": "Opening a new chat…",
       "placeholderStreaming": "Model is responding…",
@@ -660,7 +660,7 @@
           },
           "compact": {
             "title": "Compact context",
-            "description": "Manually compress conversation history to fit the current context limit."
+            "description": "Manually compress conversation history to a target fraction of the context budget."
           },
           "dream": {
             "title": "Run Dream",

@@ -83,7 +83,7 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
     BuiltinCommandSpec(
         "/compact",
         "Compact context",
-        "Manually compress conversation history to fit the current context limit.",
+        "Manually compress conversation history to a target fraction of the context budget.",
         "shrink",
         "[ratio]",
     ),
@@ -445,7 +445,7 @@ def _format_dream_restore_list(commits: list) -> str:
 
 
 async def cmd_compact(ctx: CommandContext) -> OutboundMessage:
-    """Manually compress conversation history."""
+    """手动压缩会话上下文（可强制压到 budget 的指定比例）。"""
     loop = ctx.loop
     msg = ctx.msg
     parts = (msg.content or "").strip().split(maxsplit=1)
@@ -453,23 +453,6 @@ async def cmd_compact(ctx: CommandContext) -> OutboundMessage:
 
     session = ctx.session or loop.sessions.get_or_create(ctx.key)
     consolidator = loop.consolidator
-    ctx_est, _ = consolidator.estimate_session_prompt_tokens(session)
-    budget = consolidator._input_token_budget
-
-    if budget <= 0:
-        return OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id,
-            content="Context window is not configured; /compact is unavailable.",
-        )
-
-    if ctx_est < budget:
-        return OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id,
-            content=(
-                f"Context is ~{ctx_est}/{budget} tokens, within budget — nothing to compact."
-            ),
-        )
-
     original_ratio = consolidator.consolidation_ratio
     if ratio_str is not None:
         try:
@@ -479,7 +462,7 @@ async def cmd_compact(ctx: CommandContext) -> OutboundMessage:
                 channel=msg.channel, chat_id=msg.chat_id,
                 content=(
                     "Usage: /compact [ratio] — ratio must be a number between 0 and 1, "
-                    "e.g. /compact 0.3"
+                    "e.g. /compact 0.1"
                 ),
             )
         if not 0 < custom_ratio <= 1:
@@ -487,22 +470,49 @@ async def cmd_compact(ctx: CommandContext) -> OutboundMessage:
                 channel=msg.channel, chat_id=msg.chat_id,
                 content=(
                     "Usage: /compact [ratio] — ratio must be between 0 and 1, "
-                    "e.g. /compact 0.3"
+                    "e.g. /compact 0.1"
                 ),
             )
         consolidator.consolidation_ratio = custom_ratio
 
-    t0 = time.monotonic()
     try:
-        await consolidator.maybe_consolidate_by_tokens(session)
+        budget = consolidator.input_token_budget
+        if budget <= 0:
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content="Context window is not configured; /compact is unavailable.",
+            )
+
+        ctx_est, _ = consolidator.estimate_session_prompt_tokens(session)
+        target = int(budget * consolidator.consolidation_ratio)
+        if ctx_est <= target:
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content=(
+                    f"Context ~{ctx_est} is already at or below target "
+                    f"{target} ({consolidator.consolidation_ratio:.0%} of {budget} token budget)."
+                ),
+            )
+
+        t0 = time.monotonic()
+        await consolidator.maybe_consolidate_by_tokens(session, force=True)
         elapsed = int(time.monotonic() - t0)
         new_est, _ = consolidator.estimate_session_prompt_tokens(session)
+        if new_est >= ctx_est:
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content=(
+                    f"⚠️ /compact finished ({elapsed}s) but context did not shrink.\n"
+                    f"Before: {ctx_est}/{budget} (target {target})\n"
+                    f"After: {new_est}/{budget}"
+                ),
+            )
         return OutboundMessage(
             channel=msg.channel, chat_id=msg.chat_id,
             content=(
                 f"✅ /compact done ({elapsed}s)\n"
-                f"Before: {ctx_est}/{budget} ({ctx_est / budget:.0%})\n"
-                f"After: {new_est}/{budget}"
+                f"Before: {ctx_est}/{budget} (target {target})\n"
+                f"After: {new_est}/{budget} ({new_est / budget:.0%})"
             ),
         )
     except Exception as e:

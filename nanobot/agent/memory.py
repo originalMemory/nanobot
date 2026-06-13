@@ -757,13 +757,13 @@ class Consolidator:
         )
 
     @property
-    def _input_token_budget(self) -> int:
-        """Available input token budget for consolidation LLM."""
+    def input_token_budget(self) -> int:
+        """当前模型下可用于输入的 token 预算（已扣除 completion 与安全缓冲）。"""
         return self.context_window_tokens - self.max_completion_tokens - self._SAFETY_BUFFER
 
     def _truncate_to_token_budget(self, text: str) -> str:
         """Truncate text so it fits within the consolidation LLM's token budget."""
-        budget = self._input_token_budget
+        budget = self.input_token_budget
         if budget <= 0:
             return truncate_text(text, _RAW_ARCHIVE_MAX_CHARS)
         try:
@@ -815,11 +815,15 @@ class Consolidator:
         session: Session,
         *,
         replay_max_messages: int | None = None,
+        force: bool = False,
     ) -> None:
         """Loop: archive old messages until prompt fits within safe budget.
 
         The budget reserves space for completion tokens and a safety buffer
         so the LLM request never exceeds the context window.
+
+        When ``force`` is True, consolidation runs even if the estimate is
+        already below the input budget, stopping at ``budget * consolidation_ratio``.
         """
         if self.context_window_tokens <= 0:
             return
@@ -833,7 +837,7 @@ class Consolidator:
             if not session.messages:
                 return
 
-            budget = self._input_token_budget
+            budget = self.input_token_budget
             target = int(budget * self.consolidation_ratio)
             last_summary = await self._consolidate_replay_overflow(
                 session,
@@ -849,7 +853,7 @@ class Consolidator:
             if estimated <= 0:
                 self._persist_last_summary(session, last_summary)
                 return
-            if estimated < budget:
+            if not force and estimated < budget:
                 unconsolidated_count = len(session.messages) - session.last_consolidated
                 logger.debug(
                     "Token consolidation idle {}: {}/{} via {}, msgs={}",

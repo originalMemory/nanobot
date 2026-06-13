@@ -89,6 +89,35 @@ async def test_consolidation_ratio_controls_target(
     assert loop.consolidator.archive.await_count == expected_archives
 
 
+@pytest.mark.asyncio
+async def test_force_consolidates_when_under_budget(tmp_path, monkeypatch) -> None:
+    """force=True 时，即使估算低于 budget 也会压到 ratio 目标。"""
+    loop = _make_loop(tmp_path, context_window_tokens=1000, consolidation_ratio=0.1)
+    loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    session = _session_with_turns(loop, turns=10)
+
+    remaining_estimates = [800, 50]
+
+    def mock_estimate(_session, *, session_summary=None):
+        assert session_summary is None
+        return (remaining_estimates.pop(0), "test")
+
+    loop.consolidator.estimate_session_prompt_tokens = mock_estimate  # type: ignore[method-assign]
+    monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _m: 100)
+
+    await loop.consolidator.maybe_consolidate_by_tokens(session, force=True)
+
+    assert loop.consolidator.archive.await_count == 1
+
+
+def test_input_token_budget_accounts_for_completion_and_buffer(tmp_path) -> None:
+    loop = _make_loop(tmp_path, context_window_tokens=200_000, consolidation_ratio=0.5)
+    loop.consolidator.max_completion_tokens = 20_000
+    loop.consolidator._SAFETY_BUFFER = 1024
+
+    assert loop.consolidator.input_token_budget == 178_976
+
+
 def test_ratio_propagated_from_config_schema() -> None:
     defaults = AgentDefaults()
     assert defaults.consolidation_ratio == 0.5
