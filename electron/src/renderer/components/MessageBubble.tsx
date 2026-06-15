@@ -120,7 +120,7 @@ export function MessageBubble({
     return (
       <div
         className={cn(
-          "group ml-auto flex max-w-[min(85%,36rem)] flex-col items-end gap-1.5",
+          "group ml-auto flex min-w-0 max-w-[min(85%,36rem)] flex-col items-end gap-1.5",
           baseAnim,
         )}
       >
@@ -131,12 +131,12 @@ export function MessageBubble({
         {(hasText || captionText) ? (
           <div
             className={cn(
-              "ml-auto w-fit rounded-[18px_18px_4px_18px] bg-gradient-to-br from-primary to-primary/80 chat-user-bubble",
-              "text-left break-words overflow-hidden",
+              "ml-auto min-w-0 max-w-full rounded-[18px_18px_4px_18px] bg-gradient-to-br from-primary to-primary/80 chat-user-bubble",
+              "overflow-hidden text-left break-words",
             )}
           >
             {hasText ? (
-              <p className="px-4 py-2 text-[16px]/[1.75] whitespace-pre-wrap text-primary-foreground">
+              <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] px-4 py-2 text-[16px]/[1.75] text-primary-foreground">
                 <CliAppMentionText
                   text={displayText}
                   cliApps={mentionCliApps}

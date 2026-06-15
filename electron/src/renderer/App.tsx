@@ -27,6 +27,7 @@ import { fetchInboxThread, fetchSettings, updateSettings } from "@/lib/api";
 import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
 import { bootstrapAppLanguage } from "@/i18n";
 import { NanobotClient } from "@/lib/nanobot-client";
+import { cn } from "@/lib/utils";
 import { ClientProvider } from "@/providers/ClientProvider";
 import { BotIdentityProvider, type BotIdentity } from "@/contexts/BotIdentityContext";
 import type { SettingsPayload, UIMessage } from "@/lib/types";
@@ -352,21 +353,13 @@ function Shell({
 
           {/* Main area */}
           <main className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-            {view === "settings" ? (
-              <SettingsView
-                onBack={() => setView("chat")}
-                theme={theme}
-                onThemeChange={setTheme}
-                onSettingsChange={applySettings}
-              />
-            ) : view === "workspace" ? (
-              <WorkspaceView
-                token={token}
-                gatewayUrl={gatewayUrl}
-                workspacePath={settings?.runtime.workspace_path ?? null}
-                onBack={() => setView("chat")}
-              />
-            ) : (
+            <div
+              className={cn(
+                "flex h-full min-h-0 flex-1 flex-col overflow-hidden",
+                view !== "chat" && "hidden",
+              )}
+              aria-hidden={view !== "chat"}
+            >
               <InboxView
                 initialMessages={initialMessages}
                 initialUnreadCount={initialUnreadCount}
@@ -386,7 +379,26 @@ function Shell({
                 onReasoningEffortSelect={handleSelectReasoningEffort}
                 focusComposerSignal={focusComposerSignal}
               />
-            )}
+            </div>
+            {view === "settings" ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <SettingsView
+                  onBack={() => setView("chat")}
+                  theme={theme}
+                  onThemeChange={setTheme}
+                  onSettingsChange={applySettings}
+                />
+              </div>
+            ) : view === "workspace" ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <WorkspaceView
+                  token={token}
+                  gatewayUrl={gatewayUrl}
+                  workspacePath={settings?.runtime.workspace_path ?? null}
+                  onBack={() => setView("chat")}
+                />
+              </div>
+            ) : null}
           </main>
         </div>
 

@@ -496,6 +496,23 @@
     background-color: transparent;
   }
 
+  /* 设置页根背景：无壁纸时保持径向渐变；启用壁纸时用 --wp-alpha-* 半透明 */
+  .settings-layout-root {
+    background: radial-gradient(
+      circle at 50% 0%,
+      hsl(var(--muted)) 0%,
+      hsl(var(--background)) 42%
+    );
+  }
+
+  html[data-wallpaper="on"] .settings-layout-root {
+    background: radial-gradient(
+      circle at 50% 0%,
+      hsl(var(--muted) / var(--wp-alpha-muted)) 0%,
+      hsl(var(--background) / var(--wp-alpha-bg)) 42%
+    );
+  }
+
   html[data-wallpaper="on"][data-theme="ink"] body,
   html[data-wallpaper="on"][data-theme="rainbow"] body {
     background-image: none;
