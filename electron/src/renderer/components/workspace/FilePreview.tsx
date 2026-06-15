@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 
 import { CodeBlock } from "@/components/CodeBlock";
 import {
-  codeLanguageForPath,
   formatStructuredJsonContent,
   previewModeForPath,
 } from "@/lib/workspaceViewer";
@@ -54,23 +53,12 @@ export function FilePreview({
         </p>
       );
     }
-    const ext = path.split(".").pop()?.toLowerCase() ?? "";
-    if (ext === "json" || ext === "jsonl") {
-      const formatted = formatStructuredJsonContent(path, content);
-      return (
-        <CodeBlock
-          language={formatted.language}
-          code={formatted.content}
-          className="h-full min-h-0"
-          wrapLongLines
-        />
-      );
-    }
+    const { content: displayContent, language } = formatStructuredJsonContent(path, content);
     return (
       <CodeBlock
-        language={codeLanguageForPath(path)}
-        code={content}
-        className="h-full min-h-0"
+        language={language}
+        code={displayContent}
+        wrapLongLines
       />
     );
   }, [content, imageSrc, path, t]);
@@ -109,7 +97,7 @@ export function FilePreview({
           </span>
         ) : null}
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4 [&_pre]:max-w-full">{preview}</div>
+      <div className="scroll-surface min-h-0 flex-1 overflow-auto p-4 [&_pre]:max-w-full">{preview}</div>
     </div>
   );
 }

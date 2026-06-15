@@ -396,6 +396,15 @@
     background: transparent;
   }
 
+  /** 可滚动区域：细滚动条 + 透明轨道（壁纸/半透明表层下透出背景） */
+  .scroll-surface {
+    @apply scrollbar-thin scrollbar-track-transparent;
+  }
+  .scroll-surface::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: hsl(var(--muted-foreground) / 0.3);
+  }
+
   /* ─── 聊天气泡阴影 — 默认 ─── */
 
   .chat-user-bubble {

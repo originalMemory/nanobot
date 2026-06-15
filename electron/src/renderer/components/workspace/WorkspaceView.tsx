@@ -178,7 +178,7 @@ export function WorkspaceView({
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="min-h-0 overflow-auto border-r border-border/60 bg-sidebar/40 p-2">
+        <aside className="scroll-surface min-h-0 overflow-auto border-r border-border/60 bg-sidebar/40 p-2">
           {rootState.error ? (
             <p className="px-2 py-1 text-xs text-destructive">{rootState.error}</p>
           ) : null}

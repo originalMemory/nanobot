@@ -22,7 +22,7 @@ export function WorkspaceMarkdown({ children, className }: WorkspaceMarkdownProp
         const match = /language-(\w+)/.exec(cls || "");
         if (match) {
           const code = String(kids).replace(/\n$/, "");
-          return <CodeBlock language={match[1]} code={code} className="my-3" />;
+          return <CodeBlock language={match[1]} code={code} className="my-3" wrapLongLines />;
         }
         return (
           <code

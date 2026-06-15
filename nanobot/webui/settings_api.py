@@ -103,7 +103,8 @@ _IMAGE_GENERATION_ASPECT_RATIOS = {
     "2:3",
     "21:9",
 }
-_CONTEXT_WINDOW_TOKEN_OPTIONS = {65_536, 262_144}
+_CONTEXT_WINDOW_TOKENS_MIN = 4096
+_CONTEXT_WINDOW_TOKENS_MAX = 1_000_000
 _MODEL_CONFIGURATION_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -542,8 +543,10 @@ def _parse_context_window_tokens(value: str | None) -> int | None:
         parsed = int(value)
     except ValueError:
         raise WebUISettingsError("context_window_tokens must be an integer") from None
-    if parsed not in _CONTEXT_WINDOW_TOKEN_OPTIONS:
-        raise WebUISettingsError("context_window_tokens must be 65536 or 262144")
+    if parsed < _CONTEXT_WINDOW_TOKENS_MIN:
+        raise WebUISettingsError(f"context_window_tokens must be >= {_CONTEXT_WINDOW_TOKENS_MIN}")
+    if parsed > _CONTEXT_WINDOW_TOKENS_MAX:
+        raise WebUISettingsError(f"context_window_tokens must be <= {_CONTEXT_WINDOW_TOKENS_MAX}")
     return parsed
 
 
@@ -851,16 +854,6 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             generation_target.provider = provider
             changed = True
 
-    context_window_tokens = _parse_context_window_tokens(
-        _query_first_alias(query, "context_window_tokens", "contextWindowTokens")
-    )
-    if (
-        context_window_tokens is not None
-        and defaults.context_window_tokens != context_window_tokens
-    ):
-        defaults.context_window_tokens = context_window_tokens
-        changed = True
-
     timezone = _query_first(query, "timezone")
     if timezone is not None:
         timezone = timezone.strip()
@@ -938,12 +931,7 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
 
     context_window_tokens_raw = _query_first_alias(query, "context_window_tokens", "contextWindowTokens")
     if context_window_tokens_raw is not None:
-        try:
-            parsed_ctx = int(context_window_tokens_raw)
-        except ValueError:
-            raise WebUISettingsError("context_window_tokens must be an integer") from None
-        if parsed_ctx < 4096:
-            raise WebUISettingsError("context_window_tokens must be >= 4096")
+        parsed_ctx = _parse_context_window_tokens(context_window_tokens_raw)
         if generation_target.context_window_tokens != parsed_ctx:
             generation_target.context_window_tokens = parsed_ctx
             changed = True
