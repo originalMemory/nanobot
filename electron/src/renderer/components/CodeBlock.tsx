@@ -10,12 +10,14 @@ interface CodeBlockProps {
   code: string;
   className?: string;
   highlight?: boolean;
+  wrapLongLines?: boolean;
 }
 
 interface HighlightedCodeProps {
   language?: string;
   code: string;
   isDark: boolean;
+  wrapLongLines: boolean;
 }
 
 const LazyHighlightedCode = lazy(async () => {
@@ -30,7 +32,15 @@ const LazyHighlightedCode = lazy(async () => {
   ]);
 
   return {
-    default({ language, code, isDark }: HighlightedCodeProps) {
+    default({ language, code, isDark, wrapLongLines }: HighlightedCodeProps) {
+      const wrapStyle = wrapLongLines
+        ? ({
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            overflowWrap: "anywhere",
+          } as const)
+        : null;
+
       return (
         <SyntaxHighlighter
           language={language}
@@ -41,9 +51,22 @@ const LazyHighlightedCode = lazy(async () => {
             fontSize: "0.875rem",
             lineHeight: 1.6,
             background: "transparent",
+            width: "100%",
+            maxWidth: "100%",
+            minWidth: 0,
+            ...(wrapStyle ?? {}),
           }}
+          codeTagProps={
+            wrapLongLines
+              ? {
+                  className: language ? `language-${language}` : undefined,
+                  // 库内 merge 顺序会让 Prism 主题的 whiteSpace: pre 盖掉 pre-wrap，需显式传入
+                  style: { ...wrapStyle },
+                }
+              : undefined
+          }
           PreTag="pre"
-          wrapLongLines
+          wrapLongLines={wrapLongLines}
         >
           {code}
         </SyntaxHighlighter>
@@ -52,10 +75,13 @@ const LazyHighlightedCode = lazy(async () => {
   };
 });
 
-function PlainCodeFallback({ code }: { code: string }) {
+function PlainCodeFallback({ code, wrapLongLines = false }: { code: string; wrapLongLines?: boolean }) {
   return (
     <pre
-      className="m-0 overflow-x-auto whitespace-pre-wrap p-4 font-mono text-sm leading-[1.6]"
+      className={cn(
+        "m-0 p-4 font-mono text-sm leading-[1.6]",
+        wrapLongLines ? "whitespace-pre-wrap break-words" : "overflow-x-auto whitespace-pre",
+      )}
     >
       <code>{code}</code>
     </pre>
@@ -67,6 +93,7 @@ export function CodeBlock({
   code,
   className,
   highlight = true,
+  wrapLongLines = false,
 }: CodeBlockProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -84,6 +111,7 @@ export function CodeBlock({
     <div
       className={cn(
         "overflow-hidden rounded-lg border",
+        wrapLongLines && "w-full min-w-0 max-w-full",
         isDark ? "border-white/10" : "border-black/10",
         className,
       )}
@@ -118,13 +146,18 @@ export function CodeBlock({
           <span>{copied ? t("code.copied") : t("code.copy")}</span>
         </button>
       </div>
-      <div className="bg-muted">
+      <div className={cn("bg-muted", wrapLongLines && "w-full min-w-0 max-w-full")}>
         {highlight ? (
-          <Suspense fallback={<PlainCodeFallback code={code} />}>
-            <LazyHighlightedCode language={language} code={code} isDark={isDark} />
+          <Suspense fallback={<PlainCodeFallback code={code} wrapLongLines={wrapLongLines} />}>
+            <LazyHighlightedCode
+              language={language}
+              code={code}
+              isDark={isDark}
+              wrapLongLines={wrapLongLines}
+            />
           </Suspense>
         ) : (
-          <PlainCodeFallback code={code} />
+          <PlainCodeFallback code={code} wrapLongLines={wrapLongLines} />
         )}
       </div>
     </div>

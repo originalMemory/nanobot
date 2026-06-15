@@ -785,6 +785,22 @@
       "body": "The server rejected your last message because it exceeded the size limit. Remove some images or try smaller files, then send again."
     }
   },
+  "workspace": {
+    "title": "Workspace",
+    "back": "Back to inbox",
+    "preview": {
+      "empty": "Select a file on the left to preview",
+      "loading": "Loading…",
+      "unsupported": "This file type cannot be previewed",
+      "truncated": "Content truncated",
+      "tooLarge": "File is too large to preview"
+    },
+    "errors": {
+      "loadDir": "Failed to load directory",
+      "loadFile": "Failed to read file",
+      "http": "Request failed (HTTP {{status}})"
+    }
+  },
   "inbox": {
     "unified": "Unified Inbox",
     "refreshHistory": "Refresh message history",

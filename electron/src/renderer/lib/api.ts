@@ -11,6 +11,10 @@ import type {
   SlashCommand,
   WebuiThreadPersistedPayload,
 } from "./types";
+import type {
+  WorkspaceListPayload,
+  WorkspaceReadPayload,
+} from "./workspaceViewer";
 import { DEFAULT_GATEWAY_HTTP } from "./bootstrap";
 
 export class ApiError extends Error {
@@ -371,4 +375,29 @@ export async function updateImageGenerationSettings(
     `${base}/api/settings/image-generation/update?${query}`,
     token,
   );
+}
+
+export async function fetchWorkspaceList(
+  token: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+  path: string = "",
+): Promise<WorkspaceListPayload> {
+  const query = new URLSearchParams();
+  if (path) query.set("path", path);
+  const suffix = query.toString();
+  const url = suffix
+    ? `${base}/api/workspace/list?${suffix}`
+    : `${base}/api/workspace/list`;
+  return request(url, token);
+}
+
+export async function fetchWorkspaceRead(
+  token: string,
+  path: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+  signal?: AbortSignal,
+): Promise<WorkspaceReadPayload> {
+  const query = new URLSearchParams();
+  query.set("path", path);
+  return request(`${base}/api/workspace/read?${query}`, token, { signal });
 }

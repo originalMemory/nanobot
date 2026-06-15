@@ -1,4 +1,4 @@
-import { Check, Inbox, Palette, Power, Settings } from "lucide-react";
+import { Check, FolderOpen, Inbox, Palette, Power, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,9 @@ interface InboxSidebarProps {
   theme: Theme;
   onThemeChange: (t: Theme) => void;
   onOpenSettings?: () => void;
+  onOpenWorkspace?: () => void;
   settingsActive?: boolean;
+  workspaceActive?: boolean;
 }
 
 export function InboxSidebar({
@@ -50,7 +52,9 @@ export function InboxSidebar({
   theme,
   onThemeChange,
   onOpenSettings,
+  onOpenWorkspace,
   settingsActive = false,
+  workspaceActive = false,
 }: InboxSidebarProps) {
   const { t } = useTranslation();
 
@@ -87,6 +91,16 @@ export function InboxSidebar({
         )}
 
         <div className="flex-1" />
+
+        {onOpenWorkspace ? (
+          <NavItem
+            label={t("workspace.title")}
+            active={workspaceActive}
+            onClick={onOpenWorkspace}
+          >
+            <FolderOpen className="h-4 w-4" />
+          </NavItem>
+        ) : null}
 
         <ThemeDropdown
           theme={theme}

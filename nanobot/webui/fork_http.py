@@ -93,6 +93,11 @@ from nanobot.webui.transcript import (
     build_webui_thread_response,
     rewrite_local_markdown_images,
 )
+from nanobot.webui.workspace_files import (
+    WorkspaceFilesError,
+    list_workspace_dir,
+    read_workspace_file,
+)
 
 if TYPE_CHECKING:
     from nanobot.bus.queue import MessageBus
@@ -421,6 +426,10 @@ class ForkGatewayHTTPHandler:
             return self._handle_webui_sidebar_state(request)
         if got == "/api/webui/sidebar-state/update":
             return self._handle_webui_sidebar_state_update(request)
+        if got == "/api/workspace/list":
+            return self._handle_workspace_list(request)
+        if got == "/api/workspace/read":
+            return self._handle_workspace_read(request)
 
         # Session sub-routes
         m = re.match(r"^/api/sessions/([^/]+)/messages$", got)
@@ -849,6 +858,30 @@ class ForkGatewayHTTPHandler:
             self._log.exception("failed to write webui sidebar state")
             return _http_error(500, "failed to write sidebar state")
         return _http_json_response(state)
+
+    def _handle_workspace_list(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        rel_path = _query_first(query, "path") or ""
+        try:
+            payload = list_workspace_dir(self._workspace_path, rel_path)
+        except WorkspaceFilesError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    def _handle_workspace_read(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        rel_path = _query_first(query, "path")
+        if rel_path is None:
+            return _http_error(400, "missing path")
+        try:
+            payload = read_workspace_file(self._workspace_path, rel_path)
+        except WorkspaceFilesError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
 
     # -- Media routes -------------------------------------------------------
 

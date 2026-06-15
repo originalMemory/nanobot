@@ -5,6 +5,7 @@ import { InboxSidebar } from "@/components/InboxSidebar";
 import { InboxView } from "@/components/InboxView";
 import { ScreenshotPreviewModal } from "@/components/ScreenshotPreviewModal";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { WorkspaceView } from "@/components/workspace/WorkspaceView";
 import { WallpaperLayer } from "@/components/WallpaperLayer";
 import { WindowTitleBar } from "@/components/WindowTitleBar";
 import { Button } from "@/components/ui/button";
@@ -185,7 +186,7 @@ function Shell({
   const { theme, setTheme } = useTheme();
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
   const [channels, setChannels] = useState<string[]>([]);
-  const [view, setView] = useState<"chat" | "settings">("chat");
+  const [view, setView] = useState<"chat" | "settings" | "workspace">("chat");
   const [botIdentity, setBotIdentity] = useState<BotIdentity>({ botName: "nanobot", botIcon: "", botAvatarUrl: null });
   const [settings, setSettings] = useState<SettingsPayload | null>(null);
   const [modelSelectionPending, setModelSelectionPending] = useState(false);
@@ -344,7 +345,9 @@ function Shell({
             theme={theme}
             onThemeChange={setTheme}
             onOpenSettings={() => setView("settings")}
+            onOpenWorkspace={() => setView("workspace")}
             settingsActive={view === "settings"}
+            workspaceActive={view === "workspace"}
           />
 
           {/* Main area */}
@@ -355,6 +358,13 @@ function Shell({
                 theme={theme}
                 onThemeChange={setTheme}
                 onSettingsChange={applySettings}
+              />
+            ) : view === "workspace" ? (
+              <WorkspaceView
+                token={token}
+                gatewayUrl={gatewayUrl}
+                workspacePath={settings?.runtime.workspace_path ?? null}
+                onBack={() => setView("chat")}
               />
             ) : (
               <InboxView

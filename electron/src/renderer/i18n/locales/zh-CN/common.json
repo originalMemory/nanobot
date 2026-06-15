@@ -785,6 +785,22 @@
       "body": "服务端因超过大小限制拒收了上一条消息。可移除部分图片或使用更小的图片后重试。"
     }
   },
+  "workspace": {
+    "title": "工作区",
+    "back": "返回收件箱",
+    "preview": {
+      "empty": "选择左侧文件进行预览",
+      "loading": "正在加载…",
+      "unsupported": "此文件类型不支持预览",
+      "truncated": "内容已截断",
+      "tooLarge": "文件过大，无法预览"
+    },
+    "errors": {
+      "loadDir": "无法加载目录",
+      "loadFile": "无法读取文件",
+      "http": "请求失败（HTTP {{status}}）"
+    }
+  },
   "inbox": {
     "unified": "统一收件箱",
     "refreshHistory": "刷新历史消息",
