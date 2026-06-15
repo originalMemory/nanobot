@@ -218,7 +218,7 @@ class SessionHistoryStore:
     ) -> list[dict[str, Any]]:
         """关键词检索历史消息，返回带 snippet 的结果列表。
 
-        策略与 search_diary 一致：多关键词 AND 优先，不足时 OR 补充；
+        策略与 memory_search 日记段一致：多关键词 AND 优先，不足时 OR 补充；
         各组内按 msg_timestamp 倒序，结果含 match_type 字段（and/or）。
         """
         keywords = query.strip().split()

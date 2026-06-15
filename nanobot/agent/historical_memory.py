@@ -136,6 +136,22 @@ def _extract_date_from_frontmatter(fields: dict[str, str], path: Path) -> str:
         return ""
 
 
+def _date_filter_clauses(
+    since: str | None,
+    until: str | None,
+) -> tuple[list[str], list[str]]:
+    """日记 date 列为 YYYY-MM-DD；从 ISO 日期/日期时间提取边界，可只传其一。"""
+    clauses: list[str] = []
+    params: list[str] = []
+    if since:
+        clauses.append("date >= ?")
+        params.append(since.strip()[:10])
+    if until:
+        clauses.append("date <= ?")
+        params.append(until.strip()[:10])
+    return clauses, params
+
+
 def _extract_frontmatter_text(fields: dict[str, str]) -> str:
     """将全量 frontmatter 值拼成可索引文本，过滤 wikilink 图片格式值。"""
     parts: list[str] = []
@@ -425,13 +441,22 @@ class HistoricalMemoryIndex:
 
     # -- 检索 -----------------------------------------------------------------
 
-    def search(self, query: str, top_k: int | None = None) -> list[SearchHit]:
+    def search(
+        self,
+        query: str,
+        top_k: int | None = None,
+        *,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[SearchHit]:
         """全文检索，返回最多 top_k 条命中（含日期/摘要/snippet）。
 
         策略：
         1. 先按关键词 AND（全部匹配）检索
         2. 若结果不足 top_k，用 OR（任一匹配）补充
         3. AND 结果排在 OR 结果之前，各组内按日期倒序
+
+        since/until 按日记 date（YYYY-MM-DD）过滤，可只传其一。
         """
         if not self._ready:
             return []
@@ -441,16 +466,18 @@ class HistoricalMemoryIndex:
             return []
 
         con = self._read_connect()
+        date_clauses, date_params = _date_filter_clauses(since, until)
 
         # 辅助函数：执行 LIKE 查询
         def _query(operator: str, limit: int | None = None) -> list[tuple[str, str, str, str]]:
-            clauses = [f"content LIKE ? COLLATE NOCASE" for _ in keywords]
+            kw_clauses = [f"content LIKE ? COLLATE NOCASE" for _ in keywords]
+            where_parts = [*date_clauses, f"({' {} '.format(operator).join(kw_clauses)})"]
             sql = (
                 f"SELECT path, date, summary, content FROM docs "
-                f"WHERE {' {} '.format(operator).join(clauses)} "
+                f"WHERE {' AND '.join(where_parts)} "
                 f"ORDER BY date DESC"
             )
-            params: list[str | int] = [f"%{kw}%" for kw in keywords]
+            params: list[str | int] = [*date_params, *[f"%{kw}%" for kw in keywords]]
             if limit is not None:
                 sql += " LIMIT ?"
                 params.append(limit)

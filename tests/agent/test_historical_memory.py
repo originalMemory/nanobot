@@ -265,6 +265,23 @@ def test_search_hit_fields(note_root: Path, tmp_path: Path):
     assert hit.path.endswith(".md")
 
 
+def test_search_since_until_date_filter(note_root: Path, tmp_path: Path):
+    """since/until 按日记 date 过滤，可只传其一。"""
+    cfg = _make_config(note_root, tmp_path)
+    idx = HistoricalMemoryIndex(cfg, tmp_path)
+    idx.refresh()
+
+    assert len(idx.search("鸣潮", since=_date_str(3))) == 1
+    assert idx.search("鸣潮", since=_date_str(1)) == []
+
+    assert len(idx.search("茑町千岁", until=_date_str(30))) == 1
+    assert idx.search("茑町千岁", since=_date_str(10)) == []
+
+    recent_hits = idx.search("鸣潮", since=_date_str(3), until=_date_str(2))
+    assert len(recent_hits) == 1
+    assert recent_hits[0].date == _date_str(2)
+
+
 def test_refresh_incremental(note_root: Path, tmp_path: Path, diary_dir: Path):
     """修改单个文件后 refresh 只重建该文件。"""
     cfg = _make_config(note_root, tmp_path)

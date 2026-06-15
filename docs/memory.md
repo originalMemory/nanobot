@@ -199,7 +199,7 @@ At startup, nanobot scans the configured note root and builds a SQLite index. On
 Two things happen automatically when historical journals are enabled:
 
 1. **Context preloading**: the most recent N days of diary summaries are injected into the system prompt under `# Historical Journals`, giving the agent immediate background on recent life events without requiring an explicit search.
-2. **`search_diary` tool**: the agent can actively query the index by keyword, returning matched entries with their date, summary, and a relevant text snippet.
+2. **`memory_search` tool**: the agent can actively query both archived chat transcripts and the diary index in one parallel call. Results are grouped by source — `原始对话` for raw conversation turns, `日记笔记` for user-perspective journal/notes (date, summary, snippet).
 
 The diary files are **read-only**. `read_file` and `grep` can access them; `edit_file` and `write_file` cannot, even when `restrictToWorkspace` is enabled.
 
@@ -242,12 +242,12 @@ Historical journals are configured under `agents.defaults.historicalMemory`:
 | `glob` | Glob pattern for files under `root`. Defaults to `**/*.md` |
 | `datePattern` | Regex to extract `YYYY-MM-DD` from diary filenames or paths. Falls back to file `mtime` |
 | `preloadRecentDays` | How many recent days of diary summaries to inject into the system prompt. Defaults to `2` |
-| `searchTopK` | Maximum number of results returned by `search_diary`. Defaults to `10` |
+| `searchTopK` | Maximum diary hits returned per `memory_search` call (diary section cap is 20). Defaults to `10` |
 | `refreshIntervalM` | Background re-index interval in minutes. `0` means build once at startup only |
 
 The SQLite index is always stored at `workspace/memory/historical.db`.
 
-The index is built in the background at startup. If a search is requested before indexing completes, `search_diary` returns a polite notice rather than blocking.
+The index is built in the background at startup. If a search is requested before indexing completes, the `日记笔记` section of `memory_search` returns a polite notice while `原始对话` results are still returned.
 
 ## In Practice
 
