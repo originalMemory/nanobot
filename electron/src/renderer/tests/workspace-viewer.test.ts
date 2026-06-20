@@ -9,6 +9,7 @@ import {
   joinWorkspacePath,
   MAX_JSONL_FORMAT_BYTES,
   previewModeForPath,
+  workspaceAncestorDirs,
   workspaceImageDataUrl,
 } from "@/lib/workspaceViewer";
 
@@ -73,5 +74,11 @@ describe("workspaceViewer", () => {
   it("joins workspace paths", () => {
     expect(joinWorkspacePath("", "README.md")).toBe("README.md");
     expect(joinWorkspacePath("memory", "MEMORY.md")).toBe("memory/MEMORY.md");
+  });
+
+  it("lists ancestor directories for tree restore", () => {
+    expect(workspaceAncestorDirs("README.md")).toEqual([]);
+    expect(workspaceAncestorDirs("skills/SKILL.md")).toEqual(["skills"]);
+    expect(workspaceAncestorDirs("skills/bills/SKILL.md")).toEqual(["skills", "skills/bills"]);
   });
 });

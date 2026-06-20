@@ -8,6 +8,7 @@ import { ApiError, fetchWorkspaceList, fetchWorkspaceRead } from "@/lib/api";
 import {
   joinWorkspacePath,
   previewModeForPath,
+  workspaceAncestorDirs,
   workspaceImageDataUrl,
   type WorkspaceListEntry,
 } from "@/lib/workspaceViewer";
@@ -53,7 +54,9 @@ export function WorkspaceView({
   const [previewTruncated, setPreviewTruncated] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
   const previewAbortRef = useRef<AbortController | null>(null);
+  const restoredRef = useRef(false);
 
   const loadDirectory = useCallback(async (relPath: string) => {
     const isRoot = relPath === "";
@@ -92,6 +95,54 @@ export function WorkspaceView({
   useEffect(() => {
     void loadDirectory("");
   }, [loadDirectory]);
+
+  /* 保存选中文件路径到 localStorage */
+  useEffect(() => {
+    if (restoring || !selectedPath) return;
+    localStorage.setItem(
+      "workspace_viewer_state",
+      JSON.stringify({ selectedPath }),
+    );
+  }, [selectedPath, restoring]);
+
+  /* 根目录加载完成后恢复上次位置 */
+  useEffect(() => {
+    if (!rootState.loaded || restoredRef.current) return;
+    restoredRef.current = true;
+    const saved = localStorage.getItem("workspace_viewer_state");
+    if (!saved) return;
+    let parsed: { selectedPath?: string };
+    try { parsed = JSON.parse(saved); } catch { return; }
+    if (!parsed.selectedPath) return;
+
+    setRestoring(true);
+    const restoreTarget = parsed.selectedPath;
+    const targetDir = restoreTarget.substring(0, restoreTarget.lastIndexOf("/"));
+    const dirPath = targetDir || "";
+    const fileName = restoreTarget.split("/").pop() ?? "";
+
+    (async () => {
+      try {
+        const payload = await fetchWorkspaceList(token, gatewayUrl, dirPath);
+        const exists = payload.entries.some(
+          (e) => e.name === fileName && e.kind === "file",
+        );
+        if (exists) {
+          for (const path of workspaceAncestorDirs(restoreTarget)) {
+            await loadDirectory(path);
+          }
+          openFile(restoreTarget);
+        } else {
+          localStorage.removeItem("workspace_viewer_state");
+        }
+      } catch {
+        localStorage.removeItem("workspace_viewer_state");
+      } finally {
+        setRestoring(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rootState.loaded]);
 
   useEffect(() => () => {
     previewAbortRef.current?.abort();
