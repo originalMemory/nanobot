@@ -147,3 +147,15 @@ export function joinWorkspacePath(parent: string, name: string): string {
   if (!parent) return name;
   return `${parent.replace(/\/+$/, "")}/${name}`;
 }
+
+/** 返回文件路径的所有祖先目录，用于恢复树展开状态。 */
+export function workspaceAncestorDirs(filePath: string): string[] {
+  const parts = filePath.split("/");
+  if (parts.length <= 1) return [];
+  const dirs = parts.slice(0, -1);
+  const result: string[] = [];
+  for (let i = 1; i <= dirs.length; i++) {
+    result.push(dirs.slice(0, i).join("/"));
+  }
+  return result;
+}
