@@ -13,7 +13,7 @@ import { AssistantNameRow } from "@/components/AssistantNameRow";
 import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
-import { isLiveArrival } from "@/lib/media";
+import { playThaAudio } from "@/lib/api";
 import {
   buildTokenUsageTitle,
   displayCacheRead,
@@ -228,7 +228,7 @@ export function MessageBubble({
           <MarkdownText streaming={!!message.isStreaming}>{message.content}</MarkdownText>
         </div>
         {media.length > 0 ? (
-          <MessageMedia media={media} align="left" autoPlayAudio={isLiveArrival(message.createdAt)} />
+          <MessageMedia media={media} align="left" thaSourceText={message.content} />
         ) : null}
         {showAssistantFooterRow ? (
           <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
@@ -338,12 +338,12 @@ function mergeCliMentionApps(
 export function MessageMedia({
   media,
   align,
-  autoPlayAudio = false,
+  thaSourceText = "",
 }: {
   media: UIMediaAttachment[];
   align: "left" | "right";
-  /** 仅当消息为本次会话直播到达时为 true，决定音频是否自动播放。 */
-  autoPlayAudio?: boolean;
+  /** 助手回复正文，供 THA 解析表情/动作标签。 */
+  thaSourceText?: string;
 }) {
   if (media.length === 0) return null;
   const images: UIImage[] = [];
@@ -367,32 +367,59 @@ export function MessageMedia({
         <UserImages images={images} align={align} size={align === "left" ? "large" : "compact"} />
       ) : null}
       {nonImages.map((item, i) => (
-        <MediaCell key={`${item.url ?? item.name ?? item.kind}-${i}`} media={item} autoPlay={autoPlayAudio} />
+        <MediaCell
+          key={`${item.url ?? item.name ?? item.kind}-${i}`}
+          media={item}
+          thaSourceText={thaSourceText}
+        />
       ))}
     </div>
   );
 }
 
-// 已自动播放过的音频 URL：避免视图重挂载（切换 Tab 再切回等）时重复自动播放。
-const autoPlayedAudio = new Set<string>();
-
-function AudioCell({ media, autoPlay = false }: { media: UIMediaAttachment; autoPlay?: boolean }) {
+// 直播 TTS 由 THA 窗口播放；收件箱内音频仅作回放入口，不再自动播放以免重声。
+function AudioCell({
+  media,
+  thaSourceText = "",
+}: {
+  media: UIMediaAttachment;
+  thaSourceText?: string;
+}) {
   const { t } = useTranslation();
-  const { apiBase } = useClient();
+  const { apiBase, token } = useClient();
   const [failed, setFailed] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
-  // Electron 是 file:// origin，相对路径需要拼上 gateway 绝对地址
   const resolvedUrl = resolveMediaUrl(media.url, apiBase);
+
+  const forwardToTha = useCallback(async () => {
+    if (!token || !resolvedUrl) return 0;
+    try {
+      const result = await playThaAudio(token, {
+        url: resolvedUrl,
+        text: thaSourceText,
+        name: media.name,
+      }, apiBase);
+      return result.subscribers;
+    } catch {
+      return 0;
+    }
+  }, [apiBase, media.name, resolvedUrl, thaSourceText, token]);
 
   useEffect(() => {
     const el = audioRef.current;
-    if (!el || !autoPlay || !resolvedUrl) return;
-    // 仅对「直播到达且尚未自动播放过」的音频自动播放一次。
-    if (autoPlayedAudio.has(resolvedUrl)) return;
-    autoPlayedAudio.add(resolvedUrl);
-    // autoplay 被浏览器策略拒绝不视为失败：保留 controls 让用户手动播放。
-    el.play().catch(() => {});
-  }, [autoPlay, resolvedUrl]);
+    if (!el) return;
+    const onPlay = () => {
+      void (async () => {
+        const subscribers = await forwardToTha();
+        if (subscribers > 0) {
+          el.pause();
+          el.currentTime = 0;
+        }
+      })();
+    };
+    el.addEventListener("play", onPlay);
+    return () => el.removeEventListener("play", onPlay);
+  }, [forwardToTha]);
 
   if (failed || !resolvedUrl) {
     return (
@@ -428,14 +455,20 @@ function AudioCell({ media, autoPlay = false }: { media: UIMediaAttachment; auto
   );
 }
 
-function MediaCell({ media, autoPlay = false }: { media: UIMediaAttachment; autoPlay?: boolean }) {
+function MediaCell({
+  media,
+  thaSourceText = "",
+}: {
+  media: UIMediaAttachment;
+  thaSourceText?: string;
+}) {
   const { t } = useTranslation();
   const { apiBase } = useClient();
   const hasUrl = typeof media.url === "string" && media.url.length > 0;
   const resolvedUrl = resolveMediaUrl(media.url, apiBase);
 
   if (media.kind === "audio") {
-    return <AudioCell media={media} autoPlay={autoPlay} />;
+    return <AudioCell media={media} thaSourceText={thaSourceText} />;
   }
 
   if (media.kind === "video" && hasUrl) {

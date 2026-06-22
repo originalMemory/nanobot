@@ -17,6 +17,7 @@ from nanobot.webui.settings_api import (
     update_agent_settings,
     update_model_configuration,
     update_network_safety_settings,
+    update_tha_settings,
 )
 
 
@@ -111,6 +112,56 @@ def test_update_agent_settings_writes_generation_fields_to_active_preset(
     assert saved.agents.defaults.max_tokens == 8192
 
 
+def test_settings_payload_includes_tha_defaults(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = settings_payload()
+
+    assert payload["tha"]["config"]["audioDelayMs"] == 150
+    assert payload["tha"]["model"]["available"] is False
+    assert payload["tha"]["model"]["path"].endswith("tha_model/model.onnx")
+
+
+def test_update_tha_settings_writes_config_and_reports_fixed_model(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    model_dir = tmp_path / "tha_model"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.onnx").write_bytes(b"onnx")
+
+    payload = update_tha_settings(
+        {
+            "enabledEmotions": ["true"],
+            "enabledMouthSync": ["true"],
+            "windowWidth": ["640"],
+            "windowHeight": ["512"],
+            "audioDelayMs": ["260"],
+        }
+    )
+
+    assert payload["tha"]["config"] == {
+        "enabledEmotions": True,
+        "enabledMouthSync": True,
+        "windowWidth": 640,
+        "windowHeight": 512,
+        "audioDelayMs": 260,
+    }
+    assert payload["tha"]["model"]["available"] is True
+    assert payload["tha"]["model"]["format"] == "onnx"
+    assert payload["tha"]["model"]["path"] == str(model_dir / "model.onnx")
+    saved = load_config(config_path)
+    assert saved.tha.audio_delay_ms == 260
+
+
 def test_update_model_configuration_edits_named_preset_and_selects(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -169,15 +220,6 @@ def test_update_agent_settings_writes_generation_fields_to_defaults_without_pres
     assert payload["agent"]["context_window_tokens"] == 128_000
     saved = load_config(config_path)
     assert saved.agents.defaults.context_window_tokens == 128_000
-
-
-def test_update_agent_settings_writes_reasoning_effort_to_active_preset(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config_path = tmp_path / "config.json"
-    config = Config()
-    config.providers.openai.api_key = "sk-test"
 
 
 def test_update_agent_settings_accepts_context_window_options(

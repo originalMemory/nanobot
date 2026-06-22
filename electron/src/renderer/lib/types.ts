@@ -291,6 +291,18 @@ export interface SettingsPayload {
       default_api_base?: string | null;
     }>;
   };
+  tha: {
+    config: {
+      enabledEmotions: boolean;
+      enabledMouthSync: boolean;
+      windowWidth: number;
+      windowHeight: number;
+      audioDelayMs: number;
+    };
+    model: ThaModel;
+    motions: string[];
+    emotions: string[];
+  };
   runtime: {
     config_path: string;
     workspace_path: string;
@@ -525,6 +537,22 @@ export interface ImageGenerationSettingsUpdate {
   defaultAspectRatio: string;
   defaultImageSize: string;
   maxImagesPerTurn: number;
+}
+
+export interface ThaModel {
+  id: string;
+  name: string;
+  available: boolean;
+  format: "" | "onnx" | "mlpackage";
+  path: string;
+}
+
+export interface ThaSettingsUpdate {
+  enabledEmotions?: boolean;
+  enabledMouthSync?: boolean;
+  windowWidth?: number;
+  windowHeight?: number;
+  audioDelayMs?: number;
 }
 
 export interface SlashCommand {

@@ -331,6 +331,16 @@ class TtsConfig(Base):
     # GLM-TTS 去水印示例：extra_body = {"watermark_enabled": false}
 
 
+class THAConfig(Base):
+    """THA 2D 桌面宠物配置。"""
+
+    enabled_emotions: bool = False
+    enabled_mouth_sync: bool = False
+    window_width: int = Field(default=540, ge=240, le=2400)
+    window_height: int = Field(default=540, ge=240, le=2400)
+    audio_delay_ms: int = Field(default=150, ge=0, le=2000)
+
+
 class ApiConfig(Base):
     """OpenAI-compatible API server configuration."""
 
@@ -413,6 +423,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    tha: THAConfig = Field(default_factory=THAConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,

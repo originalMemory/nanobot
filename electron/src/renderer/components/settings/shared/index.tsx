@@ -11,7 +11,6 @@ import {
   Gem,
   Grid3X3,
   Hexagon,
-  Info,
   Layers,
   Loader2,
   Moon,
@@ -53,6 +52,7 @@ export type SettingsSectionKey =
   | "appearance"
   | "models"
   | "image"
+  | "tha"
   | "web"
   | "apps"
   | "runtime"

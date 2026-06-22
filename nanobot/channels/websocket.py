@@ -6,6 +6,7 @@ import asyncio
 import base64
 import hmac
 import json
+import mimetypes
 import re
 import secrets
 import ssl
@@ -29,14 +30,13 @@ from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
 )
-from nanobot.session import UNIFIED_SESSION_KEY
+from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.inbox_unread import (
     clear_inbox_unread,
     ensure_inbox_delivery_baseline,
     mark_inbox_delivered_after_fanout,
     should_track_unread_fanout,
 )
-from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
 from nanobot.utils.document import SUPPORTED_EXTENSIONS
 from nanobot.utils.media_decode import (
@@ -57,6 +57,7 @@ from nanobot.webui.http_utils import (
     query_first as _query_first,
 )
 from nanobot.webui.mcp_presets_api import normalize_mcp_preset_mentions
+from nanobot.webui.tha_api import tha_websocket_loop
 from nanobot.webui.transcript import append_transcript_object
 from nanobot.webui.websocket_logging import websockets_server_logger
 from nanobot.webui.workspaces import WebUIWorkspaceController
@@ -481,6 +482,8 @@ class WebSocketChannel(BaseChannel):
         self._screenshot_futures: dict[str, asyncio.Future[Any]] = {}
         # connection -> 该连接上正在进行的截图 request_id 集合，用于断开时取消。
         self._conn_screenshot_requests: dict[Any, set[str]] = {}
+        # THA 独立页事件订阅连接，用于转发音频附件和表情事件。
+        self._tha_event_subs: set[Any] = set()
         self._stop_event: asyncio.Event | None = None
         self._server_task: asyncio.Task[None] | None = None
         self._session_manager = session_manager
@@ -522,6 +525,7 @@ class WebSocketChannel(BaseChannel):
             media_secret=secrets.token_bytes(32),
             log=self.logger,
         )
+        self._http_router._broadcast_tha_event = self._broadcast_tha_event
         # 代理对象：以上游 GatewayServices 兼容接口暴露 fork 内部对象，供测试使用。
         self.gateway = _GatewayProxy(
             tokens=self._tokens,
@@ -550,6 +554,7 @@ class WebSocketChannel(BaseChannel):
         self._conn_default.pop(connection, None)
         self._conn_focused.pop(connection, None)
         self._conn_locked.pop(connection, None)
+        self._tha_event_subs.discard(connection)
         if self._last_user_conn is connection:
             self._last_user_conn = None
         # 断开时取消该连接上所有挂起的截图请求，防止调用方永久阻塞。
@@ -653,6 +658,12 @@ class WebSocketChannel(BaseChannel):
                 return connection.respond(403, "Forbidden")
             return self._authorize_websocket_handshake(connection, query)
 
+        if got == "/ws/tha" and _is_websocket_upgrade(request):
+            return self._authorize_auxiliary_websocket_handshake(connection, request, query)
+
+        if got == "/ws/tha-events" and _is_websocket_upgrade(request):
+            return self._authorize_auxiliary_websocket_handshake(connection, request, query)
+
         # All other HTTP routes delegate to the extracted handler.
         return await self._http_router.dispatch(connection, request)
 
@@ -674,6 +685,22 @@ class WebSocketChannel(BaseChannel):
 
         if supplied:
             self._tokens.take_issued_token_if_valid(supplied)
+        return None
+
+    def _authorize_auxiliary_websocket_handshake(
+        self,
+        connection: Any,
+        request: WsRequest,
+        query: dict[str, list[str]],
+    ) -> Any:
+        supplied = _query_first(query, "token")
+        static_token = self.config.token.strip()
+        if static_token and supplied and hmac.compare_digest(supplied, static_token):
+            return None
+        if self._tokens.check_api_token(request):
+            return None
+        if self.config.websocket_requires_token or static_token:
+            return connection.respond(401, "Unauthorized")
         return None
 
     # -- Server lifecycle and connection ingress ---------------------------
@@ -767,7 +794,13 @@ class WebSocketChannel(BaseChannel):
     async def _connection_loop(self, connection: Any) -> None:
         request = connection.request
         path_part = request.path if request else "/"
-        _, query = _parse_request_path(path_part)
+        got, query = _parse_request_path(path_part)
+        if got == "/ws/tha":
+            await tha_websocket_loop(connection)
+            return
+        if got == "/ws/tha-events":
+            await self._tha_events_loop(connection)
+            return
         client_id_raw = _query_first(query, "client_id")
         client_id = client_id_raw.strip() if client_id_raw else ""
         if not client_id:
@@ -828,6 +861,33 @@ class WebSocketChannel(BaseChannel):
                 )
         except Exception as e:
             self.logger.debug("connection ended: {}", e)
+        finally:
+            self._cleanup_connection(connection)
+
+    async def _tha_events_loop(self, connection: Any) -> None:
+        """保持 THA 事件 WebSocket 订阅。"""
+        self._tha_event_subs.add(connection)
+        try:
+            await connection.send(json.dumps({"type": "ready"}, ensure_ascii=False))
+            async for raw in connection:
+                if not isinstance(raw, str):
+                    continue
+                with suppress(json.JSONDecodeError):
+                    payload = json.loads(raw)
+                    if isinstance(payload, dict) and payload.get("type") == "ping":
+                        await connection.send(
+                            json.dumps(
+                                {
+                                    "type": "pong",
+                                    "sentAt": payload.get("sentAt"),
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
+        except ConnectionClosed:
+            return
+        except Exception as e:
+            self.logger.debug("THA event connection ended: {}", e)
         finally:
             self._cleanup_connection(connection)
 
@@ -1170,6 +1230,7 @@ class WebSocketChannel(BaseChannel):
                 fut.cancel()
         self._screenshot_futures.clear()
         self._conn_screenshot_requests.clear()
+        self._tha_event_subs.clear()
         self._tokens.clear()
 
     async def _safe_send_to(self, connection: Any, raw: str, *, label: str = "") -> None:
@@ -1181,7 +1242,29 @@ class WebSocketChannel(BaseChannel):
             self.logger.warning("connection gone{}", label)
         except Exception:
             self.logger.exception("send failed{}", label)
-            raise
+
+    @staticmethod
+    def _is_audio_media_ref(ref: str, signed: dict[str, str] | None = None) -> bool:
+        candidates = [ref]
+        if signed:
+            candidates.extend(value for key, value in signed.items() if key in {"url", "name"})
+        for candidate in candidates:
+            mime, _ = mimetypes.guess_type(candidate)
+            if mime and mime.startswith("audio/"):
+                return True
+            lower = candidate.lower().split("?", 1)[0]
+            if lower.endswith((".mp3", ".wav", ".ogg", ".aac", ".m4a", ".weba", ".flac", ".opus")):
+                return True
+        return False
+
+    async def _broadcast_tha_event(self, event: dict[str, Any]) -> int:
+        conns = list(self._tha_event_subs)
+        if not conns:
+            return 0
+        raw = json.dumps(event, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" tha_events ")
+        return len(conns)
 
     def _try_append_webui_transcript(self, chat_id: str, obj: dict[str, Any]) -> None:
         """将消息追加到 WebUI transcript 文件；失败时静默记录日志，不中断发送流程。"""
@@ -1396,17 +1479,32 @@ class WebSocketChannel(BaseChannel):
         if msg.media:
             payload["media"] = msg.media
             urls: list[dict[str, str]] = []
+            audio_urls: list[dict[str, str]] = []
             for entry in msg.media:
                 if not isinstance(entry, str) or not entry:
                     continue
                 if is_remote_media_url(entry):
-                    urls.append(self._http_router.remote_media_payload(entry))
+                    remote_payload = self._http_router.remote_media_payload(entry)
+                    urls.append(remote_payload)
+                    if self._is_audio_media_ref(entry, remote_payload):
+                        audio_urls.append(remote_payload)
                     continue
                 signed = self._http_router.sign_or_stage_media_path(Path(entry))
                 if signed is not None:
                     urls.append(signed)
+                    if self._is_audio_media_ref(entry, signed):
+                        audio_urls.append(signed)
             if urls:
                 payload["media_urls"] = urls
+            if audio_urls:
+                await self._broadcast_tha_event(
+                    {
+                        "type": "audio",
+                        "chatId": msg.chat_id,
+                        "text": text,
+                        "media": audio_urls,
+                    }
+                )
         if msg.reply_to:
             payload["reply_to"] = msg.reply_to
         lat = msg.metadata.get("latency_ms")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +15,13 @@ from nanobot.config.schema import TtsConfig
 
 if TYPE_CHECKING:
     from nanobot.agent.tools.context import ToolContext
+
+_THA_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def strip_tha_tags(text: str) -> str:
+    """去掉 THA 表情/动作标签，避免 TTS 把标签读出来。"""
+    return _THA_TAG_RE.sub("", text).strip()
 
 
 class TtsToolConfig(TtsConfig):
@@ -83,6 +91,8 @@ class TtsTool(Tool):
         return (
             "使用已配置的 TTS provider 将文本合成为语音。"
             "返回本地音频文件路径，可传入 message 工具的 media 字段发送给频道。"
+            "THA 表情/动作标签（如 <happy><nod>）会在合成前自动剥离；"
+            "标签应保留在 message 的 content 里以驱动桌宠表情。"
         )
 
     async def execute(self, text: str, voice: str | None = None, **_: Any) -> str:
@@ -90,12 +100,15 @@ class TtsTool(Tool):
 
         provider = build_tts_provider(self._tts_config)
         resolved_voice = voice or self._default_voice
+        spoken_text = strip_tha_tags(text)
+        if not spoken_text:
+            return "Error: TTS 文本在剥离 THA 标签后为空"
 
         ts = int(time.time() * 1000)
         ext = self._tts_config.response_format
         out = get_media_dir() / "tts" / f"tts_{ts}.{ext}"
 
-        ok = await provider.synthesize(text, voice=resolved_voice, output_path=out)
+        ok = await provider.synthesize(spoken_text, voice=resolved_voice, output_path=out)
         if not ok:
             return f"Error: TTS 合成失败，provider='{self._tts_config.provider}'"
         return str(out)

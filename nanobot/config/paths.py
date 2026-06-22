@@ -33,6 +33,16 @@ def get_media_dir(channel: str | None = None) -> Path:
     return ensure_dir(base / channel) if channel else base
 
 
+def get_tha_user_models_dir() -> Path:
+    """返回用户上传的 THA 模型目录。"""
+    return get_runtime_subdir("tha_models")
+
+
+def get_tha_model_dir() -> Path:
+    """返回固定 THA 模型目录。"""
+    return get_runtime_subdir("tha_model")
+
+
 def get_cron_dir() -> Path:
     """Return the cron storage directory."""
     return get_runtime_subdir("cron")

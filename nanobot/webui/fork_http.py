@@ -27,8 +27,7 @@ import hmac
 import json
 import mimetypes
 import re
-import secrets
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlparse
@@ -84,9 +83,17 @@ from nanobot.webui.settings_api import (
     update_model_configuration,
     update_network_safety_settings,
     update_provider_settings,
+    update_tha_settings,
     update_web_search_settings,
 )
 from nanobot.webui.sidebar_state import read_webui_sidebar_state, write_webui_sidebar_state
+from nanobot.webui.tha_api import (
+    THA_STATIC_DIR,
+    THAApiError,
+    tha_models_payload,
+    tha_payload,
+    update_tha_config,
+)
 from nanobot.webui.thread_disk import delete_webui_thread
 from nanobot.webui.transcript import (
     build_inbox_thread_from_session,
@@ -263,6 +270,7 @@ class ForkGatewayHTTPHandler:
         self._media_secret = media_secret
         self._log = log
         self._settings_restart_sections: set[str] = set()
+        self._broadcast_tha_event: Callable[[dict[str, Any]], Awaitable[int]] | None = None
 
     # -- Token management ---------------------------------------------------
 
@@ -395,6 +403,8 @@ class ForkGatewayHTTPHandler:
             return self._handle_settings_web_search_update(request)
         if got == "/api/settings/image-generation/update":
             return self._handle_settings_image_generation_update(request)
+        if got == "/api/settings/tha/update":
+            return self._handle_settings_tha_update(request)
         if got == "/api/settings/network-safety/update":
             return self._handle_settings_network_safety_update(request)
         if got == "/api/settings/cli-apps":
@@ -430,6 +440,19 @@ class ForkGatewayHTTPHandler:
             return self._handle_workspace_list(request)
         if got == "/api/workspace/read":
             return self._handle_workspace_read(request)
+        if got == "/api/tha":
+            return self._handle_tha_payload(request)
+        if got == "/api/tha/config/update":
+            return self._handle_tha_config_update(request)
+        if got == "/api/tha/model":
+            return self._handle_tha_models(request, "fixed")
+        if got == "/api/tha/play":
+            return await self._handle_tha_play(request)
+
+        if got == "/tha.html":
+            return self._serve_tha_asset("tha.html")
+        if got == "/tha/tha.js":
+            return self._serve_tha_asset("tha.js")
 
         # Session sub-routes
         m = re.match(r"^/api/sessions/([^/]+)/messages$", got)
@@ -728,6 +751,16 @@ class ForkGatewayHTTPHandler:
             self._with_settings_restart_state(payload, section="image")
         )
 
+    def _handle_settings_tha_update(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            payload = update_tha_settings(query)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(self._with_settings_restart_state(payload))
+
     def _handle_settings_network_safety_update(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
@@ -739,6 +772,49 @@ class ForkGatewayHTTPHandler:
         return _http_json_response(
             self._with_settings_restart_state(payload, section="runtime")
         )
+
+    def _handle_tha_payload(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        return _http_json_response(tha_payload())
+
+    def _handle_tha_config_update(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        try:
+            payload = update_tha_config(_parse_query(request.path))
+        except THAApiError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    def _handle_tha_models(self, request: WsRequest, kind: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        try:
+            payload = tha_models_payload(kind)
+        except THAApiError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    async def _handle_tha_play(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        url_values = query.get("url") or query.get("mediaUrl") or []
+        if not url_values or not url_values[0].strip():
+            return _http_error(400, "url is required")
+        url = url_values[0].strip()
+        text_values = query.get("text") or []
+        name_values = query.get("name") or []
+        event = {
+            "type": "audio",
+            "text": text_values[0] if text_values else "",
+            "media": [{"url": url, "name": name_values[0] if name_values else ""}],
+        }
+        subscribers = 0
+        if self._broadcast_tha_event is not None:
+            subscribers = await self._broadcast_tha_event(event)
+        return _http_json_response({"ok": True, "subscribers": subscribers})
 
     def _handle_settings_cli_apps(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):
@@ -1020,6 +1096,28 @@ class ForkGatewayHTTPHandler:
         return _http_response(body, content_type=mime, extra_headers=base_headers)
 
     # -- Static file serving ------------------------------------------------
+
+    def _serve_tha_asset(self, filename: str) -> Response:
+        safe_names = {
+            "tha.html": "text/html; charset=utf-8",
+            "tha.js": "application/javascript; charset=utf-8",
+        }
+        content_type = safe_names.get(filename)
+        if content_type is None:
+            return _http_error(404, "THA asset not found")
+        path = (THA_STATIC_DIR / filename).resolve(strict=False)
+        root = THA_STATIC_DIR.resolve(strict=False)
+        if root not in path.parents or not path.is_file():
+            return _http_error(404, "THA asset not found")
+        try:
+            body = path.read_bytes()
+        except OSError:
+            return _http_error(500, "failed to read THA asset")
+        return _http_response(
+            body,
+            content_type=content_type,
+            extra_headers=[("Cache-Control", "no-cache")],
+        )
 
     def _serve_static(self, request_path: str) -> Response | None:
         """Resolve *request_path* against the SPA build directory; fallback to index.html."""

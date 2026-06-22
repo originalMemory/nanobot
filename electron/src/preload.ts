@@ -18,6 +18,12 @@ type WallpaperConfig = {
   url: string;
   intervalMinutes: number;
 };
+type ThaWindowConfig = {
+  url: string;
+  token?: string;
+  width?: number;
+  height?: number;
+};
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: {
@@ -52,6 +58,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 完全退出应用（与托盘菜单「退出」一致） */
     quit: (): Promise<void> => ipcRenderer.invoke('app:quit'),
   },
+
+  tha: {
+    open: (config: ThaWindowConfig): Promise<{ ok: true; id: number } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('tha:open', config),
+    closeAll: (): Promise<void> => ipcRenderer.invoke('tha:close-all'),
+  },
+
+  /** THA 透明窗口鼠标穿透（与 SAP electronAPI 对齐） */
+  setIgnoreMouseEvents: (
+    ignore: boolean,
+    options?: { forward?: boolean },
+  ): Promise<void> => ipcRenderer.invoke('tha:set-ignore-mouse-events', ignore, options),
 
   screenshot: {
     /** 主动触发一次截屏，返回 data URL 或 null。 */

@@ -119,6 +119,10 @@ class ContextBuilder:
         if hist_section:
             parts.append(hist_section)
 
+        tha_section = self._build_tha_expression_section()
+        if tha_section:
+            parts.append(tha_section)
+
         return "\n\n---\n\n".join(parts)
 
     def _get_identity(self, channel: str | None = None, workspace: Path | None = None) -> str:
@@ -188,6 +192,30 @@ class ContextBuilder:
         if tpl is not None:
             return content.strip() == tpl.strip()
         return False
+
+    @staticmethod
+    def _build_tha_expression_section() -> str:
+        """构建 THA 表情/动作标签提示。"""
+        try:
+            from nanobot.config.loader import load_config
+            from nanobot.webui.tha_engine import THA_MOTIONS
+        except Exception:
+            return ""
+        try:
+            tha_config = load_config().tha
+        except Exception:
+            return ""
+        if not tha_config.enabled_emotions:
+            return ""
+        motions = " ".join(f"<{name}>" for name in sorted(THA_MOTIONS))
+        return (
+            "# THA Desk Pet 表情动作\n\n"
+            "你可以在回复句子开头插入 THA 标签来驱动 2D 虚拟形象。\n\n"
+            "表情标签：<happy> <angry> <sad> <neutral> <surprised> <relaxed>\n"
+            f"动作标签：{motions}\n\n"
+            "规则：表情会持续到下一个表情标签；动作是一次性的，只影响当前句子；"
+            "表情和动作可以连用，例如 `<happy><nod>好的。`。"
+        )
 
     def build_messages(
         self,

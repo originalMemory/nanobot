@@ -12,6 +12,7 @@ import {
   updateSettings,
   updateWebSearchSettings,
   updateImageGenerationSettings,
+  updateThaSettings,
   createModelConfiguration,
 } from "@/lib/api";
 import type {
@@ -21,15 +22,15 @@ import type {
   ProviderSettingsUpdate,
   SettingsPayload,
   SettingsUpdate,
+  ThaSettingsUpdate,
   WebSearchSettingsUpdate,
 } from "@/lib/types";
 import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
 import { useClient } from "@/providers/ClientProvider";
 import type { Theme } from "@/hooks/useTheme";
 import { useElectronPreference } from "@/hooks/useElectronPreference";
-import { DEFAULT_LOCAL_PREFS, type LocalPreferences } from "./shared";
+import { DEFAULT_LOCAL_PREFS, type LocalPreferences, type SettingsSectionKey } from "./shared";
 import { SettingsLayout } from "./SettingsLayout";
-import type { SettingsSectionKey } from "./shared";
 import { OverviewSection } from "./OverviewSection";
 import { AppearanceSection } from "./AppearanceSection";
 import { ModelsSection, type AgentSettingsDraft } from "./ModelsSection";
@@ -38,6 +39,7 @@ import { WebSection } from "./WebSection";
 import { AppsSection } from "./AppsSection";
 import { RuntimeSection } from "./RuntimeSection";
 import { AdvancedSection } from "./AdvancedSection";
+import { ThaSection } from "./ThaSection";
 
 interface ProviderForm {
   apiKey: string;
@@ -225,6 +227,11 @@ export function SettingsView({ onBack, theme, onThemeChange, onSettingsChange }:
     handleSettingsUpdate(payload);
   }, [token, apiBase, handleSettingsUpdate]);
 
+  const handleSaveTha = useCallback(async (update: ThaSettingsUpdate) => {
+    const payload = await updateThaSettings(token, update, apiBase);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate]);
+
   const handleSaveRuntime = useCallback(async (update: SettingsUpdate) => {
     const payload = await updateSettings(token, update, apiBase);
     handleSettingsUpdate(payload);
@@ -358,6 +365,15 @@ export function SettingsView({ onBack, theme, onThemeChange, onSettingsChange }:
             onRestart={handleRestart}
             isRestarting={isRestarting}
             onSave={handleSaveWebSearch}
+          />
+        );
+      case "tha":
+        return (
+          <ThaSection
+            settings={settings}
+            token={token}
+            apiBase={apiBase}
+            onSave={handleSaveTha}
           />
         );
       case "apps":

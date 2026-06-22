@@ -8,6 +8,12 @@ type WallpaperConfig = {
   url: string;
   intervalMinutes: number;
 };
+type ThaWindowConfig = {
+  url: string;
+  token?: string;
+  width?: number;
+  height?: number;
+};
 
 interface ElectronAPI {
   platform: {
@@ -25,6 +31,12 @@ interface ElectronAPI {
   app: {
     quit(): Promise<void>;
   };
+  tha: {
+    open(config: ThaWindowConfig): Promise<{ ok: true; id: number } | { ok: false; error: string }>;
+    closeAll(): Promise<void>;
+  };
+  /** THA 透明窗口鼠标穿透 */
+  setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): Promise<void>;
   screenshot: {
     capture(): Promise<string | null>;
     /** 订阅全局快捷键触发的截图事件，返回取消监听的清理函数。 */
