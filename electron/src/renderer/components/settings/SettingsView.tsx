@@ -13,6 +13,7 @@ import {
   updateWebSearchSettings,
   updateImageGenerationSettings,
   updateThaSettings,
+  updateDeskPetPsbSettings,
   createModelConfiguration,
 } from "@/lib/api";
 import type {
@@ -23,6 +24,7 @@ import type {
   SettingsPayload,
   SettingsUpdate,
   ThaSettingsUpdate,
+  PsbSettingsUpdate,
   WebSearchSettingsUpdate,
 } from "@/lib/types";
 import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
@@ -39,7 +41,7 @@ import { WebSection } from "./WebSection";
 import { AppsSection } from "./AppsSection";
 import { RuntimeSection } from "./RuntimeSection";
 import { AdvancedSection } from "./AdvancedSection";
-import { ThaSection } from "./ThaSection";
+import { DeskPetSection } from "./DeskPetSection";
 
 interface ProviderForm {
   apiKey: string;
@@ -79,9 +81,16 @@ interface SettingsViewProps {
   theme: Theme;
   onThemeChange: (t: Theme) => void;
   onSettingsChange?: (settings: SettingsPayload) => void;
+  navigateSection?: SettingsSectionKey | null;
 }
 
-export function SettingsView({ onBack, theme, onThemeChange, onSettingsChange }: SettingsViewProps) {
+export function SettingsView({
+  onBack,
+  theme,
+  onThemeChange,
+  onSettingsChange,
+  navigateSection,
+}: SettingsViewProps) {
   const { token, apiBase } = useClient();
   const [localPrefs, setLocalPrefs] = useElectronPreference<LocalPreferences>(
     "appearance.preferences",
@@ -91,6 +100,10 @@ export function SettingsView({ onBack, theme, onThemeChange, onSettingsChange }:
 
   // ---------- section state ----------
   const [activeSection, setActiveSection] = useState<SettingsSectionKey>("overview");
+
+  useEffect(() => {
+    if (navigateSection) setActiveSection(navigateSection);
+  }, [navigateSection]);
 
   // ---------- settings data ----------
   const [settings, setSettings] = useState<SettingsPayload | null>(null);
@@ -232,6 +245,16 @@ export function SettingsView({ onBack, theme, onThemeChange, onSettingsChange }:
     handleSettingsUpdate(payload);
   }, [token, apiBase, handleSettingsUpdate]);
 
+  const handleSavePsb = useCallback(async (update: PsbSettingsUpdate) => {
+    const payload = await updateDeskPetPsbSettings(token, update, apiBase);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate]);
+
+  const handleRefreshSettings = useCallback(async () => {
+    const payload = await fetchSettings(token, apiBase);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate]);
+
   const handleSaveRuntime = useCallback(async (update: SettingsUpdate) => {
     const payload = await updateSettings(token, update, apiBase);
     handleSettingsUpdate(payload);
@@ -367,13 +390,15 @@ export function SettingsView({ onBack, theme, onThemeChange, onSettingsChange }:
             onSave={handleSaveWebSearch}
           />
         );
-      case "tha":
+      case "deskPet":
         return (
-          <ThaSection
+          <DeskPetSection
             settings={settings}
             token={token}
             apiBase={apiBase}
-            onSave={handleSaveTha}
+            onSaveTha={handleSaveTha}
+            onSavePsb={handleSavePsb}
+            onRefreshSettings={handleRefreshSettings}
           />
         );
       case "apps":

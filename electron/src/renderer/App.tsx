@@ -5,6 +5,7 @@ import { InboxSidebar } from "@/components/InboxSidebar";
 import { InboxView } from "@/components/InboxView";
 import { ScreenshotPreviewModal } from "@/components/ScreenshotPreviewModal";
 import { SettingsView } from "@/components/settings/SettingsView";
+import type { SettingsSectionKey } from "@/components/settings/shared";
 import { WorkspaceView } from "@/components/workspace/WorkspaceView";
 import { WallpaperLayer } from "@/components/WallpaperLayer";
 import { WindowTitleBar } from "@/components/WindowTitleBar";
@@ -19,6 +20,7 @@ import {
   fetchBootstrap,
   loadSavedSecret,
   saveGatewayUrl,
+  saveGatewayCredentials,
   saveSecret,
   TOKEN_REFRESH_MIN_DELAY_MS,
   tokenRefreshDelayMs,
@@ -194,6 +196,7 @@ function Shell({
   const [modelSelectionError, setModelSelectionError] = useState<string | null>(null);
   const [reasoningSelectionPending, setReasoningSelectionPending] = useState(false);
   const [reasoningSelectionError, setReasoningSelectionError] = useState<string | null>(null);
+  const [settingsNavigateSection, setSettingsNavigateSection] = useState<SettingsSectionKey | null>(null);
 
   const applySettings = useCallback((payload: SettingsPayload) => {
     setSettings(payload);
@@ -213,6 +216,20 @@ function Shell({
       .catch((): void => undefined);
     return () => { cancelled = true; };
   }, [token, gatewayUrl, applySettings]);
+
+  useEffect(() => {
+    const api = window.electronAPI?.app;
+    if (!api?.onOpenSettings) return;
+    return api.onOpenSettings((section) => {
+      setView("settings");
+      const allowed: SettingsSectionKey[] = [
+        "overview", "appearance", "models", "image", "web", "apps", "runtime", "deskPet", "advanced",
+      ];
+      if (allowed.includes(section as SettingsSectionKey)) {
+        setSettingsNavigateSection(section as SettingsSectionKey);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     return client.onRuntimeModelUpdate((modelName, _modelPreset) => {
@@ -387,6 +404,7 @@ function Shell({
                   theme={theme}
                   onThemeChange={setTheme}
                   onSettingsChange={applySettings}
+                  navigateSection={settingsNavigateSection}
                 />
               </div>
             ) : view === "workspace" ? (
@@ -450,7 +468,7 @@ export default function App() {
             saveSecret(secret);
             bootstrapSecretRef.current = secret;
           }
-          void saveGatewayUrl(url);
+          void saveGatewayCredentials(url, boot.token);
 
           // Load inbox thread before connecting so initial messages are available
           // before any real-time events arrive (#3)
@@ -474,6 +492,7 @@ export default function App() {
             onReauth: async () => {
               try {
                 const refreshed = await fetchBootstrap(url, bootstrapSecretRef.current);
+                void saveGatewayCredentials(url, refreshed.token);
                 const refreshedUrl = deriveWsUrl(refreshed.ws_path, refreshed.token, url);
                 const tokenExpiresAt = bootstrapTokenExpiresAt(refreshed.expires_in);
                 setState((current) =>
@@ -546,6 +565,7 @@ export default function App() {
       try {
         const boot = await fetchBootstrap(gatewayUrl, bootstrapSecretRef.current);
         if (cancelled) return;
+        void saveGatewayCredentials(gatewayUrl, boot.token);
         const wsUrl = deriveWsUrl(boot.ws_path, boot.token, gatewayUrl);
         const tokenExpiresAt = bootstrapTokenExpiresAt(boot.expires_in);
         client.updateUrl(wsUrl);
@@ -584,6 +604,14 @@ export default function App() {
       }
     };
   }, [state]);
+
+  // gateway 连上后通知主进程尝试自动打开 PSB 桌宠
+  const bootReadyKey =
+    state.status === "ready" ? `${state.gatewayUrl}:${state.token}` : null;
+  useEffect(() => {
+    if (!bootReadyKey) return;
+    void window.electronAPI?.psb?.tryAutoOpen?.();
+  }, [bootReadyKey]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;

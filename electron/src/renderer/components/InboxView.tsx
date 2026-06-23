@@ -8,6 +8,7 @@ import { ThreadViewport } from "@/components/thread/ThreadViewport";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNanobotStream, type SendImage, type SendOptions } from "@/hooks/useNanobotStream";
+import { usePsbTagEffects } from "@/hooks/usePsbTagEffects";
 import { ApiError, fetchCliApps, fetchInboxThread, fetchMcpPresets, listSlashCommands } from "@/lib/api";
 import { channelLabel } from "@/lib/channels";
 import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
@@ -76,6 +77,7 @@ export function InboxView({
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const [cliApps, setCliApps] = useState<CliAppInfo[]>([]);
   const [mcpPresets, setMcpPresets] = useState<McpPresetInfo[]>([]);
+  const psbTurnEndRef = useRef<() => void>(() => {});
   const {
     messages,
     isStreaming,
@@ -86,7 +88,15 @@ export function InboxView({
     replaceMessagesFromSnapshot,
     streamError,
     dismissStreamError,
-  } = useNanobotStream(INBOX_CHAT_ID, initialMessages, false, undefined, activeChannel);
+  } = useNanobotStream(
+    INBOX_CHAT_ID,
+    initialMessages,
+    false,
+    () => psbTurnEndRef.current(),
+    activeChannel,
+  );
+  usePsbTagEffects(messages, modelSettings, psbTurnEndRef);
+  const showPsbResponseTags = modelSettings?.deskPet?.psb?.showResponseTags ?? false;
 
   const showToast = useCallback((message: string) => {
     if (toastTimerRef.current !== null) {
@@ -260,6 +270,7 @@ export function InboxView({
           unreadScrollSignal={activeChannel == null ? unreadScrollSignal : 0}
           cliApps={cliApps}
           mcpPresets={mcpPresets}
+          showPsbResponseTags={showPsbResponseTags}
           composer={
             <ThreadComposer
               ref={composerRef}

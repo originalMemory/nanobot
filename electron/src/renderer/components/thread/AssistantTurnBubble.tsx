@@ -16,6 +16,7 @@ import {
   displayPromptIn,
 } from "@/lib/turn-usage";
 import { cn, formatTokenCount } from "@/lib/utils";
+import { formatAssistantContentForDisplay } from "../../../psb/psb-tags";
 import { useClient } from "@/providers/ClientProvider";
 import type { CliAppInfo, McpPresetInfo, UIMessage } from "@/lib/types";
 
@@ -30,6 +31,7 @@ interface AssistantTurnBubbleProps {
   showCopyAction?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
+  showPsbResponseTags?: boolean;
 }
 
 /** 一轮 assistant 回复：单 SAP 气泡内按时间序交错 activity / 正文段。 */
@@ -39,6 +41,7 @@ export function AssistantTurnBubble({
   showCopyAction = true,
   cliApps = [],
   mcpPresets = [],
+  showPsbResponseTags = false,
 }: AssistantTurnBubbleProps) {
   const { t } = useTranslation();
   const { botName, botIcon, botAvatarUrl } = useBotIdentity();
@@ -154,6 +157,10 @@ export function AssistantTurnBubble({
               }
               const { message } = segment;
               const textEmpty = message.content.trim().length === 0;
+              const displayContent = formatAssistantContentForDisplay(
+                message.content,
+                showPsbResponseTags,
+              );
               const media = message.media ?? [];
               const hasMedia = media.length > 0;
               if (textEmpty && !hasMedia) {
@@ -163,7 +170,7 @@ export function AssistantTurnBubble({
                 <div key={message.id}>
                   {!textEmpty ? (
                     <MarkdownText streaming={!!message.isStreaming}>
-                      {message.content}
+                      {displayContent}
                     </MarkdownText>
                   ) : null}
                   {hasMedia ? (

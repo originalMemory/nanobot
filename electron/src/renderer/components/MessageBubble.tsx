@@ -21,6 +21,7 @@ import {
   displayPromptIn,
 } from "@/lib/turn-usage";
 import { cn, formatTokenCount } from "@/lib/utils";
+import { formatAssistantContentForDisplay } from "../../psb/psb-tags";
 import { useClient } from "@/providers/ClientProvider";
 import { formatTurnLatency } from "@/lib/format";
 import { useBotIdentity } from "@/contexts/BotIdentityContext";
@@ -54,6 +55,7 @@ interface MessageBubbleProps {
   showAssistantCopyAction?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
+  showPsbResponseTags?: boolean;
 }
 
 /**
@@ -70,6 +72,7 @@ export function MessageBubble({
   showAssistantCopyAction = true,
   cliApps = [],
   mcpPresets = [],
+  showPsbResponseTags = false,
 }: MessageBubbleProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -160,6 +163,10 @@ export function MessageBubble({
   }
 
   const empty = message.content.trim().length === 0;
+  const displayContent = formatAssistantContentForDisplay(
+    message.content,
+    showPsbResponseTags,
+  );
   const media = message.media ?? [];
   const reasoning = message.role === "assistant" ? message.reasoning ?? "" : "";
   const reasoningStreaming = !!(message.role === "assistant" && message.reasoningStreaming);
@@ -225,7 +232,7 @@ export function MessageBubble({
           {hasReasoning ? (
             <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={!empty} />
           ) : null}
-          <MarkdownText streaming={!!message.isStreaming}>{message.content}</MarkdownText>
+          <MarkdownText streaming={!!message.isStreaming}>{displayContent}</MarkdownText>
         </div>
         {media.length > 0 ? (
           <MessageMedia media={media} align="left" thaSourceText={message.content} />

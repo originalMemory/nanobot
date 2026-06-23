@@ -19,8 +19,8 @@ interface ThaSectionProps {
 }
 
 export function ThaSection({ settings, token, apiBase, onSave }: ThaSectionProps) {
-  const config = settings.tha.config;
-  const model = settings.tha.model;
+  const config = settings.deskPet.tha.config;
+  const model = settings.deskPet.tha.model;
   const [, setSaving] = useState(false);
 
   async function save(update: ThaSettingsUpdate) {

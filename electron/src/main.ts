@@ -19,6 +19,8 @@ const DEFAULT_RAISE_INBOX_ACCELERATOR = 'CmdOrCtrl+Shift+E';
 const DEFAULT_WALLPAPER_URL =
   'https://nas.xuanniao.fun:49150/api/moneyAccounting/random-image?type=1,2,3&level=5,6,7,8&orientation=2&maxResolutionLevel=2';
 const MIN_WALLPAPER_INTERVAL_MINUTES = 1;
+import { DEFAULT_PSB_LOCAL_PREFS, type DeskPetLocalPrefs } from './psb/types';
+import { cleanupPsbOnQuit, scheduleAutoOpenPsb, registerPsbIpcHandlers } from './main/psb-manager';
 import Store from 'electron-store';
 import { APP_ID } from '../app.meta';
 import { initTrayBlink, notifyTrayIncoming, stopTrayBlink } from './tray-blink';
@@ -92,6 +94,7 @@ interface AppConfig {
   shortcuts: {
     raiseInbox: string;
   };
+  deskPet: DeskPetLocalPrefs;
 }
 
 const store = new Store<AppConfig>({
@@ -124,7 +127,19 @@ const store = new Store<AppConfig>({
     shortcuts: {
       raiseInbox: DEFAULT_RAISE_INBOX_ACCELERATOR,
     },
+    deskPet: DEFAULT_PSB_LOCAL_PREFS,
   },
+});
+
+const preloadPath = path.join(__dirname, 'preload.js');
+
+registerPsbIpcHandlers({
+  store,
+  preloadPath,
+  getGateway: () => ({
+    url: store.get('gateway.url') ?? '',
+    token: store.get('gateway.token') ?? '',
+  }),
 });
 
 // ---------------------------------------------------------------------------
@@ -284,6 +299,16 @@ ipcMain.handle(
 ipcMain.handle('app:quit', () => {
   app.isQuitting = true;
   app.quit();
+});
+
+ipcMain.handle('app:open-settings', (_event, section?: string) => {
+  showMainWindow();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app:open-settings', {
+      section: typeof section === 'string' && section.trim() ? section.trim() : 'overview',
+    });
+  }
+  return { ok: true };
 });
 
 // ---------------------------------------------------------------------------
@@ -788,6 +813,10 @@ if (gotSingleInstanceLock) {
     createTray();
     createWindow();
     registerRaiseInboxShortcut();
+    void scheduleAutoOpenPsb(store, preloadPath, {
+      url: store.get('gateway.url') ?? '',
+      token: store.get('gateway.token') ?? '',
+    });
 
     app.on('activate', () => {
       // macOS: 点击 Dock 图标时恢复主窗口
@@ -809,5 +838,6 @@ if (gotSingleInstanceLock) {
     stopTrayBlink();
     stopWallpaperScheduler();
     unregisterRaiseInboxShortcut();
+    cleanupPsbOnQuit();
   });
 }

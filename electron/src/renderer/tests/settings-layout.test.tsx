@@ -21,17 +21,27 @@ function renderLayout(props?: Partial<React.ComponentProps<typeof SettingsLayout
 }
 
 describe("SettingsLayout", () => {
-  it("renders all 8 section nav buttons", () => {
+  it("renders all 9 section nav buttons", () => {
     renderLayout();
-    const navLabels = ["Overview", "Appearance", "Models", "Image", "Web", "Apps", "Runtime", "Advanced"];
+    const navLabels = [
+      "Overview",
+      "Appearance",
+      "Models",
+      "Image",
+      "Web",
+      "Apps",
+      "Runtime",
+      "Desk Pet",
+      "Advanced",
+    ];
     for (const label of navLabels) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
   });
 
   it("marks the active section with aria-current=page", () => {
-    renderLayout({ activeSection: "models" });
-    expect(screen.getByRole("button", { name: "Models" })).toHaveAttribute(
+    renderLayout({ activeSection: "deskPet" });
+    expect(screen.getByRole("button", { name: "Desk Pet" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -43,8 +53,8 @@ describe("SettingsLayout", () => {
 
   it("calls onSelectSection when a nav button is clicked", () => {
     const { onSelectSection } = renderLayout();
-    fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
-    expect(onSelectSection).toHaveBeenCalledWith("appearance");
+    fireEvent.click(screen.getByRole("button", { name: "Desk Pet" }));
+    expect(onSelectSection).toHaveBeenCalledWith("deskPet");
   });
 
   it("calls onBack when back button is clicked", () => {

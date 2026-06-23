@@ -30,6 +30,8 @@ interface ThreadViewportProps {
   showScrollToBottomButton?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
+  /** false 时隐藏 assistant 回复中的 PSB 标签 */
+  showPsbResponseTags?: boolean;
 }
 
 const NEAR_BOTTOM_PX = 48;
@@ -81,6 +83,7 @@ export function ThreadViewport({
   showScrollToBottomButton = true,
   cliApps = [],
   mcpPresets = [],
+  showPsbResponseTags = false,
 }: ThreadViewportProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -328,6 +331,7 @@ export function ThreadViewport({
                   unreadCount={unreadCount}
                   cliApps={cliApps}
                   mcpPresets={mcpPresets}
+                  showPsbResponseTags={showPsbResponseTags}
                 />
               </div>
             </div>

@@ -52,10 +52,10 @@ export type SettingsSectionKey =
   | "appearance"
   | "models"
   | "image"
-  | "tha"
   | "web"
   | "apps"
   | "runtime"
+  | "deskPet"
   | "advanced";
 
 export type LocalDensity = "comfortable" | "compact";

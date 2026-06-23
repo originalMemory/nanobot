@@ -59,6 +59,17 @@ export async function saveGatewayUrl(url: string): Promise<void> {
   }
 }
 
+/** 将 gateway 地址与 REST token 写入 electron-store，供主进程桌宠等能力使用。 */
+export async function saveGatewayCredentials(url: string, token: string): Promise<void> {
+  if (!isElectron) return;
+  try {
+    await window.electronAPI.config.set("gateway.url", url);
+    await window.electronAPI.config.set("gateway.token", token);
+  } catch (e) {
+    console.warn("[nanobot] failed to persist gateway credentials:", e);
+  }
+}
+
 export async function fetchBootstrap(
   baseUrl: string = DEFAULT_GATEWAY_HTTP,
   secret: string = "",

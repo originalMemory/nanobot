@@ -291,17 +291,27 @@ export interface SettingsPayload {
       default_api_base?: string | null;
     }>;
   };
-  tha: {
-    config: {
-      enabledEmotions: boolean;
-      enabledMouthSync: boolean;
-      windowWidth: number;
-      windowHeight: number;
-      audioDelayMs: number;
+  deskPet: {
+    tha: {
+      config: {
+        enabledEmotions: boolean;
+        enabledMouthSync: boolean;
+        windowWidth: number;
+        windowHeight: number;
+        audioDelayMs: number;
+      };
+      model: ThaModel;
+      motions: string[];
+      emotions: string[];
     };
-    model: ThaModel;
-    motions: string[];
-    emotions: string[];
+    psb: {
+      autoShow: boolean;
+      selectedModelId: string | null;
+      followMouse: boolean;
+      enabledResponseTags: boolean;
+      showResponseTags: boolean;
+      models: PsbModelSummary[];
+    };
   };
   runtime: {
     config_path: string;
@@ -553,6 +563,55 @@ export interface ThaSettingsUpdate {
   windowWidth?: number;
   windowHeight?: number;
   audioDelayMs?: number;
+}
+
+export interface PsbInitialState {
+  timeline: string;
+  expression: string;
+  face: Record<string, number>;
+  fade: Record<string, number>;
+}
+
+export interface PsbModelDetail {
+  modelId: string;
+  name: string;
+  format: string;
+  compatible: boolean;
+  parseError?: string | null;
+  translationStatus?: string;
+  hasFaceTalk?: boolean;
+  psbFile?: string;
+  timelines: Array<{ label: string; labelZh?: string; looping?: boolean }>;
+  expressions: Array<{ label: string; labelZh?: string }>;
+  faceVariables: Array<{
+    label: string;
+    labelZh?: string;
+    frames?: Array<{ label: string; labelZh?: string; value: number }>;
+  }>;
+  fadeVariables: Array<{
+    label: string;
+    labelZh?: string;
+    frames?: Array<{ label: string; labelZh?: string; value: number }>;
+  }>;
+  initialState: PsbInitialState;
+}
+
+export interface PsbModelSummary {
+  modelId: string;
+  name: string;
+  format: string;
+  compatible: boolean;
+  parseError?: string | null;
+  translationStatus?: string;
+  hasFaceTalk?: boolean;
+}
+
+export interface PsbSettingsUpdate {
+  autoShow?: boolean;
+  selectedModelId?: string | null;
+  followMouse?: boolean;
+  enabledResponseTags?: boolean;
+  showResponseTags?: boolean;
 }
 
 export interface SlashCommand {

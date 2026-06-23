@@ -10,6 +10,9 @@ import type {
   SidebarStatePayload,
   SlashCommand,
   ThaSettingsUpdate,
+  PsbSettingsUpdate,
+  PsbInitialState,
+  PsbModelDetail,
   WebuiThreadPersistedPayload,
 } from "./types";
 import type {
@@ -388,7 +391,80 @@ export async function updateThaSettings(
     if (value !== undefined && value !== null) query.set(key, String(value));
   });
   return request<SettingsPayload>(
-    `${base}/api/settings/tha/update?${query}`,
+    `${base}/api/settings/desk-pet/tha/update?${query}`,
+    token,
+  );
+}
+
+export async function updateDeskPetPsbSettings(
+  token: string,
+  update: PsbSettingsUpdate,
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  Object.entries(update).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) query.set(key, String(value));
+  });
+  return request<SettingsPayload>(
+    `${base}/api/settings/desk-pet/psb/update?${query}`,
+    token,
+  );
+}
+
+export async function fetchPsbModelDetail(
+  token: string,
+  modelId: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<{ model: PsbModelDetail }> {
+  return request<{ model: PsbModelDetail }>(
+    `${base}/api/desk-pet/psb/models/${encodeURIComponent(modelId)}`,
+    token,
+  );
+}
+
+export async function deletePsbModel(
+  token: string,
+  modelId: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<{ ok: boolean; clearedSelection?: boolean }> {
+  return request(
+    `${base}/api/desk-pet/psb/models/${encodeURIComponent(modelId)}/delete`,
+    token,
+  );
+}
+
+export async function rescanPsbModel(
+  token: string,
+  modelId: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<{ model: PsbModelDetail }> {
+  return request<{ model: PsbModelDetail }>(
+    `${base}/api/desk-pet/psb/models/${encodeURIComponent(modelId)}/rescan`,
+    token,
+  );
+}
+
+export async function retryPsbTranslation(
+  token: string,
+  modelId: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<{ model: PsbModelDetail }> {
+  return request<{ model: PsbModelDetail }>(
+    `${base}/api/desk-pet/psb/models/${encodeURIComponent(modelId)}/retry-translation`,
+    token,
+  );
+}
+
+export async function savePsbInitialState(
+  token: string,
+  modelId: string,
+  state: PsbInitialState,
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<{ model: PsbModelDetail }> {
+  const query = new URLSearchParams();
+  query.set("state", JSON.stringify(state));
+  return request<{ model: PsbModelDetail }>(
+    `${base}/api/desk-pet/psb/models/${encodeURIComponent(modelId)}/initial-state/update?${query}`,
     token,
   );
 }

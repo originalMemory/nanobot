@@ -24,6 +24,24 @@ type ThaWindowConfig = {
   width?: number;
   height?: number;
 };
+type PsbOpenConfig = {
+  url: string;
+  token?: string;
+  modelId?: string;
+  width?: number;
+  height?: number;
+};
+type PsbWindowStatePatch = {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  scale?: number;
+};
+type PsbRuntimeAction = {
+  type: string;
+  payload?: Record<string, unknown>;
+};
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: {
@@ -57,12 +75,60 @@ contextBridge.exposeInMainWorld('electronAPI', {
   app: {
     /** 完全退出应用（与托盘菜单「退出」一致） */
     quit: (): Promise<void> => ipcRenderer.invoke('app:quit'),
+    /** 打开主窗口设置页，可选分区（如 deskPet） */
+    openSettings: (section?: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('app:open-settings', section),
+    onOpenSettings: (cb: (section: string) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: { section?: string }) =>
+        cb(payload?.section ?? 'overview');
+      ipcRenderer.on('app:open-settings', handler);
+      return () => ipcRenderer.removeListener('app:open-settings', handler);
+    },
   },
 
   tha: {
     open: (config: ThaWindowConfig): Promise<{ ok: true; id: number } | { ok: false; error: string }> =>
       ipcRenderer.invoke('tha:open', config),
     closeAll: (): Promise<void> => ipcRenderer.invoke('tha:close-all'),
+  },
+
+  psb: {
+    open: (
+      config: PsbOpenConfig,
+    ): Promise<{ ok: true; id: number; reused?: boolean } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('psb:open', config),
+    close: (): Promise<void> => ipcRenderer.invoke('psb:close'),
+    closePermanent: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('psb:close-permanent'),
+    closeAll: (): Promise<void> => ipcRenderer.invoke('psb:close-all'),
+    saveWindowState: (
+      patch: PsbWindowStatePatch,
+    ): Promise<{ ok: boolean; state?: PsbWindowStatePatch; error?: string }> =>
+      ipcRenderer.invoke('psb:save-window-state', patch),
+    sendAction: (action: PsbRuntimeAction): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('psb:send-action', action),
+    setIgnoreMouseEvents: (
+      ignore: boolean,
+      options?: { forward?: boolean },
+    ): Promise<void> => ipcRenderer.invoke('psb:set-ignore-mouse-events', ignore, options),
+    onAction: (cb: (action: PsbRuntimeAction) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, action: PsbRuntimeAction) => cb(action);
+      ipcRenderer.on('psb:action', handler);
+      return () => ipcRenderer.removeListener('psb:action', handler);
+    },
+    onConfig: (cb: (config: { scale?: number; followMouse?: boolean }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, config: { scale?: number; followMouse?: boolean }) => cb(config);
+      ipcRenderer.on('psb:config', handler);
+      return () => ipcRenderer.removeListener('psb:config', handler);
+    },
+    onMouse: (cb: (point: { x?: number; y?: number; leave?: boolean }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, point: { x?: number; y?: number; leave?: boolean }) =>
+        cb(point);
+      ipcRenderer.on('psb:mouse', handler);
+      return () => ipcRenderer.removeListener('psb:mouse', handler);
+    },
+    updateFollowMouse: (enabled: boolean): Promise<{ ok: boolean; followMouse?: boolean }> =>
+      ipcRenderer.invoke('psb:update-follow-mouse', enabled),
+    tryAutoOpen: (): Promise<void> => ipcRenderer.invoke('psb:try-auto-open'),
   },
 
   /** THA 透明窗口鼠标穿透（与 SAP electronAPI 对齐） */
