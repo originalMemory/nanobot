@@ -31,7 +31,7 @@ class THAApiError(ValueError):
 
 
 def tha_config_payload() -> dict[str, Any]:
-    config = load_config().tha
+    config = load_config().desk_pet.tha
     return {
         "enabledEmotions": config.enabled_emotions,
         "enabledMouthSync": config.enabled_mouth_sync,
@@ -53,7 +53,7 @@ def tha_payload() -> dict[str, Any]:
 
 def update_tha_config(query: dict[str, list[str]]) -> dict[str, Any]:
     config = load_config()
-    tha = config.tha
+    tha = config.desk_pet.tha
     changed = False
 
     def first(*keys: str) -> str | None:

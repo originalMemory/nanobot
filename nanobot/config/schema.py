@@ -341,6 +341,32 @@ class THAConfig(Base):
     audio_delay_ms: int = Field(default=150, ge=0, le=2000)
 
 
+class PSBInitialState(Base):
+    """PSB 桌宠初始展示状态（按模型保存在 metadata 中）。"""
+
+    timeline: str = ""
+    expression: str = ""
+    face: dict[str, float] = Field(default_factory=dict)
+    fade: dict[str, float] = Field(default_factory=dict)
+
+
+class PSBConfig(Base):
+    """PSB/E-mote 桌宠配置。"""
+
+    auto_show: bool = False
+    selected_model_id: str | None = None
+    follow_mouse: bool = True
+    enabled_response_tags: bool = False
+    show_response_tags: bool = False
+
+
+class DeskPetConfig(Base):
+    """统一桌宠配置：THA 与 PSB 并列。"""
+
+    tha: THAConfig = Field(default_factory=THAConfig)
+    psb: PSBConfig = Field(default_factory=PSBConfig)
+
+
 class ApiConfig(Base):
     """OpenAI-compatible API server configuration."""
 
@@ -423,7 +449,10 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
-    tha: THAConfig = Field(default_factory=THAConfig)
+    desk_pet: DeskPetConfig = Field(
+        default_factory=DeskPetConfig,
+        validation_alias=AliasChoices("deskPet", "desk_pet"),
+    )
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,

@@ -1425,6 +1425,17 @@ def _run_gateway(
 
     async def run():
         try:
+            from nanobot.webui.psb_store import scan_psb_models
+
+            try:
+                discovered = await scan_psb_models()
+                if discovered:
+                    console.print(
+                        f"[green]✓[/green] PSB models: registered {len(discovered)} file(s) from desk_pets/psb"
+                    )
+            except Exception:
+                logger.exception("PSB model scan failed")
+
             await cron.start()
             if _hist_index is not None:
                 async def _build_hist_index() -> None:

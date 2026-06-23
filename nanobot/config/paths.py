@@ -43,6 +43,11 @@ def get_tha_model_dir() -> Path:
     return get_runtime_subdir("tha_model")
 
 
+def get_psb_dir() -> Path:
+    """返回 PSB 模型目录；用户将 ``.psb`` / ``.emtbytes`` 直接放入此目录。"""
+    return get_runtime_subdir("desk_pets/psb")
+
+
 def get_cron_dir() -> Path:
     """Return the cron storage directory."""
     return get_runtime_subdir("cron")

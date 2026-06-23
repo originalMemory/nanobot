@@ -25,7 +25,12 @@ from nanobot.providers.image_generation import (
 )
 from nanobot.providers.registry import PROVIDERS, find_by_name
 from nanobot.security.workspace_access import workspace_sandbox_status
-from nanobot.webui.tha_api import THAApiError, tha_payload, update_tha_config
+from nanobot.webui.desk_pet_api import (
+    DeskPetApiError,
+    desk_pet_payload,
+    update_desk_pet_psb_config,
+    update_desk_pet_tha_config,
+)
 from nanobot.webui.workspaces import (
     read_webui_default_access_mode,
     write_webui_default_access_mode,
@@ -779,7 +784,7 @@ def settings_payload(
             "save_dir": image_config.save_dir,
             "providers": image_providers,
         },
-        "tha": tha_payload(),
+        "deskPet": desk_pet_payload(),
         "runtime": {
             "config_path": str(get_config_path().expanduser()),
             "workspace_path": str(config.workspace_path),
@@ -1402,9 +1407,22 @@ def update_image_generation_settings(query: QueryParams) -> dict[str, Any]:
     return settings_payload(requires_restart=changed)
 
 
-def update_tha_settings(query: QueryParams) -> dict[str, Any]:
+def update_desk_pet_tha_settings(query: QueryParams) -> dict[str, Any]:
     try:
-        update_tha_config(query)
-    except THAApiError as exc:
+        update_desk_pet_tha_config(query)
+    except DeskPetApiError as exc:
         raise WebUISettingsError(exc.message, status=exc.status) from exc
     return settings_payload()
+
+
+def update_desk_pet_psb_settings(query: QueryParams) -> dict[str, Any]:
+    try:
+        update_desk_pet_psb_config(query)
+    except DeskPetApiError as exc:
+        raise WebUISettingsError(exc.message, status=exc.status) from exc
+    return settings_payload()
+
+
+def update_tha_settings(query: QueryParams) -> dict[str, Any]:
+    """兼容旧调用方：写入 deskPet.tha。"""
+    return update_desk_pet_tha_settings(query)

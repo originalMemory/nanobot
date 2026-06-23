@@ -82,9 +82,24 @@ from nanobot.webui.settings_api import (
     update_image_generation_settings,
     update_model_configuration,
     update_network_safety_settings,
+    update_desk_pet_psb_settings,
+    update_desk_pet_tha_settings,
     update_provider_settings,
     update_tha_settings,
     update_web_search_settings,
+)
+from nanobot.webui.psb_api import (
+    PSB_STATIC_DIR,
+    PsbApiError,
+    psb_delete_payload,
+    psb_manifest_payload,
+    psb_model_detail_payload,
+    psb_models_list_payload,
+    psb_resolve_file,
+    psb_retry_translation_payload,
+    psb_rescan_payload,
+    psb_save_initial_state_payload,
+    psb_runtime_metadata_payload,
 )
 from nanobot.webui.sidebar_state import read_webui_sidebar_state, write_webui_sidebar_state
 from nanobot.webui.tha_api import (
@@ -405,6 +420,10 @@ class ForkGatewayHTTPHandler:
             return self._handle_settings_image_generation_update(request)
         if got == "/api/settings/tha/update":
             return self._handle_settings_tha_update(request)
+        if got == "/api/settings/desk-pet/tha/update":
+            return self._handle_settings_desk_pet_tha_update(request)
+        if got == "/api/settings/desk-pet/psb/update":
+            return self._handle_settings_desk_pet_psb_update(request)
         if got == "/api/settings/network-safety/update":
             return self._handle_settings_network_safety_update(request)
         if got == "/api/settings/cli-apps":
@@ -449,10 +468,21 @@ class ForkGatewayHTTPHandler:
         if got == "/api/tha/play":
             return await self._handle_tha_play(request)
 
+        psb_route = self._dispatch_psb_routes(request, got)
+        if psb_route is not None:
+            return psb_route
+
         if got == "/tha.html":
             return self._serve_tha_asset("tha.html")
         if got == "/tha/tha.js":
             return self._serve_tha_asset("tha.js")
+
+        if got == "/psb.html":
+            return self._serve_psb_asset("psb.html")
+
+        if got.startswith("/psb/"):
+            rel = got[len("/psb/") :]
+            return self._serve_psb_asset(rel)
 
         # Session sub-routes
         m = re.match(r"^/api/sessions/([^/]+)/messages$", got)
@@ -760,6 +790,80 @@ class ForkGatewayHTTPHandler:
         except WebUISettingsError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(self._with_settings_restart_state(payload))
+
+    def _handle_settings_desk_pet_tha_update(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            payload = update_desk_pet_tha_settings(query)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(self._with_settings_restart_state(payload))
+
+    def _handle_settings_desk_pet_psb_update(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            payload = update_desk_pet_psb_settings(query)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(self._with_settings_restart_state(payload))
+
+    def _dispatch_psb_routes(self, request: WsRequest, got: str) -> Response | None:
+        if not got.startswith("/api/desk-pet/psb/"):
+            return None
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            if got == "/api/desk-pet/psb/models":
+                return _http_json_response(psb_models_list_payload())
+            m = re.match(r"^/api/desk-pet/psb/models/([^/]+)$", got)
+            if m:
+                return _http_json_response(psb_model_detail_payload(m.group(1)))
+            m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/delete$", got)
+            if m:
+                return _http_json_response(psb_delete_payload(m.group(1)))
+            m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/rescan$", got)
+            if m:
+                return self._run_async_json(psb_rescan_payload(m.group(1)))
+            m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/retry-translation$", got)
+            if m:
+                return self._run_async_json(psb_retry_translation_payload(m.group(1)))
+            m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/initial-state/update$", got)
+            if m:
+                return _http_json_response(psb_save_initial_state_payload(m.group(1), query))
+            m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/runtime-metadata/update$", got)
+            if m:
+                return self._run_async_json(psb_runtime_metadata_payload(m.group(1), query))
+            m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/manifest$", got)
+            if m:
+                return _http_json_response(psb_manifest_payload(m.group(1)))
+            m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/files/(.+)$", got)
+            if m:
+                return self._serve_psb_model_file(m.group(1), m.group(2))
+        except PsbApiError as exc:
+            return _http_error(exc.status, exc.message)
+        return _http_error(404, "API route not found")
+
+    def _run_async_json(self, coro) -> Response:
+        import asyncio
+
+        payload = asyncio.get_event_loop().run_until_complete(coro)
+        return _http_json_response(payload)
+
+    def _serve_psb_model_file(self, model_id: str, rel_path: str) -> Response:
+        try:
+            path = psb_resolve_file(model_id, rel_path)
+        except PsbApiError as exc:
+            return _http_error(exc.status, exc.message)
+        mime, _ = mimetypes.guess_type(path.name)
+        if not mime:
+            mime = "application/octet-stream"
+        body = path.read_bytes()
+        return _http_response(body, content_type=mime)
 
     def _handle_settings_network_safety_update(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):
@@ -1096,6 +1200,32 @@ class ForkGatewayHTTPHandler:
         return _http_response(body, content_type=mime, extra_headers=base_headers)
 
     # -- Static file serving ------------------------------------------------
+
+    def _serve_psb_asset(self, rel_path: str) -> Response:
+        safe = rel_path.lstrip("/").replace("\\", "/")
+        if not safe or ".." in safe.split("/"):
+            return _http_error(403, "Forbidden")
+        path = (PSB_STATIC_DIR / safe).resolve(strict=False)
+        root = PSB_STATIC_DIR.resolve(strict=False)
+        if root not in path.parents or not path.is_file():
+            return _http_error(404, "PSB asset not found")
+        mime, _ = mimetypes.guess_type(path.name)
+        if mime is None:
+            if path.suffix == ".js":
+                mime = "application/javascript; charset=utf-8"
+            elif path.suffix == ".html":
+                mime = "text/html; charset=utf-8"
+            else:
+                mime = "application/octet-stream"
+        try:
+            body = path.read_bytes()
+        except OSError:
+            return _http_error(500, "failed to read PSB asset")
+        return _http_response(
+            body,
+            content_type=mime,
+            extra_headers=[("Cache-Control", "no-cache")],
+        )
 
     def _serve_tha_asset(self, filename: str) -> Response:
         safe_names = {
