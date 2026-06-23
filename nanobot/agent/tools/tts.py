@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 
+from nanobot.agent.psb_tags import strip_psb_tags
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
 from nanobot.config.paths import get_media_dir
@@ -22,6 +23,11 @@ _THA_TAG_RE = re.compile(r"<[^>]+>")
 def strip_tha_tags(text: str) -> str:
     """去掉 THA 表情/动作标签，避免 TTS 把标签读出来。"""
     return _THA_TAG_RE.sub("", text).strip()
+
+
+def strip_spoken_tags(text: str) -> str:
+    """去掉 PSB / THA 桌宠标签，仅用于 TTS 合成文本。"""
+    return strip_tha_tags(strip_psb_tags(text))
 
 
 class TtsToolConfig(TtsConfig):
@@ -91,8 +97,8 @@ class TtsTool(Tool):
         return (
             "使用已配置的 TTS provider 将文本合成为语音。"
             "返回本地音频文件路径，可传入 message 工具的 media 字段发送给频道。"
-            "THA 表情/动作标签（如 <happy><nod>）会在合成前自动剥离；"
-            "标签应保留在 message 的 content 里以驱动桌宠表情。"
+            "PSB 标签（如 <psb:timeline name=\"待机\" />）与 THA 表情/动作标签（如 <happy><nod>）"
+            "会在合成前自动剥离；标签应保留在 message 的 content 里以驱动桌宠。"
         )
 
     async def execute(self, text: str, voice: str | None = None, **_: Any) -> str:
@@ -100,9 +106,9 @@ class TtsTool(Tool):
 
         provider = build_tts_provider(self._tts_config)
         resolved_voice = voice or self._default_voice
-        spoken_text = strip_tha_tags(text)
+        spoken_text = strip_spoken_tags(text)
         if not spoken_text:
-            return "Error: TTS 文本在剥离 THA 标签后为空"
+            return "Error: TTS 文本在剥离桌宠标签后为空"
 
         ts = int(time.time() * 1000)
         ext = self._tts_config.response_format

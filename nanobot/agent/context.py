@@ -123,6 +123,10 @@ class ContextBuilder:
         if tha_section:
             parts.append(tha_section)
 
+        psb_section = self._build_psb_response_tags_section()
+        if psb_section:
+            parts.append(psb_section)
+
         return "\n\n---\n\n".join(parts)
 
     def _get_identity(self, channel: str | None = None, workspace: Path | None = None) -> str:
@@ -202,7 +206,7 @@ class ContextBuilder:
         except Exception:
             return ""
         try:
-            tha_config = load_config().tha
+            tha_config = load_config().desk_pet.tha
         except Exception:
             return ""
         if not tha_config.enabled_emotions:
@@ -216,6 +220,18 @@ class ContextBuilder:
             "规则：表情会持续到下一个表情标签；动作是一次性的，只影响当前句子；"
             "表情和动作可以连用，例如 `<happy><nod>好的。`。"
         )
+
+    @staticmethod
+    def _build_psb_response_tags_section() -> str:
+        """构建 PSB 桌宠标签提示。"""
+        try:
+            from nanobot.agent.psb_prompt import build_psb_response_tags_section
+        except Exception:
+            return ""
+        try:
+            return build_psb_response_tags_section()
+        except Exception:
+            return ""
 
     def build_messages(
         self,
