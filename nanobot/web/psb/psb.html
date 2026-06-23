@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nanobot PSB Desk Pet</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/css/all.min.css"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+      }
+      #stage {
+        width: 100%;
+        height: 100%;
+      }
+      #canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+      #status {
+        position: fixed;
+        left: 50%;
+        bottom: 12%;
+        transform: translateX(-50%);
+        max-width: 90%;
+        padding: 8px 14px;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.72);
+        color: #fff;
+        font: 13px/1.4 system-ui, sans-serif;
+        white-space: pre-wrap;
+        z-index: 20;
+        pointer-events: none;
+      }
+      #status.error {
+        color: #ffb4b4;
+      }
+      .ctrl-btn {
+        position: relative;
+        width: 28px;
+        height: 28px;
+        background: rgba(255, 255, 255, 0.95);
+        border: 2px solid rgba(0, 0, 0, 0.1);
+        border-radius: 50%;
+        color: #333;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        user-select: none;
+        pointer-events: auto;
+        transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+        -webkit-app-region: no-drag;
+      }
+      .ctrl-btn:hover {
+        background: #fff;
+        transform: scale(1.08);
+      }
+      #control-panel {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+        z-index: 9999;
+        opacity: 1;
+        transition: opacity 0.25s ease, transform 0.25s ease;
+      }
+      #scale-control {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+      }
+      #control-panel.hidden {
+        opacity: 0;
+        transform: translateX(16px);
+        pointer-events: none;
+      }
+      #scale-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+        pointer-events: auto;
+      }
+      #scale-row.hidden {
+        display: none;
+      }
+      #scale-row input {
+        width: 88px;
+      }
+      #scale-val {
+        font: 12px system-ui, sans-serif;
+        color: #333;
+        min-width: 2.5em;
+      }
+      #drag-btn span.drag-handle {
+        position: absolute;
+        inset: 0;
+        -webkit-app-region: drag;
+        z-index: 1;
+      }
+      .ctrl-btn.active {
+        background: #e8f4ff;
+        border-color: #6ab0ff;
+        color: #1a6fd4;
+      }
+      #config-panel {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        width: min(280px, calc(100vw - 80px));
+        max-height: calc(100vh - 20px);
+        overflow: auto;
+        padding: 12px 12px 10px;
+        border-radius: 12px;
+        background: rgba(20, 24, 36, 0.92);
+        color: #eee;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+        z-index: 9998;
+        pointer-events: auto;
+        font: 12px/1.4 system-ui, sans-serif;
+        -webkit-app-region: no-drag;
+      }
+      #config-panel.hidden {
+        display: none;
+      }
+      .cfg-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .cfg-close {
+        width: 24px;
+        height: 24px;
+        border: none;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #ccc;
+        cursor: pointer;
+      }
+      .cfg-close:hover {
+        background: rgba(255, 255, 255, 0.16);
+        color: #fff;
+      }
+      .cfg-field {
+        margin-bottom: 10px;
+      }
+      .cfg-field label,
+      .cfg-section-title {
+        display: block;
+        margin-bottom: 4px;
+        color: #aab;
+        font-size: 11px;
+      }
+      .cfg-section-title {
+        margin-top: 4px;
+      }
+      .cfg-field select {
+        width: 100%;
+        padding: 6px 8px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.06);
+        color: #eee;
+        font-size: 12px;
+      }
+      .cfg-var-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 4px 8px;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .cfg-var-row label {
+        grid-column: 1 / -1;
+        color: #ccc;
+        font-size: 11px;
+      }
+      .cfg-var-row input[type='range'] {
+        width: 100%;
+      }
+      .cfg-var-val {
+        min-width: 2.2em;
+        text-align: right;
+        color: #9cf;
+        font-size: 11px;
+      }
+      .cfg-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 10px;
+      }
+      .cfg-actions button {
+        flex: 1 1 auto;
+        padding: 6px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: #eee;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .cfg-actions button:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .cfg-actions button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .cfg-actions button.primary {
+        background: #2a6cb8;
+        border-color: #4a8fd8;
+      }
+      .cfg-message {
+        margin-top: 8px;
+        min-height: 1.2em;
+        color: #8cf;
+        font-size: 11px;
+      }
+      .cfg-message.error {
+        color: #f99;
+      }
+    </style>
+    <script>
+      EmoteModule = EmoteModule || {};
+      EmoteModule.TOTAL_MEMORY = 100663296;
+    </script>
+    <script src="/psb/vendor/emote-webgl/polyfill.min.js"></script>
+    <script src="/psb/vendor/emote-webgl/emotedriver.js"></script>
+    <script src="/psb/vendor/emote-webgl/emoteplayer.js"></script>
+    <script src="/psb/talk-sync.js"></script>
+    <script src="/psb/psb-actions.js"></script>
+    <script src="/psb/psb-runtime-metadata.js"></script>
+    <script src="/psb/psb-config-panel.js"></script>
+    <script src="/psb/psb.js" defer></script>
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="canvas"></canvas>
+    </div>
+    <div id="status" hidden></div>
+    <div id="config-panel" class="hidden">
+      <div class="cfg-header">
+        <span>PSB 配置</span>
+        <button id="cfg-close-btn" class="cfg-close" type="button" title="关闭">×</button>
+      </div>
+      <div class="cfg-field">
+        <label for="cfg-timeline">Timeline</label>
+        <select id="cfg-timeline"></select>
+      </div>
+      <div class="cfg-field">
+        <label for="cfg-expression">表情</label>
+        <select id="cfg-expression"></select>
+      </div>
+      <div class="cfg-section-title">Face 变量</div>
+      <div id="cfg-face-list"></div>
+      <div class="cfg-section-title">Fade 变量</div>
+      <div id="cfg-fade-list"></div>
+      <div class="cfg-actions">
+        <button id="cfg-capture-btn" type="button">取当前状态</button>
+        <button id="cfg-save-btn" class="primary" type="button">保存为初始状态</button>
+      </div>
+      <div id="cfg-message" class="cfg-message"></div>
+    </div>
+    <div id="control-panel" class="hidden">
+      <div id="drag-btn" class="ctrl-btn" title="拖拽窗口">
+        <span class="drag-handle"></span>
+        <i class="fa-solid fa-arrows-up-down-left-right" style="position: relative; z-index: 2; pointer-events: none"></i>
+      </div>
+      <div id="scale-control">
+        <div id="scale-row" class="hidden">
+          <i class="fa-solid fa-magnifying-glass" style="color: #555; font-size: 12px"></i>
+          <input id="scale-range" type="range" min="0.1" max="1.5" step="0.05" value="0.45" />
+          <span id="scale-val">0.45</span>
+        </div>
+        <div id="scale-btn" class="ctrl-btn" title="缩放">
+          <i class="fa-solid fa-magnifying-glass"></i>
+        </div>
+      </div>
+      <div id="config-btn" class="ctrl-btn" title="PSB 配置">
+        <i class="fa-solid fa-gear"></i>
+      </div>
+      <div id="track-btn" class="ctrl-btn" title="鼠标追踪">
+        <i class="fa-solid fa-crosshairs"></i>
+      </div>
+      <div id="close-btn" class="ctrl-btn" title="临时关闭">
+        <i class="fas fa-times"></i>
+      </div>
+      <div id="close-permanent-btn" class="ctrl-btn" title="永久关闭自动展示">
+        <i class="fas fa-ban"></i>
+      </div>
+    </div>
+  </body>
+</html>
