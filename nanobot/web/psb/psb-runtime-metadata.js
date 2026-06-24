@@ -185,7 +185,9 @@
       timelines: (runtimeCaps.timelines || []).map(function (item) {
         return { label: item.label, looping: item.looping };
       }),
-      expressions: runtimeCaps.expressions || [],
+      expressions: (runtimeCaps.expressions || []).map(function (item) {
+        return { label: item.label };
+      }),
       faceVariables: (runtimeCaps.faceVariables || []).map(function (item) {
         return {
           label: item.label,
@@ -204,10 +206,72 @@
     };
   }
 
+  // gateway 嵌入式 HTTP 仅支持 GET，payload 走 query；单行上限约 8KiB，大模型需分块。
+  var TIMELINE_CHUNK_SIZE = 4;
+  var EXPRESSION_CHUNK_SIZE = 8;
+  var FACE_VARIABLE_CHUNK_SIZE = 10;
+  var FADE_VARIABLE_CHUNK_SIZE = 6;
+  // 预留 path + encodeURIComponent 膨胀，保守限制单块 serialized payload 体积。
+  var MAX_PAYLOAD_JSON_CHARS = 2800;
+
+  function appendListChunks(chunks, list, key, chunkSize) {
+    if (!list || !list.length) return;
+    for (var index = 0; index < list.length; index += chunkSize) {
+      var part = {};
+      part[key] = list.slice(index, index + chunkSize);
+      chunks.push(part);
+    }
+  }
+
+  function appendVariableChunks(chunks, list, key, chunkSize) {
+    appendListChunks(chunks, list, key, chunkSize);
+  }
+
+  function estimatePayloadJsonChars(part) {
+    try {
+      return JSON.stringify(part).length;
+    } catch (_err) {
+      return MAX_PAYLOAD_JSON_CHARS + 1;
+    }
+  }
+
+  function splitTimelineChunks(chunks, timelines) {
+    if (!timelines || !timelines.length) return;
+    var batch = [];
+    timelines.forEach(function (item) {
+      batch.push(item);
+      var probe = { timelines: batch.slice() };
+      if (
+        batch.length >= TIMELINE_CHUNK_SIZE ||
+        estimatePayloadJsonChars(probe) > MAX_PAYLOAD_JSON_CHARS
+      ) {
+        chunks.push({ timelines: batch.slice() });
+        batch = [];
+      }
+    });
+    if (batch.length) {
+      chunks.push({ timelines: batch.slice() });
+    }
+  }
+
+  function splitCompactForServerSync(compact) {
+    compact = compact || {};
+    var chunks = [];
+    splitTimelineChunks(chunks, compact.timelines);
+    appendListChunks(chunks, compact.expressions, 'expressions', EXPRESSION_CHUNK_SIZE);
+    if (compact.hasFaceTalk != null) {
+      chunks.push({ hasFaceTalk: compact.hasFaceTalk });
+    }
+    appendVariableChunks(chunks, compact.faceVariables, 'faceVariables', FACE_VARIABLE_CHUNK_SIZE);
+    appendVariableChunks(chunks, compact.fadeVariables, 'fadeVariables', FADE_VARIABLE_CHUNK_SIZE);
+    return chunks;
+  }
+
   window.PsbRuntimeMetadata = {
     extract: extractRuntimeCapabilities,
     merge: mergeMetadata,
     compactForServerSync: compactForServerSync,
+    splitCompactForServerSync: splitCompactForServerSync,
     fadeHintZh: fadeHintZh,
   };
 })();

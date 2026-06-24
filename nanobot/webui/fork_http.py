@@ -468,7 +468,7 @@ class ForkGatewayHTTPHandler:
         if got == "/api/tha/play":
             return await self._handle_tha_play(request)
 
-        psb_route = self._dispatch_psb_routes(request, got)
+        psb_route = await self._dispatch_psb_routes(request, got)
         if psb_route is not None:
             return psb_route
 
@@ -492,6 +492,7 @@ class ForkGatewayHTTPHandler:
         if m:
             return self._handle_webui_thread_get(request, m.group(1))
         # NOTE: websockets' HTTP parser only accepts GET; DELETE is folded into path.
+        # 大 payload 待改进见仓库根目录 todo.md（PSB 现用分块 GET）。
         m = re.match(r"^/api/sessions/([^/]+)/delete$", got)
         if m:
             return self._handle_session_delete(request, m.group(1))
@@ -811,7 +812,7 @@ class ForkGatewayHTTPHandler:
             return _http_error(e.status, e.message)
         return _http_json_response(self._with_settings_restart_state(payload))
 
-    def _dispatch_psb_routes(self, request: WsRequest, got: str) -> Response | None:
+    async def _dispatch_psb_routes(self, request: WsRequest, got: str) -> Response | None:
         if not got.startswith("/api/desk-pet/psb/"):
             return None
         if not self.check_api_token(request):
@@ -828,16 +829,16 @@ class ForkGatewayHTTPHandler:
                 return _http_json_response(psb_delete_payload(m.group(1)))
             m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/rescan$", got)
             if m:
-                return self._run_async_json(psb_rescan_payload(m.group(1)))
+                return await self._run_async_json(psb_rescan_payload(m.group(1)))
             m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/retry-translation$", got)
             if m:
-                return self._run_async_json(psb_retry_translation_payload(m.group(1)))
+                return await self._run_async_json(psb_retry_translation_payload(m.group(1)))
             m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/initial-state/update$", got)
             if m:
                 return _http_json_response(psb_save_initial_state_payload(m.group(1), query))
             m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/runtime-metadata/update$", got)
             if m:
-                return self._run_async_json(psb_runtime_metadata_payload(m.group(1), query))
+                return await self._run_async_json(psb_runtime_metadata_payload(m.group(1), query))
             m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/manifest$", got)
             if m:
                 return _http_json_response(psb_manifest_payload(m.group(1)))
@@ -848,10 +849,8 @@ class ForkGatewayHTTPHandler:
             return _http_error(exc.status, exc.message)
         return _http_error(404, "API route not found")
 
-    def _run_async_json(self, coro) -> Response:
-        import asyncio
-
-        payload = asyncio.get_event_loop().run_until_complete(coro)
+    async def _run_async_json(self, coro) -> Response:
+        payload = await coro
         return _http_json_response(payload)
 
     def _serve_psb_model_file(self, model_id: str, rel_path: str) -> Response:

@@ -35,6 +35,7 @@ let psbWindow: BrowserWindow | null = null;
 let saveBoundsTimer: ReturnType<typeof setTimeout> | null = null;
 let mouseTrackTimer: ReturnType<typeof setInterval> | null = null;
 let followMouseEnabled = true;
+let runtimeGatewayToken = '';
 
 function activePsbWindow(): BrowserWindow | null {
   if (!psbWindow || psbWindow.isDestroyed()) {
@@ -42,6 +43,13 @@ function activePsbWindow(): BrowserWindow | null {
     return null;
   }
   return psbWindow;
+}
+
+function withRuntimeToken(gateway: GatewayConfig): GatewayConfig {
+  return {
+    ...gateway,
+    token: runtimeGatewayToken || gateway.token || '',
+  };
 }
 
 function defaultPsbBounds(width: number, height: number) {
@@ -272,20 +280,25 @@ export async function scheduleAutoOpenPsb(
   store: ElectronConfigStore,
   preloadPath: string,
   gateway: GatewayConfig,
+  token?: string,
 ): Promise<void> {
+  if (token && token.trim()) {
+    runtimeGatewayToken = token.trim();
+  }
   if (autoOpenCompleted || activePsbWindow()) return;
   if (autoOpenInFlight) return autoOpenInFlight;
+  const activeGateway = withRuntimeToken(gateway);
 
   autoOpenInFlight = (async () => {
     clearPsbSessionClose(store);
     if (activePsbWindow()) return;
 
-    if (!gateway.url.trim()) return;
+    if (!activeGateway.url.trim()) return;
 
     for (let attempt = 0; attempt < AUTO_OPEN_MAX_ATTEMPTS; attempt += 1) {
       if (autoOpenCompleted || activePsbWindow()) return;
 
-      const psb = await fetchDeskPetPsbSettings(gateway);
+      const psb = await fetchDeskPetPsbSettings(activeGateway);
       if (psb) {
         if (!psb.autoShow) return;
         const prefs = readDeskPetPrefs(store);
@@ -293,15 +306,15 @@ export async function scheduleAutoOpenPsb(
 
         const selected = String(psb.selectedModelId || '');
         const result = await openPsbWindow(store, preloadPath, {
-          url: gateway.url,
-          token: gateway.token,
+          url: activeGateway.url,
+          token: activeGateway.token,
           modelId: selected,
         });
         if (result.ok) autoOpenCompleted = true;
         return;
       }
 
-      if (!gateway.token.trim() && attempt === 0) {
+      if (!activeGateway.token.trim() && attempt === 0) {
         // token 可能尚未由 renderer bootstrap 写入，继续重试
       }
       await delay(AUTO_OPEN_RETRY_MS);
@@ -334,16 +347,19 @@ export function cleanupPsbOnQuit(): void {
 export function registerPsbIpcHandlers(deps: PsbManagerDeps): void {
   const { store, getGateway, preloadPath } = deps;
 
-  ipcMain.handle('psb:open', (_event, config: PsbOpenConfig) =>
-    openPsbWindow(store, preloadPath, config),
-  );
+  ipcMain.handle('psb:open', (_event, config: PsbOpenConfig) => {
+    if (config?.token?.trim()) {
+      runtimeGatewayToken = config.token.trim();
+    }
+    return openPsbWindow(store, preloadPath, config);
+  });
 
   ipcMain.handle('psb:close', () => {
     closePsbWindow(store, false);
   });
 
   ipcMain.handle('psb:close-permanent', async () => {
-    const gateway = getGateway();
+    const gateway = withRuntimeToken(getGateway());
     await setServerAutoShow(gateway, false);
     closePsbWindow(store, true);
     return { ok: true };
@@ -382,7 +398,7 @@ export function registerPsbIpcHandlers(deps: PsbManagerDeps): void {
   ipcMain.handle('psb:update-follow-mouse', async (_event, enabled: unknown) => {
     const next = !!enabled;
     followMouseEnabled = next;
-    const gateway = getGateway();
+    const gateway = withRuntimeToken(getGateway());
     if (gateway.url.trim() && gateway.token.trim()) {
       const url = new URL('/api/settings/desk-pet/psb/update', gateway.url);
       url.searchParams.set('followMouse', next ? 'true' : 'false');
@@ -410,9 +426,13 @@ export function registerPsbIpcHandlers(deps: PsbManagerDeps): void {
     },
   );
 
-  ipcMain.handle('psb:try-auto-open', () => {
-    const gateway = getGateway();
-    return scheduleAutoOpenPsb(store, preloadPath, gateway);
+  ipcMain.handle('psb:try-auto-open', (_event, token?: string, url?: string) => {
+    const storedGateway = getGateway();
+    const gateway = {
+      ...storedGateway,
+      url: typeof url === 'string' && url.trim() ? url.trim() : storedGateway.url,
+    };
+    return scheduleAutoOpenPsb(store, preloadPath, gateway, token);
   });
 }
 

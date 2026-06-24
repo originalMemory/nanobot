@@ -79,11 +79,24 @@
   }
 
   function fetchJson(path) {
+    if (window.PsbHttp && typeof window.PsbHttp.fetchJson === 'function') {
+      return window.PsbHttp.fetchJson(path, gatewayToken);
+    }
     return fetch(apiUrl(path), { headers: authHeaders() }).then(function (res) {
-      return res.json().then(function (body) {
+      var contentType = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
+      var readBody =
+        String(contentType).toLowerCase().indexOf('application/json') !== -1
+          ? res.json()
+          : res.text();
+      return readBody.then(function (body) {
         if (!res.ok) {
-          throw new Error((body && (body.message || body.error)) || ('HTTP ' + res.status));
+          var message =
+            body && typeof body === 'object'
+              ? body.message || body.error
+              : String(body || '').trim();
+          throw new Error(message || ('HTTP ' + res.status));
         }
+        if (typeof body === 'string') return JSON.parse(body);
         return body;
       });
     });
@@ -593,6 +606,17 @@
     return labels[0] || '';
   }
 
+  function runtimeMetadataUpdatePath(payload) {
+    var query = new URLSearchParams();
+    query.set('payload', JSON.stringify(payload));
+    return (
+      '/api/desk-pet/psb/models/' +
+      encodeURIComponent(modelId) +
+      '/runtime-metadata/update?' +
+      query.toString()
+    );
+  }
+
   function syncRuntimeMetadata() {
     if (!window.PsbRuntimeMetadata || !player || !player.initialized || !modelId) {
       return Promise.resolve(modelMetadata);
@@ -603,21 +627,24 @@
     if (!(runtimeCaps.timelines || []).length) {
       return Promise.resolve(modelMetadata);
     }
-    var payload = window.PsbRuntimeMetadata.compactForServerSync
+    var compact = window.PsbRuntimeMetadata.compactForServerSync
       ? window.PsbRuntimeMetadata.compactForServerSync(runtimeCaps)
       : runtimeCaps;
-    var query = new URLSearchParams();
-    query.set('payload', JSON.stringify(payload));
-    return fetchJson(
-      '/api/desk-pet/psb/models/' +
-        encodeURIComponent(modelId) +
-        '/runtime-metadata/update?' +
-        query.toString(),
-    )
-      .then(function (payload) {
+    var chunks = window.PsbRuntimeMetadata.splitCompactForServerSync
+      ? window.PsbRuntimeMetadata.splitCompactForServerSync(compact)
+      : [compact];
+    var chain = Promise.resolve();
+    chunks.forEach(function (part) {
+      chain = chain.then(function () {
+        return fetchJson(runtimeMetadataUpdatePath(part));
+      }).then(function (payload) {
         if (payload && payload.model) {
           modelMetadata = payload.model;
         }
+      });
+    });
+    return chain
+      .then(function () {
         return modelMetadata;
       })
       .catch(function (err) {

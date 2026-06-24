@@ -284,121 +284,189 @@ def _pick_label_zh(
     return label
 
 
-async def merge_runtime_metadata(model_id: str, runtime: dict[str, Any]) -> dict[str, Any]:
-    """合并 PSB 窗口运行时解析的能力摘要，并补全中文翻译。"""
-    _validate_model_id(model_id)
-    metadata = _read_metadata(model_id)
-    if metadata is None:
-        raise PsbStoreError("model not found", status=404)
-
+def _merge_timeline_item(metadata: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+    label = str(item.get("label") or "").strip()
     existing_tl = {
-        str(item.get("label")): item
+        str(existing.get("label")): existing
+        for existing in metadata.get("timelines") or []
+        if isinstance(existing, dict) and existing.get("label")
+    }
+    prev = existing_tl.get(label, {})
+    return {
+        "label": label,
+        "labelZh": str(prev.get("labelZh") or label),
+        "diff": bool(item.get("diff", prev.get("diff", False))),
+        "loopBegin": item.get("loopBegin", prev.get("loopBegin", 0)),
+        "loopEnd": item.get("loopEnd", prev.get("loopEnd", -1)),
+        "lastTime": item.get("lastTime", prev.get("lastTime", -1)),
+        "looping": bool(item.get("looping", prev.get("looping", False))),
+    }
+
+
+def _patch_timelines(metadata: dict[str, Any], runtime_items: list[Any]) -> list[dict[str, Any]]:
+    by_label: dict[str, dict[str, Any]] = {
+        str(item.get("label")): dict(item)
         for item in metadata.get("timelines") or []
         if isinstance(item, dict) and item.get("label")
     }
-    timelines: list[dict[str, Any]] = []
-    for item in runtime.get("timelines") or []:
+    for item in runtime_items:
         if not isinstance(item, dict):
             continue
         label = str(item.get("label") or "").strip()
         if not label:
             continue
-        prev = existing_tl.get(label, {})
-        timelines.append(
-            {
-                "label": label,
-                "labelZh": str(prev.get("labelZh") or label),
-                "diff": bool(item.get("diff", prev.get("diff", False))),
-                "loopBegin": item.get("loopBegin", prev.get("loopBegin", 0)),
-                "loopEnd": item.get("loopEnd", prev.get("loopEnd", -1)),
-                "lastTime": item.get("lastTime", prev.get("lastTime", -1)),
-                "looping": bool(item.get("looping", prev.get("looping", False))),
-            }
-        )
+        by_label[label] = _merge_timeline_item(metadata, item)
 
+    ordered_labels = [
+        str(item.get("label"))
+        for item in metadata.get("timelines") or []
+        if isinstance(item, dict) and item.get("label")
+    ]
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for label in ordered_labels:
+        if label in by_label and label not in seen:
+            merged.append(by_label[label])
+            seen.add(label)
+    for label, item in by_label.items():
+        if label not in seen:
+            merged.append(item)
+    return merged
+
+
+def _merge_expression_item(metadata: dict[str, Any], item: dict[str, Any]) -> dict[str, str]:
+    label = str(item.get("label") or "").strip()
     existing_expr = {
-        str(item.get("label")): item
+        str(existing.get("label")): existing
+        for existing in metadata.get("expressions") or []
+        if isinstance(existing, dict) and existing.get("label")
+    }
+    prev = existing_expr.get(label, {})
+    return {
+        "label": label,
+        "labelZh": str(prev.get("labelZh") or item.get("labelZh") or label),
+    }
+
+
+def _patch_expressions(metadata: dict[str, Any], runtime_items: list[Any]) -> list[dict[str, str]]:
+    by_label: dict[str, dict[str, str]] = {
+        str(item.get("label")): dict(item)
         for item in metadata.get("expressions") or []
         if isinstance(item, dict) and item.get("label")
     }
-    expressions: list[dict[str, str]] = []
-    for item in runtime.get("expressions") or []:
+    for item in runtime_items:
         if not isinstance(item, dict):
             continue
         label = str(item.get("label") or "").strip()
         if not label:
             continue
-        prev = existing_expr.get(label, {})
-        expressions.append(
-            {
-                "label": label,
-                "labelZh": str(prev.get("labelZh") or label),
-            }
-        )
+        by_label[label] = _merge_expression_item(metadata, item)
 
-    def merge_variables(key: str) -> list[dict[str, Any]]:
-        existing = {
-            str(item.get("label")): item
-            for item in metadata.get(key) or []
-            if isinstance(item, dict) and item.get("label")
-        }
-        merged: list[dict[str, Any]] = []
-        for item in runtime.get(key) or []:
-            if not isinstance(item, dict):
+    ordered_labels = [
+        str(item.get("label"))
+        for item in metadata.get("expressions") or []
+        if isinstance(item, dict) and item.get("label")
+    ]
+    merged: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for label in ordered_labels:
+        if label in by_label and label not in seen:
+            merged.append(by_label[label])
+            seen.add(label)
+    for label, item in by_label.items():
+        if label not in seen:
+            merged.append(item)
+    return merged
+
+
+def _merge_variable_item(
+    metadata: dict[str, Any],
+    key: str,
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    label = str(item.get("label") or "").strip()
+    existing = {
+        str(existing_item.get("label")): existing_item
+        for existing_item in metadata.get(key) or []
+        if isinstance(existing_item, dict) and existing_item.get("label")
+    }
+    prev = existing.get(label, {})
+    frames: list[dict[str, Any]] = []
+    runtime_frames = item.get("frames") or []
+    if runtime_frames:
+        for frame in runtime_frames:
+            if not isinstance(frame, dict):
                 continue
-            label = str(item.get("label") or "").strip()
-            if not label:
-                continue
-            prev = existing.get(label, {})
-            frames: list[dict[str, Any]] = []
-            runtime_frames = item.get("frames") or []
-            if runtime_frames:
-                for frame in runtime_frames:
-                    if not isinstance(frame, dict):
-                        continue
-                    frame_label = str(frame.get("label") or "")
-                    prev_frames = prev.get("frames") or []
-                    prev_frame = next(
-                        (f for f in prev_frames if isinstance(f, dict) and f.get("label") == frame_label),
-                        None,
-                    )
-                    frames.append(
-                        {
-                            "label": frame_label,
-                            "labelZh": str(
-                                (prev_frame or {}).get("labelZh")
-                                or frame.get("labelZh")
-                                or frame_label
-                            ),
-                            "value": frame.get("value"),
-                        }
-                    )
-            elif prev.get("frames"):
-                frames = [
-                    dict(frame)
-                    for frame in prev.get("frames") or []
-                    if isinstance(frame, dict)
-                ]
-            hint_zh = str(prev.get("hintZh") or item.get("hintZh") or "")
-            label_zh = str(prev.get("labelZh") or item.get("labelZh") or label)
-            merged.append(
+            frame_label = str(frame.get("label") or "")
+            prev_frames = prev.get("frames") or []
+            prev_frame = next(
+                (f for f in prev_frames if isinstance(f, dict) and f.get("label") == frame_label),
+                None,
+            )
+            frames.append(
                 {
-                    "label": label,
-                    "labelZh": label_zh,
-                    "hint": str(prev.get("hint") or item.get("hint") or ""),
-                    "hintZh": hint_zh,
-                    "minValue": item.get("minValue", prev.get("minValue", 0)),
-                    "maxValue": item.get("maxValue", prev.get("maxValue", 1)),
-                    "frames": frames,
+                    "label": frame_label,
+                    "labelZh": str(
+                        (prev_frame or {}).get("labelZh") or frame.get("labelZh") or frame_label
+                    ),
+                    "value": frame.get("value"),
                 }
             )
-        return merged
+    elif prev.get("frames"):
+        frames = [dict(frame) for frame in prev.get("frames") or [] if isinstance(frame, dict)]
+    hint_zh = str(prev.get("hintZh") or item.get("hintZh") or "")
+    label_zh = str(prev.get("labelZh") or item.get("labelZh") or label)
+    return {
+        "label": label,
+        "labelZh": label_zh,
+        "hint": str(prev.get("hint") or item.get("hint") or ""),
+        "hintZh": hint_zh,
+        "minValue": item.get("minValue", prev.get("minValue", 0)),
+        "maxValue": item.get("maxValue", prev.get("maxValue", 1)),
+        "frames": frames,
+    }
 
-    face_variables = merge_variables("faceVariables")
-    fade_variables = merge_variables("fadeVariables")
 
+def _patch_variables(
+    metadata: dict[str, Any],
+    key: str,
+    runtime_items: list[Any],
+) -> list[dict[str, Any]]:
+    by_label: dict[str, dict[str, Any]] = {
+        str(item.get("label")): dict(item)
+        for item in metadata.get(key) or []
+        if isinstance(item, dict) and item.get("label")
+    }
+    for item in runtime_items:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        by_label[label] = _merge_variable_item(metadata, key, item)
+
+    ordered_labels = [
+        str(item.get("label"))
+        for item in metadata.get(key) or []
+        if isinstance(item, dict) and item.get("label")
+    ]
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for label in ordered_labels:
+        if label in by_label and label not in seen:
+            merged.append(by_label[label])
+            seen.add(label)
+    for label, item in by_label.items():
+        if label not in seen:
+            merged.append(item)
+    return merged
+
+
+def _collect_translation_labels(
+    collections: list[list[dict[str, Any]]],
+) -> list[str]:
     labels_to_translate: list[str] = []
-    for collection in (timelines, expressions, face_variables, fade_variables):
+    for collection in collections:
         for item in collection:
             label = str(item.get("label") or "")
             label_zh = str(item.get("labelZh") or label)
@@ -411,27 +479,14 @@ async def merge_runtime_metadata(model_id: str, runtime: dict[str, Any]) -> dict
                 frame_zh = str(frame.get("labelZh") or frame_label)
                 if frame_label and frame_zh == frame_label:
                     labels_to_translate.append(frame_label)
+    return labels_to_translate
 
-    translation_map: dict[str, str] = {}
-    translation_status = metadata.get("translationStatus") or "skipped"
-    pending = labels_need_translation(labels_to_translate)
-    if pending:
-        new_map, translation_status = await translate_psb_labels(pending)
-        translation_map.update(new_map)
 
-    for item in timelines:
-        item["labelZh"] = _pick_label_zh(
-            str(item.get("label") or ""),
-            str(item.get("labelZh") or ""),
-            translation_map,
-        )
-    for item in expressions:
-        item["labelZh"] = _pick_label_zh(
-            str(item.get("label") or ""),
-            str(item.get("labelZh") or ""),
-            translation_map,
-        )
-    for collection in (face_variables, fade_variables):
+def _apply_translation_labels(
+    collections: list[list[dict[str, Any]]],
+    translation_map: dict[str, str],
+) -> None:
+    for collection in collections:
         for item in collection:
             item["labelZh"] = _pick_label_zh(
                 str(item.get("label") or ""),
@@ -448,11 +503,62 @@ async def merge_runtime_metadata(model_id: str, runtime: dict[str, Any]) -> dict
                     translation_map,
                 )
 
-    metadata["timelines"] = timelines
-    metadata["expressions"] = expressions
-    metadata["faceVariables"] = face_variables
-    metadata["fadeVariables"] = fade_variables
-    if "hasFaceTalk" in runtime:
+
+async def merge_runtime_metadata(model_id: str, runtime: dict[str, Any]) -> dict[str, Any]:
+    """合并 PSB 窗口运行时解析的能力摘要，并补全中文翻译。
+
+    ``runtime`` 可只包含需更新的字段（分块 GET sync）；未出现的字段保持 sidecar 原值。
+    ``timelines`` / ``expressions`` / ``faceVariables`` / ``fadeVariables`` 均按 label 增量合并。
+    """
+    _validate_model_id(model_id)
+    metadata = _read_metadata(model_id)
+    if metadata is None:
+        raise PsbStoreError("model not found", status=404)
+
+    patch_keys = set(runtime.keys())
+    timelines = list(metadata.get("timelines") or [])
+    expressions = list(metadata.get("expressions") or [])
+    face_variables = list(metadata.get("faceVariables") or [])
+    fade_variables = list(metadata.get("fadeVariables") or [])
+
+    if "timelines" in patch_keys:
+        timelines = _patch_timelines(metadata, runtime.get("timelines") or [])
+    if "expressions" in patch_keys:
+        expressions = _patch_expressions(metadata, runtime.get("expressions") or [])
+    if "faceVariables" in patch_keys:
+        face_variables = _patch_variables(metadata, "faceVariables", runtime.get("faceVariables") or [])
+    if "fadeVariables" in patch_keys:
+        fade_variables = _patch_variables(metadata, "fadeVariables", runtime.get("fadeVariables") or [])
+
+    updated_collections: list[list[dict[str, Any]]] = []
+    if "timelines" in patch_keys:
+        updated_collections.append(timelines)
+    if "expressions" in patch_keys:
+        updated_collections.append(expressions)
+    if "faceVariables" in patch_keys:
+        updated_collections.append(face_variables)
+    if "fadeVariables" in patch_keys:
+        updated_collections.append(fade_variables)
+
+    labels_to_translate = _collect_translation_labels(updated_collections)
+    translation_status = metadata.get("translationStatus") or "skipped"
+    pending = labels_need_translation(labels_to_translate)
+    if pending:
+        # runtime sync 走分块 GET，不能在 HTTP 请求里 await LLM（数十秒会导致连接超时）。
+        # 中文展示可在设置页点「重试翻译」，或后续改为异步翻译任务。
+        translation_status = "pending"
+
+    _apply_translation_labels(updated_collections, {})
+
+    if "timelines" in patch_keys:
+        metadata["timelines"] = timelines
+    if "expressions" in patch_keys:
+        metadata["expressions"] = expressions
+    if "faceVariables" in patch_keys:
+        metadata["faceVariables"] = face_variables
+    if "fadeVariables" in patch_keys:
+        metadata["fadeVariables"] = fade_variables
+    if "hasFaceTalk" in patch_keys:
         metadata["hasFaceTalk"] = bool(runtime.get("hasFaceTalk"))
     metadata["translationStatus"] = translation_status
 

@@ -222,3 +222,94 @@ async def test_merge_runtime_metadata_keeps_fade_machine_names(psb_runtime) -> N
     assert fade["label"] == "fade_w"
     assert fade["labelZh"] == "fade_w"
     assert not fade.get("hintZh")
+
+
+@pytest.mark.asyncio
+async def test_merge_runtime_metadata_partial_patch_preserves_other_sections(psb_runtime) -> None:
+    place_psb_file(psb_runtime)
+    await scan_psb_models()
+
+    await merge_runtime_metadata(
+        "demo",
+        {
+            "timelines": [{"label": "待機", "looping": True}],
+            "expressions": [{"label": "通常"}],
+            "hasFaceTalk": True,
+        },
+    )
+
+    metadata = await merge_runtime_metadata(
+        "demo",
+        {
+            "fadeVariables": [
+                {"label": "fade_w", "minValue": 0, "maxValue": 1},
+                {"label": "fade_x", "minValue": 0, "maxValue": 1},
+            ],
+        },
+    )
+
+    assert len(metadata["timelines"]) == 1
+    assert metadata["timelines"][0]["label"] == "待機"
+    assert metadata["expressions"][0]["label"] == "通常"
+    assert metadata["hasFaceTalk"] is True
+    assert {item["label"] for item in metadata["fadeVariables"]} == {"fade_w", "fade_x"}
+
+
+@pytest.mark.asyncio
+async def test_merge_runtime_metadata_fade_chunks_accumulate(psb_runtime) -> None:
+    place_psb_file(psb_runtime)
+    await scan_psb_models()
+
+    await merge_runtime_metadata(
+        "demo",
+        {"fadeVariables": [{"label": "fade_a", "minValue": 0, "maxValue": 1}]},
+    )
+    metadata = await merge_runtime_metadata(
+        "demo",
+        {"fadeVariables": [{"label": "fade_b", "minValue": 0, "maxValue": 1}]},
+    )
+
+    labels = {item["label"] for item in metadata["fadeVariables"]}
+    assert labels == {"fade_a", "fade_b"}
+
+
+@pytest.mark.asyncio
+async def test_merge_runtime_metadata_timeline_chunks_accumulate(psb_runtime) -> None:
+    place_psb_file(psb_runtime)
+    await scan_psb_models()
+
+    await merge_runtime_metadata(
+        "demo",
+        {"timelines": [{"label": "待機", "looping": True}]},
+    )
+    metadata = await merge_runtime_metadata(
+        "demo",
+        {"timelines": [{"label": "走る", "looping": False}]},
+    )
+
+    labels = {item["label"] for item in metadata["timelines"]}
+    assert labels == {"待機", "走る"}
+
+
+@pytest.mark.asyncio
+async def test_merge_runtime_metadata_defers_llm_translation(psb_runtime, monkeypatch) -> None:
+    place_psb_file(psb_runtime)
+    await scan_psb_models()
+
+    called = False
+
+    async def _spy_translate(labels: list[str]) -> tuple[dict[str, str], str]:
+        nonlocal called
+        called = True
+        return {}, "done"
+
+    monkeypatch.setattr("nanobot.webui.psb_store.translate_psb_labels", _spy_translate)
+
+    metadata = await merge_runtime_metadata(
+        "demo",
+        {"timelines": [{"label": "待機", "looping": True}]},
+    )
+
+    assert called is False
+    assert metadata["translationStatus"] == "pending"
+    assert metadata["timelines"][0]["labelZh"] == "待機"

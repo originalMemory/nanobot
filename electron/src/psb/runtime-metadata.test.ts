@@ -82,4 +82,79 @@ describe('psb-runtime-metadata', () => {
     expect(api.fadeHintZh('fade_x')).toContain('害羞');
     expect(api.fadeHintZh('fade_unknown')).toBe('');
   });
+
+  it('splits compact runtime payload into multiple GET-safe chunks', () => {
+    const api = loadRuntimeMetadata() as RuntimeApi & {
+      compactForServerSync: (runtimeCaps: Record<string, unknown>) => Record<string, unknown>;
+      splitCompactForServerSync: (compact: Record<string, unknown>) => Array<Record<string, unknown>>;
+    };
+    const compact = api.compactForServerSync({
+      timelines: [{ label: '待機', looping: true }],
+      expressions: [{ label: '通常' }],
+      faceVariables: Array.from({ length: 11 }, (_, index) => ({
+        label: `face_${index}`,
+        minValue: 0,
+        maxValue: 1,
+      })),
+      fadeVariables: Array.from({ length: 13 }, (_, index) => ({
+        label: `fade_${index}`,
+        minValue: 0,
+        maxValue: 1,
+      })),
+      hasFaceTalk: true,
+    });
+    const chunks = api.splitCompactForServerSync(compact);
+    expect(chunks.length).toBeGreaterThan(3);
+    expect(chunks.some((chunk) => Array.isArray(chunk.timelines) && chunk.timelines.length === 1)).toBe(true);
+    expect(chunks.some((chunk) => chunk.hasFaceTalk === true)).toBe(true);
+    expect(chunks.every((chunk) => !chunk.timelines || chunk.timelines.length <= 4)).toBe(true);
+    const fadeCount = chunks.reduce(
+      (total, chunk) => total + ((chunk.fadeVariables as unknown[]) || []).length,
+      0,
+    );
+    expect(fadeCount).toBe(13);
+  });
+
+  it('splits long Japanese timeline lists without combining expressions', () => {
+    const api = loadRuntimeMetadata() as RuntimeApi & {
+      compactForServerSync: (runtimeCaps: Record<string, unknown>) => Record<string, unknown>;
+      splitCompactForServerSync: (compact: Record<string, unknown>) => Array<Record<string, unknown>>;
+    };
+    const labels = [
+      '待機',
+      'おさんぽ',
+      'はい_遅',
+      'はい',
+      'はい_速',
+      'うんうん',
+      'いいえ',
+      'ありがとう',
+      '首かしげ',
+      'ん？',
+      '驚き',
+      '考える',
+      '上目遣い',
+      '微笑み',
+      'もじもじ',
+      '嬉しい',
+    ];
+    const compact = api.compactForServerSync({
+      timelines: labels.map((label) => ({ label, looping: true })),
+      expressions: [
+        { label: '通常' },
+        { label: '怒' },
+        { label: '笑' },
+        { label: 'びっくり' },
+      ],
+      hasFaceTalk: true,
+    });
+    const chunks = api.splitCompactForServerSync(compact);
+    expect(chunks.length).toBeGreaterThan(4);
+    expect(chunks.every((chunk) => !(chunk.timelines && chunk.expressions))).toBe(true);
+    const timelineCount = chunks.reduce(
+      (total, chunk) => total + ((chunk.timelines as unknown[]) || []).length,
+      0,
+    );
+    expect(timelineCount).toBe(16);
+  });
 });

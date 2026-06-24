@@ -71,7 +71,7 @@ interface ElectronAPI {
     onConfig(cb: (config: { scale?: number; followMouse?: boolean }) => void): () => void;
     onMouse(cb: (point: { x?: number; y?: number; leave?: boolean }) => void): () => void;
     updateFollowMouse(enabled: boolean): Promise<{ ok: boolean; followMouse?: boolean }>;
-    tryAutoOpen(): Promise<void>;
+    tryAutoOpen(token?: string, url?: string): Promise<void>;
   };
   /** THA 透明窗口鼠标穿透 */
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): Promise<void>;

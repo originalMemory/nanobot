@@ -45,7 +45,10 @@ function modelStatus(model: PsbModelSummary): { text: string; tone: "neutral" | 
   if (model.translationStatus === "failed") {
     return { text: "翻译失败", tone: "warning" };
   }
-  if (model.translationStatus === "pending" || model.translationStatus === "translating") {
+  if (model.translationStatus === "pending") {
+    return { text: "待翻译", tone: "neutral" };
+  }
+  if (model.translationStatus === "translating") {
     return { text: "翻译中", tone: "neutral" };
   }
   return { text: "可用", tone: "success" };
@@ -283,7 +286,7 @@ export function PsbSection({ settings, token, apiBase, onSave, onRefreshSettings
                     >
                       重扫
                     </Button>
-                    {model.translationStatus === "failed" ? (
+                    {model.translationStatus === "pending" || model.translationStatus === "failed" ? (
                       <Button
                         type="button"
                         size="sm"
@@ -291,7 +294,7 @@ export function PsbSection({ settings, token, apiBase, onSave, onRefreshSettings
                         disabled={busy}
                         onClick={() => void handleRetryTranslation(model)}
                       >
-                        重试翻译
+                        {model.translationStatus === "failed" ? "重试翻译" : "翻译"}
                       </Button>
                     ) : null}
                     <Button

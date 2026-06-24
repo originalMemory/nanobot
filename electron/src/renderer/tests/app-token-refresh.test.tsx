@@ -8,6 +8,7 @@ const fetchBootstrapMock = vi.hoisted(() => vi.fn());
 const deriveWsUrlMock = vi.hoisted(() => vi.fn());
 const fetchInboxThreadMock = vi.hoisted(() => vi.fn());
 const fetchSettingsMock = vi.hoisted(() => vi.fn());
+const loadSavedSecretMock = vi.hoisted(() => vi.fn(() => ""));
 const clientInstances = vi.hoisted(
   () =>
     [] as Array<{
@@ -73,7 +74,7 @@ vi.mock("@/lib/bootstrap", async () => {
     ...actual,
     deriveWsUrl: deriveWsUrlMock,
     fetchBootstrap: fetchBootstrapMock,
-    loadSavedSecret: vi.fn(() => ""),
+    loadSavedSecret: loadSavedSecretMock,
     saveGatewayUrl: vi.fn(async () => {}),
     saveSecret: vi.fn(),
   };
@@ -103,7 +104,10 @@ describe("Electron App token refresh", () => {
     deriveWsUrlMock.mockReset();
     fetchInboxThreadMock.mockReset();
     fetchSettingsMock.mockReset();
+    loadSavedSecretMock.mockReset();
+    loadSavedSecretMock.mockReturnValue("");
     clientInstances.length = 0;
+    delete (window as Window & { electronAPI?: unknown }).electronAPI;
 
     deriveWsUrlMock.mockImplementation(
       (_wsPath: string, token: string) => `ws://test?token=${token}`,
@@ -120,7 +124,32 @@ describe("Electron App token refresh", () => {
 
   afterEach(() => {
     cleanup();
+    delete (window as Window & { electronAPI?: unknown }).electronAPI;
     vi.useRealTimers();
+  });
+
+  it("ignores persisted runtime token when bootstrapping", async () => {
+    loadSavedSecretMock.mockReturnValue("saved-bootstrap-secret");
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        config: {
+          get: vi.fn(async () => ({
+            url: "http://127.0.0.1:8765",
+            token: "expired-runtime-token",
+          })),
+        },
+      },
+    });
+    fetchBootstrapMock.mockResolvedValueOnce(bootstrap("tok-1", 300));
+
+    render(<App />);
+    await settleInitialBoot();
+
+    expect(fetchBootstrapMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8765",
+      "saved-bootstrap-secret",
+    );
   });
 
   it("refreshes the bootstrap token before REST auth expires", async () => {

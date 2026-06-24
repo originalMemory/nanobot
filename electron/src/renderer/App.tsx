@@ -20,7 +20,6 @@ import {
   fetchBootstrap,
   loadSavedSecret,
   saveGatewayUrl,
-  saveGatewayCredentials,
   saveSecret,
   TOKEN_REFRESH_MIN_DELAY_MS,
   tokenRefreshDelayMs,
@@ -468,7 +467,7 @@ export default function App() {
             saveSecret(secret);
             bootstrapSecretRef.current = secret;
           }
-          void saveGatewayCredentials(url, boot.token);
+          void saveGatewayUrl(url);
 
           // Load inbox thread before connecting so initial messages are available
           // before any real-time events arrive (#3)
@@ -492,7 +491,6 @@ export default function App() {
             onReauth: async () => {
               try {
                 const refreshed = await fetchBootstrap(url, bootstrapSecretRef.current);
-                void saveGatewayCredentials(url, refreshed.token);
                 const refreshedUrl = deriveWsUrl(refreshed.ws_path, refreshed.token, url);
                 const tokenExpiresAt = bootstrapTokenExpiresAt(refreshed.expires_in);
                 setState((current) =>
@@ -565,7 +563,6 @@ export default function App() {
       try {
         const boot = await fetchBootstrap(gatewayUrl, bootstrapSecretRef.current);
         if (cancelled) return;
-        void saveGatewayCredentials(gatewayUrl, boot.token);
         const wsUrl = deriveWsUrl(boot.ws_path, boot.token, gatewayUrl);
         const tokenExpiresAt = bootstrapTokenExpiresAt(boot.expires_in);
         client.updateUrl(wsUrl);
@@ -609,9 +606,9 @@ export default function App() {
   const bootReadyKey =
     state.status === "ready" ? `${state.gatewayUrl}:${state.token}` : null;
   useEffect(() => {
-    if (!bootReadyKey) return;
-    void window.electronAPI?.psb?.tryAutoOpen?.();
-  }, [bootReadyKey]);
+    if (!bootReadyKey || state.status !== "ready") return;
+    void window.electronAPI?.psb?.tryAutoOpen?.(state.token, state.gatewayUrl);
+  }, [bootReadyKey, state.gatewayUrl, state.status, state.token]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -623,10 +620,8 @@ export default function App() {
         try {
           const gateway = await window.electronAPI.config.get("gateway") as {
             url?: string;
-            token?: string;
           } | undefined;
           url = gateway?.url ?? DEFAULT_GATEWAY_HTTP;
-          secret = gateway?.token ?? "";
         } catch {
           // fall back to localStorage / defaults
         }

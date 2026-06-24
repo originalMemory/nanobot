@@ -139,4 +139,52 @@ describe("PsbSection", () => {
     fireEvent.click(switches[0]);
     expect(onSave).toHaveBeenCalledWith({ autoShow: true });
   });
+
+  it("shows translate button when translation is pending", () => {
+    vi.mocked(fetchPsbModelDetail).mockResolvedValue({
+      model: {
+        modelId: "demo",
+        name: "Demo",
+        format: "psb",
+        compatible: true,
+        timelines: [],
+        expressions: [],
+        faceVariables: [],
+        fadeVariables: [],
+        initialState: { timeline: "", expression: "", face: {}, fade: {} },
+      },
+    });
+
+    const settings = {
+      ...baseSettings,
+      deskPet: {
+        ...baseSettings.deskPet,
+        psb: {
+          ...baseSettings.deskPet.psb,
+          models: [
+            {
+              modelId: "demo",
+              name: "Demo",
+              format: "psb",
+              compatible: true,
+              translationStatus: "pending",
+            },
+          ],
+        },
+      },
+    } as unknown as SettingsPayload;
+
+    render(
+      <PsbSection
+        settings={settings}
+        token="tok"
+        apiBase="http://127.0.0.1:8765"
+        onSave={vi.fn()}
+        onRefreshSettings={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("待翻译")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "翻译" })).toBeInTheDocument();
+  });
 });

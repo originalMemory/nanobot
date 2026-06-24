@@ -128,7 +128,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     updateFollowMouse: (enabled: boolean): Promise<{ ok: boolean; followMouse?: boolean }> =>
       ipcRenderer.invoke('psb:update-follow-mouse', enabled),
-    tryAutoOpen: (): Promise<void> => ipcRenderer.invoke('psb:try-auto-open'),
+    tryAutoOpen: (token?: string, url?: string): Promise<void> =>
+      ipcRenderer.invoke('psb:try-auto-open', token, url),
   },
 
   /** THA 透明窗口鼠标穿透（与 SAP electronAPI 对齐） */
