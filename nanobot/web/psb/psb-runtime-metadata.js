@@ -193,6 +193,9 @@
           label: item.label,
           minValue: item.minValue,
           maxValue: item.maxValue,
+          frames: (item.frames || []).map(function (frame) {
+            return { label: frame.label, value: frame.value };
+          }),
         };
       }),
       fadeVariables: (runtimeCaps.fadeVariables || []).map(function (item) {
@@ -200,6 +203,9 @@
           label: item.label,
           minValue: item.minValue,
           maxValue: item.maxValue,
+          frames: (item.frames || []).map(function (frame) {
+            return { label: frame.label, value: frame.value };
+          }),
         };
       }),
       hasFaceTalk: runtimeCaps.hasFaceTalk,

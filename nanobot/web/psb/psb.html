@@ -20,16 +20,19 @@
         height: 100%;
         overflow: hidden;
         background: transparent;
+        pointer-events: none;
       }
       #stage {
         width: 100%;
         height: 100%;
+        pointer-events: none;
       }
       #canvas {
         display: block;
         width: 100%;
         height: 100%;
         touch-action: none;
+        pointer-events: none;
       }
       #status {
         position: fixed;
@@ -72,6 +75,12 @@
         background: #fff;
         transform: scale(1.08);
       }
+      #drag-btn {
+        cursor: grab;
+      }
+      #drag-btn:active {
+        cursor: grabbing;
+      }
       #control-panel {
         position: fixed;
         top: 10px;
@@ -83,8 +92,10 @@
         z-index: 9999;
         opacity: 1;
         transition: opacity 0.25s ease, transform 0.25s ease;
+        pointer-events: auto;
       }
-      #scale-control {
+      #scale-control,
+      #opacity-control {
         display: flex;
         flex-direction: row;
         align-items: center;
@@ -95,7 +106,8 @@
         transform: translateX(16px);
         pointer-events: none;
       }
-      #scale-row {
+      #scale-row,
+      #opacity-row {
         display: flex;
         align-items: center;
         gap: 6px;
@@ -105,22 +117,19 @@
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
         pointer-events: auto;
       }
-      #scale-row.hidden {
+      #scale-row.hidden,
+      #opacity-row.hidden {
         display: none;
       }
-      #scale-row input {
+      #scale-row input,
+      #opacity-row input {
         width: 88px;
       }
-      #scale-val {
+      #scale-val,
+      #opacity-val {
         font: 12px system-ui, sans-serif;
         color: #333;
         min-width: 2.5em;
-      }
-      #drag-btn span.drag-handle {
-        position: absolute;
-        inset: 0;
-        -webkit-app-region: drag;
-        z-index: 1;
       }
       .ctrl-btn.active {
         background: #e8f4ff;
@@ -211,6 +220,41 @@
         color: #9cf;
         font-size: 11px;
       }
+      .cfg-frame-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-bottom: 8px;
+      }
+      .cfg-frame-btn {
+        padding: 4px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.08);
+        color: #eee;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .cfg-frame-btn:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+      .cfg-frame-btn.active {
+        border-color: #6cf;
+        background: rgba(102, 204, 255, 0.2);
+        color: #fff;
+      }
+      .cfg-fade-row {
+        margin-bottom: 8px;
+      }
+      .cfg-fade-row label {
+        display: block;
+        color: #ccc;
+        font-size: 11px;
+        margin-bottom: 4px;
+      }
+      .cfg-fade-row .cfg-frame-group {
+        margin-bottom: 4px;
+      }
       .cfg-actions {
         display: flex;
         flex-wrap: wrap;
@@ -281,7 +325,11 @@
         <select id="cfg-expression"></select>
       </div>
       <div class="cfg-section-title">Face 变量</div>
-      <div id="cfg-face-list"></div>
+      <div class="cfg-field">
+        <label for="cfg-face-select">部位</label>
+        <select id="cfg-face-select"></select>
+      </div>
+      <div id="cfg-face-frames" class="cfg-frame-group"></div>
       <div class="cfg-section-title">Fade 变量</div>
       <div id="cfg-fade-list"></div>
       <div class="cfg-actions">
@@ -292,8 +340,7 @@
     </div>
     <div id="control-panel" class="hidden">
       <div id="drag-btn" class="ctrl-btn" title="拖拽窗口">
-        <span class="drag-handle"></span>
-        <i class="fa-solid fa-arrows-up-down-left-right" style="position: relative; z-index: 2; pointer-events: none"></i>
+        <i class="fa-solid fa-arrows-up-down-left-right"></i>
       </div>
       <div id="scale-control">
         <div id="scale-row" class="hidden">
@@ -303,6 +350,16 @@
         </div>
         <div id="scale-btn" class="ctrl-btn" title="缩放">
           <i class="fa-solid fa-magnifying-glass"></i>
+        </div>
+      </div>
+      <div id="opacity-control">
+        <div id="opacity-row" class="hidden">
+          <i class="fa-solid fa-circle-half-stroke" style="color: #555; font-size: 12px"></i>
+          <input id="opacity-range" type="range" min="0.2" max="1" step="0.05" value="1" />
+          <span id="opacity-val">100%</span>
+        </div>
+        <div id="opacity-btn" class="ctrl-btn" title="透明度">
+          <i class="fa-solid fa-circle-half-stroke"></i>
         </div>
       </div>
       <div id="config-btn" class="ctrl-btn" title="PSB 配置">

@@ -24,6 +24,17 @@
     return item.label || '';
   }
 
+  function frameLabelText(frame) {
+    if (!frame) return '';
+    if (frame.labelZh && frame.labelZh !== frame.label) return frame.labelZh;
+    return frame.label || String(frame.value);
+  }
+
+  function frameValueMatches(current, frameValue) {
+    if (current == null || !Number.isFinite(current)) return false;
+    return Math.abs(current - frameValue) < 0.001;
+  }
+
   function emptyInitial() {
     return { timeline: '', expression: '', face: {}, fade: {} };
   }
@@ -46,6 +57,22 @@
     });
   }
 
+  function getPlayerVariable(label) {
+    var player = deps.getPlayer ? deps.getPlayer() : null;
+    if (!player || !player.initialized || !label) return null;
+    return (player.variableList || []).find(function (item) {
+      return item && item.label === label;
+    });
+  }
+
+  function getVariableFrames(variable) {
+    if (!variable) return [];
+    if (variable.frames && variable.frames.length) return variable.frames;
+    var live = getPlayerVariable(variable.label);
+    if (live && live.frameList && live.frameList.length) return live.frameList;
+    return [];
+  }
+
   function setMessage(text, isError) {
     var el = document.getElementById('cfg-message');
     if (!el) return;
@@ -59,6 +86,7 @@
     if (!panel) return;
     panel.classList.toggle('hidden', !open);
     if (btn) btn.classList.toggle('active', open);
+    if (deps && deps.onPanelHoverChange) deps.onPanelHoverChange(!!open);
   }
 
   function previewDraft() {
@@ -77,6 +105,56 @@
     if (draft.fade && Object.keys(draft.fade).length) {
       deps.applyVariableMap(draft.fade, undefined, undefined);
     }
+  }
+
+  function applyDraftVariable(bucketKey, variableLabel, value) {
+    if (!Number.isFinite(value) || Math.abs(value) <= 0.001) {
+      delete draft[bucketKey][variableLabel];
+    } else {
+      draft[bucketKey][variableLabel] = value;
+    }
+    var patch = {};
+    patch[variableLabel] = value;
+    deps.applyVariableMap(patch, undefined, undefined);
+  }
+
+  function highlightFrameButtons(container, currentValue) {
+    if (!container) return;
+    Array.prototype.forEach.call(container.querySelectorAll('.cfg-frame-btn'), function (btn) {
+      var frameValue = Number(btn.dataset.frameValue);
+      btn.classList.toggle('active', frameValueMatches(currentValue, frameValue));
+    });
+  }
+
+  function renderFrameButtons(container, variable, bucketKey) {
+    if (!container) return;
+    container.innerHTML = '';
+    var frames = getVariableFrames(variable);
+    var current = draft[bucketKey][variable.label];
+    if (!frames.length) {
+      var empty = document.createElement('span');
+      empty.className = 'cfg-var-val';
+      empty.textContent = '无可用选项';
+      container.appendChild(empty);
+      return;
+    }
+    frames.forEach(function (frame) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cfg-frame-btn';
+      btn.dataset.frameValue = String(frame.value);
+      btn.textContent = frameLabelText(frame);
+      btn.title = variable.label + ' = ' + frame.value;
+      btn.addEventListener('click', function () {
+        applyDraftVariable(bucketKey, variable.label, frame.value);
+        highlightFrameButtons(container, frame.value);
+        if (container._slider) {
+          container._slider.value = String(frame.value);
+        }
+      });
+      container.appendChild(btn);
+    });
+    highlightFrameButtons(container, current);
   }
 
   function renderTimelineSelect() {
@@ -124,43 +202,97 @@
     select.value = draft.expression || '';
   }
 
-  function renderVariableList(containerId, variables, bucketKey) {
-    var container = document.getElementById(containerId);
-    if (!container) return;
-    container.innerHTML = '';
-    (variables || []).forEach(function (variable) {
-      if (!variable || !variable.label) return;
-      var row = document.createElement('div');
-      row.className = 'cfg-var-row';
-      var label = document.createElement('label');
-      label.textContent = labelText(variable);
-      var input = document.createElement('input');
-      input.type = 'range';
-      input.min = String(variable.minValue != null ? variable.minValue : 0);
-      input.max = String(variable.maxValue != null ? variable.maxValue : 1);
-      input.step = '0.05';
-      var value = draft[bucketKey][variable.label];
-      input.value = String(value != null ? value : 0);
-      var valSpan = document.createElement('span');
-      valSpan.className = 'cfg-var-val';
-      valSpan.textContent = input.value;
-      input.addEventListener('input', function () {
-        var next = parseFloat(input.value);
+  function renderFaceSelectOptions(faceVars) {
+    var select = document.getElementById('cfg-face-select');
+    if (!select) return;
+    var selected = select.value;
+    select.innerHTML = '';
+    if (!faceVars.length) {
+      var empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '（无）';
+      select.appendChild(empty);
+      return;
+    }
+    faceVars.forEach(function (variable) {
+      var opt = document.createElement('option');
+      opt.value = variable.label;
+      opt.textContent = labelText(variable);
+      select.appendChild(opt);
+    });
+    if (!selected || !faceVars.some(function (item) { return item.label === selected; })) {
+      selected = faceVars[0].label;
+    }
+    select.value = selected;
+  }
+
+  function renderFaceFramesForSelection(faceVars) {
+    var select = document.getElementById('cfg-face-select');
+    var framesContainer = document.getElementById('cfg-face-frames');
+    if (!select || !framesContainer) return;
+    if (!faceVars.length) {
+      framesContainer.innerHTML = '';
+      return;
+    }
+    var active = faceVars.find(function (item) { return item.label === select.value; }) || faceVars[0];
+    if (active && active.label !== select.value) {
+      select.value = active.label;
+    }
+    renderFrameButtons(framesContainer, active, 'face');
+  }
+
+  function renderFaceControls() {
+    var meta = deps.getModelMetadata();
+    if (!meta) return;
+    var faceVars = (meta.faceVariables || []).slice(0, MAX_FACE_VARS);
+    renderFaceSelectOptions(faceVars);
+    renderFaceFramesForSelection(faceVars);
+  }
+
+  function buildFadeVariableRow(variable) {
+    var row = document.createElement('div');
+    row.className = 'cfg-fade-row';
+    var label = document.createElement('label');
+    label.textContent = labelText(variable);
+    row.appendChild(label);
+
+    var frameGroup = document.createElement('div');
+    frameGroup.className = 'cfg-frame-group';
+    renderFrameButtons(frameGroup, variable, 'fade');
+    row.appendChild(frameGroup);
+
+    var frames = getVariableFrames(variable);
+    var min = variable.minValue != null ? variable.minValue : 0;
+    var max = variable.maxValue != null ? variable.maxValue : 1;
+    if (frames.length && max - min <= 1.001 && max > min) {
+      var slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = String(min);
+      slider.max = String(max);
+      slider.step = '0.05';
+      var current = draft.fade[variable.label];
+      slider.value = String(current != null ? current : min);
+      slider.title = variable.label + ' 混合';
+      slider.addEventListener('input', function () {
+        var next = parseFloat(slider.value);
         if (!Number.isFinite(next)) return;
-        valSpan.textContent = String(next);
-        if (next <= 0.001) {
-          delete draft[bucketKey][variable.label];
-        } else {
-          draft[bucketKey][variable.label] = next;
-        }
-        var patch = {};
-        patch[variable.label] = next;
-        deps.applyVariableMap(patch, undefined, undefined);
+        applyDraftVariable('fade', variable.label, next);
+        highlightFrameButtons(frameGroup, next);
       });
-      row.appendChild(label);
-      row.appendChild(input);
-      row.appendChild(valSpan);
-      container.appendChild(row);
+      frameGroup._slider = slider;
+      row.appendChild(slider);
+    }
+    return row;
+  }
+
+  function renderFadeList() {
+    var container = document.getElementById('cfg-fade-list');
+    var meta = deps.getModelMetadata();
+    if (!container || !meta) return;
+    container.innerHTML = '';
+    (meta.fadeVariables || []).forEach(function (variable) {
+      if (!variable || !variable.label) return;
+      container.appendChild(buildFadeVariableRow(variable));
     });
   }
 
@@ -170,8 +302,8 @@
     if (!meta) return;
     renderTimelineSelect();
     renderExpressionSelect();
-    renderVariableList('cfg-face-list', (meta.faceVariables || []).slice(0, MAX_FACE_VARS), 'face');
-    renderVariableList('cfg-fade-list', meta.fadeVariables, 'fade');
+    renderFaceControls();
+    renderFadeList();
     updateSaveState();
   }
 
@@ -267,6 +399,7 @@
     var saveBtn = document.getElementById('cfg-save-btn');
     var timelineSelect = document.getElementById('cfg-timeline');
     var expressionSelect = document.getElementById('cfg-expression');
+    var faceSelect = document.getElementById('cfg-face-select');
     var panel = document.getElementById('config-panel');
 
     if (configBtn) {
@@ -319,6 +452,14 @@
       expressionSelect.addEventListener('change', function () {
         draft.expression = expressionSelect.value || '';
         if (draft.expression) deps.applyExpressionByName(draft.expression);
+      });
+    }
+
+    if (faceSelect) {
+      faceSelect.addEventListener('change', function () {
+        var meta = deps.getModelMetadata();
+        if (!meta) return;
+        renderFaceFramesForSelection((meta.faceVariables || []).slice(0, MAX_FACE_VARS));
       });
     }
 

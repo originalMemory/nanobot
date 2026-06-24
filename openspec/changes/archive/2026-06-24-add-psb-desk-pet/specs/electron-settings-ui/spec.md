@@ -27,7 +27,7 @@ Electron 设置页 SHALL 提供「桌宠」分区，用于展示统一 `deskPet`
 - **AND** 本变更不要求读取、迁移或提交旧顶层 `tha` 结构
 
 ### Requirement: PSB 设置 UI
-Electron 设置页 SHALL 在桌宠分区提供 PSB 设置 UI，允许用户管理模型、选择当前模型、配置自动展示、鼠标追踪、特殊标签展示、初始状态和窗口行为。
+Electron 设置页 SHALL 在桌宠分区提供 PSB 设置 UI，允许用户管理模型、选择当前模型、配置自动展示、鼠标追踪、特殊标签展示和窗口行为。初始 timeline / 表情 / Face / Fade 初始状态 SHALL 在 PSB 桌宠窗口配置面板中设置并保存。
 
 #### Scenario: 展示 PSB 基础开关
 - **WHEN** 桌宠分区加载完成
@@ -36,11 +36,11 @@ Electron 设置页 SHALL 在桌宠分区提供 PSB 设置 UI，允许用户管�
 #### Scenario: 选择当前模型
 - **WHEN** 用户在 PSB 子区选择一个可用模型
 - **THEN** 设置页 SHALL 保存 `deskPet.psb.selectedModelId`
-- **AND** 初始状态配置项 SHALL 刷新为该模型的 timeline、expression、face 和 fade 能力
+- **AND** PSB 桌宠窗口配置面板 SHALL 可读取该模型的 timeline、expression、face 和 fade 能力
 
 #### Scenario: 配置初始状态
-- **WHEN** 用户打开 PSB 初始状态配置
-- **THEN** 设置页 SHALL 使用当前模型已保存的中文元数据展示可选 timeline、表情、face 和 fade 项
+- **WHEN** 用户在 PSB 桌宠窗口打开配置面板
+- **THEN** 用户 SHALL 可在面板中选择循环 timeline、表情、face 和 fade 初始值并保存到服务端
 - **AND** 初始 timeline 选择器 SHALL 只允许保存循环 timeline
 
 #### Scenario: 展示模型解析错误
@@ -48,7 +48,7 @@ Electron 设置页 SHALL 在桌宠分区提供 PSB 设置 UI，允许用户管�
 - **THEN** 设置页 SHALL 在模型列表中展示对应状态和失败原因
 
 ### Requirement: PSB 模型说明
-Electron 设置页 MAY 提示用户将 PSB 文件放入固定目录 `~/.nanobot/desk_pets/psb/` 并重启 gateway。第一版不提供设置页内扫描或上传入口。
+Electron 设置页 SHALL 提示用户将 PSB 文件放入固定目录 `~/.nanobot/desk_pets/psb/` 并重启 gateway。第一版 SHALL 不提供设置页内扫描或上传入口。
 
 #### Scenario: 展示已注册模型
 - **WHEN** 用户打开 PSB 设置

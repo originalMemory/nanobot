@@ -4,7 +4,40 @@
 import { describe, expect, it } from 'vitest';
 
 import { shouldAutoOpenPsb } from './auto-show';
+import { clampPsbOpacity, clampPsbWindowSize, writePsbWindowState } from './store';
 import { validatePsbOpenConfig, isPsbUploadFilename } from './validate';
+
+describe('clampPsbWindowSize', () => {
+  it('clamps to 240-2400', () => {
+    expect(clampPsbWindowSize(100)).toBe(240);
+    expect(clampPsbWindowSize(9999)).toBe(2400);
+    expect(clampPsbWindowSize(480.9)).toBe(480);
+  });
+});
+
+describe('clampPsbOpacity', () => {
+  it('clamps to 0.2-1', () => {
+    expect(clampPsbOpacity(0)).toBe(0.2);
+    expect(clampPsbOpacity(2)).toBe(1);
+    expect(clampPsbOpacity(0.456)).toBe(0.46);
+  });
+});
+
+describe('writePsbWindowState', () => {
+  it('persists clamped width, height, and opacity', () => {
+    const data: Record<string, unknown> = {};
+    const store = {
+      get: (key: string) => data[key],
+      set: (key: string, value: unknown) => {
+        data[key] = value;
+      },
+    };
+    const next = writePsbWindowState(store, { width: 9999, height: 100, opacity: 0.05 });
+    expect(next.width).toBe(2400);
+    expect(next.height).toBe(240);
+    expect(next.opacity).toBe(0.2);
+  });
+});
 
 describe('validatePsbOpenConfig', () => {
   it('rejects missing url', () => {

@@ -27,6 +27,7 @@ type PsbWindowStatePatch = {
   width?: number;
   height?: number;
   scale?: number;
+  opacity?: number;
 };
 type PsbRuntimeAction = {
   type: string;
@@ -62,13 +63,16 @@ interface ElectronAPI {
     close(): Promise<void>;
     closePermanent(): Promise<{ ok: boolean }>;
     closeAll(): Promise<void>;
+    getWindowState(): Promise<PsbWindowStatePatch>;
+    startWindowDrag(screenX: number, screenY: number): void;
+    stopWindowDrag(): void;
     saveWindowState(
       patch: PsbWindowStatePatch,
     ): Promise<{ ok: boolean; state?: PsbWindowStatePatch; error?: string }>;
     sendAction(action: PsbRuntimeAction): Promise<{ ok: boolean }>;
     setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): Promise<void>;
     onAction(cb: (action: PsbRuntimeAction) => void): () => void;
-    onConfig(cb: (config: { scale?: number; followMouse?: boolean }) => void): () => void;
+    onConfig(cb: (config: { scale?: number; opacity?: number; followMouse?: boolean }) => void): () => void;
     onMouse(cb: (point: { x?: number; y?: number; leave?: boolean }) => void): () => void;
     updateFollowMouse(enabled: boolean): Promise<{ ok: boolean; followMouse?: boolean }>;
     tryAutoOpen(token?: string, url?: string): Promise<void>;

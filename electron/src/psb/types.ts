@@ -12,6 +12,7 @@ export type PsbWindowState = {
   width: number;
   height: number;
   scale: number;
+  opacity: number;
 };
 
 export type PsbLocalPrefs = {
@@ -40,9 +41,10 @@ export type PsbRuntimeAction = {
 export const DEFAULT_PSB_LOCAL_PREFS: DeskPetLocalPrefs = {
   psb: {
     window: {
-      width: 540,
+      width: 350,
       height: 540,
       scale: 1,
+      opacity: 1,
     },
     temporarilyClosed: false,
   },

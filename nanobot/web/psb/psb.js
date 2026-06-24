@@ -28,9 +28,14 @@
   var configBtn = document.getElementById('config-btn');
   var scaleBtn = document.getElementById('scale-btn');
   var scaleRow = document.getElementById('scale-row');
+  var opacityBtn = document.getElementById('opacity-btn');
+  var opacityRow = document.getElementById('opacity-row');
   var trackBtn = document.getElementById('track-btn');
   var scaleRange = document.getElementById('scale-range');
   var scaleVal = document.getElementById('scale-val');
+  var opacityRange = document.getElementById('opacity-range');
+  var opacityVal = document.getElementById('opacity-val');
+  var dragBtn = document.getElementById('drag-btn');
 
   var player = null;
   var modelMetadata = null;
@@ -43,6 +48,10 @@
   var panelHovered = false;
   var inHotZone = false;
   var scaleExpanded = false;
+  var opacityExpanded = false;
+  var windowDragging = false;
+  var lastMouseX = 0;
+  var lastMouseY = 0;
   var panelHideTimer = null;
   var PANEL_HIDE_DELAY_MS = 1200;
   var metadataSyncPromise = null;
@@ -370,6 +379,100 @@
     }
   }
 
+  function formatOpacityLabel(value) {
+    return Math.round(value * 100) + '%';
+  }
+
+  function applyOpacity(value) {
+    var next = Number(value);
+    if (!Number.isFinite(next)) return;
+    if (opacityRange) opacityRange.value = String(next);
+    if (opacityVal) opacityVal.textContent = formatOpacityLabel(next);
+  }
+
+  function readScaleFromUi() {
+    if (!scaleRange) return 0.45;
+    var parsed = parseFloat(scaleRange.value);
+    return Number.isFinite(parsed) ? parsed : 0.45;
+  }
+
+  function applyScale(value) {
+    var next = Number(value);
+    if (!Number.isFinite(next)) return;
+    if (scaleRange) scaleRange.value = String(next);
+    if (scaleVal) scaleVal.textContent = String(next);
+    if (player) player.scale = next;
+  }
+
+  function applyStoredWindowState(state) {
+    if (!state) return;
+    if (state.opacity !== undefined) applyOpacity(state.opacity);
+    if (state.scale !== undefined) applyScale(state.scale);
+  }
+
+  function setMousePassthrough(enabled) {
+    if (!electronApi || typeof electronApi.setIgnoreMouseEvents !== 'function') return;
+    if (enabled) {
+      electronApi.setIgnoreMouseEvents(true, { forward: true });
+      return;
+    }
+    electronApi.setIgnoreMouseEvents(false);
+  }
+
+  function updateMousePassthrough() {
+    var configOpen = window.PsbConfigPanel && window.PsbConfigPanel.isOpen();
+    setMousePassthrough(!(panelHovered || configOpen || windowDragging));
+  }
+
+  function isPointInRect(x, y, rect) {
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  function isPointOverControlPanel(x, y) {
+    if (!controlPanel || controlPanel.classList.contains('hidden')) return false;
+    var targets = [controlPanel];
+    if (scaleRow && !scaleRow.classList.contains('hidden')) targets.push(scaleRow);
+    if (opacityRow && !opacityRow.classList.contains('hidden')) targets.push(opacityRow);
+    for (var i = 0; i < targets.length; i++) {
+      if (isPointInRect(x, y, targets[i].getBoundingClientRect())) return true;
+    }
+    return false;
+  }
+
+  function syncControlPanelHover(x, y) {
+    if (windowDragging) {
+      panelHovered = true;
+      return;
+    }
+    panelHovered = isPointOverControlPanel(x, y);
+  }
+
+  function startWindowDragFromEvent(e) {
+    windowDragging = true;
+    panelHovered = true;
+    setMousePassthrough(false);
+    if (electronApi && typeof electronApi.startWindowDrag === 'function') {
+      electronApi.startWindowDrag(e.screenX, e.screenY);
+    }
+    if (dragBtn && dragBtn.setPointerCapture && e.pointerId !== undefined) {
+      try {
+        dragBtn.setPointerCapture(e.pointerId);
+      } catch (err) {
+        // ignore capture failures
+      }
+    }
+  }
+
+  function stopWindowDragFromEvent() {
+    if (!windowDragging) return;
+    windowDragging = false;
+    if (electronApi && typeof electronApi.stopWindowDrag === 'function') {
+      electronApi.stopWindowDrag();
+    }
+    syncControlPanelHover(lastMouseX, lastMouseY);
+    updateMousePassthrough();
+  }
+
   function bindRuntimeIpc() {
     if (!electronApi) return;
     if (typeof electronApi.onAction === 'function') {
@@ -380,12 +483,11 @@
         if (config.followMouse !== undefined) {
           setFollowMouseEnabled(!!config.followMouse);
         }
-        if (config.scale !== undefined && player && player.initialized) {
-          var next = Number(config.scale);
-          if (!Number.isFinite(next)) return;
-          player.scale = next;
-          if (scaleRange) scaleRange.value = String(next);
-          if (scaleVal) scaleVal.textContent = String(next);
+        if (config.scale !== undefined) {
+          applyScale(config.scale);
+        }
+        if (config.opacity !== undefined) {
+          applyOpacity(Number(config.opacity));
         }
       });
     }
@@ -402,21 +504,40 @@
     }
   }
 
-  function hideScaleRow() {
+  function hideExpandedRows() {
     scaleExpanded = false;
+    opacityExpanded = false;
     if (scaleRow) scaleRow.classList.add('hidden');
+    if (opacityRow) opacityRow.classList.add('hidden');
   }
 
   function toggleScaleRow() {
     scaleExpanded = !scaleExpanded;
+    if (scaleExpanded) {
+      opacityExpanded = false;
+      if (opacityRow) opacityRow.classList.add('hidden');
+    }
     if (scaleRow) scaleRow.classList.toggle('hidden', !scaleExpanded);
+    updateControlPanelVisibility();
+    updateMousePassthrough();
+  }
+
+  function toggleOpacityRow() {
+    opacityExpanded = !opacityExpanded;
+    if (opacityExpanded) {
+      scaleExpanded = false;
+      if (scaleRow) scaleRow.classList.add('hidden');
+    }
+    if (opacityRow) opacityRow.classList.toggle('hidden', !opacityExpanded);
+    updateControlPanelVisibility();
+    updateMousePassthrough();
   }
 
   function shouldKeepControlPanelVisible() {
     var configActive =
       window.PsbConfigPanel &&
       (window.PsbConfigPanel.isOpen() || window.PsbConfigPanel.isHovered());
-    return panelHovered || inHotZone || scaleExpanded || configActive;
+    return panelHovered || inHotZone || scaleExpanded || opacityExpanded || configActive;
   }
 
   function showControlPanel() {
@@ -426,6 +547,8 @@
       panelHideTimer = null;
     }
     controlPanel.classList.remove('hidden');
+    syncControlPanelHover(lastMouseX, lastMouseY);
+    updateMousePassthrough();
   }
 
   function scheduleHideControlPanel() {
@@ -436,7 +559,9 @@
       if (shouldKeepControlPanelVisible()) return;
       if (controlPanel) {
         controlPanel.classList.add('hidden');
-        hideScaleRow();
+        hideExpandedRows();
+        panelHovered = false;
+        updateMousePassthrough();
       }
     }, PANEL_HIDE_DELAY_MS);
   }
@@ -468,6 +593,7 @@
       ensureModelMetadataReady: ensureModelMetadataReady,
       onPanelHoverChange: function () {
         updateControlPanelVisibility();
+        updateMousePassthrough();
       },
     });
   }
@@ -477,26 +603,47 @@
     controlsBound = true;
 
     document.body.addEventListener('mousemove', function (e) {
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
       inHotZone = e.clientY <= 72 || e.clientX >= window.innerWidth - 72;
+      syncControlPanelHover(e.clientX, e.clientY);
       updateControlPanelVisibility();
+      updateMousePassthrough();
     });
 
     document.body.addEventListener('mouseleave', function () {
+      if (windowDragging) return;
       inHotZone = false;
       panelHovered = false;
       updateControlPanelVisibility();
+      updateMousePassthrough();
     });
 
     if (controlPanel) {
       controlPanel.addEventListener('mouseenter', function () {
         panelHovered = true;
         updateControlPanelVisibility();
+        updateMousePassthrough();
       });
       controlPanel.addEventListener('mouseleave', function () {
-        panelHovered = false;
+        if (windowDragging) return;
+        syncControlPanelHover(lastMouseX, lastMouseY);
         updateControlPanelVisibility();
+        updateMousePassthrough();
       });
     }
+
+    if (dragBtn) {
+      dragBtn.addEventListener('pointerdown', function (e) {
+        if (e.button !== 0) return;
+        startWindowDragFromEvent(e);
+        e.preventDefault();
+      });
+      dragBtn.addEventListener('lostpointercapture', stopWindowDragFromEvent);
+    }
+
+    window.addEventListener('pointerup', stopWindowDragFromEvent);
+    window.addEventListener('pointercancel', stopWindowDragFromEvent);
 
     if (scaleBtn) {
       scaleBtn.addEventListener('click', function () {
@@ -507,11 +654,27 @@
     if (scaleRange) {
       scaleRange.addEventListener('input', function () {
         var value = parseFloat(scaleRange.value);
-        if (!player || !player.initialized) return;
-        player.scale = value;
-        if (scaleVal) scaleVal.textContent = String(value);
+        if (!Number.isFinite(value)) return;
+        applyScale(value);
         if (electronApi && typeof electronApi.saveWindowState === 'function') {
           electronApi.saveWindowState({ scale: value });
+        }
+      });
+    }
+
+    if (opacityBtn) {
+      opacityBtn.addEventListener('click', function () {
+        toggleOpacityRow();
+      });
+    }
+
+    if (opacityRange) {
+      opacityRange.addEventListener('input', function () {
+        var value = parseFloat(opacityRange.value);
+        if (!Number.isFinite(value)) return;
+        applyOpacity(value);
+        if (electronApi && typeof electronApi.saveWindowState === 'function') {
+          electronApi.saveWindowState({ opacity: value });
         }
       });
     }
@@ -672,6 +835,7 @@
     }
     return ensureModelMetadataReady().then(function () {
       initialLoopTimeline = resolveInitialLoopTimeline(modelMetadata);
+      applyScale(readScaleFromUi());
       applyInitialState(savedInitialState || { timeline: initialLoopTimeline });
       if (window.PsbConfigPanel) window.PsbConfigPanel.refresh();
       setStatus('');
@@ -707,9 +871,7 @@
     EmotePlayer.createRenderCanvas(width, height);
     EmotePlayer.requireDevice();
     player = new EmotePlayer(canvas);
-    var initialScale = scaleRange ? parseFloat(scaleRange.value) : 0.45;
-    player.scale = initialScale;
-    if (scaleVal) scaleVal.textContent = String(initialScale);
+    applyScale(readScaleFromUi());
     player.mainTimelineLabel = DEFAULT_TIMELINE;
   }
 
@@ -719,13 +881,7 @@
     canvas.height = Math.max(320, window.innerHeight || 540);
   }
 
-  function start() {
-    resizeCanvas();
-    bindControlsOnce();
-    bindConfigPanelOnce();
-    bindRuntimeIpc();
-    bindFaceTrackingOnce();
-
+  function bootPsbPlayer() {
     try {
       initPlayer();
     } catch (err) {
@@ -748,9 +904,33 @@
         });
       })
       .catch(function (err) {
-      console.error(err);
-      setStatus(formatError(err), true);
-    });
+        console.error(err);
+        setStatus(formatError(err), true);
+      });
+  }
+
+  function start() {
+    resizeCanvas();
+    bindControlsOnce();
+    bindConfigPanelOnce();
+    bindRuntimeIpc();
+    bindFaceTrackingOnce();
+    setMousePassthrough(true);
+    updateMousePassthrough();
+
+    var prefsPromise =
+      electronApi && typeof electronApi.getWindowState === 'function'
+        ? electronApi.getWindowState()
+        : Promise.resolve(null);
+
+    prefsPromise
+      .then(function (state) {
+        applyStoredWindowState(state);
+        bootPsbPlayer();
+      })
+      .catch(function () {
+        bootPsbPlayer();
+      });
   }
 
   window.addEventListener('resize', resizeCanvas);

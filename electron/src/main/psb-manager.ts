@@ -34,8 +34,12 @@ type PsbManagerDeps = {
 let psbWindow: BrowserWindow | null = null;
 let saveBoundsTimer: ReturnType<typeof setTimeout> | null = null;
 let mouseTrackTimer: ReturnType<typeof setInterval> | null = null;
+let windowDragTimer: ReturnType<typeof setInterval> | null = null;
+let windowDragState: { windowId: number; offsetX: number; offsetY: number } | null = null;
 let followMouseEnabled = true;
 let runtimeGatewayToken = '';
+
+const WINDOW_DRAG_POLL_MS = 8;
 
 function activePsbWindow(): BrowserWindow | null {
   if (!psbWindow || psbWindow.isDestroyed()) {
@@ -108,6 +112,58 @@ function scheduleSaveWindowBounds(store: ElectronConfigStore, window: BrowserWin
   }, 500);
 }
 
+function saveWindowBoundsNow(store: ElectronConfigStore, window: BrowserWindow): void {
+  if (saveBoundsTimer) {
+    clearTimeout(saveBoundsTimer);
+    saveBoundsTimer = null;
+  }
+  if (window.isDestroyed()) return;
+  const { x, y, width, height } = window.getBounds();
+  writePsbWindowState(store, { x, y, width, height });
+}
+
+function stopWindowDrag(store?: ElectronConfigStore): void {
+  if (windowDragTimer) {
+    clearInterval(windowDragTimer);
+    windowDragTimer = null;
+  }
+  if (windowDragState && store) {
+    const window = BrowserWindow.fromId(windowDragState.windowId);
+    if (window && !window.isDestroyed()) {
+      saveWindowBoundsNow(store, window);
+    }
+  }
+  windowDragState = null;
+}
+
+function startWindowDrag(
+  store: ElectronConfigStore,
+  window: BrowserWindow,
+  screenX: number,
+  screenY: number,
+): void {
+  stopWindowDrag(store);
+  const [wx, wy] = window.getPosition();
+  windowDragState = {
+    windowId: window.id,
+    offsetX: screenX - wx,
+    offsetY: screenY - wy,
+  };
+  windowDragTimer = setInterval(() => {
+    if (!windowDragState) return;
+    const target = BrowserWindow.fromId(windowDragState.windowId);
+    if (!target || target.isDestroyed()) {
+      stopWindowDrag(store);
+      return;
+    }
+    const point = screen.getCursorScreenPoint();
+    target.setPosition(
+      Math.round(point.x - windowDragState.offsetX),
+      Math.round(point.y - windowDragState.offsetY),
+    );
+  }, WINDOW_DRAG_POLL_MS);
+}
+
 function stopMouseTracking(): void {
   if (mouseTrackTimer) {
     clearInterval(mouseTrackTimer);
@@ -148,6 +204,9 @@ function attachWindowPersistence(store: ElectronConfigStore, window: BrowserWind
   window.on('resize', save);
   window.on('move', save);
   window.on('closed', () => {
+    if (windowDragState?.windowId === window.id) {
+      stopWindowDrag();
+    }
     psbWindow = null;
     stopMouseTracking();
   });
@@ -171,11 +230,12 @@ function createPsbBrowserWindow(
 
   const window = new BrowserWindow({
     ...bounds,
+    opacity: prefs.opacity ?? 1,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
     skipTaskbar: true,
-    resizable: true,
+    resizable: false,
     hasShadow: false,
     acceptFirstMouse: true,
     show: false,
@@ -195,12 +255,13 @@ function createPsbBrowserWindow(
       window.show();
       window.webContents.send('psb:config', {
         scale: prefs.scale,
+        opacity: prefs.opacity ?? 1,
         followMouse: followMouseEnabled,
       });
       startMouseTracking(window);
     }
   });
-  window.setIgnoreMouseEvents(false);
+  window.setIgnoreMouseEvents(true, { forward: true });
   psbWindow = window;
   setPsbTemporarilyClosed(store, false);
   return window;
@@ -222,9 +283,21 @@ export async function openPsbWindow(
   if (existing) {
     await syncFollowMouseFromServer(gateway);
     await existing.loadURL(buildPsbPageUrl(openConfig));
+    if (openConfig.width !== undefined || openConfig.height !== undefined) {
+      const bounds = existing.getBounds();
+      const width = openConfig.width ?? bounds.width;
+      const height = openConfig.height ?? bounds.height;
+      existing.setBounds({ ...bounds, width, height });
+      writePsbWindowState(store, { width, height });
+    }
     existing.show();
     existing.focus();
-    existing.webContents.send('psb:config', { followMouse: followMouseEnabled });
+    const prefs = readDeskPetPrefs(store).psb.window;
+    existing.webContents.send('psb:config', {
+      scale: prefs.scale,
+      opacity: prefs.opacity ?? 1,
+      followMouse: followMouseEnabled,
+    });
     startMouseTracking(existing);
     setPsbTemporarilyClosed(store, false);
     return { ok: true, id: existing.id, reused: true };
@@ -338,6 +411,7 @@ export async function maybeAutoOpenPsb(
 export function cleanupPsbOnQuit(): void {
   closeAllPsbWindows();
   stopMouseTracking();
+  stopWindowDrag();
   if (saveBoundsTimer) {
     clearTimeout(saveBoundsTimer);
     saveBoundsTimer = null;
@@ -370,9 +444,23 @@ export function registerPsbIpcHandlers(deps: PsbManagerDeps): void {
     setPsbTemporarilyClosed(store, true);
   });
 
+  ipcMain.handle('psb:get-window-state', () => readDeskPetPrefs(store).psb.window);
+
+  ipcMain.on('psb:drag-start', (event, payload: { screenX?: number; screenY?: number }) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window || window.isDestroyed() || window !== activePsbWindow()) return;
+    const screenX = typeof payload?.screenX === 'number' ? payload.screenX : 0;
+    const screenY = typeof payload?.screenY === 'number' ? payload.screenY : 0;
+    startWindowDrag(store, window, screenX, screenY);
+  });
+
+  ipcMain.on('psb:drag-end', () => {
+    stopWindowDrag(store);
+  });
+
   ipcMain.handle(
     'psb:save-window-state',
-    (_event, patch: { x?: number; y?: number; width?: number; height?: number; scale?: number }) => {
+    (_event, patch: { x?: number; y?: number; width?: number; height?: number; scale?: number; opacity?: number }) => {
       if (!patch || typeof patch !== 'object') return { ok: false, error: 'invalid_state' };
       const next = writePsbWindowState(store, patch);
       const window = activePsbWindow();
@@ -386,6 +474,10 @@ export function registerPsbIpcHandlers(deps: PsbManagerDeps): void {
       }
       if (window && patch.scale !== undefined) {
         window.webContents.send('psb:config', { scale: patch.scale });
+      }
+      if (window && patch.opacity !== undefined) {
+        window.setOpacity(next.opacity);
+        window.webContents.send('psb:config', { opacity: next.opacity });
       }
       return { ok: true, state: next };
     },

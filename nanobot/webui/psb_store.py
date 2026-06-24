@@ -541,11 +541,12 @@ async def merge_runtime_metadata(model_id: str, runtime: dict[str, Any]) -> dict
         updated_collections.append(fade_variables)
 
     labels_to_translate = _collect_translation_labels(updated_collections)
-    translation_status = metadata.get("translationStatus") or "skipped"
+    translation_status = str(metadata.get("translationStatus") or "skipped")
     pending = labels_need_translation(labels_to_translate)
-    if pending:
+    if pending and translation_status != "failed":
         # runtime sync 走分块 GET，不能在 HTTP 请求里 await LLM（数十秒会导致连接超时）。
         # 中文展示可在设置页点「重试翻译」，或后续改为异步翻译任务。
+        # 已标记 failed 时保留，避免桌宠 sync 把失败状态冲回 pending。
         translation_status = "pending"
 
     _apply_translation_labels(updated_collections, {})

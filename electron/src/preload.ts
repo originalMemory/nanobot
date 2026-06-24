@@ -37,6 +37,7 @@ type PsbWindowStatePatch = {
   width?: number;
   height?: number;
   scale?: number;
+  opacity?: number;
 };
 type PsbRuntimeAction = {
   type: string;
@@ -100,6 +101,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     close: (): Promise<void> => ipcRenderer.invoke('psb:close'),
     closePermanent: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('psb:close-permanent'),
     closeAll: (): Promise<void> => ipcRenderer.invoke('psb:close-all'),
+    getWindowState: (): Promise<PsbWindowStatePatch> => ipcRenderer.invoke('psb:get-window-state'),
+    startWindowDrag: (screenX: number, screenY: number): void =>
+      ipcRenderer.send('psb:drag-start', { screenX, screenY }),
+    stopWindowDrag: (): void => ipcRenderer.send('psb:drag-end'),
     saveWindowState: (
       patch: PsbWindowStatePatch,
     ): Promise<{ ok: boolean; state?: PsbWindowStatePatch; error?: string }> =>
@@ -115,8 +120,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('psb:action', handler);
       return () => ipcRenderer.removeListener('psb:action', handler);
     },
-    onConfig: (cb: (config: { scale?: number; followMouse?: boolean }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, config: { scale?: number; followMouse?: boolean }) => cb(config);
+    onConfig: (cb: (config: { scale?: number; opacity?: number; followMouse?: boolean }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, config: { scale?: number; opacity?: number; followMouse?: boolean }) => cb(config);
       ipcRenderer.on('psb:config', handler);
       return () => ipcRenderer.removeListener('psb:config', handler);
     },

@@ -313,3 +313,20 @@ async def test_merge_runtime_metadata_defers_llm_translation(psb_runtime, monkey
     assert called is False
     assert metadata["translationStatus"] == "pending"
     assert metadata["timelines"][0]["labelZh"] == "待機"
+
+
+@pytest.mark.asyncio
+async def test_merge_runtime_metadata_preserves_failed_translation_status(psb_runtime) -> None:
+    place_psb_file(psb_runtime)
+    await scan_psb_models()
+    metadata = get_model("demo")
+    metadata["translationStatus"] = "failed"
+    from nanobot.webui.psb_store import _write_metadata
+
+    _write_metadata(metadata["psbFile"], metadata)
+
+    updated = await merge_runtime_metadata(
+        "demo",
+        {"timelines": [{"label": "待機", "looping": True}]},
+    )
+    assert updated["translationStatus"] == "failed"
