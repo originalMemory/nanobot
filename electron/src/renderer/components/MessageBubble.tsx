@@ -4,9 +4,10 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Check, ChevronRight, Copy, FileIcon, ImageIcon, PlaySquare, Sparkles, Wrench } from "lucide-react";
+import { Check, ChevronRight, Code2, Copy, FileIcon, ImageIcon, PlaySquare, Sparkles, StopCircle, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AssistantNameRow } from "@/components/AssistantNameRow";
@@ -15,13 +16,20 @@ import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import { playThaAudio } from "@/lib/api";
 import {
+  getAssistantPlaybackVersion,
+  isAssistantPlaybackActive,
+  replayAssistantPlaybackSegments,
+  stopAssistantPlayback,
+  subscribeAssistantPlayback,
+} from "@/lib/playback-queue";
+import {
   buildTokenUsageTitle,
   displayCacheRead,
   displayCompletionOut,
   displayPromptIn,
 } from "@/lib/turn-usage";
 import { cn, formatTokenCount } from "@/lib/utils";
-import { formatAssistantContentForDisplay } from "../../psb/psb-tags";
+import { formatAssistantContentForDisplay, hasPsbTags } from "../../psb/psb-tags";
 import { useClient } from "@/providers/ClientProvider";
 import { formatTurnLatency } from "@/lib/format";
 import { useBotIdentity } from "@/contexts/BotIdentityContext";
@@ -55,7 +63,6 @@ interface MessageBubbleProps {
   showAssistantCopyAction?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
-  showPsbResponseTags?: boolean;
 }
 
 /**
@@ -72,10 +79,11 @@ export function MessageBubble({
   showAssistantCopyAction = true,
   cliApps = [],
   mcpPresets = [],
-  showPsbResponseTags = false,
 }: MessageBubbleProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const [replayingAudio, setReplayingAudio] = useState(false);
+  const [showPsbTags, setShowPsbTags] = useState(false);
   const copyResetRef = useRef<number | null>(null);
   const baseAnim = "animate-in fade-in-0 slide-in-from-bottom-1 duration-300";
   const mentionCliApps = useMemo(
@@ -108,6 +116,32 @@ export function MessageBubble({
       }, 1_500);
     });
   }, [message.content]);
+
+  const playablePlaybackSegments = useMemo(
+    () => (message.playbackSegments ?? []).filter(
+      (segment) => segment.audio?.status === "ready" && !!segment.audio.url,
+    ),
+    [message.playbackSegments],
+  );
+  useSyncExternalStore(
+    subscribeAssistantPlayback,
+    getAssistantPlaybackVersion,
+    getAssistantPlaybackVersion,
+  );
+  const isPlaybackActive = isAssistantPlaybackActive(message.id);
+
+  const onReplayAssistantAudio = useCallback(() => {
+    if (isPlaybackActive) {
+      stopAssistantPlayback(message.id);
+      setReplayingAudio(false);
+      return;
+    }
+    if (playablePlaybackSegments.length === 0) return;
+    setReplayingAudio(true);
+    void replayAssistantPlaybackSegments(playablePlaybackSegments).finally(() => {
+      window.setTimeout(() => setReplayingAudio(false), 500);
+    });
+  }, [message.id, playablePlaybackSegments, isPlaybackActive]);
 
   if (message.kind === "trace") {
     return <TraceGroup message={message} animClass={baseAnim} />;
@@ -163,9 +197,10 @@ export function MessageBubble({
   }
 
   const empty = message.content.trim().length === 0;
+  const hasResponseTags = message.role === "assistant" && hasPsbTags(message.content);
   const displayContent = formatAssistantContentForDisplay(
     message.content,
-    showPsbResponseTags,
+    showPsbTags,
   );
   const media = message.media ?? [];
   const reasoning = message.role === "assistant" ? message.reasoning ?? "" : "";
@@ -174,6 +209,8 @@ export function MessageBubble({
 
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   const showCopyButton = showAssistantCopyAction && showAssistantActions;
+  const showPsbTagsButton = showAssistantActions && hasResponseTags;
+  const showPlaybackButton = showAssistantActions && playablePlaybackSegments.length > 0;
   const latencyMs = message.latencyMs;
   const usage = message.role === "assistant" ? message.usage : undefined;
   const messageTs = message.role === "assistant" ? message.messageTs : undefined;
@@ -181,7 +218,7 @@ export function MessageBubble({
   const showLatencyFooter = footerCondition && latencyMs != null;
   const showUsageFooter = footerCondition && usage != null;
   const showTimestampFooter = footerCondition && messageTs != null;
-  const showAssistantFooterRow = showCopyButton || showLatencyFooter || showUsageFooter || showTimestampFooter;
+  const showAssistantFooterRow = showCopyButton || showPsbTagsButton || showPlaybackButton || showLatencyFooter || showUsageFooter || showTimestampFooter;
 
   const isTypingOnly = empty && message.isStreaming && !hasReasoning;
   const { botName, botIcon, botAvatarUrl } = useBotIdentity();
@@ -256,6 +293,60 @@ export function MessageBubble({
                 ) : (
                   <Copy className="h-4 w-4" aria-hidden />
                 )}
+              </button>
+            ) : null}
+            {showPlaybackButton ? (
+              <button
+                type="button"
+                onClick={onReplayAssistantAudio}
+                aria-label={
+                  isPlaybackActive
+                    ? t("message.stopReplyAudio")
+                    : t("message.playReplyAudio")
+                }
+                title={
+                  isPlaybackActive
+                    ? t("message.stopReplyAudio")
+                    : t("message.playReplyAudio")
+                }
+                className={cn(
+                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                  "transition-colors hover:bg-muted/55 hover:text-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+              >
+                {isPlaybackActive ? (
+                  <StopCircle className="h-4 w-4" aria-hidden />
+                ) : (
+                  <PlaySquare
+                    className={cn("h-4 w-4", replayingAudio && "text-foreground")}
+                    aria-hidden
+                  />
+                )}
+              </button>
+            ) : null}
+            {showPsbTagsButton ? (
+              <button
+                type="button"
+                onClick={() => setShowPsbTags((value) => !value)}
+                aria-label={
+                  showPsbTags
+                    ? t("message.hidePsbTags")
+                    : t("message.showPsbTags")
+                }
+                title={
+                  showPsbTags
+                    ? t("message.hidePsbTags")
+                    : t("message.showPsbTags")
+                }
+                className={cn(
+                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                  "transition-colors hover:bg-muted/55 hover:text-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  showPsbTags && "text-foreground",
+                )}
+              >
+                <Code2 className="h-4 w-4" aria-hidden />
               </button>
             ) : null}
             {showTimestampFooter ? (

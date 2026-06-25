@@ -9,7 +9,12 @@ import {
   toolTraceLinesFromEvents,
 } from "@/lib/tool-traces";
 import type { StreamError } from "@/lib/nanobot-client";
+import {
+  enqueueAssistantPlaybackSegment,
+  stopAssistantPlayback,
+} from "@/lib/playback-queue";
 import type {
+  AssistantPlaybackSegment,
   InboundEvent,
   OutboundCliAppMention,
   OutboundImageGeneration,
@@ -43,7 +48,7 @@ interface ActiveAssistantCursor {
 }
 
 type PendingStreamEvent =
-  | { kind: "delta"; text: string }
+  | { kind: "delta"; text: string; streamId?: string }
   | { kind: "reasoning"; text: string };
 
 type PendingCaptionEvent =
@@ -504,6 +509,7 @@ export function useNanobotStream(
   const streamTurnHadAssistantDeltaRef = useRef(false);
   /** 当前回合关联的 source_channel（delta 常不带该字段，从 user/message 继承）。 */
   const streamTurnSourceChannelRef = useRef<string | undefined>(undefined);
+  const activePlaybackMessageIdsRef = useRef<Set<string>>(new Set());
 
   const trayNotifyOptions = useRef({ activeChannel: inboxActiveChannel });
   trayNotifyOptions.current = { activeChannel: inboxActiveChannel };
@@ -583,7 +589,7 @@ export function useNanobotStream(
   }, []);
 
   const appendAnswerChunk = useCallback(
-    (prev: UIMessage[], chunk: string): UIMessage[] => {
+    (prev: UIMessage[], chunk: string, streamId?: string): UIMessage[] => {
       let next = prev;
       let targetIndex = resolveActiveAssistantIndex(next);
 
@@ -594,7 +600,7 @@ export function useNanobotStream(
         targetIndex = findStreamingAssistantIndex(next, closedAssistantStreamIdsRef.current);
       }
       if (targetIndex === null) {
-        const id = crypto.randomUUID();
+        const id = streamId ?? crypto.randomUUID();
         next = [
           ...next,
           {
@@ -609,8 +615,10 @@ export function useNanobotStream(
       }
 
       const target = next[targetIndex];
+      const mergedId = streamId && !target.content ? streamId : target.id;
       const merged: UIMessage = {
         ...target,
+        id: mergedId,
         content: target.content + chunk,
         isStreaming: true,
       };
@@ -626,14 +634,19 @@ export function useNanobotStream(
     (prev: UIMessage[], events: PendingStreamEvent[]): UIMessage[] => {
       let next = prev;
       for (let i = 0; i < events.length;) {
-        const kind = events[i].kind;
+        const current = events[i];
+        const kind = current.kind;
+        const streamId = current.kind === "delta" ? current.streamId : undefined;
         let text = "";
-        while (i < events.length && events[i].kind === kind) {
-          text += events[i].text;
+        while (i < events.length) {
+          const event = events[i];
+          if (event.kind !== kind) break;
+          if (kind === "delta" && (event.kind !== "delta" || event.streamId !== streamId)) break;
+          text += event.text;
           i += 1;
         }
         next = kind === "delta"
-          ? appendAnswerChunk(next, text)
+          ? appendAnswerChunk(next, text, streamId)
           : attachReasoningChunk(next, text, {
               ensure: ensureActivitySegmentId,
             });
@@ -646,6 +659,7 @@ export function useNanobotStream(
   const flushPendingStreamEvents = useCallback((options?: {
     closeAnswerSegment?: boolean;
     finalAnswerText?: string;
+    streamId?: string;
   }) => {
     if (streamFrameRef.current !== null) {
       window.cancelAnimationFrame(streamFrameRef.current);
@@ -669,11 +683,12 @@ export function useNanobotStream(
             const target = next[targetIndex];
             next = replaceMessageAt(next, targetIndex, {
               ...target,
+              id: options?.streamId && !target.content ? options.streamId : target.id,
               content: finalAnswerText,
               isStreaming: true,
             });
           } else {
-            const id = crypto.randomUUID();
+            const id = options?.streamId ?? crypto.randomUUID();
             closedAssistantStreamIdsRef.current.add(id);
             next = [
               ...next,
@@ -691,6 +706,32 @@ export function useNanobotStream(
       return next;
     });
   }, [applyPendingStreamEvents, closeActiveAssistantStream, resolveActiveAssistantIndex]);
+
+  const attachPlaybackSegmentToMessage = useCallback((segment: AssistantPlaybackSegment) => {
+    setMessages((prev) => {
+      const index = prev.findIndex(
+        (message) => message.role === "assistant"
+          && message.kind !== "trace"
+          && message.id === segment.messageId,
+      );
+      const targetIndex = index >= 0
+        ? index
+        : activePlaybackMessageIdsRef.current.has(segment.messageId)
+          ? findLatestAssistantAnswerIndex(prev)
+          : null;
+      if (targetIndex === null) return prev;
+      const target = prev[targetIndex];
+      const previous = target.playbackSegments ?? [];
+      const replaced = previous.some((item) => item.segmentIndex === segment.segmentIndex)
+        ? previous.map((item) => item.segmentIndex === segment.segmentIndex ? segment : item)
+        : [...previous, segment];
+      const merged: UIMessage = {
+        ...target,
+        playbackSegments: replaced.sort((a, b) => a.segmentIndex - b.segmentIndex),
+      };
+      return replaceMessageAt(prev, targetIndex, merged);
+    });
+  }, []);
 
   const schedulePendingStreamFlush = useCallback(() => {
     if (streamFrameRef.current !== null) return;
@@ -752,9 +793,11 @@ export function useNanobotStream(
     buffer.current = null;
     activeAssistantRef.current = null;
     closedAssistantStreamIdsRef.current.clear();
+    activePlaybackMessageIdsRef.current.clear();
     clearActivitySegment();
     clearPendingStreamWork();
     suppressStreamUntilTurnEndRef.current = false;
+    stopAssistantPlayback();
     if (streamEndTimerRef.current !== null) {
       clearTimeout(streamEndTimerRef.current);
       streamEndTimerRef.current = null;
@@ -777,9 +820,11 @@ export function useNanobotStream(
     buffer.current = null;
     activeAssistantRef.current = null;
     closedAssistantStreamIdsRef.current.clear();
+    activePlaybackMessageIdsRef.current.clear();
     clearActivitySegment();
     clearPendingStreamWork();
     suppressStreamUntilTurnEndRef.current = false;
+    stopAssistantPlayback();
     if (streamEndTimerRef.current !== null) {
       clearTimeout(streamEndTimerRef.current);
       streamEndTimerRef.current = null;
@@ -807,12 +852,17 @@ export function useNanobotStream(
         if (suppressStreamUntilTurnEndRef.current) return;
         const chunk = typeof ev.text === "string" ? ev.text : "";
         if (!chunk) return;
+        activePlaybackMessageIdsRef.current.add(String(ev.stream_id ?? chatId));
         streamTurnHadAssistantDeltaRef.current = true;
         const deltaSource = getInboundSourceChannel(ev);
         if (deltaSource) streamTurnSourceChannelRef.current = deltaSource;
         clearActivitySegment();
         setIsStreaming(true);
-        pendingStreamEventsRef.current.push({ kind: "delta", text: chunk });
+        pendingStreamEventsRef.current.push({
+          kind: "delta",
+          text: chunk,
+          streamId: String(ev.stream_id ?? chatId),
+        });
         schedulePendingStreamFlush();
         return;
       }
@@ -852,14 +902,23 @@ export function useNanobotStream(
       }
 
       if (ev.event === "stream_end") {
+        activePlaybackMessageIdsRef.current.add(String(ev.stream_id ?? chatId));
         flushPendingStreamEvents({
           closeAnswerSegment: true,
+          streamId: String(ev.stream_id ?? chatId),
           ...(typeof ev.text === "string" ? { finalAnswerText: ev.text } : {}),
         });
         if (suppressStreamUntilTurnEndRef.current) return;
         // stream_end only means the text segment finished — the model may
         // still be executing tools.  Do NOT reset isStreaming here; the
         // definitive "turn is complete" signal is ``turn_end``.
+        return;
+      }
+
+      if (ev.event === "assistant_playback_segment") {
+        flushPendingStreamEvents();
+        attachPlaybackSegmentToMessage(ev.segment);
+        enqueueAssistantPlaybackSegment(ev.segment);
         return;
       }
 
@@ -945,6 +1004,7 @@ export function useNanobotStream(
           ? ev.media_urls.map((m) => toMediaAttachment(m))
           : undefined;
         if (!content.trim() && !media) return;
+        activePlaybackMessageIdsRef.current.clear();
 
         // 外部 channel 带图入站：重置 caption 累积器，供后续 vision_caption_* 事件使用。
         const mediaCount = media?.length ?? 0;
@@ -1145,6 +1205,7 @@ export function useNanobotStream(
       buffer.current = null;
       activeAssistantRef.current = null;
       closedAssistantStreamIdsRef.current.clear();
+      activePlaybackMessageIdsRef.current.clear();
       clearActivitySegment();
       clearPendingStreamWork();
       if (streamEndTimerRef.current !== null) {
@@ -1154,6 +1215,7 @@ export function useNanobotStream(
     };
   }, [
     chatId,
+    attachPlaybackSegmentToMessage,
     client,
     clearActivitySegment,
     clearPendingStreamWork,
@@ -1222,10 +1284,13 @@ export function useNanobotStream(
       buffer.current = null;
       activeAssistantRef.current = null;
       closedAssistantStreamIdsRef.current.clear();
+      activePlaybackMessageIdsRef.current.clear();
       clearActivitySegment();
       return prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
     });
     suppressStreamUntilTurnEndRef.current = false;
+    activePlaybackMessageIdsRef.current.clear();
+    stopAssistantPlayback();
     client.sendMessage(chatId, "/stop");
   }, [chatId, clearActivitySegment, client, flushPendingStreamEvents]);
 

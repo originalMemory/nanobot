@@ -97,7 +97,6 @@ export function InboxView({
     activeChannel,
   );
   usePsbTagEffects(messages, modelSettings, psbTurnEndRef, psbSkipHistoryRef, isStreaming);
-  const showPsbResponseTags = modelSettings?.deskPet?.psb?.showResponseTags ?? false;
 
   const showToast = useCallback((message: string) => {
     if (toastTimerRef.current !== null) {
@@ -272,7 +271,6 @@ export function InboxView({
           unreadScrollSignal={activeChannel == null ? unreadScrollSignal : 0}
           cliApps={cliApps}
           mcpPresets={mcpPresets}
-          showPsbResponseTags={showPsbResponseTags}
           composer={
             <ThreadComposer
               ref={composerRef}
@@ -303,4 +301,3 @@ export function InboxView({
     </div>
   );
 }
-

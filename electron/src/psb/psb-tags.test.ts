@@ -51,10 +51,9 @@ describe('stripPsbTags', () => {
 });
 
 describe('formatAssistantContentForDisplay', () => {
-  it('hides tags when showResponseTags is false', () => {
+  it('hides psb tags for assistant display', () => {
     const raw = '<psb:timeline name="待机" />你好';
-    expect(formatAssistantContentForDisplay(raw, false)).toBe('你好');
-    expect(formatAssistantContentForDisplay(raw, true)).toBe(raw);
+    expect(formatAssistantContentForDisplay(raw)).toBe('你好');
   });
 });
 

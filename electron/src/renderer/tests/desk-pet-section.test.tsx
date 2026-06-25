@@ -29,7 +29,6 @@ const baseSettings = {
       selectedModelId: "demo",
       followMouse: true,
       enabledResponseTags: true,
-      showResponseTags: false,
       models: [
         {
           modelId: "demo",

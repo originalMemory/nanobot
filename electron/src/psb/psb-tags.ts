@@ -53,11 +53,16 @@ export function stripPsbTags(text: string): string {
     .trim();
 }
 
-/** 按配置决定是否隐藏 PSB 标签。 */
+export function hasPsbTags(text: string): boolean {
+  PSB_TAG_RE.lastIndex = 0;
+  return PSB_TAG_RE.test(String(text || ""));
+}
+
+/** 显示给 Assistant 文案时剥离 PSB 标签。 */
 export function formatAssistantContentForDisplay(
   content: string,
-  showResponseTags: boolean | undefined,
+  showTags = false,
 ): string {
-  if (showResponseTags) return content;
+  if (showTags) return content;
   return stripPsbTags(content);
 }

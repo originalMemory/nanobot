@@ -264,25 +264,6 @@ export function PsbSection({ settings, token, apiBase, onSave, onRefreshSettings
               onChange={(enabledResponseTags) => void onSave({ enabledResponseTags })}
             />
           </SettingsRow>
-          {psb.enabledResponseTags ? (
-            <SettingsRow
-              title={tx("settings.deskPet.psb.showResponseTags", "Show tags in chat")}
-              description={tx(
-                "settings.deskPet.psb.showResponseTagsDescription",
-                "When off, tags are hidden in the UI but still drive the desk pet.",
-              )}
-            >
-              <ToggleButton
-                checked={psb.showResponseTags}
-                label={
-                  psb.showResponseTags
-                    ? tx("settings.deskPet.common.show", "Show")
-                    : tx("settings.deskPet.common.hide", "Hide")
-                }
-                onChange={(showResponseTags) => void onSave({ showResponseTags })}
-              />
-            </SettingsRow>
-          ) : null}
           <SettingsRow
             title={tx("settings.deskPet.psb.windowSize", "Window size")}
             description={tx(

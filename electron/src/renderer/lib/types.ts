@@ -82,6 +82,8 @@ export interface UIMessage {
   usage?: TurnUsageStats;
   /** Wall-clock timestamp of the assistant message (ISO local-time string from backend, or ms epoch for live turns). */
   messageTs?: string | number;
+  /** Assistant message-bound TTS playback segments, persisted in WebUI transcript. */
+  playbackSegments?: AssistantPlaybackSegment[];
 }
 
 /** Per-turn token stats: last-call context size vs turn-total billing. */
@@ -309,7 +311,6 @@ export interface SettingsPayload {
       selectedModelId: string | null;
       followMouse: boolean;
       enabledResponseTags: boolean;
-      showResponseTags: boolean;
       models: PsbModelSummary[];
     };
   };
@@ -611,7 +612,6 @@ export interface PsbSettingsUpdate {
   selectedModelId?: string | null;
   followMouse?: boolean;
   enabledResponseTags?: boolean;
-  showResponseTags?: boolean;
 }
 
 export interface SlashCommand {
@@ -629,6 +629,21 @@ export type ConnectionStatus =
   | "reconnecting"
   | "closed"
   | "error";
+
+export interface AssistantPlaybackSegment {
+  messageId: string;
+  segmentIndex: number;
+  rawText: string;
+  controls?: Array<{ kind?: string; type: string; payload?: Record<string, unknown> }>;
+  debug?: Record<string, unknown>;
+  audio?: {
+    status: "idle" | "pending" | "ready" | "playing" | "done" | "failed" | "skipped";
+    url?: string;
+    name?: string;
+    mimeType?: string;
+    error?: string;
+  };
+}
 
 export type InboundEvent =
   | { event: "ready"; chat_id: string; client_id: string }
@@ -685,6 +700,11 @@ export type InboundEvent =
       chat_id: string;
       stream_id?: string;
       text?: string;
+    }
+  | {
+      event: "assistant_playback_segment";
+      chat_id: string;
+      segment: AssistantPlaybackSegment;
     }
   | {
       event: "reasoning_delta";

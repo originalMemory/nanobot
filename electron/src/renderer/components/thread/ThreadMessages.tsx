@@ -23,7 +23,6 @@ interface ThreadMessagesProps {
   unreadCount?: number;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
-  showPsbResponseTags?: boolean;
 }
 
 type RawDisplayUnit =
@@ -356,7 +355,6 @@ export function ThreadMessages({
   unreadCount = 0,
   cliApps = [],
   mcpPresets = [],
-  showPsbResponseTags = false,
 }: ThreadMessagesProps) {
   const { t } = useTranslation();
   const units = useMemo(
@@ -415,7 +413,6 @@ export function ThreadMessages({
                 showCopyAction={copyFlags[index]}
                 cliApps={cliApps}
                 mcpPresets={mcpPresets}
-                showPsbResponseTags={showPsbResponseTags}
               />
             ) : (
               <MessageBubble
@@ -427,7 +424,6 @@ export function ThreadMessages({
                 }
                 cliApps={cliApps}
                 mcpPresets={mcpPresets}
-                showPsbResponseTags={showPsbResponseTags}
               />
             )}
           </div>
