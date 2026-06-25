@@ -149,7 +149,6 @@ async def test_update_desk_pet_psb_settings_persists_flags(psb_runtime) -> None:
             "autoShow": ["true"],
             "followMouse": ["false"],
             "enabledResponseTags": ["true"],
-            "showResponseTags": ["true"],
             "selectedModelId": [model_id],
         }
     )
@@ -158,7 +157,6 @@ async def test_update_desk_pet_psb_settings_persists_flags(psb_runtime) -> None:
     assert psb["autoShow"] is True
     assert psb["followMouse"] is False
     assert psb["enabledResponseTags"] is True
-    assert psb["showResponseTags"] is True
     assert psb["selectedModelId"] == model_id
     assert "modelsDir" not in psb
 

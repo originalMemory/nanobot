@@ -745,6 +745,53 @@ def replay_transcript_to_ui_messages(
             "activitySegmentId": last.get("activitySegmentId") or segment,
         }
 
+    def attach_playback_segment(segment: dict[str, Any]) -> None:
+        message_id = segment.get("messageId")
+        if not isinstance(message_id, str) or not message_id:
+            return
+        segment = dict(segment)
+        audio = segment.get("audio")
+        if isinstance(audio, dict):
+            audio = dict(audio)
+            path = audio.get("path")
+            if isinstance(path, str) and path and augment_media_paths is not None:
+                signed = augment_media_paths([path])
+                if signed:
+                    audio["url"] = signed[0].get("url")
+                    audio.setdefault("name", signed[0].get("name"))
+            audio.pop("path", None)
+            segment["audio"] = audio
+        target_index: int | None = None
+        for i in range(len(messages) - 1, -1, -1):
+            candidate = messages[i]
+            if candidate.get("role") == "assistant" and candidate.get("kind") != "trace":
+                if candidate.get("id") == message_id:
+                    target_index = i
+                    break
+        if target_index is None:
+            for i in range(len(messages) - 1, -1, -1):
+                candidate = messages[i]
+                if candidate.get("role") == "assistant" and candidate.get("kind") != "trace":
+                    target_index = i
+                    break
+        if target_index is None:
+            return
+        target = messages[target_index]
+        previous = [item for item in target.get("playbackSegments") or [] if isinstance(item, dict)]
+        segment_index = segment.get("segmentIndex")
+        replaced = False
+        next_segments: list[dict[str, Any]] = []
+        for item in previous:
+            if item.get("segmentIndex") == segment_index:
+                next_segments.append(dict(segment))
+                replaced = True
+            else:
+                next_segments.append(item)
+        if not replaced:
+            next_segments.append(dict(segment))
+        next_segments.sort(key=lambda item: item.get("segmentIndex") if isinstance(item.get("segmentIndex"), int) else 0)
+        messages[target_index] = {**target, "playbackSegments": next_segments}
+
     for idx, rec in enumerate(lines):
         ev = rec.get("event")
         if ev == "user":
@@ -821,7 +868,8 @@ def replay_transcript_to_ui_messages(
                 if adopted:
                     buffer_message_id = adopted
                 else:
-                    buffer_message_id = _new_id("buf", idx)
+                    stream_id = rec.get("stream_id")
+                    buffer_message_id = stream_id if isinstance(stream_id, str) and stream_id else _new_id("buf", idx)
                     messages.append(
                         {
                             "id": buffer_message_id,
@@ -847,7 +895,8 @@ def replay_transcript_to_ui_messages(
             final_text = rec.get("text")
             if isinstance(final_text, str):
                 if buffer_message_id is None:
-                    buffer_message_id = _new_id("buf", idx)
+                    stream_id = rec.get("stream_id")
+                    buffer_message_id = stream_id if isinstance(stream_id, str) and stream_id else _new_id("buf", idx)
                     messages.append(
                         {
                             "id": buffer_message_id,
@@ -864,6 +913,12 @@ def replay_transcript_to_ui_messages(
                             break
             buffer_message_id = None
             buffer_parts = []
+            continue
+
+        if ev == "assistant_playback_segment":
+            segment = rec.get("segment")
+            if isinstance(segment, dict):
+                attach_playback_segment(segment)
             continue
 
         if ev == "reasoning_delta":
@@ -1204,6 +1259,15 @@ def session_messages_to_wire_events(
                     pending_user_delivery_events.append(ev)
                     continue
                 events.append(ev)
+                playback_segments = msg.get("playbackSegments")
+                if isinstance(playback_segments, list):
+                    for segment in playback_segments:
+                        if isinstance(segment, dict):
+                            events.append({
+                                **base,
+                                "event": "assistant_playback_segment",
+                                "segment": segment,
+                            })
 
         elif role == "tool":
             call_id = msg.get("tool_call_id", "")

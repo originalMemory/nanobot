@@ -39,6 +39,10 @@ class TtsToolConfig(TtsConfig):
     """
 
     enabled: bool = False
+    message_playback_enabled: bool = Field(
+        default=False,
+        description="自动为 assistant 回复按句合成并播放 TTS。",
+    )
     default_voice: str = Field(
         default="tongtong",
         description="默认音色名称或 voice_id（省略时回退此值）。"

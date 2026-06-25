@@ -87,8 +87,10 @@ def build_psb_response_tags_section() -> str:
     parts.extend(
         [
             "",
-            "规则：非循环 timeline 播放结束后会自动回到初始循环 timeline；"
-            "expression/face/fade 在本轮回复结束或 TTS 播放结束后恢复初始状态。",
+            "规则：PSB 标签只能放在一句话的开头，连续标签可以紧挨着写；"
+            "不要把 PSB 标签插入句子中间或句尾。",
+            "非循环 timeline 播放结束后会自动回到初始循环 timeline；"
+            "expression/face/fade 会在对应这句话的语音播放结束后恢复初始状态。",
             "示例：`<psb:timeline name=\"待机\" /><psb:expression name=\"微笑\" />你好！`",
         ]
     )

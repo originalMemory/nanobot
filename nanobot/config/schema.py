@@ -357,7 +357,6 @@ class PSBConfig(Base):
     selected_model_id: str | None = None
     follow_mouse: bool = True
     enabled_response_tags: bool = False
-    show_response_tags: bool = False
 
 
 class DeskPetConfig(Base):

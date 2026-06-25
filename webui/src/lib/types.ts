@@ -64,6 +64,8 @@ export interface UIMessage {
   reasoningStreaming?: boolean;
   /** End-to-end wall time for this assistant turn (persisted ``latency_ms`` / ``turn_end``). */
   latencyMs?: number;
+  /** Assistant message-bound TTS playback segments, persisted in WebUI transcript. */
+  playbackSegments?: AssistantPlaybackSegment[];
 }
 
 export interface UICliAppAttachment {
@@ -606,6 +608,21 @@ export type ConnectionStatus =
   | "closed"
   | "error";
 
+export interface AssistantPlaybackSegment {
+  messageId: string;
+  segmentIndex: number;
+  rawText: string;
+  controls?: Array<{ kind?: string; type: string; payload?: Record<string, unknown> }>;
+  debug?: Record<string, unknown>;
+  audio?: {
+    status: "idle" | "pending" | "ready" | "playing" | "done" | "failed" | "skipped";
+    url?: string;
+    name?: string;
+    mimeType?: string;
+    error?: string;
+  };
+}
+
 export type InboundEvent =
   | { event: "ready"; chat_id: string; client_id: string }
   | { event: "attached"; chat_id: string }
@@ -641,6 +658,11 @@ export type InboundEvent =
       chat_id: string;
       stream_id?: string;
       text?: string;
+    }
+  | {
+      event: "assistant_playback_segment";
+      chat_id: string;
+      segment: AssistantPlaybackSegment;
     }
   | {
       event: "reasoning_delta";

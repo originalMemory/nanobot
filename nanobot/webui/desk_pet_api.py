@@ -23,7 +23,6 @@ def psb_config_payload() -> dict[str, Any]:
         "selectedModelId": config.selected_model_id,
         "followMouse": config.follow_mouse,
         "enabledResponseTags": config.enabled_response_tags,
-        "showResponseTags": config.show_response_tags,
         "models": list_models(),
     }
 
@@ -67,7 +66,6 @@ def update_desk_pet_psb_config(query: dict[str, list[str]]) -> dict[str, Any]:
         ("autoShow", "auto_show"),
         ("followMouse", "follow_mouse"),
         ("enabledResponseTags", "enabled_response_tags"),
-        ("showResponseTags", "show_response_tags"),
     ]
     for query_key, attr in bool_fields:
         value = first(query_key, attr)

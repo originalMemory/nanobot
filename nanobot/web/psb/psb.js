@@ -169,13 +169,33 @@
     drainAudioQueue();
   }
 
+  function enqueueSegmentAudioEvent(payload) {
+    var item = payload && typeof payload === 'object' ? payload : {};
+    var url = String(item.url || '').trim();
+    if (!url) return;
+    audioQueue.push({
+      url: url,
+      controls: Array.isArray(item.controls) ? item.controls : [],
+      messageId: item.messageId,
+      segmentIndex: item.segmentIndex,
+      segment: true,
+    });
+    drainAudioQueue();
+  }
+
   async function playQueuedAudio(item) {
     if (!window.EmoteTalkSync || !player || !player.initialized) return;
     if (!EmoteTalkSync.hasFaceTalk(player)) return;
     var data = await fetchAudioArrayBuffer(item.url);
-    item.expressions.forEach(function (name) {
-      applyExpressionByName(name);
-    });
+    if (Array.isArray(item.controls)) {
+      item.controls.forEach(function (control) {
+        handleRuntimeAction(control);
+      });
+    } else {
+      item.expressions.forEach(function (name) {
+        applyExpressionByName(name);
+      });
+    }
     await EmoteTalkSync.playArrayBuffer(data, player);
     restoreTransientState();
   }
@@ -376,6 +396,25 @@
 
     if (type === 'stream-end') {
       requestRestoreAfterStreamEnd();
+      return;
+    }
+
+    if (type === 'segment-audio') {
+      enqueueSegmentAudioEvent(payload);
+      return;
+    }
+
+    if (type === 'segment-end') {
+      requestRestoreTransientState();
+      return;
+    }
+
+    if (type === 'playback-stop') {
+      audioQueue = [];
+      if (window.EmoteTalkSync && typeof EmoteTalkSync.stop === 'function') {
+        EmoteTalkSync.stop();
+      }
+      restoreTransientState();
       return;
     }
 
