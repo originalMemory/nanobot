@@ -61,6 +61,7 @@
   var audioQueue = [];
   var isPlayingAudio = false;
   var pendingStreamEnd = false;
+  var pendingRuntimeActions = [];
 
   function setStatus(text, isError) {
     if (!statusEl) return;
@@ -195,7 +196,7 @@
       isPlayingAudio = false;
       if (pendingStreamEnd && audioQueue.length === 0) {
         pendingStreamEnd = false;
-        restoreTransientState();
+        restoreAfterStreamEnd();
       }
     }
   }
@@ -273,7 +274,7 @@
     applyVariableMap(values, EXPRESSION_MS, EXPRESSION_EASING);
   }
 
-  function applyInitialState(state) {
+  function applyExpressionFaceFadeFromState(state) {
     if (!player || !player.initialized || !state) return;
     if (state.expression) applyExpressionByName(state.expression);
     if (state.face && typeof state.face === 'object') {
@@ -282,6 +283,15 @@
     if (state.fade && typeof state.fade === 'object') {
       applyVariableMap(state.fade, EXPRESSION_MS, EXPRESSION_EASING);
     }
+  }
+
+  function restoreExpressionFaceFade() {
+    applyExpressionFaceFadeFromState(savedInitialState || {});
+  }
+
+  function applyInitialState(state) {
+    if (!player || !player.initialized || !state) return;
+    applyExpressionFaceFadeFromState(state);
     var timeline = state.timeline || initialLoopTimeline;
     if (timeline) {
       player.mainTimelineLabel = timeline;
@@ -290,8 +300,18 @@
   }
 
   function restoreTransientState() {
-    applyInitialState(savedInitialState || { timeline: initialLoopTimeline });
+    if (!player || !player.initialized) return;
+    restoreExpressionFaceFade();
     transientTimeline = '';
+    var timeline = (savedInitialState && savedInitialState.timeline) || initialLoopTimeline;
+    if (timeline) {
+      player.mainTimelineLabel = timeline;
+      player.playTimeline(timeline);
+    }
+  }
+
+  function restoreAfterStreamEnd() {
+    restoreExpressionFaceFade();
   }
 
   function startTimelineWatch() {
@@ -318,6 +338,14 @@
     startTimelineWatch();
   }
 
+  function requestRestoreAfterStreamEnd() {
+    if (isPlayingAudio || audioQueue.length > 0) {
+      pendingStreamEnd = true;
+      return;
+    }
+    restoreAfterStreamEnd();
+  }
+
   function requestRestoreTransientState() {
     if (isPlayingAudio || audioQueue.length > 0) {
       pendingStreamEnd = true;
@@ -326,18 +354,35 @@
     restoreTransientState();
   }
 
+  function drainPendingRuntimeActions() {
+    if (!player || !player.initialized || pendingRuntimeActions.length === 0) return;
+    var queued = pendingRuntimeActions.slice();
+    pendingRuntimeActions = [];
+    queued.forEach(function (action) {
+      handleRuntimeAction(action);
+    });
+  }
+
   function handleRuntimeAction(action) {
     var normalized = window.PsbActions && window.PsbActions.normalizeAction(action);
     if (!normalized) return;
     var type = normalized.type;
     var payload = normalized.payload;
 
-    if (type === 'stream-end' || type === 'restore-initial') {
+    if (type === 'restore-initial') {
       requestRestoreTransientState();
       return;
     }
 
-    if (!player || !player.initialized) return;
+    if (type === 'stream-end') {
+      requestRestoreAfterStreamEnd();
+      return;
+    }
+
+    if (!player || !player.initialized) {
+      pendingRuntimeActions.push(action);
+      return;
+    }
 
     if (type === 'timeline' || type === 'psb:timeline') {
       var picked = window.PsbActions.pickTimelineLabel(payload, modelMetadata);
@@ -793,6 +838,12 @@
     var compact = window.PsbRuntimeMetadata.compactForServerSync
       ? window.PsbRuntimeMetadata.compactForServerSync(runtimeCaps)
       : runtimeCaps;
+    if (
+      window.PsbRuntimeMetadata.needsServerSync &&
+      !window.PsbRuntimeMetadata.needsServerSync(original, compact)
+    ) {
+      return Promise.resolve(modelMetadata);
+    }
     var chunks = window.PsbRuntimeMetadata.splitCompactForServerSync
       ? window.PsbRuntimeMetadata.splitCompactForServerSync(compact)
       : [compact];
@@ -840,6 +891,7 @@
       if (window.PsbConfigPanel) window.PsbConfigPanel.refresh();
       setStatus('');
       connectEvents();
+      drainPendingRuntimeActions();
     });
   }
 

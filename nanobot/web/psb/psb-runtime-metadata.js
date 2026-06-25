@@ -13,6 +13,7 @@
     fade_v: '白眼呆愣·遮鼻',
     fade_z: '面部阴影',
   };
+  var IDLE_LOOP_TIMELINE_LABELS = { '待機': true, 'おさんぽ': true };
 
   function isFaceVariable(label) {
     return FACE_VAR_PATTERN.test(label);
@@ -71,9 +72,37 @@
     return FADE_PART_HINTS[label] || '';
   }
 
-  function mapVariable(variable, serverList, isFade) {
+  function touchDiffTimelineLabels(player) {
+    if (player && typeof player.touchDiffTimelineLabels === 'function') {
+      player.touchDiffTimelineLabels();
+    }
+  }
+
+  function isDiffTimelineLabel(player, label) {
+    touchDiffTimelineLabels(player);
+    var diffLabels = (player && player.diffTimelineLabels) || [];
+    return diffLabels.indexOf(label) >= 0;
+  }
+
+  /** 桌宠运行时只依赖 looping；loopBegin/loopEnd 为 sidecar 占位，不参与判定。 */
+  function resolveTimelineLooping(player, label, prev) {
+    if (isDiffTimelineLabel(player, label)) {
+      return false;
+    }
+    if (IDLE_LOOP_TIMELINE_LABELS[label]) {
+      return true;
+    }
+    if (prev && typeof prev.looping === 'boolean') {
+      return prev.looping;
+    }
+    if (typeof player.isLoopTimeline === 'function' && !player.isLoopTimeline(label)) {
+      return false;
+    }
+    return false;
+  }
+
+  function mapVariable(variable, serverList) {
     var prev = findByLabel(serverList, variable.label);
-    var hintZh = (prev && prev.hintZh) || (isFade ? fadeHintZh(variable.label) : '');
     var frames = (variable.frameList || []).map(function (frame) {
       var prevFrame = prev && prev.frames
         ? prev.frames.find(function (item) {
@@ -89,8 +118,6 @@
     return {
       label: variable.label,
       labelZh: (prev && prev.labelZh) || variable.label,
-      hint: (prev && prev.hint) || '',
-      hintZh: hintZh,
       minValue: variable.minValue,
       maxValue: variable.maxValue,
       frames: frames,
@@ -117,15 +144,24 @@
       return {
         label: label,
         labelZh: (prev && prev.labelZh) || label,
-        diff: !!(prev && prev.diff),
-        loopBegin: prev && prev.loopBegin != null ? prev.loopBegin : 0,
-        loopEnd: prev && prev.loopEnd != null ? prev.loopEnd : -1,
-        lastTime: prev && prev.lastTime != null ? prev.lastTime : -1,
-        looping:
-          typeof player.isLoopTimeline === 'function'
-            ? player.isLoopTimeline(label)
-            : !!(prev && prev.looping),
+        looping: resolveTimelineLooping(player, label, prev),
       };
+    });
+
+    touchDiffTimelineLabels(player);
+    var seenTimelineLabels = {};
+    timelines.forEach(function (item) {
+      if (item && item.label) seenTimelineLabels[item.label] = true;
+    });
+    ((player.diffTimelineLabels || [])).forEach(function (label) {
+      if (!label || seenTimelineLabels[label]) return;
+      var prev = findByLabel(serverMeta.timelines, label);
+      timelines.push({
+        label: label,
+        labelZh: (prev && prev.labelZh) || label,
+        looping: false,
+      });
+      seenTimelineLabels[label] = true;
     });
 
     var variableList = player.variableList || [];
@@ -143,7 +179,7 @@
         return isFaceVariable(variable.label);
       })
       .map(function (variable) {
-        return mapVariable(variable, serverMeta.faceVariables, false);
+        return mapVariable(variable, serverMeta.faceVariables);
       });
 
     var fadeVariables = variableList
@@ -151,7 +187,7 @@
         return isFadeVariable(variable.label);
       })
       .map(function (variable) {
-        return mapVariable(variable, serverMeta.fadeVariables, true);
+        return mapVariable(variable, serverMeta.fadeVariables);
       });
 
     var hasFaceTalk = variableList.some(function (variable) {
@@ -212,20 +248,57 @@
     };
   }
 
-  // gateway 嵌入式 HTTP 仅支持 GET，payload 走 query；单行上限约 8KiB，大模型需分块。
+  // gateway 嵌入式 HTTP 仅支持 GET，payload 走 query；请求行默认上限 8KiB（可经环境变量调高）。
+  var MAX_REQUEST_LINE_CHARS = 7500;
+  // path + modelId + ?payload= 的保守估计（与 psb.js runtimeMetadataUpdatePath 对齐）。
+  var RUNTIME_UPDATE_PATH_PREFIX_CHARS = 128;
   var TIMELINE_CHUNK_SIZE = 4;
   var EXPRESSION_CHUNK_SIZE = 8;
   var FACE_VARIABLE_CHUNK_SIZE = 10;
   var FADE_VARIABLE_CHUNK_SIZE = 6;
-  // 预留 path + encodeURIComponent 膨胀，保守限制单块 serialized payload 体积。
-  var MAX_PAYLOAD_JSON_CHARS = 2800;
+
+  function estimateRuntimeSyncRequestLineChars(part) {
+    try {
+      var encoded = 'payload=' + encodeURIComponent(JSON.stringify(part));
+      return RUNTIME_UPDATE_PATH_PREFIX_CHARS + encoded.length;
+    } catch (_err) {
+      return MAX_REQUEST_LINE_CHARS + 1;
+    }
+  }
 
   function appendListChunks(chunks, list, key, chunkSize) {
     if (!list || !list.length) return;
-    for (var index = 0; index < list.length; index += chunkSize) {
-      var part = {};
-      part[key] = list.slice(index, index + chunkSize);
-      chunks.push(part);
+    var batch = [];
+    for (var index = 0; index < list.length; index += 1) {
+      batch.push(list[index]);
+      var probe = {};
+      probe[key] = batch.slice();
+      var tooLong = estimateRuntimeSyncRequestLineChars(probe) > MAX_REQUEST_LINE_CHARS;
+      if (tooLong) {
+        if (batch.length === 1) {
+          chunks.push(probe);
+          batch = [];
+          continue;
+        }
+        var overflow = batch.pop();
+        var part = {};
+        part[key] = batch.slice();
+        chunks.push(part);
+        batch = [overflow];
+        index -= 1;
+        continue;
+      }
+      if (batch.length >= chunkSize) {
+        var full = {};
+        full[key] = batch.slice();
+        chunks.push(full);
+        batch = [];
+      }
+    }
+    if (batch.length) {
+      var tail = {};
+      tail[key] = batch.slice();
+      chunks.push(tail);
     }
   }
 
@@ -233,31 +306,8 @@
     appendListChunks(chunks, list, key, chunkSize);
   }
 
-  function estimatePayloadJsonChars(part) {
-    try {
-      return JSON.stringify(part).length;
-    } catch (_err) {
-      return MAX_PAYLOAD_JSON_CHARS + 1;
-    }
-  }
-
   function splitTimelineChunks(chunks, timelines) {
-    if (!timelines || !timelines.length) return;
-    var batch = [];
-    timelines.forEach(function (item) {
-      batch.push(item);
-      var probe = { timelines: batch.slice() };
-      if (
-        batch.length >= TIMELINE_CHUNK_SIZE ||
-        estimatePayloadJsonChars(probe) > MAX_PAYLOAD_JSON_CHARS
-      ) {
-        chunks.push({ timelines: batch.slice() });
-        batch = [];
-      }
-    });
-    if (batch.length) {
-      chunks.push({ timelines: batch.slice() });
-    }
+    appendListChunks(chunks, timelines, 'timelines', TIMELINE_CHUNK_SIZE);
   }
 
   function splitCompactForServerSync(compact) {
@@ -273,11 +323,48 @@
     return chunks;
   }
 
+  function collectLabels(list) {
+    var labels = [];
+    (list || []).forEach(function (item) {
+      if (item && item.label) labels.push(item.label);
+    });
+    return labels;
+  }
+
+  function labelsAreCovered(serverList, runtimeList) {
+    var serverLabels = {};
+    collectLabels(serverList).forEach(function (label) {
+      serverLabels[label] = true;
+    });
+    var runtimeLabels = collectLabels(runtimeList);
+    if (!runtimeLabels.length) return true;
+    for (var i = 0; i < runtimeLabels.length; i++) {
+      if (!serverLabels[runtimeLabels[i]]) return false;
+    }
+    return true;
+  }
+
+  /** 服务端 sidecar 已包含本次运行时 label 时跳过上报；字段纠错请删 .meta.json 后重开桌宠。 */
+  function needsServerSync(serverMeta, compact) {
+    serverMeta = serverMeta || {};
+    compact = compact || {};
+    var serverTimelines = serverMeta.timelines || [];
+    if (!serverTimelines.length) return true;
+    if (!labelsAreCovered(serverTimelines, compact.timelines)) return true;
+    if (!labelsAreCovered(serverMeta.expressions, compact.expressions)) return true;
+    if (!labelsAreCovered(serverMeta.faceVariables, compact.faceVariables)) return true;
+    if (!labelsAreCovered(serverMeta.fadeVariables, compact.fadeVariables)) return true;
+    return false;
+  }
+
   window.PsbRuntimeMetadata = {
     extract: extractRuntimeCapabilities,
     merge: mergeMetadata,
     compactForServerSync: compactForServerSync,
     splitCompactForServerSync: splitCompactForServerSync,
+    needsServerSync: needsServerSync,
+    resolveTimelineLooping: resolveTimelineLooping,
+    estimateRuntimeSyncRequestLineChars: estimateRuntimeSyncRequestLineChars,
     fadeHintZh: fadeHintZh,
   };
 })();

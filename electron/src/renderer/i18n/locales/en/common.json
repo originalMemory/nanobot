@@ -93,6 +93,7 @@
       "cliApps": "CLI Apps",
       "mcp": "MCP",
       "runtime": "Runtime",
+      "deskPet": "Desk Pet",
       "advanced": "Advanced",
       "apps": "Apps"
     },
@@ -421,6 +422,69 @@
         "baseUrlRequired": "Base URL is required for SearXNG.",
         "missingCredential": "Add the required credential before saving.",
         "saveHint": "Changes apply to new web search requests."
+      }
+    },
+    "deskPet": {
+      "tabs": {
+        "psb": "PSB",
+        "tha": "THA"
+      },
+      "common": {
+        "open": "Open",
+        "close": "Close",
+        "closeAll": "Close all",
+        "toggleOff": "Off",
+        "show": "Show",
+        "hide": "Hide"
+      },
+      "tha": {
+        "title": "THA Desk Pet",
+        "behaviorSection": "Behavior",
+        "windowSection": "Window",
+        "windowSize": "Window size",
+        "launch": "Launch THA",
+        "launchDescription": "Open the standalone 2D desk pet page; in Electron this creates a transparent always-on-top window.",
+        "emotionTags": "Emotion tags",
+        "emotionTagsDescription": "Allow the model to output <happy> / <nod> tags to drive THA.",
+        "mouthSync": "Mouth sync",
+        "mouthSyncDescription": "THA page plays audio and analyzes volume to drive the mouth.",
+        "modelReady": "Model ready",
+        "modelMissing": "Model not found",
+        "modelPathDescription": "Reads tha_model/model.mlpackage or tha_model/model.onnx; replace that file to swap models.",
+        "audioDelay": "Audio delay",
+        "audioDelayDescription": "Compensates mouth command, backend rendering, and JPEG return latency when using a remote gateway.",
+        "closeWindows": "Close THA window"
+      },
+      "psb": {
+        "title": "PSB Desk Pet",
+        "modelsSection": "Models",
+        "behaviorSection": "Behavior & window",
+        "modelDirectory": "Model directory",
+        "modelDirectoryDescription": "Place .psb / .emtbytes files in ~/.nanobot/desk_pets/psb/ and restart the gateway to register them. If metadata is stale or wrong, delete the sidecar .meta.json and reopen the desk pet for a full runtime upload.",
+        "autoShow": "Show on startup",
+        "autoShowDescription": "Automatically open the PSB window when the app starts if a compatible model is selected.",
+        "followMouse": "Mouse tracking",
+        "followMouseDescription": "Full-screen mouse coordinates drive eye, head, and body variables.",
+        "responseTags": "Reply special tags",
+        "responseTagsDescription": "Inject PSB tag instructions into AI prompts and parse assistant replies.",
+        "showResponseTags": "Show tags in chat",
+        "showResponseTagsDescription": "When off, tags are hidden in the UI but still drive the desk pet.",
+        "currentModel": "Current model",
+        "currentModelDescription": "Only compatible models can be selected for display.",
+        "noSelection": "Not selected",
+        "unavailableSuffix": " (unavailable)",
+        "windowSize": "Window size",
+        "windowSizeDescription": "Stored locally. Open the window to adjust timeline, expressions, Face/Fade in the config panel; drag edges to resize.",
+        "noModels": "No models",
+        "noModelsDescription": "Add files to the directory and refresh settings after restarting the gateway.",
+        "status": {
+          "incompatible": "Incompatible",
+          "translateFailed": "Translation failed",
+          "pendingTranslate": "Pending translation",
+          "translating": "Translating",
+          "available": "Available"
+        },
+        "deleteConfirm": "Delete model \"{{name}}\"?"
       }
     },
     "overview": {

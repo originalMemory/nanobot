@@ -433,28 +433,6 @@ export async function deletePsbModel(
   );
 }
 
-export async function rescanPsbModel(
-  token: string,
-  modelId: string,
-  base: string = DEFAULT_GATEWAY_HTTP,
-): Promise<{ model: PsbModelDetail }> {
-  return request<{ model: PsbModelDetail }>(
-    `${base}/api/desk-pet/psb/models/${encodeURIComponent(modelId)}/rescan`,
-    token,
-  );
-}
-
-export async function retryPsbTranslation(
-  token: string,
-  modelId: string,
-  base: string = DEFAULT_GATEWAY_HTTP,
-): Promise<{ model: PsbModelDetail }> {
-  return request<{ model: PsbModelDetail }>(
-    `${base}/api/desk-pet/psb/models/${encodeURIComponent(modelId)}/retry-translation`,
-    token,
-  );
-}
-
 export async function savePsbInitialState(
   token: string,
   modelId: string,

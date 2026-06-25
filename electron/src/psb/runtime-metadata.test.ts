@@ -48,7 +48,9 @@ describe('psb-runtime-metadata', () => {
     const player = {
       initialized: true,
       mainTimelineLabels: ['待機', '走る'],
-      isLoopTimeline: (label: string) => label === '待機',
+      diffTimelineLabels: [],
+      isLoopTimeline: () => true,
+      touchDiffTimelineLabels: () => undefined,
       touchVariableList: () => undefined,
       touchMainTimelineLabels: () => undefined,
       variableList: [
@@ -69,9 +71,46 @@ describe('psb-runtime-metadata', () => {
     });
 
     expect(caps.timelines).toHaveLength(2);
-    expect(caps.timelines[0]).toMatchObject({ label: '待機', labelZh: '待机', looping: true });
+    expect(caps.timelines[0]).toMatchObject({
+      label: '待機',
+      labelZh: '待机',
+      looping: true,
+    });
+    expect(caps.timelines[1]).toMatchObject({ label: '走る', looping: false });
     expect(caps.expressions.length).toBeGreaterThan(0);
     expect(caps.faceVariables[0].label).toBe('face_mouth');
+  });
+
+  it('treats diff timelines as non-looping even when isLoopTimeline is true', () => {
+    const api = loadRuntimeMetadata() as RuntimeApi & {
+      resolveTimelineLooping: (
+        player: {
+          diffTimelineLabels: string[];
+          touchDiffTimelineLabels: () => void;
+          isLoopTimeline: (label: string) => boolean;
+        },
+        label: string,
+        prev: Record<string, unknown> | null,
+      ) => boolean;
+    };
+    const player = {
+      diffTimelineLabels: ['はい'],
+      touchDiffTimelineLabels: () => undefined,
+      isLoopTimeline: () => true,
+    };
+    expect(api.resolveTimelineLooping(player, '待機', null)).toBe(true);
+    expect(api.resolveTimelineLooping(player, 'はい', null)).toBe(false);
+    expect(api.resolveTimelineLooping(player, '驚き', null)).toBe(false);
+    expect(
+      api.resolveTimelineLooping(player, '待機', {
+        looping: true,
+      }),
+    ).toBe(true);
+    expect(
+      api.resolveTimelineLooping(player, 'はい', {
+        looping: false,
+      }),
+    ).toBe(false);
   });
 
   it('exposes Chinese fade slot hints for standard E-mote variables', () => {
@@ -156,5 +195,79 @@ describe('psb-runtime-metadata', () => {
       0,
     );
     expect(timelineCount).toBe(16);
+  });
+
+  it('skips server sync when sidecar already covers runtime labels', () => {
+    const api = loadRuntimeMetadata() as RuntimeApi & {
+      compactForServerSync: (runtimeCaps: Record<string, unknown>) => Record<string, unknown>;
+      needsServerSync: (serverMeta: Record<string, unknown>, compact: Record<string, unknown>) => boolean;
+    };
+    const serverMeta = {
+      timelines: [
+        { label: '待機', looping: true },
+        { label: '走る', looping: false },
+      ],
+      expressions: [{ label: '通常' }],
+      faceVariables: [{ label: 'face_mouth' }],
+      fadeVariables: [{ label: 'fade_w' }],
+      hasFaceTalk: true,
+    };
+    const compact = api.compactForServerSync({
+      timelines: [
+        { label: '待機', looping: true },
+        { label: '走る', looping: false },
+      ],
+      expressions: [{ label: '通常' }],
+      faceVariables: [{ label: 'face_mouth', minValue: 0, maxValue: 1, frames: [] }],
+      fadeVariables: [{ label: 'fade_w', minValue: 0, maxValue: 1, frames: [] }],
+      hasFaceTalk: true,
+    });
+    expect(api.needsServerSync(serverMeta, compact)).toBe(false);
+    expect(api.needsServerSync({ timelines: [] }, compact)).toBe(true);
+    expect(
+      api.needsServerSync(
+        { timelines: [{ label: '待機', looping: true }] },
+        compact,
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps encoded runtime-metadata request lines under the websockets default limit', () => {
+    const api = loadRuntimeMetadata() as RuntimeApi & {
+      compactForServerSync: (runtimeCaps: Record<string, unknown>) => Record<string, unknown>;
+      splitCompactForServerSync: (compact: Record<string, unknown>) => Array<Record<string, unknown>>;
+      estimateRuntimeSyncRequestLineChars: (part: Record<string, unknown>) => number;
+    };
+    const compact = api.compactForServerSync({
+      timelines: ['待機', 'おさんぽ', 'はい_遅', 'はい', 'はい_速', 'うんうん', 'いいえ', 'ありがとう'].map(
+        (label) => ({ label, looping: true }),
+      ),
+      expressions: [{ label: '通常' }, { label: '怒' }, { label: '笑' }, { label: 'びっくり' }],
+      faceVariables: Array.from({ length: 8 }, (_, index) => ({
+        label: `face_${index}`,
+        minValue: 0,
+        maxValue: 1,
+        frames: [
+          { label: '閉じ', value: 0 },
+          { label: '通常', value: 0.5 },
+          { label: 'びっくり', value: 1 },
+        ],
+      })),
+      fadeVariables: Array.from({ length: 6 }, (_, index) => ({
+        label: `fade_${index}`,
+        minValue: 0,
+        maxValue: 1,
+        frames: [
+          { label: '非表示', value: 0 },
+          { label: '表示', value: 1 },
+        ],
+      })),
+      hasFaceTalk: true,
+    });
+    const chunks = api.splitCompactForServerSync(compact);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(api.estimateRuntimeSyncRequestLineChars(chunk)).toBeLessThanOrEqual(7500);
+    }
   });
 });

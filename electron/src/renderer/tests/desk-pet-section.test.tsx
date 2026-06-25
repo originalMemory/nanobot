@@ -1,13 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import "@/i18n";
+import { DeskPetSection } from "@/components/settings/DeskPetSection";
 import { PsbSection } from "@/components/settings/PsbSection";
 import type { SettingsPayload } from "@/lib/types";
 
 vi.mock("@/lib/api", () => ({
   deletePsbModel: vi.fn(),
-  rescanPsbModel: vi.fn(),
-  retryPsbTranslation: vi.fn(),
 }));
 
 const baseSettings = {
@@ -43,43 +43,90 @@ const baseSettings = {
   },
 } as unknown as SettingsPayload;
 
-describe("PsbSection", () => {
-  it("renders PSB toggles and model directory hint", () => {
+const psbSectionProps = {
+  settings: baseSettings,
+  token: "tok",
+  apiBase: "http://127.0.0.1:8765",
+  onSave: vi.fn(),
+  onRefreshSettings: vi.fn(),
+};
+
+describe("DeskPetSection", () => {
+  it("switches between PSB and THA tabs", () => {
     render(
-      <PsbSection
+      <DeskPetSection
         settings={baseSettings}
         token="tok"
         apiBase="http://127.0.0.1:8765"
-        onSave={vi.fn()}
+        onSaveTha={vi.fn()}
+        onSavePsb={vi.fn()}
         onRefreshSettings={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("PSB Desk Pet")).toBeInTheDocument();
+    expect(screen.getByText("Models")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "THA" }));
+    expect(screen.getByText("Behavior")).toBeInTheDocument();
+    expect(screen.queryByText("Models")).not.toBeInTheDocument();
+  });
+});
+
+describe("PsbSection", () => {
+  it("renders PSB toggles and model directory hint", () => {
+    render(<PsbSection {...psbSectionProps} />);
+
+    expect(screen.getByText("Models")).toBeInTheDocument();
     expect(screen.getAllByText(/desk_pets\/psb/).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "打开" })).toBeInTheDocument();
-    expect(screen.getByText(/配置面板/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+    expect(screen.getByText(/config panel/i)).toBeInTheDocument();
   });
 
   it("calls onSave when autoShow toggled", () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
 
-    render(
-      <PsbSection
-        settings={baseSettings}
-        token="tok"
-        apiBase="http://127.0.0.1:8765"
-        onSave={onSave}
-        onRefreshSettings={vi.fn()}
-      />,
-    );
+    render(<PsbSection {...psbSectionProps} onSave={onSave} />);
 
     const switches = screen.getAllByRole("switch");
     fireEvent.click(switches[0]);
     expect(onSave).toHaveBeenCalledWith({ autoShow: true });
   });
 
-  it("shows translate button when translation is pending", () => {
+  it("selects model from the dropdown", () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const settings = {
+      ...baseSettings,
+      deskPet: {
+        ...baseSettings.deskPet,
+        psb: {
+          ...baseSettings.deskPet.psb,
+          selectedModelId: "other",
+          models: [
+            {
+              modelId: "demo",
+              name: "Demo",
+              format: "psb",
+              compatible: true,
+              translationStatus: "done",
+            },
+            {
+              modelId: "other",
+              name: "Other",
+              format: "psb",
+              compatible: true,
+              translationStatus: "done",
+            },
+          ],
+        },
+      },
+    } as unknown as SettingsPayload;
+
+    render(<PsbSection {...psbSectionProps} settings={settings} onSave={onSave} />);
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "demo" } });
+    expect(onSave).toHaveBeenCalledWith({ selectedModelId: "demo" });
+  });
+
+  it("shows translation status without manual translate action", () => {
     const settings = {
       ...baseSettings,
       deskPet: {
@@ -92,25 +139,18 @@ describe("PsbSection", () => {
               name: "Demo",
               format: "psb",
               compatible: true,
-              translationStatus: "pending",
+              translationStatus: "translating",
             },
           ],
         },
       },
     } as unknown as SettingsPayload;
 
-    render(
-      <PsbSection
-        settings={settings}
-        token="tok"
-        apiBase="http://127.0.0.1:8765"
-        onSave={vi.fn()}
-        onRefreshSettings={vi.fn()}
-      />,
-    );
+    render(<PsbSection {...psbSectionProps} settings={settings} />);
 
-    expect(screen.getByText("待翻译")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "翻译" })).toBeInTheDocument();
+    expect(screen.getByText("Translating")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Translate" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rescan" })).not.toBeInTheDocument();
   });
 
   it("loads and saves local window size", async () => {
@@ -123,75 +163,16 @@ describe("PsbSection", () => {
       configurable: true,
     });
 
-    render(
-      <PsbSection
-        settings={baseSettings}
-        token="tok"
-        apiBase="http://127.0.0.1:8765"
-        onSave={vi.fn()}
-        onRefreshSettings={vi.fn()}
-      />,
-    );
+    render(<PsbSection {...psbSectionProps} />);
 
     await waitFor(() => {
       expect(getWindowState).toHaveBeenCalled();
     });
-    expect(screen.getByText("窗口")).toBeInTheDocument();
+    expect(screen.getByText("Window size")).toBeInTheDocument();
     const widthInput = screen.getByDisplayValue("400");
     fireEvent.change(widthInput, { target: { value: "480" } });
     await waitFor(() => {
       expect(saveWindowState).toHaveBeenCalledWith({ width: 480, height: 500 });
-    });
-  });
-
-  it("shows message when translation fails", async () => {
-    const { retryPsbTranslation } = await import("@/lib/api");
-    vi.mocked(retryPsbTranslation).mockResolvedValue({
-      model: {
-        modelId: "demo",
-        name: "Demo",
-        format: "psb",
-        compatible: true,
-        translationStatus: "failed",
-        timelines: [],
-        expressions: [],
-        faceVariables: [],
-        fadeVariables: [],
-        initialState: { timeline: "", expression: "", face: {}, fade: {} },
-      },
-    });
-
-    const settings = {
-      deskPet: {
-        ...baseSettings.deskPet,
-        psb: {
-          ...baseSettings.deskPet.psb,
-          models: [
-            {
-              modelId: "demo",
-              name: "Demo",
-              format: "psb",
-              compatible: true,
-              translationStatus: "failed",
-            },
-          ],
-        },
-      },
-    } as unknown as SettingsPayload;
-
-    render(
-      <PsbSection
-        settings={settings}
-        token="tok"
-        apiBase="http://127.0.0.1:8765"
-        onSave={vi.fn()}
-        onRefreshSettings={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "重试翻译" }));
-    await waitFor(() => {
-      expect(screen.getByText(/翻译失败/)).toBeInTheDocument();
     });
   });
 });

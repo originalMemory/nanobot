@@ -78,6 +78,7 @@ export function InboxView({
   const [cliApps, setCliApps] = useState<CliAppInfo[]>([]);
   const [mcpPresets, setMcpPresets] = useState<McpPresetInfo[]>([]);
   const psbTurnEndRef = useRef<() => void>(() => {});
+  const psbSkipHistoryRef = useRef<() => void>(() => {});
   const {
     messages,
     isStreaming,
@@ -95,7 +96,7 @@ export function InboxView({
     () => psbTurnEndRef.current(),
     activeChannel,
   );
-  usePsbTagEffects(messages, modelSettings, psbTurnEndRef);
+  usePsbTagEffects(messages, modelSettings, psbTurnEndRef, psbSkipHistoryRef, isStreaming);
   const showPsbResponseTags = modelSettings?.deskPet?.psb?.showResponseTags ?? false;
 
   const showToast = useCallback((message: string) => {
@@ -126,6 +127,7 @@ export function InboxView({
         return;
       }
       replaceMessagesFromSnapshot(thread.messages ?? []);
+      psbSkipHistoryRef.current();
       const nextUnread = thread.unreadCount ?? 0;
       setUnreadCount(nextUnread);
       if (nextUnread > 0) {

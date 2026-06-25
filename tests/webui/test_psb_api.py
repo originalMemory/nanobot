@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from nanobot.config.loader import load_config, save_config
@@ -203,6 +205,77 @@ async def test_merge_runtime_metadata_persists_capabilities(psb_runtime) -> None
 
 
 @pytest.mark.asyncio
+async def test_merge_runtime_metadata_writes_compact_timeline_fields(psb_runtime) -> None:
+    place_psb_file(psb_runtime)
+    await scan_psb_models()
+
+    metadata = await merge_runtime_metadata(
+        "demo",
+        {
+            "timelines": [
+                {"label": "待機", "looping": True},
+                {"label": "走る", "looping": False},
+            ],
+        },
+    )
+
+    idle = next(item for item in metadata["timelines"] if item["label"] == "待機")
+    once = next(item for item in metadata["timelines"] if item["label"] == "走る")
+    assert idle["looping"] is True
+    assert once["looping"] is False
+    assert "loopBegin" not in idle
+    assert "diff" not in idle
+
+    stored = get_model("demo")
+    assert stored["timelines"][0] == {"label": "待機", "looping": True}
+    assert stored["timelines"][1] == {"label": "走る", "looping": False}
+    assert "psbVersion" not in stored
+    assert "parseError" not in stored
+
+
+@pytest.mark.asyncio
+async def test_compact_metadata_omits_duplicate_label_zh(psb_runtime) -> None:
+    from nanobot.webui.psb_store import _compact_metadata
+
+    compact = _compact_metadata(
+        {
+            "modelId": "demo",
+            "name": "Demo",
+            "format": "psb",
+            "compatible": True,
+            "psbFile": "demo.psb",
+            "hasFaceTalk": True,
+            "translationStatus": "done",
+            "parseError": None,
+            "psbVersion": 4,
+            "webSdkLikely": False,
+            "timelines": [{"label": "待機", "labelZh": "待机", "looping": True}],
+            "expressions": [{"label": "通常", "labelZh": "通常"}],
+            "faceVariables": [
+                {
+                    "label": "face_mouth",
+                    "labelZh": "face_mouth",
+                    "hint": "",
+                    "hintZh": "",
+                    "minValue": 0,
+                    "maxValue": 1,
+                    "frames": [{"label": "閉じ", "labelZh": "闭上", "value": 0}],
+                }
+            ],
+            "fadeVariables": [],
+            "initialState": {"timeline": "", "expression": "", "face": {}, "fade": {}},
+        }
+    )
+    assert compact["timelines"] == [{"label": "待機", "labelZh": "待机", "looping": True}]
+    assert compact["expressions"] == [{"label": "通常"}]
+    assert compact["faceVariables"][0]["label"] == "face_mouth"
+    assert "labelZh" not in compact["faceVariables"][0]
+    assert compact["faceVariables"][0]["frames"] == [{"label": "閉じ", "labelZh": "闭上", "value": 0}]
+    assert "hint" not in compact["faceVariables"][0]
+    assert "psbVersion" not in compact
+
+
+@pytest.mark.asyncio
 async def test_merge_runtime_metadata_keeps_fade_machine_names(psb_runtime) -> None:
     place_psb_file(psb_runtime)
     await scan_psb_models()
@@ -221,7 +294,8 @@ async def test_merge_runtime_metadata_keeps_fade_machine_names(psb_runtime) -> N
     fade = metadata["fadeVariables"][0]
     assert fade["label"] == "fade_w"
     assert fade["labelZh"] == "fade_w"
-    assert not fade.get("hintZh")
+    assert "hint" not in fade
+    assert "hintZh" not in fade
 
 
 @pytest.mark.asyncio
@@ -292,7 +366,7 @@ async def test_merge_runtime_metadata_timeline_chunks_accumulate(psb_runtime) ->
 
 
 @pytest.mark.asyncio
-async def test_merge_runtime_metadata_defers_llm_translation(psb_runtime, monkeypatch) -> None:
+async def test_merge_runtime_metadata_schedules_background_translation(psb_runtime, monkeypatch) -> None:
     place_psb_file(psb_runtime)
     await scan_psb_models()
 
@@ -301,7 +375,7 @@ async def test_merge_runtime_metadata_defers_llm_translation(psb_runtime, monkey
     async def _spy_translate(labels: list[str]) -> tuple[dict[str, str], str]:
         nonlocal called
         called = True
-        return {}, "done"
+        return {"待機": "待机"}, "done"
 
     monkeypatch.setattr("nanobot.webui.psb_store.translate_psb_labels", _spy_translate)
 
@@ -311,12 +385,23 @@ async def test_merge_runtime_metadata_defers_llm_translation(psb_runtime, monkey
     )
 
     assert called is False
-    assert metadata["translationStatus"] == "pending"
+    assert metadata["translationStatus"] == "translating"
     assert metadata["timelines"][0]["labelZh"] == "待機"
+
+    await asyncio.sleep(0.6)
+    for _ in range(20):
+        if called:
+            break
+        await asyncio.sleep(0.1)
+    assert called is True
+
+    refreshed = get_model("demo")
+    assert refreshed["translationStatus"] == "done"
+    assert refreshed["timelines"][0]["labelZh"] == "待机"
 
 
 @pytest.mark.asyncio
-async def test_merge_runtime_metadata_preserves_failed_translation_status(psb_runtime) -> None:
+async def test_merge_runtime_metadata_retries_after_failed_translation(psb_runtime, monkeypatch) -> None:
     place_psb_file(psb_runtime)
     await scan_psb_models()
     metadata = get_model("demo")
@@ -325,8 +410,25 @@ async def test_merge_runtime_metadata_preserves_failed_translation_status(psb_ru
 
     _write_metadata(metadata["psbFile"], metadata)
 
+    called = False
+
+    async def _spy_translate(labels: list[str]) -> tuple[dict[str, str], str]:
+        nonlocal called
+        called = True
+        return {"待機": "待机"}, "done"
+
+    monkeypatch.setattr("nanobot.webui.psb_store.translate_psb_labels", _spy_translate)
+
     updated = await merge_runtime_metadata(
         "demo",
         {"timelines": [{"label": "待機", "looping": True}]},
     )
-    assert updated["translationStatus"] == "failed"
+    assert updated["translationStatus"] == "translating"
+
+    await asyncio.sleep(0.6)
+    for _ in range(20):
+        if called:
+            break
+        await asyncio.sleep(0.1)
+    assert called is True
+    assert get_model("demo")["translationStatus"] == "done"

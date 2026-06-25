@@ -19,6 +19,9 @@ if sys.platform == "win32":
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+# PSB runtime-metadata 经 GET query 上报；须在 websockets 载入 http11 限制之前设置。
+os.environ.setdefault("WEBSOCKETS_MAX_LINE_LENGTH", "32768")
+
 # Keep console encoding setup before importing CLI UI/logging libraries.
 import typer  # noqa: E402
 from loguru import logger  # noqa: E402

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
+
+from loguru import logger
 
 from nanobot.config.loader import load_config, save_config
 from nanobot.config.paths import get_psb_dir
@@ -17,6 +20,8 @@ from nanobot.webui.psb_translate import labels_need_translation, translate_psb_l
 
 _MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 _META_SUFFIX = ".meta.json"
+_METADATA_TRANSLATION_DEBOUNCE_S = 0.5
+_metadata_translation_tasks: dict[str, asyncio.Task[None]] = {}
 
 
 class PsbStoreError(ValueError):
@@ -51,9 +56,100 @@ def _read_metadata(model_id: str) -> dict[str, Any] | None:
 def _write_metadata(psb_filename: str, data: dict[str, Any]) -> None:
     get_psb_dir().mkdir(parents=True, exist_ok=True)
     _metadata_path(psb_filename).write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
+        json.dumps(_compact_metadata(data), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def _optional_label_zh(label: str, label_zh: str | None) -> str | None:
+    text = str(label_zh or "").strip()
+    if text and text != label:
+        return text
+    return None
+
+
+def _compact_frame(frame: dict[str, Any]) -> dict[str, Any]:
+    label = str(frame.get("label") or "")
+    compact: dict[str, Any] = {"label": label, "value": frame.get("value")}
+    zh = _optional_label_zh(label, str(frame.get("labelZh") or ""))
+    if zh:
+        compact["labelZh"] = zh
+    return compact
+
+
+def _compact_timeline_item(item: dict[str, Any]) -> dict[str, Any]:
+    label = str(item.get("label") or "")
+    compact: dict[str, Any] = {"label": label, "looping": bool(item.get("looping", False))}
+    zh = _optional_label_zh(label, str(item.get("labelZh") or ""))
+    if zh:
+        compact["labelZh"] = zh
+    return compact
+
+
+def _compact_expression_item(item: dict[str, Any]) -> dict[str, Any]:
+    label = str(item.get("label") or "")
+    compact: dict[str, Any] = {"label": label}
+    zh = _optional_label_zh(label, str(item.get("labelZh") or ""))
+    if zh:
+        compact["labelZh"] = zh
+    return compact
+
+
+def _compact_variable_item(item: dict[str, Any]) -> dict[str, Any]:
+    label = str(item.get("label") or "")
+    compact: dict[str, Any] = {
+        "label": label,
+        "minValue": item.get("minValue", 0),
+        "maxValue": item.get("maxValue", 1),
+        "frames": [
+            _compact_frame(frame)
+            for frame in item.get("frames") or []
+            if isinstance(frame, dict)
+        ],
+    }
+    zh = _optional_label_zh(label, str(item.get("labelZh") or ""))
+    if zh:
+        compact["labelZh"] = zh
+    return compact
+
+
+def _compact_metadata(data: dict[str, Any]) -> dict[str, Any]:
+    """落盘前去掉未使用的占位字段，并省略与 label 相同的中文。"""
+    compact: dict[str, Any] = {
+        "modelId": data.get("modelId"),
+        "name": data.get("name"),
+        "format": data.get("format"),
+        "compatible": data.get("compatible"),
+        "psbFile": data.get("psbFile"),
+        "hasFaceTalk": data.get("hasFaceTalk"),
+        "translationStatus": data.get("translationStatus"),
+        "timelines": [
+            _compact_timeline_item(item)
+            for item in data.get("timelines") or []
+            if isinstance(item, dict)
+        ],
+        "expressions": [
+            _compact_expression_item(item)
+            for item in data.get("expressions") or []
+            if isinstance(item, dict)
+        ],
+        "faceVariables": [
+            _compact_variable_item(item)
+            for item in data.get("faceVariables") or []
+            if isinstance(item, dict)
+        ],
+        "fadeVariables": [
+            _compact_variable_item(item)
+            for item in data.get("fadeVariables") or []
+            if isinstance(item, dict)
+        ],
+        "initialState": data.get("initialState")
+        or {"timeline": "", "expression": "", "face": {}, "fade": {}},
+    }
+    parse_error = data.get("parseError")
+    if parse_error:
+        compact["parseError"] = parse_error
+    return compact
 
 
 def _model_id_from_filename(filename: str) -> str:
@@ -177,69 +273,93 @@ def delete_model(model_id: str) -> dict[str, Any]:
     return {"ok": True, "clearedSelection": cleared_selection}
 
 
-async def rescan_model(model_id: str) -> dict[str, Any]:
+def _metadata_translation_collections(metadata: dict[str, Any]) -> list[list[dict[str, Any]]]:
+    return [
+        list(metadata.get(key) or [])
+        for key in ("timelines", "expressions", "faceVariables", "fadeVariables")
+    ]
+
+
+def _collect_metadata_translation_labels(metadata: dict[str, Any]) -> list[str]:
+    return _collect_translation_labels(_metadata_translation_collections(metadata))
+
+
+def _apply_translation_to_metadata(metadata: dict[str, Any], translation_map: dict[str, str]) -> None:
+    _apply_translation_labels(_metadata_translation_collections(metadata), translation_map)
+
+
+async def _translate_metadata_once(model_id: str) -> None:
+    """读取 sidecar 全量标签并调用 LLM 翻译，写回 metadata。"""
     _validate_model_id(model_id)
     metadata = _read_metadata(model_id)
     if metadata is None:
-        raise PsbStoreError("model not found", status=404)
-    psb_path = _psb_path_for_model(metadata)
-    display_name = str(metadata.get("name") or psb_path.stem)
-    initial_state = metadata.get("initialState")
-    refreshed = await _finalize_metadata(model_id, psb_path, display_name)
-    if isinstance(initial_state, dict):
-        refreshed["initialState"] = initial_state
-        _write_metadata(psb_path.name, refreshed)
-    return refreshed
+        return
 
-
-async def retry_translation(model_id: str) -> dict[str, Any]:
-    _validate_model_id(model_id)
-    metadata = _read_metadata(model_id)
-    if metadata is None:
-        raise PsbStoreError("model not found", status=404)
-
-    labels: list[str] = []
-    for key in ("timelines", "expressions", "faceVariables", "fadeVariables"):
-        for item in metadata.get(key) or []:
-            if not isinstance(item, dict):
-                continue
-            label = str(item.get("label") or "").strip()
-            if label:
-                labels.append(label)
-            for frame in item.get("frames") or []:
-                if isinstance(frame, dict):
-                    frame_label = str(frame.get("label") or "").strip()
-                    if frame_label:
-                        labels.append(frame_label)
-
-    pending = labels_need_translation(labels)
+    pending = labels_need_translation(_collect_metadata_translation_labels(metadata))
     if not pending:
         metadata["translationStatus"] = "skipped"
         psb_file = str(metadata.get("psbFile") or "")
         if psb_file:
             _write_metadata(psb_file, metadata)
-        return metadata
+        return
 
-    translation_map, status = await translate_psb_labels(pending)
-    metadata["translationStatus"] = status
-    if translation_map:
-        for key in ("timelines", "expressions", "faceVariables", "fadeVariables"):
-            for item in metadata.get(key) or []:
-                if not isinstance(item, dict):
-                    continue
-                label = str(item.get("label") or "")
-                if label in translation_map:
-                    item["labelZh"] = translation_map[label]
-                for frame in item.get("frames") or []:
-                    if not isinstance(frame, dict):
-                        continue
-                    frame_label = str(frame.get("label") or "")
-                    if frame_label in translation_map:
-                        frame["labelZh"] = translation_map[frame_label]
+    metadata["translationStatus"] = "translating"
     psb_file = str(metadata.get("psbFile") or "")
     if psb_file:
         _write_metadata(psb_file, metadata)
-    return metadata
+
+    translation_map, status = await translate_psb_labels(pending)
+
+    metadata = _read_metadata(model_id)
+    if metadata is None:
+        return
+    if translation_map:
+        _apply_translation_to_metadata(metadata, translation_map)
+    metadata["translationStatus"] = status
+    psb_file = str(metadata.get("psbFile") or "")
+    if psb_file:
+        _write_metadata(psb_file, metadata)
+
+
+async def _debounced_metadata_translation(model_id: str) -> None:
+    try:
+        await asyncio.sleep(_METADATA_TRANSLATION_DEBOUNCE_S)
+        await _translate_metadata_once(model_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.warning("PSB metadata translation failed for {}: {}", model_id, exc)
+        metadata = _read_metadata(model_id)
+        if metadata is None:
+            return
+        metadata["translationStatus"] = "failed"
+        psb_file = str(metadata.get("psbFile") or "")
+        if psb_file:
+            _write_metadata(psb_file, metadata)
+
+
+def _schedule_metadata_translation(model_id: str) -> None:
+    """分块 runtime sync 结束后合并触发一次后台翻译。"""
+    existing = _metadata_translation_tasks.pop(model_id, None)
+    if existing and not existing.done():
+        existing.cancel()
+    _metadata_translation_tasks[model_id] = asyncio.create_task(
+        _debounced_metadata_translation(model_id),
+        name=f"psb-metadata-translation:{model_id}",
+    )
+
+
+async def retry_translation(model_id: str) -> dict[str, Any]:
+    """立即翻译（测试/内部用）；正常运行时由 merge_runtime_metadata 自动调度。"""
+    _validate_model_id(model_id)
+    metadata = _read_metadata(model_id)
+    if metadata is None:
+        raise PsbStoreError("model not found", status=404)
+    await _translate_metadata_once(model_id)
+    refreshed = _read_metadata(model_id)
+    if refreshed is None:
+        raise PsbStoreError("model not found", status=404)
+    return refreshed
 
 
 def save_initial_state(model_id: str, state: PSBInitialState) -> dict[str, Any]:
@@ -292,14 +412,11 @@ def _merge_timeline_item(metadata: dict[str, Any], item: dict[str, Any]) -> dict
         if isinstance(existing, dict) and existing.get("label")
     }
     prev = existing_tl.get(label, {})
+    looping = bool(item.get("looping", prev.get("looping", False)))
     return {
         "label": label,
-        "labelZh": str(prev.get("labelZh") or label),
-        "diff": bool(item.get("diff", prev.get("diff", False))),
-        "loopBegin": item.get("loopBegin", prev.get("loopBegin", 0)),
-        "loopEnd": item.get("loopEnd", prev.get("loopEnd", -1)),
-        "lastTime": item.get("lastTime", prev.get("lastTime", -1)),
-        "looping": bool(item.get("looping", prev.get("looping", False))),
+        "labelZh": str(prev.get("labelZh") or item.get("labelZh") or label),
+        "looping": looping,
     }
 
 
@@ -414,13 +531,10 @@ def _merge_variable_item(
             )
     elif prev.get("frames"):
         frames = [dict(frame) for frame in prev.get("frames") or [] if isinstance(frame, dict)]
-    hint_zh = str(prev.get("hintZh") or item.get("hintZh") or "")
     label_zh = str(prev.get("labelZh") or item.get("labelZh") or label)
     return {
         "label": label,
         "labelZh": label_zh,
-        "hint": str(prev.get("hint") or item.get("hint") or ""),
-        "hintZh": hint_zh,
         "minValue": item.get("minValue", prev.get("minValue", 0)),
         "maxValue": item.get("maxValue", prev.get("maxValue", 1)),
         "frames": frames,
@@ -540,15 +654,6 @@ async def merge_runtime_metadata(model_id: str, runtime: dict[str, Any]) -> dict
     if "fadeVariables" in patch_keys:
         updated_collections.append(fade_variables)
 
-    labels_to_translate = _collect_translation_labels(updated_collections)
-    translation_status = str(metadata.get("translationStatus") or "skipped")
-    pending = labels_need_translation(labels_to_translate)
-    if pending and translation_status != "failed":
-        # runtime sync 走分块 GET，不能在 HTTP 请求里 await LLM（数十秒会导致连接超时）。
-        # 中文展示可在设置页点「重试翻译」，或后续改为异步翻译任务。
-        # 已标记 failed 时保留，避免桌宠 sync 把失败状态冲回 pending。
-        translation_status = "pending"
-
     _apply_translation_labels(updated_collections, {})
 
     if "timelines" in patch_keys:
@@ -561,12 +666,23 @@ async def merge_runtime_metadata(model_id: str, runtime: dict[str, Any]) -> dict
         metadata["fadeVariables"] = fade_variables
     if "hasFaceTalk" in patch_keys:
         metadata["hasFaceTalk"] = bool(runtime.get("hasFaceTalk"))
+
+    pending = labels_need_translation(_collect_metadata_translation_labels(metadata))
+    if pending:
+        translation_status = "translating"
+    elif str(metadata.get("translationStatus") or "") in {"pending", "translating"}:
+        translation_status = "done"
+    else:
+        translation_status = str(metadata.get("translationStatus") or "skipped")
+
     metadata["translationStatus"] = translation_status
 
     psb_file = str(metadata.get("psbFile") or "")
     if not psb_file:
         raise PsbStoreError("model file missing")
     _write_metadata(psb_file, metadata)
+    if pending:
+        _schedule_metadata_translation(model_id)
     return metadata
 
 

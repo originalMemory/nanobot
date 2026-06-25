@@ -16,9 +16,7 @@ from nanobot.webui.psb_store import (
     delete_model,
     get_model,
     list_models,
-    rescan_model,
     resolve_model_file,
-    retry_translation,
     save_initial_state,
     merge_runtime_metadata,
 )
@@ -51,22 +49,6 @@ def psb_delete_payload(model_id: str) -> dict[str, Any]:
         return delete_model(model_id)
     except PsbStoreError as exc:
         raise _wrap_store_error(exc) from exc
-
-
-async def psb_rescan_payload(model_id: str) -> dict[str, Any]:
-    try:
-        metadata = await rescan_model(model_id)
-    except PsbStoreError as exc:
-        raise _wrap_store_error(exc) from exc
-    return {"model": metadata}
-
-
-async def psb_retry_translation_payload(model_id: str) -> dict[str, Any]:
-    try:
-        metadata = await retry_translation(model_id)
-    except PsbStoreError as exc:
-        raise _wrap_store_error(exc) from exc
-    return {"model": metadata}
 
 
 def psb_save_initial_state_payload(model_id: str, query: dict[str, list[str]]) -> dict[str, Any]:

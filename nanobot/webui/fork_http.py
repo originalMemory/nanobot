@@ -96,8 +96,6 @@ from nanobot.webui.psb_api import (
     psb_model_detail_payload,
     psb_models_list_payload,
     psb_resolve_file,
-    psb_retry_translation_payload,
-    psb_rescan_payload,
     psb_save_initial_state_payload,
     psb_runtime_metadata_payload,
 )
@@ -827,12 +825,6 @@ class ForkGatewayHTTPHandler:
             m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/delete$", got)
             if m:
                 return _http_json_response(psb_delete_payload(m.group(1)))
-            m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/rescan$", got)
-            if m:
-                return await self._run_async_json(psb_rescan_payload(m.group(1)))
-            m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/retry-translation$", got)
-            if m:
-                return await self._run_async_json(psb_retry_translation_payload(m.group(1)))
             m = re.match(r"^/api/desk-pet/psb/models/([^/]+)/initial-state/update$", got)
             if m:
                 return _http_json_response(psb_save_initial_state_payload(m.group(1), query))

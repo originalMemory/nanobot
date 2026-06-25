@@ -709,6 +709,15 @@ class WebSocketChannel(BaseChannel):
     async def start(self) -> None:
         from nanobot.utils.logging_bridge import redirect_lib_logging
 
+        # 允许 PSB runtime-metadata 等大 query GET；若进程启动后才设置环境变量则在此同步。
+        import os
+
+        import websockets.http11 as ws_http11
+
+        line_limit = int(os.environ.get("WEBSOCKETS_MAX_LINE_LENGTH", "8192"))
+        if ws_http11.MAX_LINE_LENGTH < line_limit:
+            ws_http11.MAX_LINE_LENGTH = line_limit
+
         redirect_lib_logging("websockets", level="WARNING")
         ws_logger = websockets_server_logger()
 

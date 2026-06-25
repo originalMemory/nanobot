@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ExternalLink, RefreshCcw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,9 +20,14 @@ interface ThaSectionProps {
 }
 
 export function ThaSection({ settings, token, apiBase, onSave }: ThaSectionProps) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const config = settings.deskPet.tha.config;
   const model = settings.deskPet.tha.model;
   const [, setSaving] = useState(false);
+
+  const toggleLabel = (checked: boolean) =>
+    checked ? tx("settings.values.enabled", "Enabled") : tx("settings.deskPet.common.toggleOff", "Off");
 
   async function save(update: ThaSettingsUpdate) {
     setSaving(true);
@@ -45,97 +51,125 @@ export function ThaSection({ settings, token, apiBase, onSave }: ThaSectionProps
   }
 
   return (
-    <>
-      <SettingsSectionTitle>THA Desk Pet</SettingsSectionTitle>
-      <SettingsGroup>
-        <SettingsRow
-          title="启动 THA"
-          description="打开独立 2D 桌面宠物页面；Electron 中会创建透明置顶窗口。"
-        >
-          <Button type="button" size="sm" onClick={openTha} className="gap-2">
-            <ExternalLink className="h-4 w-4" aria-hidden />
-            打开
-          </Button>
-        </SettingsRow>
-        <SettingsRow title="表情标签" description="允许模型输出 <happy> / <nod> 等标签驱动 THA。">
-          <ToggleButton
-            checked={config.enabledEmotions}
-            label={config.enabledEmotions ? "已启用" : "已关闭"}
-            onChange={(enabledEmotions) => save({ enabledEmotions })}
-          />
-        </SettingsRow>
-        <SettingsRow title="口型同步" description="THA 页面播放音频并分析音量后驱动 mouth。">
-          <ToggleButton
-            checked={config.enabledMouthSync}
-            label={config.enabledMouthSync ? "已启用" : "已关闭"}
-            onChange={(enabledMouthSync) => save({ enabledMouthSync })}
-          />
-        </SettingsRow>
-      </SettingsGroup>
-
-      <SettingsSectionTitle>模型</SettingsSectionTitle>
-      <SettingsGroup>
-        <SettingsRow
-          title={model.available ? "模型已就绪" : "未找到模型"}
-          description="固定读取 tha_model/model.mlpackage 或 tha_model/model.onnx；更换模型时直接替换该文件。"
-        >
-          <span className="block max-w-[360px] truncate text-right text-[13px] text-muted-foreground">
-            {model.available ? `${model.format} · ${model.path}` : model.path}
-          </span>
-        </SettingsRow>
-      </SettingsGroup>
-
-      <SettingsSectionTitle>窗口与延迟</SettingsSectionTitle>
-      <SettingsGroup>
-        <SettingsRow title="窗口宽度">
-          <Input
-            type="number"
-            min={240}
-            max={2400}
-            value={config.windowWidth}
-            onChange={(event) => save({ windowWidth: Number(event.target.value) })}
-            className="w-28"
-          />
-        </SettingsRow>
-        <SettingsRow title="窗口高度">
-          <Input
-            type="number"
-            min={240}
-            max={2400}
-            value={config.windowHeight}
-            onChange={(event) => save({ windowHeight: Number(event.target.value) })}
-            className="w-28"
-          />
-        </SettingsRow>
-        <SettingsRow
-          title="音频延迟"
-          description="远程 gateway 场景用于补偿 mouth 指令、后端渲染和 JPEG 回传延迟。"
-        >
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              max={2000}
-              value={config.audioDelayMs}
-              onChange={(event) => save({ audioDelayMs: Number(event.target.value) })}
-              className="w-28"
-            />
-            <span className="text-xs text-muted-foreground">ms</span>
-          </div>
-        </SettingsRow>
-        <SettingsRow title="关闭 THA 窗口">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={() => void window.electronAPI?.tha?.closeAll()}
+    <div className="space-y-7">
+      <section>
+        <SettingsSectionTitle>{tx("settings.deskPet.tha.behaviorSection", "Behavior")}</SettingsSectionTitle>
+        <SettingsGroup>
+          <SettingsRow
+            title={tx("settings.deskPet.tha.launch", "Launch THA")}
+            description={tx(
+              "settings.deskPet.tha.launchDescription",
+              "Open the standalone 2D desk pet page; in Electron this creates a transparent always-on-top window.",
+            )}
           >
-            <RefreshCcw className="h-4 w-4" aria-hidden />
-            关闭全部
-          </Button>
-        </SettingsRow>
-      </SettingsGroup>
-    </>
+            <Button type="button" size="sm" onClick={openTha} className="gap-2">
+              <ExternalLink className="h-4 w-4" aria-hidden />
+              {tx("settings.deskPet.common.open", "Open")}
+            </Button>
+          </SettingsRow>
+          <SettingsRow
+            title={tx("settings.deskPet.tha.emotionTags", "Emotion tags")}
+            description={tx(
+              "settings.deskPet.tha.emotionTagsDescription",
+              "Allow the model to output <happy> / <nod> tags to drive THA.",
+            )}
+          >
+            <ToggleButton
+              checked={config.enabledEmotions}
+              label={toggleLabel(config.enabledEmotions)}
+              onChange={(enabledEmotions) => save({ enabledEmotions })}
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={tx("settings.deskPet.tha.mouthSync", "Mouth sync")}
+            description={tx(
+              "settings.deskPet.tha.mouthSyncDescription",
+              "THA page plays audio and analyzes volume to drive the mouth.",
+            )}
+          >
+            <ToggleButton
+              checked={config.enabledMouthSync}
+              label={toggleLabel(config.enabledMouthSync)}
+              onChange={(enabledMouthSync) => save({ enabledMouthSync })}
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={
+              model.available
+                ? tx("settings.deskPet.tha.modelReady", "Model ready")
+                : tx("settings.deskPet.tha.modelMissing", "Model not found")
+            }
+            description={tx(
+              "settings.deskPet.tha.modelPathDescription",
+              "Reads tha_model/model.mlpackage or tha_model/model.onnx; replace that file to swap models.",
+            )}
+          >
+            <span className="block max-w-[360px] truncate text-right text-[13px] text-muted-foreground">
+              {model.available ? `${model.format} · ${model.path}` : model.path}
+            </span>
+          </SettingsRow>
+        </SettingsGroup>
+      </section>
+
+      <section>
+        <SettingsSectionTitle>{tx("settings.deskPet.tha.windowSection", "Window")}</SettingsSectionTitle>
+        <SettingsGroup>
+          <SettingsRow title={tx("settings.deskPet.tha.windowSize", "Window size")}>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={240}
+                max={2400}
+                value={config.windowWidth}
+                onChange={(event) => save({ windowWidth: Number(event.target.value) })}
+                className="w-24"
+                aria-label={tx("settings.deskPet.tha.windowSize", "Window size")}
+              />
+              <span className="text-xs text-muted-foreground">×</span>
+              <Input
+                type="number"
+                min={240}
+                max={2400}
+                value={config.windowHeight}
+                onChange={(event) => save({ windowHeight: Number(event.target.value) })}
+                className="w-24"
+                aria-label={tx("settings.deskPet.tha.windowSize", "Window size")}
+              />
+            </div>
+          </SettingsRow>
+          <SettingsRow
+            title={tx("settings.deskPet.tha.audioDelay", "Audio delay")}
+            description={tx(
+              "settings.deskPet.tha.audioDelayDescription",
+              "Compensates mouth command, backend rendering, and JPEG return latency when using a remote gateway.",
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                max={2000}
+                value={config.audioDelayMs}
+                onChange={(event) => save({ audioDelayMs: Number(event.target.value) })}
+                className="w-24"
+              />
+              <span className="text-xs text-muted-foreground">ms</span>
+            </div>
+          </SettingsRow>
+          <SettingsRow title={tx("settings.deskPet.tha.closeWindows", "Close THA window")}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => void window.electronAPI?.tha?.closeAll()}
+            >
+              <RefreshCcw className="h-4 w-4" aria-hidden />
+              {tx("settings.deskPet.common.closeAll", "Close all")}
+            </Button>
+          </SettingsRow>
+        </SettingsGroup>
+      </section>
+    </div>
   );
 }
