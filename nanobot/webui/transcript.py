@@ -769,12 +769,6 @@ def replay_transcript_to_ui_messages(
                     target_index = i
                     break
         if target_index is None:
-            for i in range(len(messages) - 1, -1, -1):
-                candidate = messages[i]
-                if candidate.get("role") == "assistant" and candidate.get("kind") != "trace":
-                    target_index = i
-                    break
-        if target_index is None:
             return
         target = messages[target_index]
         previous = [item for item in target.get("playbackSegments") or [] if isinstance(item, dict)]

@@ -16,6 +16,7 @@ from websockets.frames import Close
 
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
+from nanobot.agent.playback_segments import AssistantPlaybackSegment, SegmentAudio
 from nanobot.channels.websocket import (
     WebSocketChannel,
     WebSocketConfig,
@@ -922,6 +923,32 @@ async def test_send_delta_emits_message_bound_playback_segment(monkeypatch, tmp_
     assert persisted["audio"]["status"] == "ready"
     assert persisted["audio"]["path"].endswith(".wav")
     assert "url" not in persisted["audio"]
+
+
+def test_session_playback_segment_waits_for_matching_assistant_message(tmp_path) -> None:
+    bus = MagicMock()
+    sessions = SessionManager(tmp_path / "sessions")
+    session = sessions.get_or_create("websocket:chat-1")
+    session.messages.append({"id": "old", "role": "assistant", "content": "old answer"})
+    sessions.save(session)
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True},
+        bus,
+        gateway=_basic_handler(bus, session_manager=sessions),
+    )
+    segment = AssistantPlaybackSegment(
+        chat_id="chat-1",
+        message_id="new",
+        segment_index=0,
+        raw_text="new answer.",
+        audio=SegmentAudio(status="ready", path=str(tmp_path / "tts.wav")),
+    )
+
+    channel._try_append_session_playback_segment(segment)
+
+    refreshed = sessions.get_or_create("websocket:chat-1")
+    assert "playbackSegments" not in refreshed.messages[0]
+    assert ("websocket:chat-1", "new") in channel._pending_session_playback_segments
 
 
 @pytest.mark.asyncio

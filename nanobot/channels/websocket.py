@@ -1441,11 +1441,6 @@ class WebSocketChannel(BaseChannel):
                     target_index = index
                     break
             if target_index is None:
-                for index in range(len(session.messages) - 1, -1, -1):
-                    if session.messages[index].get("role") == "assistant":
-                        target_index = index
-                        break
-            if target_index is None:
                 self._pending_session_playback_segments[pending_key] = segments
                 attempts = self._pending_session_playback_retries.get(pending_key, 0)
                 if attempts >= 5:
@@ -1453,7 +1448,11 @@ class WebSocketChannel(BaseChannel):
                     self._pending_session_playback_retries.pop(pending_key, None)
                     return
                 self._pending_session_playback_retries[pending_key] = attempts + 1
-                asyncio.create_task(self._retry_pending_session_playback_segments(pending_key))
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                loop.create_task(self._retry_pending_session_playback_segments(pending_key))
                 return
 
             target = session.messages[target_index]

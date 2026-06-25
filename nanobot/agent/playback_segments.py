@@ -15,7 +15,7 @@ _PSB_TAG_RE = re.compile(
     re.IGNORECASE,
 )
 _ATTR_RE = re.compile(r"""(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
-_SEGMENT_END_RE = re.compile(r"[\n。！？!?；;]+|(?<!\.)\.(?!\.)")
+_SEGMENT_END_CHARS = frozenset("\n\u3002\uff01\uff1f!?\uff1b;")
 _THA_TAG_RE = re.compile(r"<[^>]+>")
 
 
@@ -179,10 +179,9 @@ class AssistantPlaybackSegmenter:
     def _flush_completed(self) -> list[AssistantPlaybackSegment]:
         segments: list[AssistantPlaybackSegment] = []
         while True:
-            match = _SEGMENT_END_RE.search(self._buffer)
-            if not match:
+            end = _find_segment_end(self._buffer)
+            if end is None:
                 break
-            end = match.end()
             raw = self._buffer[:end]
             self._buffer = self._buffer[end:]
             if raw.strip():
@@ -210,3 +209,23 @@ class AssistantPlaybackSegmenter:
             return None
         self._next_index += 1
         return segment
+
+
+def _find_segment_end(text: str) -> int | None:
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "<":
+            tag_end = text.find(">", index + 1)
+            if tag_end != -1:
+                index = tag_end + 1
+                continue
+        if char in _SEGMENT_END_CHARS:
+            return index + 1
+        if char == ".":
+            prev_char = text[index - 1] if index > 0 else ""
+            next_char = text[index + 1] if index + 1 < len(text) else ""
+            if prev_char != "." and next_char != "." and not (prev_char.isdigit() and next_char.isdigit()):
+                return index + 1
+        index += 1
+    return None

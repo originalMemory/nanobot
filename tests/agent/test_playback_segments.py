@@ -70,3 +70,19 @@ def test_newline_flushes_segment() -> None:
     assert segments[0].controls[0]["type"] == "face"
     assert segments[0].speech_text == "第一行"
     assert segments[1].speech_text == "第二行"
+
+
+def test_segmenter_does_not_split_decimal_psb_attribute() -> None:
+    segmenter = AssistantPlaybackSegmenter(chat_id="chat", message_id="m3")
+
+    segments = segmenter.feed('<psb:face var="face_mouth" value="0.8" />hello\nnext')
+    segments += segmenter.finish(" line")
+
+    assert [segment.raw_text for segment in segments] == [
+        '<psb:face var="face_mouth" value="0.8" />hello\n',
+        "next line",
+    ]
+    assert segments[0].controls == [
+        {"kind": "psb", "type": "face", "payload": {"var": "face_mouth", "value": "0.8"}}
+    ]
+    assert segments[0].speech_text == "hello"

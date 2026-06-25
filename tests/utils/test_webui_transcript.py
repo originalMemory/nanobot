@@ -970,3 +970,25 @@ def test_replay_user_remote_media_urls_render_as_attachments() -> None:
     assert msgs[0]["images"] == [
         {"url": "https://cdn.example.test/input.jpg", "name": "input.jpg"},
     ]
+
+
+def test_replay_playback_segment_does_not_attach_without_matching_message_id() -> None:
+    msgs = replay_transcript_to_ui_messages([
+        {"event": "delta", "chat_id": "x", "text": "old answer", "stream_id": "old"},
+        {"event": "stream_end", "chat_id": "x", "stream_id": "old"},
+        {
+            "event": "assistant_playback_segment",
+            "chat_id": "x",
+            "segment": {
+                "messageId": "new",
+                "segmentIndex": 0,
+                "rawText": "new answer.",
+                "controls": [],
+                "audio": {"status": "ready", "url": "/media/new.wav"},
+            },
+        },
+    ])
+
+    assert len(msgs) == 1
+    assert msgs[0]["id"] == "old"
+    assert "playbackSegments" not in msgs[0]

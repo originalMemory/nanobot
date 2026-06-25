@@ -342,4 +342,49 @@ describe("useNanobotStream inbox user events", () => {
 
     expect(window.electronAPI.tray.notifyIncoming).not.toHaveBeenCalled();
   });
+
+  it("keeps interleaved assistant stream ids in separate messages", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        stream_id: "stream-a",
+        text: "A1",
+      });
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        stream_id: "stream-b",
+        text: "B1",
+      });
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        stream_id: "stream-a",
+        text: "A2",
+      });
+    });
+
+    expect(result.current.messages.map((message) => ({
+      id: message.id,
+      content: message.content,
+    }))).toEqual([
+      { id: "stream-a", content: "A1A2" },
+      { id: "stream-b", content: "B1" },
+    ]);
+  });
 });
