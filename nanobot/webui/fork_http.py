@@ -86,6 +86,7 @@ from nanobot.webui.settings_api import (
     update_desk_pet_tha_settings,
     update_provider_settings,
     update_tha_settings,
+    update_tts_settings,
     update_web_search_settings,
 )
 from nanobot.webui.psb_api import (
@@ -422,6 +423,8 @@ class ForkGatewayHTTPHandler:
             return self._handle_settings_desk_pet_tha_update(request)
         if got == "/api/settings/desk-pet/psb/update":
             return self._handle_settings_desk_pet_psb_update(request)
+        if got == "/api/settings/tts/update":
+            return self._handle_settings_tts_update(request)
         if got == "/api/settings/network-safety/update":
             return self._handle_settings_network_safety_update(request)
         if got == "/api/settings/cli-apps":
@@ -806,6 +809,16 @@ class ForkGatewayHTTPHandler:
         query = _parse_query(request.path)
         try:
             payload = update_desk_pet_psb_settings(query)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(self._with_settings_restart_state(payload))
+
+    def _handle_settings_tts_update(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            payload = update_tts_settings(query)
         except WebUISettingsError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(self._with_settings_restart_state(payload))

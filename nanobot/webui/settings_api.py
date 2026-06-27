@@ -785,6 +785,13 @@ def settings_payload(
             "providers": image_providers,
         },
         "deskPet": desk_pet_payload(),
+        "tts": {
+            "enabled": config.tools.tts.enabled,
+            "message_playback_enabled": config.tools.tts.message_playback_enabled,
+            "default_voice": config.tools.tts.default_voice,
+            "provider": config.tools.tts.provider,
+            "model": config.tools.tts.model,
+        },
         "runtime": {
             "config_path": str(get_config_path().expanduser()),
             "workspace_path": str(config.workspace_path),
@@ -1426,3 +1433,40 @@ def update_desk_pet_psb_settings(query: QueryParams) -> dict[str, Any]:
 def update_tha_settings(query: QueryParams) -> dict[str, Any]:
     """兼容旧调用方：写入 deskPet.tha。"""
     return update_desk_pet_tha_settings(query)
+
+
+def update_tts_settings(query: QueryParams) -> dict[str, Any]:
+    """更新 tools.tts 配置（enabled / message_playback_enabled / default_voice）。"""
+    config = load_config()
+    tts_config = config.tools.tts
+    changed = False
+
+    enabled = _query_first(query, "enabled")
+    if enabled is not None:
+        parsed = _parse_bool(enabled, "enabled")
+        if tts_config.enabled != parsed:
+            tts_config.enabled = parsed
+            changed = True
+
+    message_playback = _query_first_alias(query, "message_playback_enabled", "messagePlaybackEnabled")
+    if message_playback is not None:
+        parsed = _parse_bool(message_playback, "message_playback_enabled")
+        if tts_config.message_playback_enabled != parsed:
+            tts_config.message_playback_enabled = parsed
+            changed = True
+
+    default_voice = _query_first_alias(query, "default_voice", "defaultVoice")
+    if default_voice is not None:
+        default_voice = default_voice.strip()
+        if len(default_voice) > 200:
+            raise WebUISettingsError("default_voice is too long")
+        if tts_config.default_voice != default_voice:
+            tts_config.default_voice = default_voice
+            changed = True
+
+    if changed:
+        save_config(config)
+
+    result = settings_payload()
+    result["restart_required"] = True
+    return result
