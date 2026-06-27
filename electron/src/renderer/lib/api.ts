@@ -422,6 +422,27 @@ export async function fetchPsbModelDetail(
   );
 }
 
+export interface TtsSettingsUpdate {
+  enabled?: boolean;
+  message_playback_enabled?: boolean;
+  default_voice?: string;
+}
+
+export async function updateTtsSettings(
+  token: string,
+  update: TtsSettingsUpdate,
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  Object.entries(update).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) query.set(key, String(value));
+  });
+  return request<SettingsPayload>(
+    `${base}/api/settings/tts/update?${query}`,
+    token,
+  );
+}
+
 export async function deletePsbModel(
   token: string,
   modelId: string,

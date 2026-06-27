@@ -314,6 +314,13 @@ export interface SettingsPayload {
       models: PsbModelSummary[];
     };
   };
+  tts: {
+    enabled: boolean;
+    message_playback_enabled: boolean;
+    default_voice: string;
+    provider: string;
+    model: string;
+  };
   runtime: {
     config_path: string;
     workspace_path: string;

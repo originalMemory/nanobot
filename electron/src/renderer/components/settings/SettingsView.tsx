@@ -42,6 +42,7 @@ import { AppsSection } from "./AppsSection";
 import { RuntimeSection } from "./RuntimeSection";
 import { AdvancedSection } from "./AdvancedSection";
 import { DeskPetSection } from "./DeskPetSection";
+import { TtsSection } from "./TtsSection";
 
 interface ProviderForm {
   apiKey: string;
@@ -399,6 +400,15 @@ export function SettingsView({
             onSaveTha={handleSaveTha}
             onSavePsb={handleSavePsb}
             onRefreshSettings={handleRefreshSettings}
+          />
+        );
+      case "tts":
+        return (
+          <TtsSection
+            settings={settings}
+            token={token}
+            apiBase={apiBase}
+            onSaved={handleRefreshSettings}
           />
         );
       case "apps":

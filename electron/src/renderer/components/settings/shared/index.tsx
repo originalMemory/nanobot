@@ -56,6 +56,7 @@ export type SettingsSectionKey =
   | "apps"
   | "runtime"
   | "deskPet"
+  | "tts"
   | "advanced";
 
 export type LocalDensity = "comfortable" | "compact";
