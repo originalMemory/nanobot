@@ -1,4 +1,4 @@
-"""合并检索原始对话与日记笔记的历史记忆工具。"""
+"""历史记忆检索工具。默认搜日记/笔记，可选搜原始对话。"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class _DiarySearchResult:
 
 
 class MemorySearchTool(Tool):
-    """并行检索裁出的原始对话与用户视角日记笔记。"""
+    """检索日记笔记（默认）与原始对话（可选）。"""
 
     _plugin_discoverable = False
     _scopes = {"core", "subagent"}
@@ -45,12 +45,12 @@ class MemorySearchTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "检索历史记忆：同时查裁出上下文的原始对话（双方原话）和以用户视角提炼的日记/笔记（生活记录）。"
+            "检索历史记忆：默认只搜日记/笔记（以用户视角提炼的生活记录）。"
             "只要用户话语涉及过去（时间词、回忆、延续旧话题、引用早前结论或生活事实），"
             "即主动调用以补充背景，无需用户明确要求检索。"
-            "返回分「原始对话」与「日记笔记」两段并标注来源。"
             "支持中文/英文关键词；多个关键词用空格分隔时，优先返回全部命中（AND），不足时补充任一命中（OR）。"
-            "session_key 仅过滤对话段；since/until 可同时过滤对话时间与日记日期。"
+            "since/until 过滤日记日期。"
+            "需要查阅原始对话细节时传 include_chat=true，会额外搜索被裁出上下文的原始对话。"
         )
 
     @property
@@ -80,6 +80,10 @@ class MemorySearchTool(Tool):
                     "description": "每类来源最多返回条数（默认 10；对话最大 100，日记最大 20）",
                     "minimum": 1,
                     "maximum": 100,
+                },
+                "include_chat": {
+                    "type": "boolean",
+                    "description": "是否额外搜索原始对话（默认 false，只搜日记）。需要查阅被裁出的原始对话细节时设为 true。",
                 },
             },
             "required": ["query"],
@@ -178,29 +182,33 @@ class MemorySearchTool(Tool):
         since: str | None = None,
         until: str | None = None,
         limit: int = _DEFAULT_LIMIT,
+        include_chat: bool = False,
     ) -> str:
-        chat_limit = max(1, min(limit, _CHAT_MAX_LIMIT))
-        chat_coro = asyncio.to_thread(
-            self._history_store.search,
-            query,
-            session_key=session_key,
-            since=since,
-            until=until,
-            limit=chat_limit,
-        )
+        lines = [f"检索「{query}」：\n"]
 
+        # 日记搜索（默认）
         if self._diary_enabled():
-            chat_results, diary_result = await asyncio.gather(
-                chat_coro,
-                self._search_diary(query, since=since, until=until, limit=limit),
+            diary_result = await self._search_diary(
+                query, since=since, until=until, limit=limit,
             )
-        else:
-            chat_results = await chat_coro
-            diary_result = _DiarySearchResult(hits=None, status=None)
-
-        lines = [f"检索「{query}」：\n", *self._format_chat_section(query, chat_results)]
-        if self._diary_enabled():
-            lines.append("")
             lines.extend(self._format_diary_section(query, diary_result.hits, diary_result.status))
+
+        # 原始对话搜索（仅 include_chat=true 时）
+        if include_chat:
+            chat_limit = max(1, min(limit, _CHAT_MAX_LIMIT))
+            chat_results = await asyncio.to_thread(
+                self._history_store.search,
+                query,
+                session_key=session_key,
+                since=since,
+                until=until,
+                limit=chat_limit,
+            )
+            if self._diary_enabled():
+                lines.append("")
+            lines.extend(self._format_chat_section(query, chat_results))
+
+        if not self._diary_enabled() and not include_chat:
+            lines.append("日记搜索未启用（historicalMemory 配置缺失）。")
 
         return "\n".join(lines)
