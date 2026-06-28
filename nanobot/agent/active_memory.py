@@ -36,9 +36,10 @@ SHANGHAI = timezone(timedelta(hours=8))
 PROMPT_TEMPLATE = """提取搜索关键词。规则：
 1. 只提取专有名称，保留原文标点（如"明末：渊虚之羽"保留冒号）
 2. 话题限定词（剧情、到货、bug等）可紧跟实体
-3. 日常物品+状态（冰箱裂口、神之手歪刃）视为实体
-4. 纯感叹/问候/嗯嗯 → 输出"无"
-5. 空格分隔，最多{max_keywords}个
+3. 日常物品+状态（冰箱裂口、神之手歪刃）、食物名称视为实体
+4. 即使语境是否定/推迟/暂且不论，实体名仍然要提取
+5. 纯感叹/问候/嗯嗯 → 输出"无"
+6. 空格分隔，最多{max_keywords}个
 
 消息：{text}
 关键词："""
@@ -241,14 +242,19 @@ def _format_injection(hits: list[dict[str, str]]) -> str:
 
 
 def _extract_text(content: Any) -> str:
-    """从消息 content 提取纯文本。"""
+    """从消息 content 提取纯文本，过滤系统注入内容。"""
     if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        # multimodal: 取 text 部分
+        text = content.strip()
+    elif isinstance(content, list):
         parts = [p.get("text", "") for p in content if isinstance(p, dict)]
-        return " ".join(parts).strip()
-    return ""
+        text = " ".join(parts).strip()
+    else:
+        return ""
+    # 过滤 Runtime Context 等系统注入的元数据
+    idx = text.find("[Runtime Context")
+    if idx != -1:
+        text = text[:idx].strip()
+    return text
 
 
 def _log(
