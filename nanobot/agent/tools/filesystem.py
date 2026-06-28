@@ -64,11 +64,11 @@ class _FsTool(Tool):
         extra_read: list[Path] = [BUILTIN_SKILLS_DIR]
 
         # 只读类工具（ReadFileTool / GrepTool / FindFilesTool）在受限模式下
-        # 把历史日记库路径加入白名单，写类工具（EditFileTool / WriteFileTool）不加
+        # 把日记目录路径加入白名单，写类工具（EditFileTool / WriteFileTool）不加
         if cls._allow_historical_dirs and allowed_dir is not None:
-            hist_cfg = getattr(ctx, "historical_memory_config", None)
-            if hist_cfg and hist_cfg.enabled and hist_cfg.root:
-                root = Path(hist_cfg.root).expanduser().resolve()
+            diary_root = getattr(ctx, "diary_root", "")
+            if diary_root:
+                root = Path(diary_root).expanduser().resolve()
                 if root.exists():
                     extra_read = extra_read + [root]
 

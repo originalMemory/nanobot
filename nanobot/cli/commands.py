@@ -956,7 +956,7 @@ def _run_gateway(
         provider_snapshot_loader=load_provider_snapshot,
         runtime_events=runtime_events,
         provider_signature=provider_snapshot.signature,
-        hooks=[ActiveMemoryHook()],
+        hooks=[ActiveMemoryHook(diary_root=config.diary_root)],
     )
     WebuiTurnCoordinator(
         bus=bus,
@@ -1387,22 +1387,10 @@ def _run_gateway(
             ),
         ))
 
-    # 初始化历史记忆索引（启动时后台增量构建，不阻塞 gateway）
-    hist_cfg = config.agents.defaults.historical_memory
-    _hist_index = None
-    if hist_cfg.enabled and hist_cfg.root:
-        from nanobot.agent.historical_memory import HistoricalMemoryIndex, register_index
-        _hist_index = HistoricalMemoryIndex(hist_cfg, config.workspace_path)
-        register_index(str(config.workspace_path), _hist_index)
-        diary_info = f", diary: {hist_cfg.diary_path}" if hist_cfg.diary_path else ""
-        refresh_info = (
-            f", refresh every {hist_cfg.refresh_interval_m}m"
-            if hist_cfg.refresh_interval_m > 0
-            else ""
-        )
+    # 日记搜索配置
+    if config.diary_root:
         console.print(
-            f"[green]✓[/green] Historical memory: {hist_cfg.root}{diary_info}, "
-            f"preload {hist_cfg.preload_recent_days}d{refresh_info}, indexing in background..."
+            f"[green]✓[/green] Diary search: {config.diary_root}"
         )
 
     async def _open_browser_when_ready() -> None:
@@ -1442,25 +1430,6 @@ def _run_gateway(
                 logger.exception("PSB model scan failed")
 
             await cron.start()
-            if _hist_index is not None:
-                async def _build_hist_index() -> None:
-                    changed = await _hist_index.refresh_async()
-                    console.print(f"[green]✓[/green] Historical memory index built: {changed} updated")
-
-                async def _periodic_hist_refresh() -> None:
-                    await _build_hist_index()
-                    interval_s = hist_cfg.refresh_interval_m * 60
-                    if interval_s <= 0:
-                        return
-                    while True:
-                        await asyncio.sleep(interval_s)
-                        try:
-                            changed = await _hist_index.refresh_async()
-                            logger.info("历史记忆定时刷新：变更 {} 文件", changed)
-                        except Exception:
-                            logger.exception("历史记忆定时刷新失败")
-
-                asyncio.create_task(_periodic_hist_refresh())
             tasks = [
                 agent.run(),
                 channels.start_all(),

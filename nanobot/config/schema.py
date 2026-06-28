@@ -75,56 +75,6 @@ class DreamConfig(Base):
         return f"every {hours}h"
 
 
-class HistoricalMemoryConfig(Base):
-    """历史记忆库配置：接入外部笔记 md 文件，提供 LIKE 全文检索和按日预热。
-
-    root        扫描根目录（如 ~/note）
-    diary_path  root 下视为日记的子目录名（如 "日记"）；
-                日记文件从文件名提取日期、解析 概要/心情；
-                其他文件（note 类型）从 frontmatter created/date 字段提取日期，
-                并将全量 frontmatter 值一并索引。
-                diary_path 为空时全部文件视为 note 类型。
-    refresh_interval_m  定时刷新间隔（分钟），0 表示不定时刷新，仅启动时构建一次。
-    检索策略：多关键词 AND 优先，不足时 OR 补充；各组内按 date 倒序。
-    索引文件固定为 workspace/memory/historical.db；结构变更后删除该文件并重建。
-    """
-
-    enabled: bool = False
-    root: str = ""
-    diary_path: str = Field(
-        default="",
-        validation_alias=AliasChoices("diaryPath", "diary_path"),
-        serialization_alias="diaryPath",
-    )
-    glob: str = "**/*.md"
-    date_pattern: str = r"(\d{4}-\d{2}-\d{2})"
-    preload_recent_days: int = Field(
-        default=2,
-        ge=0,
-        validation_alias=AliasChoices("preloadRecentDays", "preload_recent_days"),
-        serialization_alias="preloadRecentDays",
-    )
-    search_top_k: int = Field(
-        default=10,
-        ge=1,
-        validation_alias=AliasChoices("searchTopK", "search_top_k"),
-        serialization_alias="searchTopK",
-    )
-    refresh_interval_m: int = Field(
-        default=1440,
-        ge=0,
-        validation_alias=AliasChoices("refreshIntervalM", "refresh_interval_m"),
-        serialization_alias="refreshIntervalM",
-    )
-    tokenizer: Literal["char", "jieba", "trigram", "simple"] = "char"
-    # 预留分词模式字段（当前版本检索使用 LIKE，不读取此配置）
-    simple_extension_path: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("simpleExtensionPath", "simple_extension_path"),
-        serialization_alias="simpleExtensionPath",
-    )
-
-
 class InlineFallbackConfig(Base):
     """One inline fallback model configuration."""
 
@@ -212,11 +162,6 @@ class AgentDefaults(Base):
         serialization_alias="consolidationRatio",
     )  # Consolidation target ratio (0.5 = 50% of budget retained after compression)
     dream: DreamConfig = Field(default_factory=DreamConfig)
-    historical_memory: HistoricalMemoryConfig = Field(
-        default_factory=HistoricalMemoryConfig,
-        validation_alias=AliasChoices("historicalMemory", "historical_memory"),
-        serialization_alias="historicalMemory",
-    )
 
 
 class AgentsConfig(Base):
@@ -453,6 +398,11 @@ class Config(BaseSettings):
         validation_alias=AliasChoices("deskPet", "desk_pet"),
     )
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    diary_root: str = Field(
+        default="",
+        validation_alias=AliasChoices("diaryRoot", "diary_root"),
+        serialization_alias="diaryRoot",
+    )
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("modelPresets", "model_presets"),

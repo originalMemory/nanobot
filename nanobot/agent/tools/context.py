@@ -56,6 +56,6 @@ class ToolContext:
     provider_snapshot_loader: Callable[[], Any] | None = None
     image_generation_provider_configs: dict[str, Any] | None = None
     timezone: str = "UTC"
-    historical_memory_config: Any | None = None  # HistoricalMemoryConfig | None
+    diary_root: str = ""
     workspace_sandbox: Any | None = None
     runtime_events: Any | None = None

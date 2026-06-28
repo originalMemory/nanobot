@@ -27,7 +27,8 @@ from nanobot.agent.tools.context import RequestContext, bind_request_context, re
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.memory_search import MemorySearchTool
+from nanobot.agent.tools.diary_search import DiarySearchTool
+from nanobot.agent.tools.session_search import SessionSearchTool
 from nanobot.agent.tools.self import MyTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.progress import build_bus_progress_callback
@@ -67,7 +68,6 @@ from nanobot.utils.runtime import (
 if TYPE_CHECKING:
     from nanobot.config.schema import (
         ChannelsConfig,
-        HistoricalMemoryConfig,
         ProviderConfig,
         ToolsConfig,
     )
@@ -213,7 +213,6 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
         tools_config: ToolsConfig | None = None,
-        historical_memory_config: HistoricalMemoryConfig | None = None,
         image_generation_provider_config: ProviderConfig | None = None,
         image_generation_provider_configs: dict[str, ProviderConfig] | None = None,
         provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None,
@@ -226,6 +225,7 @@ class AgentLoop:
         vision_provider: LLMProvider | None = None,
         vision_model: str | None = None,
         vision_provider_factory: Callable[[str, str | None], LLMProvider] | None = None,
+        diary_root: str = "",
     ):
         from nanobot.config.schema import ToolsConfig
 
@@ -234,6 +234,7 @@ class AgentLoop:
         self.bus = bus
         self.runtime_events = runtime_events or RuntimeEventBus()
         self.runtime_event_publisher = RuntimeEventPublisher(self.runtime_events)
+        self._diary_root = diary_root
         self.channels_config = channels_config
         self.provider = provider
         self._provider_snapshot_loader = provider_snapshot_loader
@@ -281,12 +282,10 @@ class AgentLoop:
         self._last_usage: dict[str, int] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
-        self._historical_memory_config = historical_memory_config
         self.context = ContextBuilder(
             workspace,
             timezone=timezone,
             disabled_skills=disabled_skills,
-            historical_memory_config=historical_memory_config,
         )
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
@@ -414,11 +413,11 @@ class AgentLoop:
             consolidation_ratio=defaults.consolidation_ratio,
             max_messages=defaults.max_messages,
             tools_config=config.tools,
-            historical_memory_config=config.agents.defaults.historical_memory,
             model_presets=preset_helpers.configured_model_presets(config),
             model_preset=defaults.model_preset,
             provider_snapshot_loader=provider_snapshot_loader,
             preset_snapshot_loader=preset_snapshot_loader,
+            diary_root=config.diary_root,
             vision_provider=_vision_provider,
             vision_model=_vision_model,
             vision_provider_factory=lambda m, p: make_vision_provider_for_model(config, m, p),
@@ -542,7 +541,7 @@ class AgentLoop:
             provider_snapshot_loader=self._provider_snapshot_loader,
             image_generation_provider_configs=self._image_generation_provider_configs,
             timezone=self.context.timezone or "UTC",
-            historical_memory_config=self._historical_memory_config,
+            diary_root=self._diary_root,
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
         )
@@ -556,14 +555,17 @@ class AgentLoop:
             )
             registered.append("my")
 
-        self.tools.register(
-            MemorySearchTool(
-                history_store=self.history_store,
-                workspace=str(self.workspace),
-                historical_memory_config=self._historical_memory_config,
-            )
-        )
-        registered.append("memory_search")
+        # 日记搜索（grep 实现）
+        diary_root = self._diary_root
+        if diary_root:
+            self.tools.register(DiarySearchTool(diary_root=str(diary_root)))
+            registered.append("diary_search")
+
+        # 会话历史搜索（grep 实现）
+        session_archive = Path(self.workspace) / "sessions" / "archive"
+        if session_archive.exists():
+            self.tools.register(SessionSearchTool(archive_dir=str(session_archive)))
+            registered.append("session_search")
 
         logger.info("Registered {} tools: {}", len(registered), registered)
 

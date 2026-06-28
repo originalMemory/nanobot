@@ -62,13 +62,11 @@ class ContextBuilder:
         workspace: Path,
         timezone: str | None = None,
         disabled_skills: list[str] | None = None,
-        historical_memory_config: Any | None = None,
     ) -> None:
         self.workspace = workspace
         self.timezone = timezone
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace, disabled_skills=set(disabled_skills) if disabled_skills else None)
-        self._historical_memory_config = historical_memory_config
 
     def build_system_prompt(
         self,
@@ -114,10 +112,6 @@ class ContextBuilder:
 
         if session_summary:
             parts.append(f"[Archived Context Summary]\n\n{session_summary}")
-
-        hist_section = self._build_historical_journals_section()
-        if hist_section:
-            parts.append(hist_section)
 
         tha_section = self._build_tha_expression_section()
         if tha_section:
@@ -298,25 +292,6 @@ class ContextBuilder:
             return messages
         messages.append({"role": current_role, "content": merged})
         return messages
-
-    def _build_historical_journals_section(self) -> str:
-        """构建历史日记预热区块：注入最近 N 天日记摘要（仅 概要/心情，不含全文）。"""
-        cfg = self._historical_memory_config
-        if not cfg or not cfg.enabled or not cfg.root or cfg.preload_recent_days <= 0:
-            return ""
-        from nanobot.agent.historical_memory import get_index as get_historical_index
-
-        index = get_historical_index(str(self.workspace))
-        if index is None or not index.is_ready:
-            return ""
-        notes = index.recent(cfg.preload_recent_days)
-        if not notes:
-            return ""
-        lines = [f"# Historical Journals (recent {cfg.preload_recent_days} days)\n"]
-        for note in notes:
-            lines.append(f"- {note.format()}")
-        section = "\n".join(lines)
-        return truncate_text(section, self._MAX_HISTORY_CHARS)
 
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
         """Build user message content with optional base64-encoded images."""

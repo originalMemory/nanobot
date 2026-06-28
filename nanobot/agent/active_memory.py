@@ -25,7 +25,7 @@ OLLAMA_URL = "http://192.168.31.75:11434/api/generate"
 OLLAMA_MODEL = "qwen3:8b-nothink"
 OLLAMA_TIMEOUT = 3.0  # 秒，超时静默跳过
 
-DIARY_DIR = "/home/nanobot/note/日记"
+DIARY_DIR = ""  # 启动时从配置注入
 MAX_RESULTS = 5
 MAX_KEYWORDS = 5
 
@@ -50,6 +50,9 @@ PROMPT_TEMPLATE = """提取搜索关键词。规则：
 
 class ActiveMemoryHook(AgentHook):
     """自动记忆召回 hook。"""
+
+    def __init__(self, diary_root: str = "") -> None:
+        self._diary_root = diary_root
 
     async def before_iteration(self, context: AgentHookContext) -> None:
         # 只在第一轮处理
@@ -101,7 +104,7 @@ class ActiveMemoryHook(AgentHook):
 
         # Step 2: grep 搜日记
         t1 = time.monotonic()
-        hits = await asyncio.to_thread(_grep_diary, keywords)
+        hits = await asyncio.to_thread(_grep_diary, keywords, self._diary_root)
         search_ms = int((time.monotonic() - t1) * 1000)
 
         log_entry["search_ms"] = search_ms
@@ -142,14 +145,17 @@ class ActiveMemoryHook(AgentHook):
 # ── 搜索 ──────────────────────────────────────────────
 
 
-def _grep_diary(keywords: str) -> list[dict[str, str]]:
+def _grep_diary(keywords: str, diary_root: str = "") -> list[dict[str, str]]:
     """grep AND→OR 搜日记，过滤概要行，返回 [{date, snippet}]。"""
+    root = diary_root or DIARY_DIR
+    if not root:
+        return []
     words = [w for w in keywords.split() if w]
     if not words:
         return []
 
     # AND：所有词都在文件里
-    and_files = _grep_files(words[0])
+    and_files = _grep_files(words[0], root)
     for w in words[1:]:
         and_files = {f for f in and_files if _file_contains(f, w)}
 
@@ -159,7 +165,7 @@ def _grep_diary(keywords: str) -> list[dict[str, str]]:
     if len(files) < MAX_RESULTS:
         or_files: set[str] = set()
         for w in words:
-            or_files.update(_grep_files(w))
+            or_files.update(_grep_files(w, root))
         # 合并去重，AND 优先
         all_files = list(and_files) + [f for f in or_files if f not in and_files]
     else:
@@ -179,11 +185,14 @@ def _grep_diary(keywords: str) -> list[dict[str, str]]:
     return results
 
 
-def _grep_files(word: str) -> set[str]:
+def _grep_files(word: str, root: str = "") -> set[str]:
     """grep -rl 搜日记目录。"""
+    search_root = root or DIARY_DIR
+    if not search_root:
+        return set()
     try:
         r = subprocess.run(
-            ["grep", "-rl", "--include=*.md", word, DIARY_DIR],
+            ["grep", "-rl", "--include=*.md", word, search_root],
             capture_output=True, text=True, timeout=10,
         )
         if r.returncode == 0 and r.stdout.strip():

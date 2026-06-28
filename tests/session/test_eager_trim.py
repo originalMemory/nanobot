@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -9,6 +10,16 @@ import pytest
 from nanobot.agent.memory import Consolidator, MemoryStore
 from nanobot.session.history_store import SessionHistoryStore
 from nanobot.session.manager import Session
+
+
+def _archived_contents(history_store: SessionHistoryStore) -> list[str]:
+    archive_dir = history_store._archive_dir
+    assert archive_dir is not None
+    return [
+        json.loads(line)["content"]
+        for path in archive_dir.glob("*.jsonl")
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
 
 
 @pytest.fixture
@@ -80,8 +91,7 @@ class TestEagerTrim:
 
         assert len(session.messages) == 20
         assert session.last_consolidated == 0
-        hits = history_store.search("question 0")
-        assert len(hits) == 1
+        assert "question 0" in _archived_contents(history_store)
 
     async def test_compact_idle_session_writes_trimmed_messages(
         self, consolidator, mock_provider, history_store,
@@ -104,9 +114,10 @@ class TestEagerTrim:
         assert len(session.messages) == 2
         assert session.last_consolidated == 0
         assert session.messages[-1]["content"] == "keep-5"
-        assert len(history_store.search("old-0")) == 1
-        assert len(history_store.search("mid-2")) == 1
-        assert history_store.search("keep-4") == []
+        archived = _archived_contents(history_store)
+        assert "old-0" in archived
+        assert "mid-2" in archived
+        assert "keep-4" not in archived
 
     async def test_eager_trim_without_history_store_still_shortens_messages(
         self, store, mock_provider,

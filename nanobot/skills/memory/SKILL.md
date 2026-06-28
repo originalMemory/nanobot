@@ -15,7 +15,11 @@ always: true
 
 ## Search Past Events
 
-`memory/history.jsonl` is JSONL format — each line is a JSON object with `cursor`, `timestamp`, `content`.
+**日记/笔记搜索**：使用 `diary_search` 工具（grep 实现，按关键词搜索 Obsidian 日记 markdown 文件）。
+
+**会话历史搜索**：使用 `session_search` 工具（grep 实现，搜索裁剪出上下文的原始对话 jsonl 文件）。
+
+`memory/history.jsonl` 是 Dream 的摘要记录，可用内置 `grep` 工具搜索。
 
 - For broad searches, start with `grep(..., path="memory", glob="*.jsonl", output_mode="count")` or the default `files_with_matches` mode before expanding to full content
 - Use `output_mode="content"` plus `context_before` / `context_after` when you need the exact matching lines
