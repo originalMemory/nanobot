@@ -11,6 +11,7 @@ import json
 import re
 import subprocess
 import time
+from contextlib import suppress
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -25,11 +26,8 @@ OLLAMA_URL = "http://192.168.31.75:11434/api/generate"
 OLLAMA_MODEL = "qwen3:8b-nothink"
 OLLAMA_TIMEOUT = 3.0  # 秒，超时静默跳过
 
-DIARY_DIR = ""  # 启动时从配置注入
 MAX_RESULTS = 5
 MAX_KEYWORDS = 5
-
-LOG_PATH = Path("/home/nanobot/.nanobot/workspace/memory/active_memory.jsonl")
 
 SHANGHAI = timezone(timedelta(hours=8))
 
@@ -51,12 +49,13 @@ PROMPT_TEMPLATE = """提取搜索关键词。规则：
 class ActiveMemoryHook(AgentHook):
     """自动记忆召回 hook。"""
 
-    def __init__(self, diary_root: str = "") -> None:
+    def __init__(self, diary_root: str = "", workspace: str | Path | None = None) -> None:
         self._diary_root = diary_root
+        self._log_path = Path(workspace) / "memory" / "active_memory.jsonl" if workspace else None
 
     async def before_iteration(self, context: AgentHookContext) -> None:
         # 只在第一轮处理
-        if context.iteration > 0:
+        if context.iteration > 0 or not self._diary_root:
             return
 
         # 取最新的用户消息
@@ -86,11 +85,11 @@ class ActiveMemoryHook(AgentHook):
             )
         except asyncio.TimeoutError:
             log_entry["action"] = "skip_timeout"
-            _log(log_entry, int((time.monotonic() - t_start) * 1000), 0)
+            _log(self._log_path, log_entry, int((time.monotonic() - t_start) * 1000), 0)
             return
         except Exception:
             log_entry["action"] = "skip_error"
-            _log(log_entry, int((time.monotonic() - t_start) * 1000), 0)
+            _log(self._log_path, log_entry, int((time.monotonic() - t_start) * 1000), 0)
             return
 
         model_ms = int((time.monotonic() - t0) * 1000)
@@ -99,7 +98,7 @@ class ActiveMemoryHook(AgentHook):
 
         if not keywords or keywords == "无":
             log_entry["action"] = "skip_no_keywords"
-            _log(log_entry, int((time.monotonic() - t_start) * 1000), 0)
+            _log(self._log_path, log_entry, int((time.monotonic() - t_start) * 1000), 0)
             return
 
         # Step 2: grep 搜日记
@@ -112,7 +111,7 @@ class ActiveMemoryHook(AgentHook):
 
         if not hits:
             log_entry["action"] = "skip_no_results"
-            _log(log_entry, int((time.monotonic() - t_start) * 1000), search_ms)
+            _log(self._log_path, log_entry, int((time.monotonic() - t_start) * 1000), search_ms)
             return
 
         # Step 3: 注入 system 消息
@@ -124,7 +123,7 @@ class ActiveMemoryHook(AgentHook):
         log_entry["action"] = "injected"
 
         total_ms = int((time.monotonic() - t_start) * 1000)
-        _log(log_entry, total_ms, search_ms)
+        _log(self._log_path, log_entry, total_ms, search_ms)
 
     async def _extract_keywords(self, text: str) -> str:
         """调 MBP Ollama 提取关键词。"""
@@ -147,15 +146,14 @@ class ActiveMemoryHook(AgentHook):
 
 def _grep_diary(keywords: str, diary_root: str = "") -> list[dict[str, str]]:
     """grep AND→OR 搜日记，过滤概要行，返回 [{date, snippet}]。"""
-    root = diary_root or DIARY_DIR
-    if not root:
+    if not diary_root:
         return []
     words = [w for w in keywords.split() if w]
     if not words:
         return []
 
     # AND：所有词都在文件里
-    and_files = _grep_files(words[0], root)
+    and_files = _grep_files(words[0], diary_root)
     for w in words[1:]:
         and_files = {f for f in and_files if _file_contains(f, w)}
 
@@ -187,12 +185,11 @@ def _grep_diary(keywords: str, diary_root: str = "") -> list[dict[str, str]]:
 
 def _grep_files(word: str, root: str = "") -> set[str]:
     """grep -rl 搜日记目录。"""
-    search_root = root or DIARY_DIR
-    if not search_root:
+    if not root:
         return set()
     try:
         r = subprocess.run(
-            ["grep", "-rl", "--include=*.md", word, search_root],
+            ["grep", "-rl", "--include=*.md", word, root],
             capture_output=True, text=True, timeout=10,
         )
         if r.returncode == 0 and r.stdout.strip():
@@ -241,7 +238,7 @@ def _extract_snippet(filepath: str, words: list[str]) -> str:
 
 def _format_injection(hits: list[dict[str, str]]) -> str:
     """格式化注入的 system 消息。"""
-    lines = [f"[ActiveMemory] 检索到 {len(hits)} 条相关日记（按日期倒序）："]
+    lines = [f"[ActiveMemory Reference] 检索到 {len(hits)} 条相关日记（仅作参考，按日期倒序）："]
     for i, h in enumerate(hits, 1):
         lines.append(f"{i}. [{h['date']}] {h['snippet']}")
     return "\n".join(lines)
@@ -267,13 +264,17 @@ def _extract_text(content: Any) -> str:
 
 
 def _log(
+    path: Path | None,
     entry: dict[str, Any],
     total_ms: int,
     search_ms: int,
 ) -> None:
     """追加一条 jsonl 日志。"""
+    if path is None:
+        return
     entry["total_ms"] = total_ms
     entry["search_ms"] = search_ms
-    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(LOG_PATH, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with suppress(Exception):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")

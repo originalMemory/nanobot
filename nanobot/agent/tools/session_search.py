@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import Tool
+from nanobot.session.history_store import extract_content_text
 
 _DEFAULT_LIMIT = 10
 _MAX_LIMIT = 100
@@ -36,7 +37,6 @@ class SessionSearchTool(Tool):
             "检索历史对话（被裁出上下文的原始对话）。"
             "支持中文/英文关键词；多个关键词用空格分隔时，优先返回全部命中（AND），不足时补充任一命中（OR）。"
             "since/until 过滤对话消息时间。"
-            "session_key 限定会话来源（如 unified:default、cron:xxx）。"
         )
 
     @property
@@ -48,10 +48,6 @@ class SessionSearchTool(Tool):
                     "type": "string",
                     "description": "检索关键词或短语",
                     "minLength": 1,
-                },
-                "session_key": {
-                    "type": "string",
-                    "description": "限定会话 key（如 unified:default 或 cron:xxx）",
                 },
                 "since": {
                     "type": "string",
@@ -78,7 +74,6 @@ class SessionSearchTool(Tool):
     async def execute(
         self,
         query: str,
-        session_key: str | None = None,
         since: str | None = None,
         until: str | None = None,
         limit: int = _DEFAULT_LIMIT,
@@ -91,7 +86,7 @@ class SessionSearchTool(Tool):
             return "\n".join(lines)
 
         hits = await asyncio.to_thread(
-            _grep_sessions, self._archive_dir, query, session_key, since, until, limit
+            _grep_sessions, self._archive_dir, query, since, until, limit
         )
 
         if not hits:
@@ -116,7 +111,6 @@ class SessionSearchTool(Tool):
 def _grep_sessions(
     archive_dir: Path,
     query: str,
-    session_key: str | None,
     since: str | None,
     until: str | None,
     limit: int,
@@ -140,7 +134,7 @@ def _grep_sessions(
     # OR 补充
     if len(and_lines) < limit:
         all_keys = set(and_lines)
-        for w in words[1:]:
+        for w in words:
             for key in _grep_jsonl(archive_dir, w):
                 if key not in all_keys:
                     all_keys.add(key)
@@ -165,11 +159,6 @@ def _grep_sessions(
         if not parsed:
             continue
 
-        # session_key 过滤
-        if session_key and parsed.get("session_key", "") != session_key:
-            # raw_json 里没有 session_key，放宽过滤
-            pass
-
         # 时间过滤
         ts = parsed.get("timestamp", "")
         if since and ts < since:
@@ -177,13 +166,13 @@ def _grep_sessions(
         if until and ts > until:
             continue
 
+        content_text = extract_content_text(parsed) or str(parsed.get("content", ""))
         match_type = "and" if key in and_lines else "or"
         results.append({
             "match_type": match_type,
             "msg_timestamp": ts,
             "role": parsed.get("role", ""),
-            "content_text": (parsed.get("content", "") or "")[:300],
-            "session_key": parsed.get("session_key", ""),
+            "content_text": content_text[:300],
             "cursor": f"{Path(key.rsplit(':', 1)[0]).name}:{key.rsplit(':', 1)[1]}",
         })
 
