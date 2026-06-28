@@ -163,7 +163,7 @@ def _grep_diary(keywords: str, diary_root: str = "") -> list[dict[str, str]]:
     if len(files) < MAX_RESULTS:
         or_files: set[str] = set()
         for w in words:
-            or_files.update(_grep_files(w, root))
+            or_files.update(_grep_files(w, diary_root))
         # 合并去重，AND 优先
         all_files = list(and_files) + [f for f in or_files if f not in and_files]
     else:

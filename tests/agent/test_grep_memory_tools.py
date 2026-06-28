@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nanobot.agent.active_memory import ActiveMemoryHook
+from nanobot.agent.active_memory import ActiveMemoryHook, _grep_diary
 from nanobot.agent.hook import AgentHookContext
 from nanobot.agent.tools.diary_search import DiarySearchTool
 from nanobot.agent.tools.session_search import SessionSearchTool, _grep_sessions
@@ -109,3 +109,22 @@ def test_active_memory_logs_under_workspace(tmp_path: Path) -> None:
     hook = ActiveMemoryHook(diary_root="/notes", workspace=tmp_path)
 
     assert hook._log_path == tmp_path / "memory" / "active_memory.jsonl"
+
+
+def test_active_memory_or_fallback_uses_configured_diary_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_grep_files(word: str, root: str = "") -> set[str]:
+        calls.append((word, root))
+        return set()
+
+    monkeypatch.setattr("nanobot.agent.active_memory._grep_files", fake_grep_files)
+
+    assert _grep_diary("historical memory", "/notes") == []
+    assert calls == [
+        ("historical", "/notes"),
+        ("historical", "/notes"),
+        ("memory", "/notes"),
+    ]
