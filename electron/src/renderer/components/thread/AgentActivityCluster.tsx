@@ -26,6 +26,7 @@ import type { CliAppInfo, McpPresetInfo, ToolProgressEvent, UIFileEdit, UIMessag
 /** Scrollport height for the Cursor-style “live trace” strip (tailwind spacing). */
 const CLUSTER_SCROLL_MAX_CLASS = "max-h-52";
 const ACTIVITY_SCROLL_NEAR_BOTTOM_PX = 24;
+const ACTIVITY_AUTO_COLLAPSE_DELAY_MS = 3_000;
 
 export function isReasoningOnlyAssistant(m: UIMessage): boolean {
   if (m.role !== "assistant" || m.kind === "trace") return false;
@@ -397,7 +398,10 @@ export function AgentActivityCluster({
     }
     if (!wasStreaming || userToggledOuter) return undefined;
     setCompletionHoldOpen(true);
-    const timeout = window.setTimeout(() => setCompletionHoldOpen(false), 900);
+    const timeout = window.setTimeout(
+      () => setCompletionHoldOpen(false),
+      ACTIVITY_AUTO_COLLAPSE_DELAY_MS,
+    );
     return () => window.clearTimeout(timeout);
   }, [isTurnStreaming, userToggledOuter]);
 

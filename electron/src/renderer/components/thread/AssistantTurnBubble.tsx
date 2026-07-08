@@ -183,12 +183,11 @@ export function AssistantTurnBubble({
             {segments.map((segment, index) => {
               if (segment.kind === "activity") {
                 const hasBodyBelow = segments[index + 1]?.kind === "text";
-                const segmentLive = isTurnStreaming && index === lastSegmentIndex;
                 return (
                   <AgentActivityCluster
                     key={`activity-${segment.messages[0]?.id ?? index}`}
                     messages={segment.messages}
-                    isTurnStreaming={segmentLive}
+                    isTurnStreaming={isTurnStreaming}
                     hasBodyBelow={hasBodyBelow}
                     turnLatencyMs={segment.turnLatencyMs}
                     cliApps={cliApps}

@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
 import {
@@ -27,6 +27,10 @@ function renderThread(messages: UIMessage[], isStreaming = false) {
     </ClientProvider>,
   );
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("ThreadMessages turn coalescing", () => {
   it("merges interleaved activity and text into one assistant-turn unit", () => {
@@ -357,6 +361,49 @@ describe("ThreadMessages turn coalescing", () => {
     const units = buildFinalDisplayUnits(messages, false);
     expect(assistantCopyFlags(units)).toEqual([true, true, true, true]);
     expect(units.filter((u) => u.type === "assistant-turn")).toHaveLength(2);
+  });
+
+  it("keeps activity reasoning open until after the full assistant turn ends", () => {
+    vi.useFakeTimers();
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", content: "hi", createdAt: 1 },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "answer",
+        reasoning: "thinking text",
+        reasoningStreaming: false,
+        isStreaming: true,
+        createdAt: 2,
+      },
+    ];
+
+    const { rerender } = renderThread(messages, true);
+    expect(screen.getByText("thinking text")).toBeInTheDocument();
+
+    rerender(
+      <ClientProvider
+        client={{} as NanobotClient}
+        token=""
+        apiBase="http://127.0.0.1:8765"
+      >
+        <ThreadMessages
+          messages={[{ ...messages[0] }, { ...messages[1], isStreaming: false }]}
+          isStreaming={false}
+        />
+      </ClientProvider>,
+    );
+    expect(screen.getByText("thinking text")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(2_999);
+    });
+    expect(screen.getByText("thinking text")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.queryByText("thinking text")).not.toBeInTheDocument();
   });
 });
 

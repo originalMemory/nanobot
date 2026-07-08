@@ -249,7 +249,12 @@ export function MessageBubble({
         <div className="min-w-0 flex-1">
           <AssistantNameRow botName={botName} message={message} />
           <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
-            <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={false} />
+            <ReasoningBubble
+              text={reasoning}
+              streaming={reasoningStreaming}
+              turnStreaming={!!message.isStreaming}
+              hasBodyBelow={false}
+            />
           </div>
         </div>
       </div>
@@ -267,7 +272,12 @@ export function MessageBubble({
         <AssistantNameRow botName={botName} message={message} />
         <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
           {hasReasoning ? (
-            <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={!empty} />
+            <ReasoningBubble
+              text={reasoning}
+              streaming={reasoningStreaming}
+              turnStreaming={!!message.isStreaming}
+              hasBodyBelow={!empty}
+            />
           ) : null}
           <MarkdownText streaming={!!message.isStreaming}>{displayContent}</MarkdownText>
         </div>
@@ -910,10 +920,13 @@ export function StreamingLabelSheen({
 interface ReasoningBubbleProps {
   text: string;
   streaming: boolean;
+  turnStreaming?: boolean;
   hasBodyBelow: boolean;
   /** When true, skip the slide-in wrapper (used inside ``AgentActivityCluster``). */
   embeddedInCluster?: boolean;
 }
+
+const REASONING_AUTO_COLLAPSE_DELAY_MS = 3_000;
 
 /**
  * Subordinate "thinking" trace shown above an assistant turn.
@@ -925,24 +938,50 @@ interface ReasoningBubbleProps {
  *   - Expanded reasoning uses the same Markdown pipeline as assistant replies
  *     (deferred while streaming to reduce parser thrash), so headings and
  *     emphasis render instead of leaking raw ``###`` / ``**``.
- *   - On ``reasoning_end`` the bubble auto-collapses for prose density —
- *     the user can re-expand to inspect the chain of thought. The local
- *     toggle persists once the user interacts.
+ *   - After the full assistant turn ends, the bubble stays open briefly before
+ *     auto-collapsing for prose density. The local toggle persists once the
+ *     user interacts.
  */
 export function ReasoningBubble({
   text,
   streaming,
+  turnStreaming = streaming,
   hasBodyBelow,
   embeddedInCluster = false,
 }: ReasoningBubbleProps) {
   const { t } = useTranslation();
   const [userToggled, setUserToggled] = useState(false);
   const [openLocal, setOpenLocal] = useState(true);
-  const open = userToggled ? openLocal : streaming;
+  const [autoOpen, setAutoOpen] = useState(false);
+  const active = streaming || turnStreaming;
+  const wasActiveRef = useRef(active);
+  const open = userToggled ? openLocal : active || autoOpen;
   const onToggle = () => {
     setUserToggled(true);
     setOpenLocal((v) => (userToggled ? !v : !open));
   };
+  useEffect(() => {
+    if (userToggled) {
+      wasActiveRef.current = active;
+      return undefined;
+    }
+    if (active) {
+      wasActiveRef.current = true;
+      setAutoOpen(true);
+      return undefined;
+    }
+    if (wasActiveRef.current) {
+      wasActiveRef.current = false;
+      setAutoOpen(true);
+      const timeout = window.setTimeout(
+        () => setAutoOpen(false),
+        REASONING_AUTO_COLLAPSE_DELAY_MS,
+      );
+      return () => window.clearTimeout(timeout);
+    }
+    setAutoOpen(false);
+    return undefined;
+  }, [active, userToggled]);
   useEffect(() => {
     if (open && text.length > 0) {
       preloadMarkdownText();
