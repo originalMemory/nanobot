@@ -598,7 +598,7 @@ export function useNanobotStream(
         : resolveActiveAssistantIndex(next);
       if (targetIndex === -1) targetIndex = null;
 
-      if (targetIndex === null && !streamId) {
+      if (targetIndex === null) {
         targetIndex = findActiveAssistantPlaceholderIndex(next);
       }
       if (targetIndex === null && !streamId) {
@@ -1253,12 +1253,15 @@ export function useNanobotStream(
       captionImageCountRef.current = hasImages ? images!.length : 0;
       const previews = hasImages ? images!.map((i) => i.preview) : undefined;
       setMessages((prev) => {
-        buffer.current = null;
-        activeAssistantRef.current = null;
-        closedAssistantStreamIdsRef.current.clear();
-        clearActivitySegment();
+        if (!isStreaming) {
+          buffer.current = null;
+          activeAssistantRef.current = null;
+          closedAssistantStreamIdsRef.current.clear();
+          clearActivitySegment();
+        }
+        const existingMessages = isStreaming ? prev : pruneReasoningOnlyPlaceholders(prev);
         return [
-          ...pruneReasoningOnlyPlaceholders(prev),
+          ...existingMessages,
           {
             id: crypto.randomUUID(),
             role: "user",
@@ -1280,7 +1283,7 @@ export function useNanobotStream(
         client.sendMessage(chatId, content, wireMedia);
       }
     },
-    [chatId, clearActivitySegment, client, flushPendingStreamEvents],
+    [chatId, clearActivitySegment, client, flushPendingStreamEvents, isStreaming],
   );
 
   const stop = useCallback(() => {

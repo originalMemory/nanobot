@@ -117,7 +117,12 @@ export function coalesceAssistantTurnUnits(
         break;
       }
     }
-    out.push({ type: "assistant-turn", segments: enrichActivitySegmentLatencies(segments), isStreaming: false });
+    const enrichedSegments = enrichActivitySegmentLatencies(segments);
+    out.push({
+      type: "assistant-turn",
+      segments: enrichedSegments,
+      isStreaming: assistantTurnHasStreamingSegment(enrichedSegments),
+    });
   }
 
   if (!globalStreaming) {
@@ -125,6 +130,9 @@ export function coalesceAssistantTurnUnits(
   }
   for (let j = out.length - 1; j >= 0; j -= 1) {
     const unit = out[j];
+    if (unit.type === "single" && unit.message.role === "user") {
+      break;
+    }
     if (unit.type === "assistant-turn") {
       out[j] = {
         type: "assistant-turn",
@@ -135,6 +143,15 @@ export function coalesceAssistantTurnUnits(
     }
   }
   return out;
+}
+
+function assistantTurnHasStreamingSegment(segments: TurnSegment[]): boolean {
+  return segments.some((segment) => {
+    if (segment.kind === "text") {
+      return !!segment.message.isStreaming || !!segment.message.reasoningStreaming;
+    }
+    return segment.messages.some((message) => !!message.isStreaming || !!message.reasoningStreaming);
+  });
 }
 
 /** 为 activity 段推算耗时：从本段首条消息到下一段开始的时间差。 */

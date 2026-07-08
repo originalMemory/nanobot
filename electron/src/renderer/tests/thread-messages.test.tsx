@@ -130,6 +130,50 @@ describe("ThreadMessages turn coalescing", () => {
     ))).toEqual([false, true]);
   });
 
+  it("does not revive a completed assistant turn after a follow-up user message", () => {
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", content: "one", createdAt: 1 },
+      {
+        id: "r1",
+        role: "assistant",
+        content: "",
+        reasoning: "done thinking",
+        reasoningStreaming: false,
+        createdAt: 2,
+      },
+      { id: "a1", role: "assistant", content: "done", createdAt: 3 },
+      { id: "u2", role: "user", content: "follow up", createdAt: 4 },
+    ];
+
+    const units = buildFinalDisplayUnits(messages, true);
+    const assistantTurns = units.filter((u) => u.type === "assistant-turn");
+    expect(assistantTurns).toHaveLength(1);
+    if (assistantTurns[0]?.type !== "assistant-turn") throw new Error("expected assistant turn");
+    expect(assistantTurns[0].isStreaming).toBe(false);
+  });
+
+  it("keeps an active assistant turn streaming after a follow-up user message", () => {
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", content: "one", createdAt: 1 },
+      {
+        id: "r1",
+        role: "assistant",
+        content: "",
+        reasoning: "still thinking",
+        reasoningStreaming: true,
+        isStreaming: true,
+        createdAt: 2,
+      },
+      { id: "u2", role: "user", content: "follow up", createdAt: 3 },
+    ];
+
+    const units = buildFinalDisplayUnits(messages, true);
+    const assistantTurns = units.filter((u) => u.type === "assistant-turn");
+    expect(assistantTurns).toHaveLength(1);
+    if (assistantTurns[0]?.type !== "assistant-turn") throw new Error("expected assistant turn");
+    expect(assistantTurns[0].isStreaming).toBe(true);
+  });
+
   it("inserts replayed early reasoning before tool traces when cluster has no leading reasoning", () => {
     const messages: UIMessage[] = [
       {

@@ -71,6 +71,14 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full two-branch model (`main`
 - Line length: 100.
 - Linting: `ruff` with rules E, F, I, N, W (E501 ignored).
 - pytest with `asyncio_mode = "auto"`.
+- New code comments and docstrings should be written in Chinese.
+
+## Agent-Specific Rules
+
+- Do not modify the root `webui/` frontend by default. Electron UI work should stay under `electron/`; only touch root `webui/` when the user explicitly asks for browser WebUI changes.
+- The root `webui/` rule applies to frontend files such as components, tests, config, and i18n. Backend/API modules such as `nanobot/webui/` may be changed when needed for Electron or gateway payloads.
+- Reading root `webui/` for reference is allowed. If both Electron and browser WebUI need the same behavior, implement the requested side first and ask before syncing the other.
+- Do not run `git commit` or `git commit --amend` unless the user explicitly asks. `git status`, `git diff`, and staging are allowed.
 
 ## Common File Locations
 

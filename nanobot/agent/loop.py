@@ -24,12 +24,12 @@ from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
+from nanobot.agent.tools.diary_search import DiarySearchTool
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.diary_search import DiarySearchTool
-from nanobot.agent.tools.session_search import SessionSearchTool
 from nanobot.agent.tools.self import MyTool
+from nanobot.agent.tools.session_search import SessionSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.progress import build_bus_progress_callback
 from nanobot.bus.queue import MessageBus
@@ -48,12 +48,12 @@ from nanobot.security.workspace_access import (
     reset_workspace_scope,
 )
 from nanobot.session import UNIFIED_SESSION_KEY, turn_continuation
-from nanobot.session.history_store import SessionHistoryStore
 from nanobot.session.goal_state import (
     goal_state_runtime_lines,
     runner_wall_llm_timeout_s,
     sustained_goal_active,
 )
+from nanobot.session.history_store import SessionHistoryStore
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.document import extract_documents, reference_non_image_attachments
 from nanobot.utils.helpers import image_placeholder_text
@@ -116,6 +116,7 @@ class TurnContext:
     all_messages: list[dict[str, Any]] = field(default_factory=list)
     stop_reason: str = ""
     had_injections: bool = False
+    streamed_content: bool = False
 
     user_persisted_early: bool = False
     save_skip: int = 0
@@ -1398,6 +1399,7 @@ class AgentLoop:
         had_injections: bool,
         on_stream: Callable[[str], Awaitable[None]] | None,
         *,
+        streamed_content: bool = False,
         turn_latency_ms: int | None = None,
     ) -> OutboundMessage | None:
         """Assemble the final outbound message from turn results."""
@@ -1410,7 +1412,7 @@ class AgentLoop:
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
 
         meta = dict(msg.metadata or {})
-        if on_stream is not None and stop_reason not in {"error", "tool_error"}:
+        if streamed_content and stop_reason not in {"error", "tool_error"}:
             meta["_streamed"] = True
         if turn_latency_ms is not None:
             meta["latency_ms"] = int(turn_latency_ms)
@@ -1650,10 +1652,21 @@ class AgentLoop:
             "running",
             started_at=ctx.visible_run_started_at,
         )
+        on_stream = ctx.on_stream
+        if on_stream is not None:
+            original_on_stream = on_stream
+
+            async def _track_streamed_content(delta: str) -> None:
+                if delta:
+                    ctx.streamed_content = True
+                await original_on_stream(delta)
+
+            on_stream = _track_streamed_content
+
         result = await self._run_agent_loop(
             ctx.initial_messages,
             on_progress=ctx.on_progress,
-            on_stream=ctx.on_stream,
+            on_stream=on_stream,
             on_stream_end=ctx.on_stream_end,
             on_retry_wait=ctx.on_retry_wait,
             session=ctx.session,
@@ -1755,6 +1768,7 @@ class AgentLoop:
             ctx.stop_reason,
             ctx.had_injections,
             ctx.on_stream,
+            streamed_content=ctx.streamed_content,
             turn_latency_ms=ctx.turn_latency_ms,
         )
         if ctx.ephemeral and ctx.outbound is not None:

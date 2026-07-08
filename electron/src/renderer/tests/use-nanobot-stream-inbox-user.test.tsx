@@ -387,4 +387,92 @@ describe("useNanobotStream inbox user events", () => {
       { id: "stream-b", content: "B1" },
     ]);
   });
+
+  it("keeps streamed reasoning when answer delta adopts a stream id", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "reasoning_delta",
+        chat_id: "inbox:unified",
+        text: "thinking",
+      });
+      handle({
+        event: "reasoning_end",
+        chat_id: "inbox:unified",
+      });
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        stream_id: "stream-a",
+        text: "answer",
+      });
+      handle({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]).toMatchObject({
+      id: "stream-a",
+      role: "assistant",
+      content: "answer",
+      reasoning: "thinking",
+      reasoningStreaming: false,
+      isStreaming: false,
+    });
+  });
+
+  it("keeps a live reasoning placeholder when sending a follow-up mid-turn", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "reasoning_delta",
+        chat_id: "inbox:unified",
+        text: "thinking",
+      });
+    });
+
+    act(() => {
+      result.current.send("also consider edge cases");
+    });
+
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0]).toMatchObject({
+      role: "assistant",
+      content: "",
+      reasoning: "thinking",
+      reasoningStreaming: true,
+    });
+    expect(result.current.messages[1]).toMatchObject({
+      role: "user",
+      content: "also consider edge cases",
+    });
+  });
 });

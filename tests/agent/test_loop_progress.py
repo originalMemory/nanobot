@@ -493,6 +493,50 @@ class TestToolEventProgress:
         provider.chat_with_retry.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_streaming_channel_without_deltas_sends_final_message(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """流式 provider 没有发可见 delta 时，最终正文仍应兜底发送。"""
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.supports_progress_deltas = True
+        provider.get_default_model.return_value = "openai-codex/gpt-5.5"
+
+        async def chat_stream_with_retry(**kwargs):
+            return LLMResponse(content="Hello", tool_calls=[])
+
+        provider.chat_stream_with_retry = chat_stream_with_retry
+        provider.chat_with_retry = AsyncMock()
+        loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="openai-codex/gpt-5.5")
+        _attach_webui_runtime_events(loop, bus)
+        loop.tools.get_definitions = MagicMock(return_value=[])
+        loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+        await loop._dispatch(InboundMessage(
+            channel="websocket",
+            sender_id="u1",
+            chat_id="chat1",
+            content="say hello",
+            metadata={"_wants_stream": True},
+        ))
+
+        outbound = []
+        while bus.outbound_size > 0:
+            outbound.append(await bus.consume_outbound())
+
+        final = [
+            m for m in outbound
+            if not m.metadata.get("_stream_delta")
+            and not m.metadata.get("_stream_end")
+            and not m.metadata.get("_turn_end")
+            and not m.metadata.get("_goal_status")
+        ]
+
+        assert final[-1].content == "Hello"
+        assert final[-1].metadata.get("_streamed") is not True
+
+    @pytest.mark.asyncio
     async def test_streamed_progress_is_not_repeated_before_tool_execution(
         self,
         tmp_path: Path,
