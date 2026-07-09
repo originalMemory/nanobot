@@ -55,6 +55,31 @@ type PendingCaptionEvent =
   | { kind: "delta"; index: number; text: string }
   | { kind: "end"; index: number; text?: string; error?: string };
 
+const STREAM_CHARS_PER_FRAME = 30;
+
+/** 从流式队列头部取出有限字符，剩余文本留给下一帧做打字机渲染。 */
+export function drainPendingStreamEvents(
+  events: PendingStreamEvent[],
+  maxChars: number = STREAM_CHARS_PER_FRAME,
+): PendingStreamEvent[] {
+  if (maxChars <= 0) return [];
+  const drained: PendingStreamEvent[] = [];
+  let remaining = maxChars;
+  while (events.length > 0 && remaining > 0) {
+    const event = events[0];
+    if (event.text.length <= remaining) {
+      drained.push(event);
+      events.shift();
+      remaining -= event.text.length;
+      continue;
+    }
+    drained.push({ ...event, text: event.text.slice(0, remaining) });
+    events[0] = { ...event, text: event.text.slice(remaining) };
+    remaining = 0;
+  }
+  return drained;
+}
+
 /**
  * 查找仍可接收正文 delta 的 assistant 流。
  *
@@ -747,10 +772,10 @@ export function useNanobotStream(
     streamFrameRef.current = -1;
     const frameId = window.requestAnimationFrame(() => {
       streamFrameRef.current = null;
-      const events = pendingStreamEventsRef.current;
+      const events = drainPendingStreamEvents(pendingStreamEventsRef.current);
       if (events.length === 0) return;
-      pendingStreamEventsRef.current = [];
       setMessages((prev) => applyPendingStreamEvents(prev, events));
+      if (pendingStreamEventsRef.current.length > 0) schedulePendingStreamFlush();
     });
     if (streamFrameRef.current === -1) {
       streamFrameRef.current = frameId;

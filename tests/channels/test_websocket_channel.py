@@ -864,6 +864,31 @@ async def test_send_delta_emits_delta_and_stream_end() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_delta_stream_end_with_tail_emits_tail_delta_first() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send_delta(
+        "chat-1",
+        "final tail",
+        {"_stream_delta": True, "_stream_end": True, "_stream_id": "sid"},
+    )
+
+    assert mock_ws.send.await_count == 2
+    tail = json.loads(mock_ws.send.call_args_list[0][0][0])
+    end = json.loads(mock_ws.send.call_args_list[1][0][0])
+    assert tail == {
+        "event": "delta",
+        "chat_id": "chat-1",
+        "text": "final tail",
+        "stream_id": "sid",
+    }
+    assert end == {"event": "stream_end", "chat_id": "chat-1", "stream_id": "sid"}
+
+
+@pytest.mark.asyncio
 async def test_send_delta_emits_message_bound_playback_segment(monkeypatch, tmp_path) -> None:
     bus = MagicMock()
     sessions = SessionManager(tmp_path / "sessions")
@@ -1121,8 +1146,11 @@ async def test_send_delta_stream_end_rewrites_inline_final_text(monkeypatch, tmp
         {"_stream_delta": True, "_stream_end": True, "_stream_id": "sid"},
     )
 
-    mock_ws.send.assert_awaited_once()
-    final = json.loads(mock_ws.send.await_args.args[0])
+    assert mock_ws.send.await_count == 2
+    tail = json.loads(mock_ws.send.call_args_list[0][0][0])
+    final = json.loads(mock_ws.send.call_args_list[1][0][0])
+    assert tail["event"] == "delta"
+    assert tail["text"] == "![Diagram](diagram.png)"
     assert final["event"] == "stream_end"
     assert final["text"].startswith("![Diagram](/api/media/")
 

@@ -1926,6 +1926,17 @@ class WebSocketChannel(BaseChannel):
             buffered = self._stream_text_buffers.pop(stream_key, [])
             if delta:
                 buffered.append(delta)
+                tail_body: dict[str, Any] = {
+                    "event": "delta",
+                    "chat_id": chat_id,
+                    "text": delta,
+                }
+                if meta.get("_stream_id") is not None:
+                    tail_body["stream_id"] = meta["_stream_id"]
+                self._try_append_webui_transcript(chat_id, tail_body)
+                tail_raw = json.dumps(tail_body, ensure_ascii=False)
+                for connection in conns:
+                    await self._safe_send_to(connection, tail_raw, label=" stream ")
             full_text = "".join(buffered)
             if tts_config is not None:
                 segmenter = self._playback_segmenters.pop(
