@@ -135,6 +135,7 @@ class ActiveMemoryHook(AgentHook):
                 "think": False,
                 "options": {"temperature": 0.1, "max_tokens": 40},
                 "stream": False,
+                "keep_alive": -1,
             })
             resp.raise_for_status()
             data = resp.json()
