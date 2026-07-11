@@ -23,7 +23,7 @@ from nanobot.agent.hook import AgentHook, AgentHookContext
 # ── 配置 ──────────────────────────────────────────────
 
 OLLAMA_URL = "http://192.168.31.75:11434/api/generate"
-OLLAMA_MODEL = "qwen3:8b-nothink"
+OLLAMA_MODEL = "qwen3:8b"
 OLLAMA_TIMEOUT = 3.0  # 秒，超时静默跳过
 
 MAX_RESULTS = 5
