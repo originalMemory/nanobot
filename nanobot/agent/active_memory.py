@@ -31,13 +31,21 @@ MAX_KEYWORDS = 5
 
 SHANGHAI = timezone(timedelta(hours=8))
 
-PROMPT_TEMPLATE = """提取搜索关键词。规则：
-1. 只提取专有名称，保留原文标点（如"明末：渊虚之羽"保留冒号）
-2. 话题限定词（剧情、到货、bug等）可紧跟实体
-3. 日常物品+状态（冰箱裂口、神之手歪刃）、食物名称视为实体
-4. 即使语境是否定/推迟/暂且不论，实体名仍然要提取
-5. 纯感叹/问候/嗯嗯 → 输出"无"
-6. 空格分隔，最多{max_keywords}个
+PROMPT_TEMPLATE = """提取消息中的搜索关键词，用于在日记中检索相关历史记录。
+
+【提取】
+- 人名、作品名、事件名、地点名等专有名词
+- 食物名称、物品名称
+- 保留原文标点
+- 话题限定词（剧情、到货、bug 等）可紧跟实体
+- 即使语境是否定/推迟，实体名仍要提取
+
+【不提取】
+- 操作指令动词（下载、提取、执行、修复、检查、写、改等）
+- 文件路径、代码变量、技术术语
+- 纯感叹、问候、确认
+
+【格式】空格分隔（禁止顿号），最多{max_keywords}个；无关键词则输出"无"
 
 消息：{text}
 关键词："""
@@ -261,6 +269,9 @@ def _extract_text(content: Any) -> str:
     idx = text.find("[Runtime Context")
     if idx != -1:
         text = text[:idx].strip()
+    # 跳过定时任务消息（包含 ## Recent Conversation）
+    if text.startswith("## Recent Conversation"):
+        return ""
     return text
 
 
