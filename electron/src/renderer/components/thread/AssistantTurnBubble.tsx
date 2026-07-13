@@ -8,6 +8,7 @@ import { MarkdownText } from "@/components/MarkdownText";
 import { AgentActivityCluster } from "@/components/thread/AgentActivityCluster";
 import { useBotIdentity } from "@/contexts/BotIdentityContext";
 import { formatTurnLatency } from "@/lib/format";
+import { isLiveArrival } from "@/lib/media";
 import { pickMessageSourceFields } from "@/lib/message-source";
 import {
   getAssistantPlaybackVersion,
@@ -214,7 +215,13 @@ export function AssistantTurnBubble({
                     </MarkdownText>
                   ) : null}
                   {hasMedia ? (
-                    <MessageMedia media={media} align="left" thaSourceText={message.content} />
+                    <MessageMedia
+                      media={media}
+                      align="left"
+                      autoPlayAudio={isLiveArrival(message.createdAt) && !message.thaPlayed}
+                      autoPlayAudioKey={message.id}
+                      thaSourceText={message.content}
+                    />
                   ) : null}
                 </div>
               );

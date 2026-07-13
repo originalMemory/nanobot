@@ -889,6 +889,116 @@ async def test_send_delta_stream_end_with_tail_emits_tail_delta_first() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_delta_fans_out_to_unified_inbox() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True},
+        bus,
+        gateway=_basic_handler(bus),
+        unified_session=True,
+    )
+    chat_ws = AsyncMock()
+    inbox_ws = AsyncMock()
+    channel._attach(chat_ws, "chat-1")
+    channel._attach(inbox_ws, "inbox:unified")
+
+    await channel.send_delta("chat-1", "part", {"_stream_delta": True, "_stream_id": "sid"})
+
+    inbox_payload = json.loads(inbox_ws.send.await_args.args[0])
+    assert inbox_payload == {
+        "event": "delta",
+        "chat_id": "inbox:unified",
+        "text": "part",
+        "stream_id": "sid",
+        "source_channel": "websocket",
+        "source_chat_id": "chat-1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_send_delta_unified_inbox_gets_tail_without_chat_subscriber() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True},
+        bus,
+        gateway=_basic_handler(bus),
+        unified_session=True,
+    )
+    inbox_ws = AsyncMock()
+    channel._attach(inbox_ws, "inbox:unified")
+
+    await channel.send_delta(
+        "chat-1",
+        "final tail",
+        {"_stream_delta": True, "_stream_end": True, "_stream_id": "sid"},
+    )
+
+    assert inbox_ws.send.await_count == 2
+    tail = json.loads(inbox_ws.send.call_args_list[0][0][0])
+    end = json.loads(inbox_ws.send.call_args_list[1][0][0])
+    assert tail["event"] == "delta"
+    assert tail["chat_id"] == "inbox:unified"
+    assert tail["text"] == "final tail"
+    assert tail["stream_id"] == "sid"
+    assert end["event"] == "stream_end"
+    assert end["chat_id"] == "inbox:unified"
+    assert end["stream_id"] == "sid"
+
+
+@pytest.mark.asyncio
+async def test_send_delta_does_not_fan_out_inbox_stream_to_itself() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True},
+        bus,
+        gateway=_basic_handler(bus),
+        unified_session=True,
+    )
+    inbox_ws = AsyncMock()
+    channel._attach(inbox_ws, "inbox:unified")
+
+    await channel.send_delta(
+        "inbox:unified",
+        "part",
+        {"_stream_delta": True, "_stream_id": "sid"},
+    )
+
+    assert inbox_ws.send.await_count == 1
+    payload = json.loads(inbox_ws.send.await_args.args[0])
+    assert payload == {
+        "event": "delta",
+        "chat_id": "inbox:unified",
+        "text": "part",
+        "stream_id": "sid",
+    }
+
+
+@pytest.mark.asyncio
+async def test_send_message_fans_out_without_source_chat_subscriber() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus),
+        unified_session=True,
+    )
+    inbox_ws = AsyncMock()
+    channel._attach(inbox_ws, "inbox:unified")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="complete",
+    ))
+
+    payload = json.loads(inbox_ws.send.await_args.args[0])
+    assert payload["event"] == "message"
+    assert payload["chat_id"] == "inbox:unified"
+    assert payload["source_chat_id"] == "chat-1"
+    assert payload["text"] == "complete"
+
+
+@pytest.mark.asyncio
 async def test_send_delta_emits_message_bound_playback_segment(monkeypatch, tmp_path) -> None:
     bus = MagicMock()
     sessions = SessionManager(tmp_path / "sessions")
@@ -1190,6 +1300,95 @@ async def test_send_reasoning_end_emits_close_frame() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_reasoning_fans_out_to_unified_without_chat_subscriber() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus),
+        unified_session=True,
+    )
+    inbox_ws = AsyncMock()
+    channel._attach(inbox_ws, "inbox:unified")
+
+    await channel.send_reasoning_delta(
+        "chat-1", "thinking", {"_stream_id": "r1"},
+    )
+    await channel.send_reasoning_end("chat-1", {"_stream_id": "r1"})
+
+    delta = json.loads(inbox_ws.send.call_args_list[0][0][0])
+    end = json.loads(inbox_ws.send.call_args_list[1][0][0])
+    assert delta == {
+        "event": "reasoning_delta",
+        "chat_id": "inbox:unified",
+        "text": "thinking",
+        "stream_id": "r1",
+        "source_channel": "websocket",
+        "source_chat_id": "chat-1",
+    }
+    assert end == {
+        "event": "reasoning_end",
+        "chat_id": "inbox:unified",
+        "stream_id": "r1",
+        "source_channel": "websocket",
+        "source_chat_id": "chat-1",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("subscribers", [0, 1])
+async def test_send_audio_marks_when_tha_already_played(subscribers: int) -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus),
+    )
+    chat_ws = AsyncMock()
+    channel._attach(chat_ws, "chat-1")
+    channel._broadcast_tha_event = AsyncMock(return_value=subscribers)
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="voice",
+        media=["https://example.com/reply.mp3"],
+    ))
+
+    payload = json.loads(chat_ws.send.await_args.args[0])
+    assert payload.get("tha_played", False) is (subscribers > 0)
+
+
+@pytest.mark.asyncio
+async def test_unified_shadow_audio_marks_when_tha_already_played() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus),
+        unified_session=True,
+    )
+    inbox_ws = AsyncMock()
+    channel._attach(inbox_ws, "inbox:unified")
+    channel._broadcast_tha_event = AsyncMock(return_value=1)
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="inbox:unified",
+        content="voice",
+        media=["https://example.com/reply.mp3"],
+        metadata={
+            "_unified_inbox_write": True,
+            "source_channel": "telegram",
+            "source_chat_id": "123",
+        },
+    ))
+
+    payload = json.loads(inbox_ws.send.await_args.args[0])
+    assert payload["tha_played"] is True
+
+
+@pytest.mark.asyncio
 async def test_send_vision_caption_delta_emits_streaming_frame() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
@@ -1297,6 +1496,30 @@ async def test_send_turn_end_emits_turn_end_event() -> None:
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
     assert body == {"event": "turn_end", "chat_id": "chat-1"}
+
+
+@pytest.mark.asyncio
+async def test_send_turn_end_fans_out_without_source_chat_subscriber() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus),
+        unified_session=True,
+    )
+    inbox_ws = AsyncMock()
+    channel._attach(inbox_ws, "inbox:unified")
+
+    await channel.send_turn_end("chat-1", latency_ms=12)
+
+    payload = json.loads(inbox_ws.send.await_args.args[0])
+    assert payload == {
+        "event": "turn_end",
+        "chat_id": "inbox:unified",
+        "latency_ms": 12,
+        "source_channel": "websocket",
+        "source_chat_id": "chat-1",
+    }
 
 
 @pytest.mark.asyncio

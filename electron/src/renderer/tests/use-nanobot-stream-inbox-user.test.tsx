@@ -82,6 +82,34 @@ describe("useNanobotStream inbox user events", () => {
     expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledOnce();
   });
 
+  it("保留后端已交给 THA 播放的消息标记", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+
+    act(() => {
+      chatHandlers.get("inbox:unified")!({
+        event: "message",
+        chat_id: "inbox:unified",
+        text: "voice",
+        media_urls: [{ url: "/media/reply.mp3", name: "reply.mp3" }],
+        tha_played: true,
+      });
+    });
+
+    expect(result.current.messages[0]).toMatchObject({
+      role: "assistant",
+      thaPlayed: true,
+    });
+  });
+
   it("频道过滤时不为其他 channel 的 user 入站触发托盘", () => {
     const { client, chatHandlers } = createMockClient();
     const wrapper = ({ children }: { children: ReactNode }) => (

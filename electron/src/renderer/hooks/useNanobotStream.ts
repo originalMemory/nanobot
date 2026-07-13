@@ -1166,6 +1166,7 @@ export function useNanobotStream(
           return absorbCompleteAssistantMessage(filtered, {
             content,
             ...(hasMedia ? { media } : {}),
+            ...(ev.tha_played ? { thaPlayed: true } : {}),
             ...(lat !== undefined ? { latencyMs: lat } : {}),
             ...(ev.source_channel ? { sourceChannel: ev.source_channel } : {}),
             ...(ev.channel_delivery ? { channelDelivery: true } : {}),

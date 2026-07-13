@@ -82,8 +82,6 @@ class ChannelManager:
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
         self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
-        # 跨通道流式 fan-out 到 inbox:unified 的文本累积器
-        self._unified_inbox_stream_bufs: dict[tuple[str, str, str], list[str]] = {}
         self._unified_session: bool = bool(
             getattr(getattr(config, "agents", None), "defaults", None)
             and config.agents.defaults.unified_session
@@ -315,21 +313,6 @@ class ChannelManager:
         return False
 
     @staticmethod
-    def _unified_stream_key(msg: OutboundMessage) -> tuple[str, str, str]:
-        meta = msg.metadata or {}
-        stream_id = str(meta.get("_stream_id") or "")
-        return (msg.channel, msg.chat_id, stream_id)
-
-    def _clear_unified_inbox_stream_bufs(self, channel: str, chat_id: str) -> None:
-        """清除指定会话残留的流式累积，避免异常中断后泄漏。"""
-        stale = [
-            k for k in self._unified_inbox_stream_bufs
-            if k[0] == channel and k[1] == chat_id
-        ]
-        for key in stale:
-            self._unified_inbox_stream_bufs.pop(key, None)
-
-    @staticmethod
     def _is_unified_inbox_system_meta(msg: OutboundMessage) -> bool:
         meta = msg.metadata or {}
         return bool(
@@ -448,7 +431,6 @@ class ChannelManager:
         usg = meta.get("usage")
         if isinstance(usg, dict) and usg:
             payload["usage"] = usg
-        self._clear_unified_inbox_stream_bufs(msg.channel, msg.chat_id)
         try:
             await fan_out(payload, msg.channel, msg.chat_id)
         except Exception:
@@ -478,6 +460,29 @@ class ChannelManager:
             await self._fan_out_unified_inbox_turn_end(ws_channel, msg)
             return
 
+        if meta.get("_reasoning_delta"):
+            if msg.content:
+                await self._fan_out_unified_inbox_stream(
+                    ws_channel, msg, event="reasoning_delta", text=msg.content,
+                )
+            return
+
+        if meta.get("_reasoning_end"):
+            await self._fan_out_unified_inbox_stream(
+                ws_channel, msg, event="reasoning_end",
+            )
+            return
+
+        if meta.get("_reasoning"):
+            if msg.content:
+                await self._fan_out_unified_inbox_stream(
+                    ws_channel, msg, event="reasoning_delta", text=msg.content,
+                )
+            await self._fan_out_unified_inbox_stream(
+                ws_channel, msg, event="reasoning_end",
+            )
+            return
+
         if self._is_unified_inbox_system_meta(msg):
             return
 
@@ -494,50 +499,35 @@ class ChannelManager:
             )
             return
 
-        # 仅有 _stream_delta 而无 _stream_end：中间分片，实时推 delta 并积累到 buf。
+        # 仅有 _stream_delta 而无 _stream_end：中间分片，实时推 delta。
         # 当 _stream_delta=True 且 _stream_end=True（队列积压后被 _coalesce_stream_deltas
         # 合并成单包）时，此分支不命中，直接落到下方 _stream_end 分支处理整包。
         if meta.get("_stream_delta") and not meta.get("_stream_end"):
-            key = self._unified_stream_key(msg)
             if msg.content:
-                buf = self._unified_inbox_stream_bufs.setdefault(key, [])
-                buf.append(msg.content)
                 await self._fan_out_unified_inbox_stream(
                     ws_channel, msg, event="delta", text=msg.content,
                 )
             return
 
         if meta.get("_stream_end"):
-            # 收集 buf + 本包末尾内容，拼成完整文本后推 message。
-            # 不推 stream_end 事件——否则 Electron 会先关 buffer，后续 message 会叠一条。
-            # 合并包（_stream_delta+_stream_end）同样走这里，buf 为空则 full_text = msg.content。
-            key = self._unified_stream_key(msg)
-            buf = self._unified_inbox_stream_bufs.pop(key, [])
-            if msg.content:
-                buf.append(msg.content)
-            full_text = "".join(buf)
-            if full_text.strip():
-                await self._fan_out_unified_inbox_message(
-                    ws_channel, msg, content=full_text,
+            if msg.content and meta.get("_stream_delta"):
+                await self._fan_out_unified_inbox_stream(
+                    ws_channel, msg, event="delta", text=msg.content,
                 )
-            else:
-                # 空流（如纯工具调用无文本输出），清理可能残留的同会话其他 stream buf。
-                self._clear_unified_inbox_stream_bufs(msg.channel, msg.chat_id)
+            await self._fan_out_unified_inbox_stream(
+                ws_channel, msg, event="stream_end",
+            )
             return
 
-        # _stream_end 已推过完整文本，_streamed 占位消息不再重复推送。
-        # 同时清掉该会话所有残留 buf，防止异常中断后跨 turn 泄漏。
+        # _stream_end 已关闭流式段，_streamed 占位消息不再重复推送。
         if meta.get("_streamed"):
-            self._clear_unified_inbox_stream_bufs(msg.channel, msg.chat_id)
             return
 
         if not msg.content and not msg.media:
-            # 无有效内容（如纯元数据更新），清理残留 buf 后跳过。
-            self._clear_unified_inbox_stream_bufs(msg.channel, msg.chat_id)
+            # 无有效内容（如纯元数据更新），直接跳过。
             return
 
-        # 非流式普通消息，清残留 buf（如 error 路径未收到 _stream_end）后直接 fan-out。
-        self._clear_unified_inbox_stream_bufs(msg.channel, msg.chat_id)
+        # 非流式普通消息直接 fan-out。
         await self._fan_out_unified_inbox_message(
             ws_channel, msg, content=msg.content or "",
         )
@@ -576,6 +566,7 @@ class ChannelManager:
                     channel = self.channels.get(msg.channel)
                     if channel is not None and channel.show_reasoning:
                         await self._send_with_retry(channel, msg)
+                        await self._maybe_fan_out_unified_inbox(msg)
                     continue
 
                 if msg.metadata.get("_progress"):

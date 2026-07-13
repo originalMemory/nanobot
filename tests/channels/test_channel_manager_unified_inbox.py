@@ -114,7 +114,11 @@ async def test_streamed_final_not_duplicated_after_stream_end(
         metadata={"_stream_id": "s:1", "_stream_delta": True, "_stream_end": True},
     )
     await manager._maybe_fan_out_unified_inbox(end)
-    assert len(ws.sent) == 1
+    assert ws.stream_events == [
+        ("delta", "段末", "telegram"),
+        ("stream_end", "", "telegram"),
+    ]
+    assert ws.sent == []
 
     streamed_final = OutboundMessage(
         channel="telegram",
@@ -123,7 +127,7 @@ async def test_streamed_final_not_duplicated_after_stream_end(
         metadata={"_streamed": True},
     )
     await manager._maybe_fan_out_unified_inbox(streamed_final)
-    assert len(ws.sent) == 1
+    assert ws.sent == []
 
 
 @pytest.mark.asyncio
@@ -155,7 +159,7 @@ async def test_non_streamed_telegram_reply_fan_out_to_inbox(
 async def test_stream_delta_and_end_fan_out_to_inbox(
     manager: ChannelManager,
 ) -> None:
-    """流式分片应实时推 delta，结束时推完整 message。"""
+    """流式分片应实时推 delta，结束时仅推 stream_end。"""
     ws = manager.channels["websocket"]
     assert isinstance(ws, CaptureWsChannel)
     stream_id = "s:0"
@@ -186,10 +190,12 @@ async def test_stream_delta_and_end_fan_out_to_inbox(
         metadata={**base_meta, "_stream_end": True},
     )
     await manager._maybe_fan_out_unified_inbox(end)
-    assert ws.stream_events == [("delta", "你", "telegram"), ("delta", "好", "telegram")]
-    assert len(ws.sent) == 1
-    assert ws.sent[0].content == "你好"
-    assert ws.sent[0].metadata.get("source_channel") == "telegram"
+    assert ws.stream_events == [
+        ("delta", "你", "telegram"),
+        ("delta", "好", "telegram"),
+        ("stream_end", "", "telegram"),
+    ]
+    assert ws.sent == []
 
     streamed_final = OutboundMessage(
         channel="telegram",
@@ -198,7 +204,7 @@ async def test_stream_delta_and_end_fan_out_to_inbox(
         metadata={"_streamed": True},
     )
     await manager._maybe_fan_out_unified_inbox(streamed_final)
-    assert len(ws.sent) == 1
+    assert ws.sent == []
 
 
 @pytest.mark.asyncio
@@ -271,6 +277,34 @@ async def test_turn_end_fan_out_to_inbox(
 
 
 @pytest.mark.asyncio
+async def test_reasoning_stream_fan_out_to_inbox(
+    manager: ChannelManager,
+) -> None:
+    """跨通道 reasoning 应按流式协议推送到统一收件箱。"""
+    ws = manager.channels["websocket"]
+    assert isinstance(ws, CaptureWsChannel)
+    meta = {"_stream_id": "r1"}
+
+    await manager._maybe_fan_out_unified_inbox(OutboundMessage(
+        channel="telegram",
+        chat_id="123",
+        content="thinking",
+        metadata={**meta, "_progress": True, "_reasoning_delta": True},
+    ))
+    await manager._maybe_fan_out_unified_inbox(OutboundMessage(
+        channel="telegram",
+        chat_id="123",
+        content="",
+        metadata={**meta, "_progress": True, "_reasoning_end": True},
+    ))
+
+    assert ws.stream_events == [
+        ("reasoning_delta", "thinking", "telegram"),
+        ("reasoning_end", "", "telegram"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_send_once_delivers_unified_shadow_despite_streamed_flag() -> None:
     """_send_once 对 _unified_inbox_write shadow 不应因 _streamed 而跳过 send。"""
     ch = AsyncMock(spec=BaseChannel)
@@ -285,45 +319,10 @@ async def test_send_once_delivers_unified_shadow_despite_streamed_flag() -> None
 
 
 @pytest.mark.asyncio
-async def test_stream_buf_cleared_on_streamed_placeholder(
-    manager: ChannelManager,
-) -> None:
-    """_streamed 占位应清掉残留的 stream buf，避免跨 turn 泄漏。"""
-    key = ("telegram", "123", "s:0")
-    manager._unified_inbox_stream_bufs[key] = ["orphan"]
-
-    await manager._maybe_fan_out_unified_inbox(OutboundMessage(
-        channel="telegram",
-        chat_id="123",
-        content="done",
-        metadata={"_streamed": True},
-    ))
-
-    assert manager._unified_inbox_stream_bufs == {}
-
-
-@pytest.mark.asyncio
-async def test_stream_buf_cleared_on_non_stream_final(
-    manager: ChannelManager,
-) -> None:
-    """非流式最终出站应清掉残留 buf（如 error 路径未收到 _stream_end）。"""
-    manager._unified_inbox_stream_bufs[("telegram", "123", "s:0")] = ["partial"]
-
-    await manager._maybe_fan_out_unified_inbox(OutboundMessage(
-        channel="telegram",
-        chat_id="123",
-        content="error reply",
-        metadata={},
-    ))
-
-    assert manager._unified_inbox_stream_bufs == {}
-
-
-@pytest.mark.asyncio
 async def test_coalesced_delta_end_single_packet_fan_out(
     manager: ChannelManager,
 ) -> None:
-    """合并后的 delta+end 单包应直接推完整 message，无需中间 delta。"""
+    """合并后的 delta+end 单包应先推尾 delta，再关闭流式段。"""
     ws = manager.channels["websocket"]
     assert isinstance(ws, CaptureWsChannel)
 
@@ -339,9 +338,11 @@ async def test_coalesced_delta_end_single_packet_fan_out(
     )
     await manager._maybe_fan_out_unified_inbox(merged)
 
-    assert ws.stream_events == []
-    assert len(ws.sent) == 1
-    assert ws.sent[0].content == "合并文本"
+    assert ws.stream_events == [
+        ("delta", "合并文本", "telegram"),
+        ("stream_end", "", "telegram"),
+    ]
+    assert ws.sent == []
 
 
 @pytest.mark.asyncio
@@ -423,12 +424,13 @@ async def test_dispatch_telegram_stream_fan_out_to_inbox_ws(
                     break
 
             delta_events = [e for e in events if e.get("event") == "delta"]
+            stream_end_events = [e for e in events if e.get("event") == "stream_end"]
             message_events = [e for e in events if e.get("event") == "message"]
             assert "".join(e.get("text", "") for e in delta_events) == "你好"
-            assert len(message_events) == 1
-            assert message_events[0]["text"] == "你好"
-            assert message_events[0]["source_channel"] == "telegram"
-            assert message_events[0]["source_chat_id"] == "999"
+            assert len(stream_end_events) == 1
+            assert stream_end_events[0]["source_channel"] == "telegram"
+            assert stream_end_events[0]["source_chat_id"] == "999"
+            assert message_events == []
     finally:
         dispatch_task.cancel()
         with suppress(asyncio.CancelledError):
@@ -437,9 +439,6 @@ async def test_dispatch_telegram_stream_fan_out_to_inbox_ws(
         ws_task.cancel()
         with suppress(asyncio.CancelledError):
             await ws_task
-
-    assert mgr._unified_inbox_stream_bufs == {}
-
 
 @pytest.mark.asyncio
 async def test_dispatch_telegram_caption_and_turn_end_fan_out_to_inbox_ws(
@@ -542,5 +541,3 @@ async def test_dispatch_telegram_caption_and_turn_end_fan_out_to_inbox_ws(
         ws_task.cancel()
         with suppress(asyncio.CancelledError):
             await ws_task
-
-    assert mgr._unified_inbox_stream_bufs == {}

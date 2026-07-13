@@ -15,6 +15,7 @@ import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import { playThaAudio } from "@/lib/api";
+import { isLiveArrival } from "@/lib/media";
 import {
   getAssistantPlaybackVersion,
   isAssistantPlaybackActive,
@@ -282,7 +283,13 @@ export function MessageBubble({
           <MarkdownText streaming={!!message.isStreaming}>{displayContent}</MarkdownText>
         </div>
         {media.length > 0 ? (
-          <MessageMedia media={media} align="left" thaSourceText={message.content} />
+          <MessageMedia
+            media={media}
+            align="left"
+            autoPlayAudio={isLiveArrival(message.createdAt) && !message.thaPlayed}
+            autoPlayAudioKey={message.id}
+            thaSourceText={message.content}
+          />
         ) : null}
         {showAssistantFooterRow ? (
           <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
@@ -446,10 +453,16 @@ function mergeCliMentionApps(
 export function MessageMedia({
   media,
   align,
+  autoPlayAudio = false,
+  autoPlayAudioKey,
   thaSourceText = "",
 }: {
   media: UIMediaAttachment[];
   align: "left" | "right";
+  /** 仅当消息为本次会话直播到达时为 true，决定音频是否自动播放。 */
+  autoPlayAudio?: boolean;
+  /** 消息级稳定 key，避免同一消息重挂载时重复自动播放。 */
+  autoPlayAudioKey?: string;
   /** 助手回复正文，供 THA 解析表情/动作标签。 */
   thaSourceText?: string;
 }) {
@@ -478,6 +491,8 @@ export function MessageMedia({
         <MediaCell
           key={`${item.url ?? item.name ?? item.kind}-${i}`}
           media={item}
+          autoPlay={autoPlayAudio}
+          autoPlayKey={autoPlayAudioKey ? `${autoPlayAudioKey}:${i}` : undefined}
           thaSourceText={thaSourceText}
         />
       ))}
@@ -485,12 +500,18 @@ export function MessageMedia({
   );
 }
 
-// 直播 TTS 由 THA 窗口播放；收件箱内音频仅作回放入口，不再自动播放以免重声。
+// 已自动播放过的消息附件：避免视图重挂载（切换 Tab 再切回等）时重复自动播放。
+const autoPlayedAudioKeys = new Set<string>();
+
 function AudioCell({
   media,
+  autoPlay = false,
+  autoPlayKey,
   thaSourceText = "",
 }: {
   media: UIMediaAttachment;
+  autoPlay?: boolean;
+  autoPlayKey?: string;
   thaSourceText?: string;
 }) {
   const { t } = useTranslation();
@@ -529,6 +550,20 @@ function AudioCell({
     return () => el.removeEventListener("play", onPlay);
   }, [forwardToTha]);
 
+  useEffect(() => {
+    const el = audioRef.current;
+    if (
+      !el
+      || !autoPlay
+      || !autoPlayKey
+      || !resolvedUrl
+      || autoPlayedAudioKeys.has(autoPlayKey)
+    ) return;
+    autoPlayedAudioKeys.add(autoPlayKey);
+    // THA 有订阅者时 onPlay 会停止本地播放；否则 Electron 继续本地播放。
+    void el.play().catch(() => autoPlayedAudioKeys.delete(autoPlayKey));
+  }, [autoPlay, autoPlayKey, resolvedUrl]);
+
   if (failed || !resolvedUrl) {
     return (
       <a
@@ -565,9 +600,13 @@ function AudioCell({
 
 function MediaCell({
   media,
+  autoPlay = false,
+  autoPlayKey,
   thaSourceText = "",
 }: {
   media: UIMediaAttachment;
+  autoPlay?: boolean;
+  autoPlayKey?: string;
   thaSourceText?: string;
 }) {
   const { t } = useTranslation();
@@ -576,7 +615,14 @@ function MediaCell({
   const resolvedUrl = resolveMediaUrl(media.url, apiBase);
 
   if (media.kind === "audio") {
-    return <AudioCell media={media} thaSourceText={thaSourceText} />;
+    return (
+      <AudioCell
+        media={media}
+        autoPlay={autoPlay}
+        autoPlayKey={autoPlayKey}
+        thaSourceText={thaSourceText}
+      />
+    );
   }
 
   if (media.kind === "video" && hasUrl) {

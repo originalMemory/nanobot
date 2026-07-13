@@ -63,6 +63,8 @@ export interface UIMessage {
   images?: UIImage[];
   /** Signed or local UI-renderable media attachments. */
   media?: UIMediaAttachment[];
+  /** 后端已将本条消息的音频交给 THA，Electron 不再本地自动播放。 */
+  thaPlayed?: boolean;
   /** App-specific CLI adapters explicitly attached to this user turn. */
   cliApps?: UICliAppAttachment[];
   /** Settings-managed MCP presets explicitly attached to this user turn. */
@@ -662,6 +664,7 @@ export type InboundEvent =
       reply_to?: string;
       media?: string[];
       media_urls?: Array<{ url: string; name?: string }>;
+      tha_played?: boolean;
       tool_events?: ToolProgressEvent[];
       /** Present when the frame is an agent breadcrumb (e.g. tool hint,
        * generic progress line) rather than a conversational reply. */
@@ -701,12 +704,16 @@ export type InboundEvent =
       chat_id: string;
       text: string;
       stream_id?: string;
+      source_channel?: string;
+      source_chat_id?: string;
     }
   | {
       event: "stream_end";
       chat_id: string;
       stream_id?: string;
       text?: string;
+      source_channel?: string;
+      source_chat_id?: string;
     }
   | {
       event: "assistant_playback_segment";
@@ -718,11 +725,15 @@ export type InboundEvent =
       chat_id: string;
       text: string;
       stream_id?: string;
+      source_channel?: string;
+      source_chat_id?: string;
     }
   | {
       event: "reasoning_end";
       chat_id: string;
       stream_id?: string;
+      source_channel?: string;
+      source_chat_id?: string;
     }
   | {
       event: "vision_caption_delta";
@@ -730,6 +741,8 @@ export type InboundEvent =
       text: string;
       image_index?: number;
       stream_id?: string;
+      source_channel?: string;
+      source_chat_id?: string;
     }
   | {
       event: "vision_caption_end";
@@ -738,6 +751,8 @@ export type InboundEvent =
       stream_id?: string;
       text?: string;
       error?: string;
+      source_channel?: string;
+      source_chat_id?: string;
     }
   | {
       event: "runtime_model_updated";
@@ -751,6 +766,8 @@ export type InboundEvent =
       /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
       goal_state?: GoalStateWsPayload;
       usage?: TurnUsageStats;
+      source_channel?: string;
+      source_chat_id?: string;
     }
   | {
       event: "goal_status";

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { inferMediaKind, toMediaAttachment } from "@/lib/media";
+import { RENDER_SESSION_START, inferMediaKind, isLiveArrival, toMediaAttachment } from "@/lib/media";
+
+describe("isLiveArrival", () => {
+  it("仅将渲染会话启动后的消息视为直播消息", () => {
+    expect(isLiveArrival(RENDER_SESSION_START)).toBe(false);
+    expect(isLiveArrival(RENDER_SESSION_START + 1)).toBe(true);
+  });
+});
 
 describe("inferMediaKind — 图片", () => {
   it.each([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"])(

@@ -1508,41 +1508,23 @@ class WebSocketChannel(BaseChannel):
         payload: dict[str, Any],
         source_channel: str,
         source_chat_id: str,
-        exclude_conns: set[Any] | None = None,
     ) -> None:
-        """将 *payload*（附加 ``source_channel`` 字段）推送给 ``inbox:unified`` 的订阅者。
-
-        *exclude_conns* 中的连接会被跳过，避免同时订阅了自身 ``chat_id``
-        和 ``inbox:unified`` 的客户端收到重复消息（按连接集合去重）。
-        """
+        """将事件改写为统一收件箱路由后推送给其订阅者。"""
         inbox_conns = list(self._subs.get(INBOX_UNIFIED_CHAT_ID, ()))
-        eligible = [
-            connection
-            for connection in inbox_conns
-            if not (exclude_conns and connection in exclude_conns)
-        ]
-        if not eligible:
+        if not inbox_conns:
             if (
                 self._unified_session
                 and self._session_manager is not None
                 and should_track_unread_fanout(payload)
             ):
-                if inbox_conns:
-                    # 同连接已通过 chat_id 收到，视为 inbox 已实时投递。
-                    mark_inbox_delivered_after_fanout(
-                        self._session_manager,
-                        payload,
-                        source_channel,
-                        source_chat_id,
-                    )
-                else:
-                    ensure_inbox_delivery_baseline(self._session_manager)
+                ensure_inbox_delivery_baseline(self._session_manager)
             return
         fan_payload = dict(payload)
+        fan_payload["chat_id"] = INBOX_UNIFIED_CHAT_ID
         fan_payload["source_channel"] = source_channel
         fan_payload["source_chat_id"] = source_chat_id
         fan_raw = json.dumps(fan_payload, ensure_ascii=False)
-        for connection in eligible:
+        for connection in inbox_conns:
             await self._safe_send_to(connection, fan_raw, label=" inbox:unified ")
         if (
             self._unified_session
@@ -1605,17 +1587,34 @@ class WebSocketChannel(BaseChannel):
                 payload["cron_job_name"] = cron_job_name
             if msg.media:
                 urls: list[dict[str, str]] = []
+                audio_urls: list[dict[str, str]] = []
                 for entry in msg.media:
                     if not isinstance(entry, str) or not entry:
                         continue
                     if is_remote_media_url(entry):
-                        urls.append(self._http_router.remote_media_payload(entry))
+                        remote_payload = self._http_router.remote_media_payload(entry)
+                        urls.append(remote_payload)
+                        if self._is_audio_media_ref(entry, remote_payload):
+                            audio_urls.append(remote_payload)
                         continue
                     signed = self._http_router.sign_or_stage_media_path(Path(entry))
                     if signed is not None:
                         urls.append(signed)
+                        if self._is_audio_media_ref(entry, signed):
+                            audio_urls.append(signed)
                 if urls:
                     payload["media_urls"] = urls
+                if audio_urls:
+                    tha_subscribers = await self._broadcast_tha_event(
+                        {
+                            "type": "audio",
+                            "chatId": INBOX_UNIFIED_CHAT_ID,
+                            "text": text,
+                            "media": audio_urls,
+                        }
+                    )
+                    if tha_subscribers > 0:
+                        payload["tha_played"] = True
             # 进程重启后历史图片失效是现有的已知限制（签名 URL 绑定进程生命周期）。
             await self._fan_out_to_unified_inbox(payload, source_ch, source_cid)
             return
@@ -1647,7 +1646,10 @@ class WebSocketChannel(BaseChannel):
 
         # Snapshot the subscriber set so ConnectionClosed cleanups mid-iteration are safe.
         conns = list(self._subs.get(msg.chat_id, ()))
-        if not conns:
+        fan_out_unified = self._unified_session and msg.chat_id != INBOX_UNIFIED_CHAT_ID
+        if not conns and not (
+            fan_out_unified and self._subs.get(INBOX_UNIFIED_CHAT_ID)
+        ):
             if (
                 msg.metadata.get("_progress")
                 or msg.metadata.get("_file_edit_events")
@@ -1727,7 +1729,7 @@ class WebSocketChannel(BaseChannel):
             if urls:
                 payload["media_urls"] = urls
             if audio_urls:
-                await self._broadcast_tha_event(
+                tha_subscribers = await self._broadcast_tha_event(
                     {
                         "type": "audio",
                         "chatId": msg.chat_id,
@@ -1735,6 +1737,8 @@ class WebSocketChannel(BaseChannel):
                         "media": audio_urls,
                     }
                 )
+                if tha_subscribers > 0:
+                    payload["tha_played"] = True
         if msg.reply_to:
             payload["reply_to"] = msg.reply_to
         lat = msg.metadata.get("latency_ms")
@@ -1774,13 +1778,9 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(payload, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" ")
-        # 统一会话模式下，将消息额外推送给 inbox:unified 订阅者（实时 fan-out）；
         # 历史数据由 Session 直接提供，无需再写入 unified transcript 文件。
-        # 排除已通过 chat_id 订阅收到本消息的连接（去重）。
-        if self._unified_session and not msg.metadata.get("_progress"):
-            await self._fan_out_to_unified_inbox(
-                payload, "websocket", msg.chat_id, exclude_conns=set(conns)
-            )
+        if fan_out_unified and not msg.metadata.get("_progress"):
+            await self._fan_out_to_unified_inbox(payload, "websocket", msg.chat_id)
 
     async def send_reasoning_delta(
         self,
@@ -1794,7 +1794,11 @@ class WebSocketChannel(BaseChannel):
         until the matching ``reasoning_end`` arrives.
         """
         conns = list(self._subs.get(chat_id, ()))
-        if not conns or not delta:
+        fan_out_unified = self._unified_session and chat_id != INBOX_UNIFIED_CHAT_ID
+        if not delta or (
+            not conns
+            and not (fan_out_unified and self._subs.get(INBOX_UNIFIED_CHAT_ID))
+        ):
             return
         meta = metadata or {}
         body: dict[str, Any] = {
@@ -1809,6 +1813,8 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" reasoning ")
+        if fan_out_unified:
+            await self._fan_out_to_unified_inbox(body, "websocket", chat_id)
 
     async def send_reasoning_end(
         self,
@@ -1817,7 +1823,10 @@ class WebSocketChannel(BaseChannel):
     ) -> None:
         """Close the current reasoning stream segment for in-place renderers."""
         conns = list(self._subs.get(chat_id, ()))
-        if not conns:
+        fan_out_unified = self._unified_session and chat_id != INBOX_UNIFIED_CHAT_ID
+        if not conns and not (
+            fan_out_unified and self._subs.get(INBOX_UNIFIED_CHAT_ID)
+        ):
             return
         meta = metadata or {}
         body: dict[str, Any] = {
@@ -1831,6 +1840,8 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" reasoning_end ")
+        if fan_out_unified:
+            await self._fan_out_to_unified_inbox(body, "websocket", chat_id)
 
     async def send_vision_caption_delta(
         self,
@@ -1914,7 +1925,11 @@ class WebSocketChannel(BaseChannel):
         metadata: dict[str, Any] | None = None,
     ) -> None:
         conns = list(self._subs.get(chat_id, ()))
-        if not conns:
+        fan_out_unified = self._unified_session and chat_id != INBOX_UNIFIED_CHAT_ID
+        has_unified_inbox_subs = fan_out_unified and bool(
+            self._subs.get(INBOX_UNIFIED_CHAT_ID)
+        )
+        if not conns and not has_unified_inbox_subs:
             return
         meta = metadata or {}
         stream_key = (chat_id, str(meta.get("_stream_id") or ""))
@@ -1934,6 +1949,10 @@ class WebSocketChannel(BaseChannel):
                 if meta.get("_stream_id") is not None:
                     tail_body["stream_id"] = meta["_stream_id"]
                 self._try_append_webui_transcript(chat_id, tail_body)
+                if fan_out_unified:
+                    await self._fan_out_to_unified_inbox(
+                        tail_body, "websocket", chat_id
+                    )
                 tail_raw = json.dumps(tail_body, ensure_ascii=False)
                 for connection in conns:
                     await self._safe_send_to(connection, tail_raw, label=" stream ")
@@ -1963,17 +1982,10 @@ class WebSocketChannel(BaseChannel):
         if meta.get("_stream_id") is not None:
             body["stream_id"] = meta["_stream_id"]
         self._try_append_webui_transcript(chat_id, body)
-        if self._unified_session and full_text is not None:
-            fan_payload: dict[str, Any] = {
-                "event": "message",
-                "chat_id": chat_id,
-                "text": full_text,
-            }
-            if meta.get("_stream_id") is not None:
-                fan_payload["stream_id"] = meta["_stream_id"]
-            await self._fan_out_to_unified_inbox(
-                fan_payload, "websocket", chat_id, exclude_conns=set(conns)
-            )
+        if fan_out_unified and body.get("event") == "delta":
+            await self._fan_out_to_unified_inbox(body, "websocket", chat_id)
+        if fan_out_unified and full_text is not None:
+            await self._fan_out_to_unified_inbox(body, "websocket", chat_id)
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" stream ")
@@ -1988,7 +2000,10 @@ class WebSocketChannel(BaseChannel):
     ) -> None:
         """Signal that the agent has fully finished processing the current turn."""
         conns = list(self._subs.get(chat_id, ()))
-        if not conns:
+        fan_out_unified = self._unified_session and chat_id != INBOX_UNIFIED_CHAT_ID
+        if not conns and not (
+            fan_out_unified and self._subs.get(INBOX_UNIFIED_CHAT_ID)
+        ):
             return
         body: dict[str, Any] = {"event": "turn_end", "chat_id": chat_id}
         if latency_ms is not None:
@@ -2001,6 +2016,8 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" turn_end ")
+        if fan_out_unified:
+            await self._fan_out_to_unified_inbox(body, "websocket", chat_id)
 
     async def send_goal_state(self, chat_id: str, blob: dict[str, Any]) -> None:
         """Push persisted goal-state snapshot for *chat_id* (multi-chat isolation)."""

@@ -252,6 +252,7 @@ async def test_fanout_to_inbox_unified_on_ws_message(bus: MagicMock, tmp_path: P
                     await asyncio.wait_for(inbox_client.ws.recv(), timeout=2.0)
                 )
                 assert inbox_msg["event"] == "message"
+                assert inbox_msg["chat_id"] == "inbox:unified"
                 assert inbox_msg["text"] == "hello from agent"
                 assert inbox_msg["source_channel"] == "websocket"
                 assert inbox_msg["source_chat_id"] == chat_id
@@ -261,9 +262,10 @@ async def test_fanout_to_inbox_unified_on_ws_message(bus: MagicMock, tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_no_duplicate_when_subscribed_to_both(bus: MagicMock, tmp_path: Path) -> None:
-    """Task 3.4: if a client subscribes to both chat_id and inbox:unified, it
-    should receive the message only once (dedup by connection set)."""
+async def test_dual_subscription_routes_one_message_to_each_logical_chat(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    """同一连接双订阅时，原会话和统一收件箱应分别收到一帧。"""
     ch = _ch(bus, _PORT_BASE + 6, unified_session=True, workspace_path=tmp_path)
     t = asyncio.create_task(ch.start())
     await asyncio.sleep(0.3)
@@ -278,7 +280,6 @@ async def test_no_duplicate_when_subscribed_to_both(bus: MagicMock, tmp_path: Pa
             attached = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
             assert attached["event"] == "attached"
 
-            # Send a message and expect exactly one delivery
             await ch.send(OutboundMessage(
                 channel="websocket",
                 chat_id=chat_id,
@@ -287,11 +288,14 @@ async def test_no_duplicate_when_subscribed_to_both(bus: MagicMock, tmp_path: Pa
 
             msg1 = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
             assert msg1["event"] == "message"
+            assert msg1["chat_id"] == chat_id
             assert msg1["text"] == "dedup test"
 
-            # Should NOT receive a second copy
-            with pytest.raises(asyncio.TimeoutError):
-                await asyncio.wait_for(c.ws.recv(), timeout=0.3)
+            msg2 = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+            assert msg2["event"] == "message"
+            assert msg2["chat_id"] == "inbox:unified"
+            assert msg2["source_chat_id"] == chat_id
+            assert msg2["text"] == "dedup test"
     finally:
         await ch.stop()
         await t
@@ -655,7 +659,7 @@ async def test_attach_inbox_unified_clears_unread(bus: MagicMock, tmp_path: Path
 async def test_dual_subscribe_does_not_mark_unread(
     bus: MagicMock, tmp_path: Path
 ) -> None:
-    """同连接双订阅时消息已通过 chat_id 收到，不应产生未读。"""
+    """同连接双订阅时统一收件箱已实时收到消息，不应产生未读。"""
     sm = SessionManager(workspace=tmp_path)
     session = sm.get_or_create("unified:default")
     session.metadata[INBOX_LAST_DELIVERED_UI_COUNT_KEY] = 0
@@ -687,9 +691,9 @@ async def test_dual_subscribe_does_not_mark_unread(
             ))
             msg1 = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
             assert msg1["event"] == "message"
-
-            with pytest.raises(asyncio.TimeoutError):
-                await asyncio.wait_for(c.ws.recv(), timeout=0.3)
+            msg2 = json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))
+            assert msg2["event"] == "message"
+            assert msg2["chat_id"] == "inbox:unified"
 
         session = sm.get_or_create("unified:default")
         ui_count = inbox_ui_message_count(session)

@@ -93,6 +93,13 @@ class AgentProgressHook(AgentHook):
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         await self.emit_reasoning_end()
+        streamed = self._strip_think(self._stream_buf) or ""
+        final = self._strip_think(context.response.content) if context.response else None
+        if self._on_stream and streamed and final and final.startswith(streamed):
+            tail = final[len(streamed):]
+            if tail:
+                context.streamed_content = True
+                await self._on_stream(tail)
         if self._on_stream_end:
             await self._on_stream_end(resuming=resuming)
         self._stream_buf = ""
