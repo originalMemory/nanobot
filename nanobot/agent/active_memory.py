@@ -269,8 +269,10 @@ def _extract_text(content: Any) -> str:
     idx = text.find("[Runtime Context")
     if idx != -1:
         text = text[:idx].strip()
-    # 跳过定时任务消息（包含 ## Recent Conversation）
+    # 跳过定时任务消息
     if text.startswith("## Recent Conversation"):
+        return ""
+    if text.startswith("The scheduled time has arrived"):
         return ""
     return text
 
