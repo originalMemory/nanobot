@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { drainPendingStreamEvents, findStreamingAssistantIndex } from "@/hooks/useNanobotStream";
+import { findStreamingAssistantIndex } from "@/hooks/useNanobotStream";
 import type { UIMessage } from "@/lib/types";
 
 describe("useNanobotStream ordering helpers", () => {
@@ -42,20 +42,5 @@ describe("useNanobotStream ordering helpers", () => {
     ];
 
     expect(findStreamingAssistantIndex(messages, new Set())).toBe(1);
-  });
-
-  it("paces pending stream events without dropping the remainder", () => {
-    const events = [
-      { kind: "delta" as const, text: "abcdefghijklmnopqrstuvwxyz", streamId: "s1" },
-      { kind: "delta" as const, text: "12345", streamId: "s1" },
-    ];
-
-    expect(drainPendingStreamEvents(events, 10)).toEqual([
-      { kind: "delta", text: "abcdefghij", streamId: "s1" },
-    ]);
-    expect(events).toEqual([
-      { kind: "delta", text: "klmnopqrstuvwxyz", streamId: "s1" },
-      { kind: "delta", text: "12345", streamId: "s1" },
-    ]);
   });
 });

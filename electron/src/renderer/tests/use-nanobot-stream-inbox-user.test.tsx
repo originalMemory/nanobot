@@ -46,6 +46,46 @@ describe("useNanobotStream inbox user events", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders every received delta character across callback rerenders", () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 1;
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      const id = nextFrameId++;
+      frames.set(id, cb);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const text = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const { result, rerender } = renderHook(
+      ({ onTurnEnd }: { onTurnEnd: () => void }) => (
+        useNanobotStream("inbox:unified", [], false, onTurnEnd)
+      ),
+      { wrapper, initialProps: { onTurnEnd: vi.fn() } },
+    );
+
+    act(() => {
+      chatHandlers.get("inbox:unified")!({
+        event: "delta",
+        chat_id: "inbox:unified",
+        stream_id: "stream-a",
+        text,
+      });
+    });
+    rerender({ onTurnEnd: vi.fn() });
+    act(() => {
+      for (const callback of [...frames.values()]) callback(0);
+    });
+
+    expect(result.current.messages[0]?.content).toBe(text);
+  });
+
   it("appends external channel user messages with sourceChannel", () => {
     const { client, chatHandlers } = createMockClient();
     const wrapper = ({ children }: { children: ReactNode }) => (

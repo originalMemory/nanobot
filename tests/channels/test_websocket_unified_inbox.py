@@ -756,3 +756,50 @@ async def test_online_inbox_fanout_before_persist_is_reconciled(
     finally:
         await ch.stop()
         await t
+
+
+@pytest.mark.asyncio
+async def test_online_streamed_reply_does_not_become_unread_after_refresh(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    sm = SessionManager(workspace=tmp_path)
+    ch = _ch(
+        bus,
+        _PORT_BASE + 19,
+        session_manager=sm,
+        unified_session=True,
+        workspace_path=tmp_path,
+    )
+    t = asyncio.create_task(ch.start())
+    await asyncio.sleep(0.3)
+    try:
+        async with WsTestClient(
+            f"ws://127.0.0.1:{_PORT_BASE + 19}/", client_id="inbox-stream"
+        ) as c:
+            await c.recv_ready()
+            await c.ws.send(json.dumps({"type": "attach", "chat_id": INBOX_UNIFIED_CHAT_ID}))
+            await asyncio.wait_for(c.ws.recv(), timeout=2.0)
+
+            metadata = {"_stream_id": "stream-1"}
+            await ch.send_delta("external-chat", "online reply", metadata)
+            assert json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))["event"] == "delta"
+            await ch.send_delta("external-chat", "", {**metadata, "_stream_end": True})
+            assert json.loads(await asyncio.wait_for(c.ws.recv(), timeout=2.0))["event"] == "stream_end"
+
+        session = sm.get_or_create("unified:default")
+        session.add_message(
+            "assistant",
+            "online reply",
+            source_channel="websocket",
+            source_chat_id="external-chat",
+        )
+        sm.save(session)
+
+        data = build_inbox_thread_from_session(
+            sm.get_or_create("unified:default"),
+            session_manager=sm,
+        )
+        assert data["unreadCount"] == 0
+    finally:
+        await ch.stop()
+        await t

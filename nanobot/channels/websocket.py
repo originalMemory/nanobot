@@ -1986,6 +1986,13 @@ class WebSocketChannel(BaseChannel):
             await self._fan_out_to_unified_inbox(body, "websocket", chat_id)
         if fan_out_unified and full_text is not None:
             await self._fan_out_to_unified_inbox(body, "websocket", chat_id)
+            if has_unified_inbox_subs and self._session_manager is not None:
+                mark_inbox_delivered_after_fanout(
+                    self._session_manager,
+                    {"event": "message", "text": rewritten},
+                    "websocket",
+                    chat_id,
+                )
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" stream ")
