@@ -13,12 +13,6 @@ from urllib.parse import unquote, urlparse
 from loguru import logger
 
 from nanobot.config.paths import get_webui_dir
-from nanobot.session.inbox_unread import (
-    cap_inbox_unread_count,
-    compute_inbox_unread_count,
-    migrate_inbox_delivery_watermark,
-    reconcile_pending_delivered_events,
-)
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.media_staging import is_remote_media_url
 
@@ -1307,7 +1301,6 @@ def _safe_parse_args(raw: Any) -> Any:
 def build_inbox_thread_from_session(
     session: Session,
     *,
-    session_manager: SessionManager | None = None,
     augment_media_paths: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_text: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
@@ -1322,23 +1315,14 @@ def build_inbox_thread_from_session(
             "schemaVersion": WEBUI_TRANSCRIPT_SCHEMA_VERSION,
             "sessionKey": session.key,
             "messages": [],
-            "unreadCount": 0,
         }
     msgs = replay_transcript_to_ui_messages(
         wire_events,
         augment_media_paths=augment_media_paths,
         augment_assistant_text=augment_assistant_text,
     )
-    if session_manager is not None:
-        migrate_inbox_delivery_watermark(session_manager, session, len(msgs))
-        reconcile_pending_delivered_events(session_manager, session, msgs)
-    unread = cap_inbox_unread_count(
-        compute_inbox_unread_count(session, len(msgs)),
-        len(msgs),
-    )
     return {
         "schemaVersion": WEBUI_TRANSCRIPT_SCHEMA_VERSION,
         "sessionKey": session.key,
         "messages": msgs,
-        "unreadCount": unread,
     }

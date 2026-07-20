@@ -48,7 +48,6 @@ type BootState =
       tokenExpiresAt: number;
       modelName: string | null;
       initialMessages: UIMessage[];
-      initialUnreadCount: number;
       gatewayUrl: string;
     };
 
@@ -174,14 +173,12 @@ function Shell({
   token,
   modelName,
   initialMessages,
-  initialUnreadCount,
   gatewayUrl,
 }: {
   client: NanobotClient;
   token: string;
   modelName: string | null;
   initialMessages: UIMessage[];
-  initialUnreadCount: number;
   gatewayUrl: string;
 }) {
   const { t } = useTranslation();
@@ -378,7 +375,6 @@ function Shell({
             >
               <InboxView
                 initialMessages={initialMessages}
-                initialUnreadCount={initialUnreadCount}
                 activeChannel={activeChannel}
                 onChannelsChange={setChannels}
                 pendingScreenshot={pendingAttach}
@@ -472,12 +468,10 @@ export default function App() {
           // Load inbox thread before connecting so initial messages are available
           // before any real-time events arrive (#3)
           let initialMessages: UIMessage[] = [];
-          let initialUnreadCount = 0;
           try {
             const thread = await fetchInboxThread(boot.token, url);
             if (!cancelled) {
               initialMessages = thread?.messages ?? [];
-              initialUnreadCount = thread?.unreadCount ?? 0;
             }
           } catch (histErr) {
             console.warn("[nanobot] fetchInboxThread failed, starting with empty history:", histErr);
@@ -518,7 +512,6 @@ export default function App() {
             tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
             modelName: boot.model_name ?? null,
             initialMessages,
-            initialUnreadCount,
             gatewayUrl: url,
           });
         } catch (e) {
@@ -700,7 +693,6 @@ export default function App() {
         token={state.token}
         modelName={state.modelName}
         initialMessages={state.initialMessages}
-        initialUnreadCount={state.initialUnreadCount}
         gatewayUrl={state.gatewayUrl}
       />
     </ElectronFrame>

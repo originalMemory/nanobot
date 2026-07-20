@@ -73,22 +73,6 @@ from nanobot.webui.http_utils import (
     query_first as _query_first,
 )
 from nanobot.webui.mcp_presets_api import mcp_presets_settings_action
-from nanobot.webui.settings_api import (
-    WebUISettingsError,
-    create_model_configuration,
-    runtime_capabilities,
-    settings_payload,
-    update_agent_settings,
-    update_image_generation_settings,
-    update_model_configuration,
-    update_network_safety_settings,
-    update_desk_pet_psb_settings,
-    update_desk_pet_tha_settings,
-    update_provider_settings,
-    update_tha_settings,
-    update_tts_settings,
-    update_web_search_settings,
-)
 from nanobot.webui.psb_api import (
     PSB_STATIC_DIR,
     PsbApiError,
@@ -97,8 +81,24 @@ from nanobot.webui.psb_api import (
     psb_model_detail_payload,
     psb_models_list_payload,
     psb_resolve_file,
-    psb_save_initial_state_payload,
     psb_runtime_metadata_payload,
+    psb_save_initial_state_payload,
+)
+from nanobot.webui.settings_api import (
+    WebUISettingsError,
+    create_model_configuration,
+    runtime_capabilities,
+    settings_payload,
+    update_agent_settings,
+    update_desk_pet_psb_settings,
+    update_desk_pet_tha_settings,
+    update_image_generation_settings,
+    update_model_configuration,
+    update_network_safety_settings,
+    update_provider_settings,
+    update_tha_settings,
+    update_tts_settings,
+    update_web_search_settings,
 )
 from nanobot.webui.sidebar_state import read_webui_sidebar_state, write_webui_sidebar_state
 from nanobot.webui.tha_api import (
@@ -641,7 +641,6 @@ class ForkGatewayHTTPHandler:
             "messages": [],
             "schemaVersion": 3,
             "sessionKey": UNIFIED_SESSION_KEY,
-            "unreadCount": 0,
         }
         if self._session_manager is None:
             return _http_json_response(empty)
@@ -650,7 +649,6 @@ class ForkGatewayHTTPHandler:
             return _http_json_response(empty)
         data = build_inbox_thread_from_session(
             session,
-            session_manager=self._session_manager,
             augment_media_paths=self.augment_transcript_media_paths,
             augment_assistant_text=self.rewrite_local_markdown_images,
         )

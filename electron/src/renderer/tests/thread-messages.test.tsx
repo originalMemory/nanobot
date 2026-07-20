@@ -8,10 +8,6 @@ import {
   buildFinalDisplayUnits,
   ThreadMessages,
 } from "@/components/thread/ThreadMessages";
-import {
-  firstUnreadMessageId,
-  firstUnreadMessageIndex,
-} from "@/components/thread/ThreadViewport";
 import type { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider } from "@/providers/ClientProvider";
 import type { UIMessage } from "@/lib/types";
@@ -404,46 +400,5 @@ describe("ThreadMessages turn coalescing", () => {
       vi.advanceTimersByTime(1);
     });
     expect(screen.queryByText("thinking text")).not.toBeInTheDocument();
-  });
-});
-
-describe("unread helpers", () => {
-  it("computes first unread message index from tail count", () => {
-    expect(firstUnreadMessageIndex(10, 0)).toBeNull();
-    expect(firstUnreadMessageIndex(10, 3)).toBe(7);
-    expect(firstUnreadMessageIndex(2, 5)).toBe(0);
-  });
-
-  it("resolves first unread message id", () => {
-    const messages: UIMessage[] = [
-      { id: "m1", role: "user", content: "a", createdAt: 1 },
-      { id: "m2", role: "assistant", content: "b", createdAt: 2 },
-      { id: "m3", role: "user", content: "c", createdAt: 3 },
-    ];
-    expect(firstUnreadMessageId(messages, 2)).toBe("m2");
-  });
-});
-
-describe("ThreadMessages unread divider", () => {
-  it("renders unread divider before the first unread message", () => {
-    const messages: UIMessage[] = [
-      { id: "m1", role: "user", content: "read", createdAt: 1 },
-      { id: "m2", role: "assistant", content: "unread", createdAt: 2 },
-    ];
-    render(
-      <ClientProvider
-        client={{} as NanobotClient}
-        token=""
-        apiBase="http://127.0.0.1:8765"
-      >
-        <ThreadMessages
-          messages={messages}
-          unreadDividerBeforeMessageId="m2"
-          unreadCount={1}
-        />
-      </ClientProvider>,
-    );
-    expect(screen.getByTestId("unread-divider")).toBeTruthy();
-    expect(screen.getByText("1 unread messages")).toBeTruthy();
   });
 });

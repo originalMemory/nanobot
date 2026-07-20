@@ -23,14 +23,13 @@ from websockets.asyncio.server import ServerConnection, serve, unix_serve
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as WsRequest
 
-from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.session import UNIFIED_SESSION_KEY
 from nanobot.agent.playback_segments import (
     AssistantPlaybackSegment,
     AssistantPlaybackSegmenter,
 )
+from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
+from nanobot.bus.queue import MessageBus
+from nanobot.channels.base import BaseChannel
 from nanobot.config.loader import load_config
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
@@ -38,13 +37,8 @@ from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
 )
+from nanobot.session import UNIFIED_SESSION_KEY
 from nanobot.session.goal_state import goal_state_ws_blob
-from nanobot.session.inbox_unread import (
-    clear_inbox_unread,
-    ensure_inbox_delivery_baseline,
-    mark_inbox_delivered_after_fanout,
-    should_track_unread_fanout,
-)
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
 from nanobot.utils.document import SUPPORTED_EXTENSIONS
 from nanobot.utils.media_decode import (
@@ -721,12 +715,12 @@ class WebSocketChannel(BaseChannel):
     # -- Server lifecycle and connection ingress ---------------------------
 
     async def start(self) -> None:
-        from nanobot.utils.logging_bridge import redirect_lib_logging
-
         # 允许 PSB runtime-metadata 等大 query GET；若进程启动后才设置环境变量则在此同步。
         import os
 
         import websockets.http11 as ws_http11
+
+        from nanobot.utils.logging_bridge import redirect_lib_logging
 
         line_limit = int(os.environ.get("WEBSOCKETS_MAX_LINE_LENGTH", "8192"))
         if ws_http11.MAX_LINE_LENGTH < line_limit:
@@ -1043,8 +1037,6 @@ class WebSocketChannel(BaseChannel):
             if cid == INBOX_UNIFIED_CHAT_ID:
                 self._attach(connection, INBOX_UNIFIED_CHAT_ID)
                 await self._send_event(connection, "attached", chat_id=INBOX_UNIFIED_CHAT_ID)
-                if self._session_manager is not None:
-                    clear_inbox_unread(self._session_manager)
                 await self._hydrate_after_subscribe(INBOX_UNIFIED_CHAT_ID)
                 return
             if not _is_valid_chat_id(cid):
@@ -1512,12 +1504,6 @@ class WebSocketChannel(BaseChannel):
         """将事件改写为统一收件箱路由后推送给其订阅者。"""
         inbox_conns = list(self._subs.get(INBOX_UNIFIED_CHAT_ID, ()))
         if not inbox_conns:
-            if (
-                self._unified_session
-                and self._session_manager is not None
-                and should_track_unread_fanout(payload)
-            ):
-                ensure_inbox_delivery_baseline(self._session_manager)
             return
         fan_payload = dict(payload)
         fan_payload["chat_id"] = INBOX_UNIFIED_CHAT_ID
@@ -1526,17 +1512,6 @@ class WebSocketChannel(BaseChannel):
         fan_raw = json.dumps(fan_payload, ensure_ascii=False)
         for connection in inbox_conns:
             await self._safe_send_to(connection, fan_raw, label=" inbox:unified ")
-        if (
-            self._unified_session
-            and self._session_manager is not None
-            and should_track_unread_fanout(payload)
-        ):
-            mark_inbox_delivered_after_fanout(
-                self._session_manager,
-                payload,
-                source_channel,
-                source_chat_id,
-            )
 
     async def fan_out_unified_inbox_event(
         self,
@@ -1986,13 +1961,6 @@ class WebSocketChannel(BaseChannel):
             await self._fan_out_to_unified_inbox(body, "websocket", chat_id)
         if fan_out_unified and full_text is not None:
             await self._fan_out_to_unified_inbox(body, "websocket", chat_id)
-            if has_unified_inbox_subs and self._session_manager is not None:
-                mark_inbox_delivered_after_fanout(
-                    self._session_manager,
-                    {"event": "message", "text": rewritten},
-                    "websocket",
-                    chat_id,
-                )
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" stream ")
