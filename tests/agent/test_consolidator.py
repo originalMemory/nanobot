@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from nanobot.agent.memory import (
-    _ARCHIVE_SUMMARY_MAX_CHARS,
+    _HISTORY_ENTRY_HARD_CAP,
     Consolidator,
     MemoryStore,
 )
@@ -686,18 +686,32 @@ class TestArchiveTruncation:
         # Should be truncated
         assert len(user_content) < 250_000
 
-    async def test_oversized_summary_is_capped_before_append(self, consolidator, mock_provider, store):
-        """A pathologically large LLM summary must not land full-length in
-        history.jsonl — that would re-open the #3412 bloat vector from the
-        *success* path instead of the fallback path."""
+    async def test_summary_above_legacy_limit_is_preserved(
+        self, consolidator, mock_provider, store,
+    ):
+        """普通摘要超过旧 8K 上限时完整落盘。"""
+        summary = "S" * 12_000
         mock_provider.chat_with_retry.return_value = MagicMock(
-            content="S" * (_ARCHIVE_SUMMARY_MAX_CHARS * 10),
+            content=summary,
             finish_reason="stop",
         )
         await consolidator.archive([{"role": "user", "content": "hi"}])
 
         entry = store.read_unprocessed_history(since_cursor=0)[0]
-        assert len(entry["content"]) <= _ARCHIVE_SUMMARY_MAX_CHARS + 50
+        assert entry["content"] == summary
+
+    async def test_oversized_summary_uses_history_hard_cap(
+        self, consolidator, mock_provider, store,
+    ):
+        """异常超长摘要仍由 history 64K hard cap 截断。"""
+        mock_provider.chat_with_retry.return_value = MagicMock(
+            content="S" * (_HISTORY_ENTRY_HARD_CAP * 10),
+            finish_reason="stop",
+        )
+        await consolidator.archive([{"role": "user", "content": "hi"}])
+
+        entry = store.read_unprocessed_history(since_cursor=0)[0]
+        assert len(entry["content"]) <= _HISTORY_ENTRY_HARD_CAP + 50
 
     async def test_archive_truncates_via_tiktoken_with_positive_budget(self, consolidator, mock_provider, store):
         """Positive token budget should use tiktoken for precise truncation."""

@@ -56,36 +56,30 @@ class TestBuildDreamPrompt:
         prompt, _ = result
         assert "skill-creator" in prompt
 
-    def test_truncates_long_entries(self, store):
+    def test_preserves_long_entries(self, store):
         long_content = "x" * 2000
         store.append_history(long_content)
         result = store.build_dream_prompt()
         assert result is not None
         prompt, _ = result
-        # The full 2000 chars should not appear — truncated to 500
-        assert long_content not in prompt
-        assert "x" * 500 in prompt
+        assert long_content in prompt
 
-    def test_batches_oldest_unprocessed_entries_first(self, store):
+    def test_includes_all_unprocessed_entries(self, store):
         for i in range(25):
             store.append_history(f"entry-{i + 1:02d}")
 
-        result = store.build_dream_prompt(max_entries=20)
+        result = store.build_dream_prompt()
         assert result is not None
         prompt, cursor = result
 
-        assert cursor == 20
+        assert cursor == 25
         assert "entry-01" in prompt
         assert "entry-20" in prompt
-        assert "entry-21" not in prompt
+        assert "entry-21" in prompt
+        assert "entry-25" in prompt
 
         store.set_last_dream_cursor(cursor)
-        next_result = store.build_dream_prompt(max_entries=20)
-        assert next_result is not None
-        next_prompt, next_cursor = next_result
-        assert next_cursor == 25
-        assert "entry-21" in next_prompt
-        assert "entry-25" in next_prompt
+        assert store.build_dream_prompt() is None
 
     def test_dream_prompt_consumes_consolidator_attribute_tags(self):
         prompt = render_template(
@@ -243,8 +237,8 @@ class TestEphemeralDirect:
         assert resp.metadata["_stop_reason"] == "error"
         assert MemoryStore.dream_run_completed(resp) is False
 
-    async def test_dream_turn_can_skip_unbatched_recent_history(self, tmp_path):
-        """Dream must only see the batch selected by build_dream_prompt."""
+    async def test_dream_turn_receives_all_unprocessed_history(self, tmp_path):
+        """Dream turn 接收全部待处理 history，且不重复注入 Recent History。"""
         from unittest.mock import MagicMock
 
         from nanobot.agent.loop import AgentLoop
@@ -254,10 +248,10 @@ class TestEphemeralDirect:
         for i in range(60):
             store.append_history(f"entry-{i + 1:02d}")
 
-        result = store.build_dream_prompt(max_entries=20)
+        result = store.build_dream_prompt()
         assert result is not None
         prompt, cursor = result
-        assert cursor == 20
+        assert cursor == 60
 
         captured: dict[str, list[dict]] = {}
         provider = MagicMock()
@@ -290,8 +284,8 @@ class TestEphemeralDirect:
         assert "# Recent History" not in system_prompt
         assert "entry-01" in request_text
         assert "entry-20" in request_text
-        assert "entry-21" not in request_text
-        assert "entry-60" not in request_text
+        assert "entry-21" in request_text
+        assert "entry-60" in request_text
 
 
 class TestEphemeralHooks:

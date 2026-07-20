@@ -404,7 +404,7 @@ class MemoryStore:
     def set_last_dream_cursor(self, cursor: int) -> None:
         self._dream_cursor_file.write_text(str(cursor), encoding="utf-8")
 
-    def build_dream_prompt(self, *, max_entries: int = 20) -> tuple[str, int] | None:
+    def build_dream_prompt(self) -> tuple[str, int] | None:
         """Build the Dream prompt with unprocessed history context.
 
         Returns ``(prompt, last_cursor)`` or ``None`` if nothing to process.
@@ -416,17 +416,16 @@ class MemoryStore:
         if not entries:
             return None
 
-        batch = entries[:max_entries]
         history_text = "\n".join(
-            f"[{e['timestamp']}] {truncate_text(e['content'], 500)}"
-            for e in batch
+            f"[{e['timestamp']}] {e['content']}"
+            for e in entries
         )
         skill_creator_path = str(BUILTIN_SKILLS_DIR / "skill-creator" / "SKILL.md")
         template = render_template(
             "agent/dream.md", strip=True, skill_creator_path=skill_creator_path,
         )
         prompt = f"{template}\n\n## Conversation History\n{history_text}"
-        return (prompt, batch[-1]["cursor"])
+        return (prompt, entries[-1]["cursor"])
 
     def build_dream_tools(self):
         """Build the restricted tool registry used by Dream runs."""
@@ -549,7 +548,6 @@ class MemoryStore:
 # _HISTORY_ENTRY_HARD_CAP at append_history() is a belt-and-suspenders default
 # that catches any new caller that forgot to set its own cap.
 _RAW_ARCHIVE_MAX_CHARS = 16_000       # fallback dump (LLM failed)
-_ARCHIVE_SUMMARY_MAX_CHARS = 8_000    # LLM-produced consolidation summary
 _HISTORY_ENTRY_HARD_CAP = 64_000      # emergency cap in append_history
 
 
@@ -803,7 +801,7 @@ class Consolidator:
             if response.finish_reason == "error":
                 raise RuntimeError(f"LLM returned error: {response.content}")
             summary = response.content or "[no summary]"
-            self.store.append_history(summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
+            self.store.append_history(summary)
             return summary
         except Exception:
             logger.warning("Consolidation LLM call failed, raw-dumping to history")
