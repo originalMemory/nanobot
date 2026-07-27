@@ -10,6 +10,9 @@ x-common-config: &common-config
     PUID: "99"
     PGID: "100"
     TZ: Asia/Shanghai
+    HTTP_PROXY: "http://192.168.31.73:7890"
+    HTTPS_PROXY: "http://192.168.31.73:7890"
+    NO_PROXY: "localhost,127.0.0.1,nanobot-gateway,nanobot-api"
   group_add:
     - "281"
   volumes:
