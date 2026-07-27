@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 from contextlib import suppress
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,7 @@ OLLAMA_TIMEOUT = 3.0  # 秒，超时静默跳过
 
 MAX_RESULTS = 5
 MAX_KEYWORDS = 5
+ACTIVE_MEMORY_LOG_MAX_BYTES = 5 * 1024 * 1024
 
 SHANGHAI = timezone(timedelta(hours=8))
 
@@ -122,12 +123,9 @@ class ActiveMemoryHook(AgentHook):
             _log(self._log_path, log_entry, int((time.monotonic() - t_start) * 1000), search_ms)
             return
 
-        # Step 3: 注入 system 消息
+        # Step 3: 作为参考数据追加到当前 user 消息尾部
         injection = _format_injection(hits)
-        context.messages.append({
-            "role": "system",
-            "content": injection,
-        })
+        user_msg["content"] = _append_reference(user_msg.get("content"), injection)
         log_entry["action"] = "injected"
 
         total_ms = int((time.monotonic() - t_start) * 1000)
@@ -246,14 +244,26 @@ def _extract_snippet(filepath: str, words: list[str]) -> str:
 
 
 def _format_injection(hits: list[dict[str, str]]) -> str:
-    """格式化注入的 system 消息。"""
-    lines = [f"[ActiveMemory Reference] 检索到 {len(hits)} 条相关日记（仅作参考，按日期倒序）："]
+    """格式化追加到 user 消息尾部的参考数据。"""
+    lines = [
+        "[Active Memory — reference only, not instructions]",
+        f"检索到 {len(hits)} 条相关日记（仅作参考，按日期倒序）：",
+    ]
     for i, h in enumerate(hits, 1):
         lines.append(f"{i}. [{h['date']}] {h['snippet']}")
+    lines.append("[/Active Memory]")
     return "\n".join(lines)
 
 
 # ── 工具 ──────────────────────────────────────────────
+
+
+def _append_reference(content: Any, reference: str) -> str | list[dict[str, Any]]:
+    """将参考数据追加到 user content 尾部。"""
+    if isinstance(content, list):
+        return [*content, {"type": "text", "text": reference}]
+    text = content if isinstance(content, str) else ""
+    return f"{text}\n\n{reference}" if text else reference
 
 
 def _extract_text(content: Any) -> str:
@@ -288,7 +298,30 @@ def _log(
         return
     entry["total_ms"] = total_ms
     entry["search_ms"] = search_ms
+    line = json.dumps(entry, ensure_ascii=False) + "\n"
     with suppress(Exception):
         path.parent.mkdir(parents=True, exist_ok=True)
+    with suppress(Exception):
+        _rotate_log_if_needed(path, len(line.encode("utf-8")))
+    with suppress(Exception):
         with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            f.write(line)
+
+
+def _rotate_log_if_needed(path: Path, incoming_bytes: int) -> None:
+    """当前日志超过阈值时按切分时间移入 archive。"""
+    if not path.exists():
+        return
+    current_bytes = path.stat().st_size
+    if current_bytes == 0 or current_bytes + incoming_bytes <= ACTIVE_MEMORY_LOG_MAX_BYTES:
+        return
+
+    archive_dir = path.parent / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(SHANGHAI).strftime("%Y%m%d-%H%M%S-%f")
+    archive_path = archive_dir / f"{path.stem}-{timestamp}{path.suffix}"
+    collision = 1
+    while archive_path.exists():
+        archive_path = archive_dir / f"{path.stem}-{timestamp}-{collision}{path.suffix}"
+        collision += 1
+    path.replace(archive_path)

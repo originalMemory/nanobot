@@ -90,6 +90,39 @@ async def test_runner_calls_hooks_in_order():
 
 
 @pytest.mark.asyncio
+async def test_before_iteration_message_changes_reach_current_request():
+    from nanobot.agent.hook import AgentHook, AgentHookContext
+    from nanobot.agent.runner import AgentRunner, AgentRunSpec
+
+    provider = MagicMock(spec=LLMProvider)
+    seen_messages: list[list[dict]] = []
+
+    async def chat_with_retry(**kwargs):
+        seen_messages.append([dict(message) for message in kwargs["messages"]])
+        return LLMResponse(content="done", tool_calls=[], usage={})
+
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    class AppendingHook(AgentHook):
+        async def before_iteration(self, context: AgentHookContext) -> None:
+            context.messages[-1]["content"] += "\n\nreference"
+
+    runner = AgentRunner(provider)
+    await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "hello"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=1,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        hook=AppendingHook(),
+    ))
+
+    assert seen_messages[0][-1]["content"] == "hello\n\nreference"
+
+
+@pytest.mark.asyncio
 async def test_runner_streaming_hook_receives_deltas_and_end_signal():
     from nanobot.agent.hook import AgentHook, AgentHookContext
     from nanobot.agent.runner import AgentRunner, AgentRunSpec

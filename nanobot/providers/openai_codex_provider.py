@@ -22,6 +22,10 @@ from nanobot.providers.openai_responses import (
 
 DEFAULT_CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
 DEFAULT_ORIGINATOR = "nanobot"
+_VISIBLE_OUTPUT_LANGUAGE_INSTRUCTION = (
+    "所有用户可见输出（包括最终回复和 reasoning summary）必须使用中文；"
+    "代码、命令、专有名词以及用户明确要求的其他语言除外。"
+)
 
 
 class OpenAICodexProvider(LLMProvider):
@@ -47,6 +51,11 @@ class OpenAICodexProvider(LLMProvider):
         """Shared request logic for both chat() and chat_stream()."""
         model = model or self.default_model
         system_prompt, input_items = convert_messages(messages)
+        instructions = (
+            f"{_VISIBLE_OUTPUT_LANGUAGE_INSTRUCTION}\n\n{system_prompt}"
+            if system_prompt
+            else _VISIBLE_OUTPUT_LANGUAGE_INSTRUCTION
+        )
 
         token = await asyncio.to_thread(get_codex_token)
         headers = _build_headers(token.account_id, token.access)
@@ -55,7 +64,7 @@ class OpenAICodexProvider(LLMProvider):
             "model": _strip_model_prefix(model),
             "store": False,
             "stream": True,
-            "instructions": system_prompt,
+            "instructions": instructions,
             "input": input_items,
             "text": {"verbosity": "medium"},
             "include": ["reasoning.encrypted_content"],

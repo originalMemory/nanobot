@@ -10,9 +10,10 @@ from loguru import logger
 
 import nanobot.providers.base as provider_base
 from nanobot.providers.openai_codex_provider import (
+    _VISIBLE_OUTPUT_LANGUAGE_INSTRUCTION,
     OpenAICodexProvider,
-    _codex_error_response,
     _build_reasoning_options,
+    _codex_error_response,
     _CodexHTTPError,
     _friendly_error,
     _request_codex,
@@ -164,6 +165,37 @@ async def test_codex_prompt_cache_key_uses_stable_conversation_prefix(monkeypatc
 
     assert bodies[0]["prompt_cache_key"] == bodies[1]["prompt_cache_key"]
     assert bodies[0]["prompt_cache_key"] != bodies[2]["prompt_cache_key"]
+
+
+@pytest.mark.asyncio
+async def test_codex_request_prepends_chinese_visible_output_instruction(monkeypatch) -> None:
+    bodies: list[dict[str, Any]] = []
+    _mock_codex_token(monkeypatch)
+
+    async def fake_request(
+        url,
+        headers,
+        body,
+        verify,
+        on_content_delta=None,
+        on_thinking_delta=None,
+        on_tool_call_delta=None,
+    ):
+        _ = url, headers, verify, on_content_delta, on_thinking_delta, on_tool_call_delta
+        bodies.append(body)
+        return "ok", [], "stop", None
+
+    monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
+
+    provider = OpenAICodexProvider()
+    await provider.chat([
+        {"role": "system", "content": "原有 system prompt"},
+        {"role": "user", "content": "你好"},
+    ])
+
+    assert bodies[0]["instructions"] == (
+        f"{_VISIBLE_OUTPUT_LANGUAGE_INSTRUCTION}\n\n原有 system prompt"
+    )
 
 
 @pytest.mark.asyncio
