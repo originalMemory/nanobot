@@ -1810,6 +1810,8 @@ function ComposerModelPicker({
 }) {
   const { t } = useTranslation();
   const activePresetName = settings.agent.model_preset || "default";
+  const activePreset = settings.model_presets.find((preset) => preset.name === activePresetName);
+  const activeDisplayLabel = activePreset?.label || settings.agent.model;
   const activeProvider = settings.agent.resolved_provider || settings.agent.provider;
   const activeProviderLabel = composerProviderLabel(settings, activeProvider);
   const errorId = error ? "composer-model-picker-error" : undefined;
@@ -1836,7 +1838,7 @@ function ComposerModelPicker({
             )}
           >
             <ComposerModelLogo provider={activeProvider} label={settings.agent.model} isHero={isHero} />
-            <span className="truncate">{settings.agent.model}</span>
+            <span className="truncate">{activeDisplayLabel}</span>
             <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
@@ -1861,10 +1863,12 @@ function ComposerModelPicker({
                 <span className="flex min-w-0 items-center gap-2.5">
                   <ComposerModelLogo provider={provider} label={preset.model} isHero={false} />
                   <span className="min-w-0 text-left leading-tight">
-                    <span className="block truncate font-medium text-foreground">{preset.model || preset.label}</span>
+                    <span className="block truncate font-medium text-foreground">
+                      {preset.label || preset.model}
+                    </span>
                     <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
                       {providerLabel}
-                      {preset.label ? ` · ${preset.label}` : ""}
+                      {preset.model && preset.model !== preset.label ? ` · ${preset.model}` : ""}
                     </span>
                   </span>
                 </span>

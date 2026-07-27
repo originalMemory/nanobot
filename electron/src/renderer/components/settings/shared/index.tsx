@@ -621,12 +621,13 @@ function ModelPresetOptionContent({
     draftProvider: useDraftValues ? draftProvider : undefined,
   });
   const model = useDraftValues ? draftModel : preset.model;
+  const displayLabel = preset.label || model;
   const providerName = providerDisplayLabel(settings.providers, provider);
   return (
     <span className="flex min-w-0 items-center gap-2.5">
       <ProviderPickerIcon provider={provider} showBrandLogos={showProviderLogos} />
       <span className="min-w-0 text-left leading-tight">
-        <span className="block truncate font-medium text-foreground">{model || preset.label}</span>
+        <span className="block truncate font-medium text-foreground">{displayLabel}</span>
         <span
           className={cn(
             "mt-0.5 block truncate text-muted-foreground",
@@ -634,7 +635,7 @@ function ModelPresetOptionContent({
           )}
         >
           {providerName}
-          {preset.label ? ` · ${preset.label}` : ""}
+          {model && model !== displayLabel ? ` · ${model}` : ""}
         </span>
       </span>
     </span>
