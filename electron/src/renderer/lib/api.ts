@@ -288,10 +288,10 @@ export async function updateSettings(
     query.set("tool_hint_max_length", String(update.toolHintMaxLength));
   }
   if (update.visionModel !== undefined) {
-    query.set("vision_model", update.visionModel);
+    query.set("vision_model", update.visionModel ?? "");
   }
   if (update.visionProvider !== undefined) {
-    query.set("vision_provider", update.visionProvider);
+    query.set("vision_provider", update.visionProvider ?? "");
   }
   if (update.maxTokens !== undefined) {
     query.set("max_tokens", String(update.maxTokens));

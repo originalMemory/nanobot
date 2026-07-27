@@ -225,6 +225,7 @@ class AgentLoop:
         runtime_model_publisher: Callable[[str, str | None], None] | None = None,
         vision_provider: LLMProvider | None = None,
         vision_model: str | None = None,
+        vision_provider_name: str | None = None,
         vision_provider_factory: Callable[[str, str | None], LLMProvider] | None = None,
         diary_root: str = "",
     ):
@@ -348,7 +349,7 @@ class AgentLoop:
         self._active_preset: str | None = None
         self._vision_provider: LLMProvider | None = vision_provider
         self._vision_model: str | None = vision_model
-        self._vision_provider_name: str | None = None
+        self._vision_provider_name: str | None = vision_provider_name
         self._vision_provider_factory = vision_provider_factory
         if model_preset:
             self.set_model_preset(model_preset, publish_update=False)
@@ -376,6 +377,7 @@ class AgentLoop:
             make_provider,
             make_vision_provider,
             make_vision_provider_for_model,
+            resolve_vision_config,
         )
 
         if bus is None:
@@ -392,6 +394,7 @@ class AgentLoop:
         )
         _vision_provider = extra.pop("vision_provider", None) or make_vision_provider(config)
         _vision_model = extra.pop("vision_model", None) or get_vision_model(config)
+        _, _vision_provider_name = resolve_vision_config(config)
         return cls(
             bus=bus,
             provider=provider,
@@ -421,6 +424,7 @@ class AgentLoop:
             diary_root=config.diary_root,
             vision_provider=_vision_provider,
             vision_model=_vision_model,
+            vision_provider_name=_vision_provider_name,
             vision_provider_factory=lambda m, p: make_vision_provider_for_model(config, m, p),
             **extra,
         )
@@ -509,23 +513,35 @@ class AgentLoop:
         self._refresh_vision_for_preset(name)
 
     def _refresh_vision_for_preset(self, preset_name: str | None) -> None:
-        """根据新 preset 的 vision_model/vision_provider 覆盖值刷新辅助视觉模型。"""
+        """按 preset 固定配置刷新辅助视觉 provider。"""
         preset = self.model_presets.get(preset_name) if preset_name else None
-        new_model = (preset.vision_model if preset else None) or self._vision_model
+        new_model = preset.vision_model if preset else None
+        new_provider_name = preset.vision_provider if preset else None
         if not new_model:
+            self._vision_provider = None
+            self._vision_model = None
+            self._vision_provider_name = None
             return
-        new_provider_name = (preset.vision_provider if preset else None)
         model_changed = new_model != self._vision_model
         provider_changed = new_provider_name != self._vision_provider_name
-        if self._vision_provider_factory and (model_changed or provider_changed):
-            try:
-                self._vision_provider = self._vision_provider_factory(
-                    new_model, new_provider_name,
-                )
-                self._vision_model = new_model
-                self._vision_provider_name = new_provider_name
-            except Exception:
-                logger.warning("刷新辅助视觉 provider 失败，保持原配置", exc_info=True)
+        if not (model_changed or provider_changed or self._vision_provider is None):
+            return
+        if not self._vision_provider_factory:
+            self._vision_provider = None
+            self._vision_model = None
+            self._vision_provider_name = None
+            return
+        try:
+            new_provider = self._vision_provider_factory(new_model, new_provider_name)
+        except Exception:
+            self._vision_provider = None
+            self._vision_model = None
+            self._vision_provider_name = None
+            logger.warning("刷新辅助视觉 provider 失败，已禁用辅助识图", exc_info=True)
+            return
+        self._vision_provider = new_provider
+        self._vision_model = new_model
+        self._vision_provider_name = new_provider_name
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools via plugin loader."""

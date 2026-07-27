@@ -705,6 +705,8 @@ def settings_payload(
             "context_window_tokens": defaults.context_window_tokens,
             "temperature": defaults.temperature,
             "reasoning_effort": defaults.reasoning_effort,
+            "vision_model": defaults.vision_model,
+            "vision_provider": defaults.vision_provider,
         }
     ]
     for name, preset in config.model_presets.items():
@@ -720,6 +722,8 @@ def settings_payload(
                 "context_window_tokens": preset.context_window_tokens,
                 "temperature": preset.temperature,
                 "reasoning_effort": preset.reasoning_effort,
+                "vision_model": preset.vision_model,
+                "vision_provider": preset.vision_provider,
             }
         )
 

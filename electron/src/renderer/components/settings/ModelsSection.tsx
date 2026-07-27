@@ -155,8 +155,8 @@ function agentDraftForPreset(payload: SettingsPayload, presetName: string): Agen
         ? editableDefaultProvider(payload)
         : (preset?.provider ?? payload.agent.provider),
     modelPreset: presetName,
-    visionModel: payload.agent.vision_model ?? "",
-    visionProvider: payload.agent.vision_provider ?? "",
+    visionModel: preset?.vision_model ?? "",
+    visionProvider: preset?.vision_provider ?? "",
     maxTokens: String(preset?.max_tokens ?? payload.agent.max_tokens),
     contextWindowTokens: String(preset?.context_window_tokens ?? payload.agent.context_window_tokens),
     maxMessages: String(payload.agent.max_messages ?? 120),
@@ -455,6 +455,8 @@ export function ModelsSection({
             preset.max_tokens,
             preset.context_window_tokens,
             preset.reasoning_effort ?? "",
+            preset.vision_model ?? "",
+            preset.vision_provider ?? "",
           ].join("\u0000"),
         )
         .join("\u0001"),
@@ -494,8 +496,9 @@ export function ModelsSection({
   const modelDirty = useMemo(() => {
     const preset = modelPresetValue(settings);
     const base = defaultPreset(settings);
-    const visionModelDirty = form.visionModel !== (settings.agent.vision_model ?? "");
-    const visionProviderDirty = form.visionProvider !== (settings.agent.vision_provider ?? "");
+    const selectedPreset = settings.model_presets.find((p) => p.name === form.modelPreset);
+    const visionModelDirty = form.visionModel !== (selectedPreset?.vision_model ?? "");
+    const visionProviderDirty = form.visionProvider !== (selectedPreset?.vision_provider ?? "");
     const maxTokensDirty = Number(form.maxTokens) !== settings.agent.max_tokens;
     const contextWindowTokensDirty = Number(form.contextWindowTokens) !== settings.agent.context_window_tokens;
     const maxMessagesDirty = Number(form.maxMessages) !== (settings.agent.max_messages ?? 120);

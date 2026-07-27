@@ -242,6 +242,65 @@ def test_model_preset_setter_raises_on_empty_string(tmp_path) -> None:
         loop.model_preset = ""
 
 
+def test_model_preset_switch_uses_fixed_vision_config_without_stale_provider(tmp_path) -> None:
+    default_vision_provider = _provider("gemini-2.5-flash")
+    created: list[tuple[str, str | None, MagicMock]] = []
+
+    def make_vision_provider(model: str, provider_name: str | None) -> MagicMock:
+        if model == "broken-vision":
+            raise RuntimeError("broken vision provider")
+        provider = _provider(model)
+        created.append((model, provider_name, provider))
+        return provider
+
+    presets = {
+        "default": ModelPresetConfig(
+            model="base-model",
+            vision_model="gemini-2.5-flash",
+            vision_provider="gemini",
+        ),
+        "direct": ModelPresetConfig(model="base-model"),
+        "auxiliary": ModelPresetConfig(
+            model="base-model",
+            vision_model="gemini-2.5-pro",
+        ),
+        "broken": ModelPresetConfig(model="base-model", vision_model="broken-vision"),
+    }
+    loop = AgentLoop(
+        bus=MessageBus(),
+        provider=_provider("base-model"),
+        workspace=tmp_path,
+        model="base-model",
+        model_presets=presets,
+        vision_provider=default_vision_provider,
+        vision_model="gemini-2.5-flash",
+        vision_provider_name="gemini",
+        vision_provider_factory=make_vision_provider,
+    )
+
+    loop.set_model_preset("direct")
+    assert loop._vision_provider is None
+    assert loop._vision_model is None
+
+    loop.set_model_preset("auxiliary")
+    assert loop._vision_model == "gemini-2.5-pro"
+    assert loop._vision_provider is created[-1][2]
+    assert loop._vision_provider_name is None
+
+    loop.set_model_preset("broken")
+    assert loop._vision_provider is None
+    assert loop._vision_model is None
+    assert loop._vision_provider_name is None
+
+    loop.set_model_preset("default")
+    assert loop._vision_model == "gemini-2.5-flash"
+    assert loop._vision_provider is created[-1][2]
+    assert [(model, provider_name) for model, provider_name, _ in created] == [
+        ("gemini-2.5-pro", None),
+        ("gemini-2.5-flash", "gemini"),
+    ]
+
+
 def test_self_tool_inspect_shows_model_preset(tmp_path) -> None:
     presets = {
         "fast": ModelPresetConfig(model="openai/gpt-4.1"),

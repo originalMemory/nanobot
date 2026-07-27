@@ -1,6 +1,7 @@
 import pytest
 
 from nanobot.config.schema import Config
+from nanobot.providers.factory import resolve_vision_config
 
 
 def test_resolve_preset_returns_defaults_when_no_preset() -> None:
@@ -294,6 +295,32 @@ def test_vision_model_preset_defaults_to_none() -> None:
     preset = config.model_presets["basic"]
     assert preset.vision_model is None
     assert preset.vision_provider is None
+
+
+def test_named_preset_vision_config_is_fixed_and_does_not_inherit_defaults() -> None:
+    config = Config.model_validate({
+        "agents": {
+            "defaults": {
+                "visionModel": "gemini-2.5-flash",
+                "visionProvider": "gemini",
+                "modelPreset": "direct",
+            }
+        },
+        "modelPresets": {
+            "direct": {"model": "openai/gpt-4.1"},
+            "auxiliary": {
+                "model": "openai/gpt-4.1",
+                "visionModel": "gemini-2.5-pro",
+            },
+        },
+    })
+    assert resolve_vision_config(config) == (None, None)
+
+    config.agents.defaults.model_preset = "auxiliary"
+    assert resolve_vision_config(config) == ("gemini-2.5-pro", None)
+
+    config.agents.defaults.model_preset = None
+    assert resolve_vision_config(config) == ("gemini-2.5-flash", "gemini")
 
 
 def test_match_provider_routes_forced_novita_model_api_models() -> None:

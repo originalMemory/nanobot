@@ -227,8 +227,8 @@ export interface SettingsPayload {
     bot_icon: string;
     bot_avatar_url: string | null;
     tool_hint_max_length: number;
-    vision_model?: string;
-    vision_provider?: string;
+    vision_model?: string | null;
+    vision_provider?: string | null;
     max_messages?: number;
   };
   model_presets: Array<{
@@ -242,6 +242,8 @@ export interface SettingsPayload {
     context_window_tokens: number;
     temperature: number;
     reasoning_effort: string | null;
+    vision_model: string | null;
+    vision_provider: string | null;
   }>;
   providers: Array<{
     name: string;
@@ -518,8 +520,8 @@ export interface SettingsUpdate {
   botName?: string;
   botIcon?: string;
   toolHintMaxLength?: number;
-  visionModel?: string;
-  visionProvider?: string;
+  visionModel?: string | null;
+  visionProvider?: string | null;
   maxTokens?: number;
   contextWindowTokens?: number;
   maxMessages?: number;

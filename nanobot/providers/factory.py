@@ -166,26 +166,10 @@ def make_provider(
 def resolve_vision_config(config: Config) -> tuple[str | None, str | None]:
     """解析辅助视觉模型配置，返回 (vision_model, vision_provider)。
 
-    优先级：当前活跃 preset 覆盖值 > agents.defaults 默认值。
+    每个 preset 固定使用自己的视觉配置；未选 preset 时使用 agents.defaults。
     """
-    defaults = config.agents.defaults
-    active_preset_name = defaults.model_preset
-
-    vision_model: str | None = None
-    vision_provider_name: str | None = None
-
-    if active_preset_name and active_preset_name != "default":
-        preset = config.model_presets.get(active_preset_name)
-        if preset:
-            vision_model = preset.vision_model
-            vision_provider_name = preset.vision_provider
-
-    if vision_model is None:
-        vision_model = defaults.vision_model
-    if vision_provider_name is None:
-        vision_provider_name = defaults.vision_provider
-
-    return vision_model, vision_provider_name
+    preset = config.resolve_preset()
+    return preset.vision_model, preset.vision_provider
 
 
 def get_vision_model(config: Config) -> str | None:

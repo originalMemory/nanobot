@@ -195,10 +195,8 @@ export function SettingsView({
       if (draft.model) update.model = draft.model;
       if (draft.provider) update.provider = draft.provider;
     }
-    const visionModel = draft.visionModel.trim();
-    if (visionModel !== (settings.agent.vision_model ?? "")) update.visionModel = visionModel;
-    const visionProvider = draft.visionProvider.trim();
-    if (visionProvider !== (settings.agent.vision_provider ?? "")) update.visionProvider = visionProvider;
+    update.visionModel = draft.visionModel.trim();
+    update.visionProvider = draft.visionProvider.trim();
     const maxTokens = Number(draft.maxTokens);
     if (!Number.isNaN(maxTokens) && maxTokens >= 1) update.maxTokens = maxTokens;
     const contextWindowTokens = Number(draft.contextWindowTokens);

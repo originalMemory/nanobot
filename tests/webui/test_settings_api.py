@@ -468,6 +468,72 @@ def test_update_agent_settings_writes_reasoning_effort_to_active_preset(
     assert saved.model_presets["think"].reasoning_effort == "high"
 
 
+def test_settings_payload_exposes_fixed_preset_vision(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.agents.defaults.vision_model = "gemini-2.5-flash"
+    config.agents.defaults.vision_provider = "gemini"
+    config.model_presets["vision"] = ModelPresetConfig(
+        model="openai/gpt-4.1",
+        provider="openai",
+        vision_model="gemini-2.5-pro",
+    )
+    config.model_presets["direct"] = ModelPresetConfig(
+        model="openai/gpt-4.1",
+        provider="openai",
+    )
+    config.agents.defaults.model_preset = "vision"
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = settings_payload()
+    rows = {row["name"]: row for row in payload["model_presets"]}
+
+    assert payload["agent"]["vision_model"] == "gemini-2.5-pro"
+    assert payload["agent"]["vision_provider"] is None
+    assert rows["default"]["vision_model"] == "gemini-2.5-flash"
+    assert rows["vision"]["vision_model"] == "gemini-2.5-pro"
+    assert rows["vision"]["vision_provider"] is None
+    assert rows["direct"]["vision_model"] is None
+
+
+def test_update_agent_settings_writes_and_clears_fixed_preset_vision(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.agents.defaults.vision_model = "gemini-2.5-flash"
+    config.agents.defaults.vision_provider = "gemini"
+    config.model_presets["vision"] = ModelPresetConfig(
+        model="openai/gpt-4.1",
+        provider="openai",
+    )
+    config.agents.defaults.model_preset = "vision"
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    direct = update_agent_settings({
+        "vision_model": [""],
+        "vision_provider": [""],
+    })
+    assert direct["agent"]["vision_model"] is None
+    assert direct["agent"]["vision_provider"] is None
+
+    auxiliary = update_agent_settings({
+        "vision_model": ["gemini-2.5-pro"],
+        "vision_provider": [""],
+    })
+    assert auxiliary["agent"]["vision_model"] == "gemini-2.5-pro"
+    assert auxiliary["agent"]["vision_provider"] is None
+    saved = load_config(config_path).model_presets["vision"]
+    assert saved.vision_model == "gemini-2.5-pro"
+    assert saved.vision_provider is None
+
+
 def test_provider_models_payload_fetches_openai_compatible_models(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
