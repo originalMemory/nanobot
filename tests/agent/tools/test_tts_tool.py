@@ -108,44 +108,6 @@ async def test_execute_returns_audio_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_strips_psb_tags_before_synthesis(tmp_path: Path) -> None:
-    tool = _make_tool()
-    synth = AsyncMock(return_value=True)
-    with (
-        patch("nanobot.providers.tts.build_tts_provider") as mock_build,
-        patch("nanobot.config.paths.get_media_dir", return_value=tmp_path),
-    ):
-        provider_mock = MagicMock()
-        provider_mock.synthesize = synth
-        mock_build.return_value = provider_mock
-
-        await tool.execute(text='<psb:timeline name="待机" /><psb:expression name="微笑" />你好')
-
-    spoken = synth.call_args.args[0]
-    assert spoken == "你好"
-    assert "psb:" not in spoken
-
-
-@pytest.mark.asyncio
-async def test_execute_strips_tha_tags_before_synthesis(tmp_path: Path) -> None:
-    tool = _make_tool()
-    synth = AsyncMock(return_value=True)
-    with (
-        patch("nanobot.providers.tts.build_tts_provider") as mock_build,
-        patch("nanobot.config.paths.get_media_dir", return_value=tmp_path),
-    ):
-        provider_mock = MagicMock()
-        provider_mock.synthesize = synth
-        mock_build.return_value = provider_mock
-
-        await tool.execute(text="<happy><nod>你好")
-
-    spoken = synth.call_args.args[0]
-    assert spoken == "你好"
-    assert "<" not in spoken
-
-
-@pytest.mark.asyncio
 async def test_execute_uses_default_voice(tmp_path: Path) -> None:
     tool = _make_tool(default_voice="chuichui")
     synth = AsyncMock(return_value=True)

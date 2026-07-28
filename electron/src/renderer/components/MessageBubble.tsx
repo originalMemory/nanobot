@@ -4,25 +4,16 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Check, ChevronRight, Code2, Copy, FileIcon, ImageIcon, PlaySquare, Sparkles, StopCircle, Wrench } from "lucide-react";
+import { Check, ChevronRight, Copy, FileIcon, ImageIcon, PlaySquare, Sparkles, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AssistantNameRow } from "@/components/AssistantNameRow";
 import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
-import { playThaAudio } from "@/lib/api";
 import { isLiveArrival } from "@/lib/media";
-import {
-  getAssistantPlaybackVersion,
-  isAssistantPlaybackActive,
-  replayAssistantPlaybackSegments,
-  stopAssistantPlayback,
-  subscribeAssistantPlayback,
-} from "@/lib/playback-queue";
 import {
   buildTokenUsageTitle,
   displayCacheRead,
@@ -30,7 +21,6 @@ import {
   displayPromptIn,
 } from "@/lib/turn-usage";
 import { cn, formatTokenCount } from "@/lib/utils";
-import { formatAssistantContentForDisplay, hasPsbTags } from "../../psb/psb-tags";
 import { useClient } from "@/providers/ClientProvider";
 import { formatTurnLatency } from "@/lib/format";
 import { useBotIdentity } from "@/contexts/BotIdentityContext";
@@ -83,8 +73,6 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
-  const [replayingAudio, setReplayingAudio] = useState(false);
-  const [showPsbTags, setShowPsbTags] = useState(false);
   const copyResetRef = useRef<number | null>(null);
   const baseAnim = "animate-in fade-in-0 slide-in-from-bottom-1 duration-300";
   const mentionCliApps = useMemo(
@@ -117,32 +105,6 @@ export function MessageBubble({
       }, 1_500);
     });
   }, [message.content]);
-
-  const playablePlaybackSegments = useMemo(
-    () => (message.playbackSegments ?? []).filter(
-      (segment) => segment.audio?.status === "ready" && !!segment.audio.url,
-    ),
-    [message.playbackSegments],
-  );
-  useSyncExternalStore(
-    subscribeAssistantPlayback,
-    getAssistantPlaybackVersion,
-    getAssistantPlaybackVersion,
-  );
-  const isPlaybackActive = isAssistantPlaybackActive(message.id);
-
-  const onReplayAssistantAudio = useCallback(() => {
-    if (isPlaybackActive) {
-      stopAssistantPlayback(message.id);
-      setReplayingAudio(false);
-      return;
-    }
-    if (playablePlaybackSegments.length === 0) return;
-    setReplayingAudio(true);
-    void replayAssistantPlaybackSegments(playablePlaybackSegments).finally(() => {
-      window.setTimeout(() => setReplayingAudio(false), 500);
-    });
-  }, [message.id, playablePlaybackSegments, isPlaybackActive]);
 
   if (message.kind === "trace") {
     return <TraceGroup message={message} animClass={baseAnim} />;
@@ -198,11 +160,6 @@ export function MessageBubble({
   }
 
   const empty = message.content.trim().length === 0;
-  const hasResponseTags = message.role === "assistant" && hasPsbTags(message.content);
-  const displayContent = formatAssistantContentForDisplay(
-    message.content,
-    showPsbTags,
-  );
   const media = message.media ?? [];
   const reasoning = message.role === "assistant" ? message.reasoning ?? "" : "";
   const reasoningStreaming = !!(message.role === "assistant" && message.reasoningStreaming);
@@ -210,8 +167,6 @@ export function MessageBubble({
 
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   const showCopyButton = showAssistantCopyAction && showAssistantActions;
-  const showPsbTagsButton = showAssistantActions && hasResponseTags;
-  const showPlaybackButton = showAssistantActions && playablePlaybackSegments.length > 0;
   const latencyMs = message.latencyMs;
   const usage = message.role === "assistant" ? message.usage : undefined;
   const messageTs = message.role === "assistant" ? message.messageTs : undefined;
@@ -219,7 +174,7 @@ export function MessageBubble({
   const showLatencyFooter = footerCondition && latencyMs != null;
   const showUsageFooter = footerCondition && usage != null;
   const showTimestampFooter = footerCondition && messageTs != null;
-  const showAssistantFooterRow = showCopyButton || showPsbTagsButton || showPlaybackButton || showLatencyFooter || showUsageFooter || showTimestampFooter;
+  const showAssistantFooterRow = showCopyButton || showLatencyFooter || showUsageFooter || showTimestampFooter;
 
   const isTypingOnly = empty && message.isStreaming && !hasReasoning;
   const { botName, botIcon, botAvatarUrl } = useBotIdentity();
@@ -280,16 +235,10 @@ export function MessageBubble({
               hasBodyBelow={!empty}
             />
           ) : null}
-          <MarkdownText streaming={!!message.isStreaming}>{displayContent}</MarkdownText>
+          <MarkdownText streaming={!!message.isStreaming}>{message.content}</MarkdownText>
         </div>
         {media.length > 0 ? (
-          <MessageMedia
-            media={media}
-            align="left"
-            autoPlayAudio={isLiveArrival(message.createdAt) && !message.thaPlayed}
-            autoPlayAudioKey={message.id}
-            thaSourceText={message.content}
-          />
+          <MessageMedia media={media} align="left" autoPlayAudio={isLiveArrival(message.createdAt)} />
         ) : null}
         {showAssistantFooterRow ? (
           <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
@@ -310,60 +259,6 @@ export function MessageBubble({
                 ) : (
                   <Copy className="h-4 w-4" aria-hidden />
                 )}
-              </button>
-            ) : null}
-            {showPlaybackButton ? (
-              <button
-                type="button"
-                onClick={onReplayAssistantAudio}
-                aria-label={
-                  isPlaybackActive
-                    ? t("message.stopReplyAudio")
-                    : t("message.playReplyAudio")
-                }
-                title={
-                  isPlaybackActive
-                    ? t("message.stopReplyAudio")
-                    : t("message.playReplyAudio")
-                }
-                className={cn(
-                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                  "transition-colors hover:bg-muted/55 hover:text-foreground",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                )}
-              >
-                {isPlaybackActive ? (
-                  <StopCircle className="h-4 w-4" aria-hidden />
-                ) : (
-                  <PlaySquare
-                    className={cn("h-4 w-4", replayingAudio && "text-foreground")}
-                    aria-hidden
-                  />
-                )}
-              </button>
-            ) : null}
-            {showPsbTagsButton ? (
-              <button
-                type="button"
-                onClick={() => setShowPsbTags((value) => !value)}
-                aria-label={
-                  showPsbTags
-                    ? t("message.hidePsbTags")
-                    : t("message.showPsbTags")
-                }
-                title={
-                  showPsbTags
-                    ? t("message.hidePsbTags")
-                    : t("message.showPsbTags")
-                }
-                className={cn(
-                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                  "transition-colors hover:bg-muted/55 hover:text-foreground",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  showPsbTags && "text-foreground",
-                )}
-              >
-                <Code2 className="h-4 w-4" aria-hidden />
               </button>
             ) : null}
             {showTimestampFooter ? (
@@ -454,17 +349,11 @@ export function MessageMedia({
   media,
   align,
   autoPlayAudio = false,
-  autoPlayAudioKey,
-  thaSourceText = "",
 }: {
   media: UIMediaAttachment[];
   align: "left" | "right";
   /** 仅当消息为本次会话直播到达时为 true，决定音频是否自动播放。 */
   autoPlayAudio?: boolean;
-  /** 消息级稳定 key，避免同一消息重挂载时重复自动播放。 */
-  autoPlayAudioKey?: string;
-  /** 助手回复正文，供 THA 解析表情/动作标签。 */
-  thaSourceText?: string;
 }) {
   if (media.length === 0) return null;
   const images: UIImage[] = [];
@@ -488,81 +377,32 @@ export function MessageMedia({
         <UserImages images={images} align={align} size={align === "left" ? "large" : "compact"} />
       ) : null}
       {nonImages.map((item, i) => (
-        <MediaCell
-          key={`${item.url ?? item.name ?? item.kind}-${i}`}
-          media={item}
-          autoPlay={autoPlayAudio}
-          autoPlayKey={autoPlayAudioKey ? `${autoPlayAudioKey}:${i}` : undefined}
-          thaSourceText={thaSourceText}
-        />
+        <MediaCell key={`${item.url ?? item.name ?? item.kind}-${i}`} media={item} autoPlay={autoPlayAudio} />
       ))}
     </div>
   );
 }
 
-// 已自动播放过的消息附件：避免视图重挂载（切换 Tab 再切回等）时重复自动播放。
-const autoPlayedAudioKeys = new Set<string>();
+// 已自动播放过的音频 URL：避免视图重挂载（切换 Tab 再切回等）时重复自动播放。
+const autoPlayedAudio = new Set<string>();
 
-function AudioCell({
-  media,
-  autoPlay = false,
-  autoPlayKey,
-  thaSourceText = "",
-}: {
-  media: UIMediaAttachment;
-  autoPlay?: boolean;
-  autoPlayKey?: string;
-  thaSourceText?: string;
-}) {
+function AudioCell({ media, autoPlay = false }: { media: UIMediaAttachment; autoPlay?: boolean }) {
   const { t } = useTranslation();
-  const { apiBase, token } = useClient();
+  const { apiBase } = useClient();
   const [failed, setFailed] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+  // Electron 是 file:// origin，相对路径需要拼上 gateway 绝对地址
   const resolvedUrl = resolveMediaUrl(media.url, apiBase);
 
-  const forwardToTha = useCallback(async () => {
-    if (!token || !resolvedUrl) return 0;
-    try {
-      const result = await playThaAudio(token, {
-        url: resolvedUrl,
-        text: thaSourceText,
-        name: media.name,
-      }, apiBase);
-      return result.subscribers;
-    } catch {
-      return 0;
-    }
-  }, [apiBase, media.name, resolvedUrl, thaSourceText, token]);
-
   useEffect(() => {
     const el = audioRef.current;
-    if (!el) return;
-    const onPlay = () => {
-      void (async () => {
-        const subscribers = await forwardToTha();
-        if (subscribers > 0) {
-          el.pause();
-          el.currentTime = 0;
-        }
-      })();
-    };
-    el.addEventListener("play", onPlay);
-    return () => el.removeEventListener("play", onPlay);
-  }, [forwardToTha]);
-
-  useEffect(() => {
-    const el = audioRef.current;
-    if (
-      !el
-      || !autoPlay
-      || !autoPlayKey
-      || !resolvedUrl
-      || autoPlayedAudioKeys.has(autoPlayKey)
-    ) return;
-    autoPlayedAudioKeys.add(autoPlayKey);
-    // THA 有订阅者时 onPlay 会停止本地播放；否则 Electron 继续本地播放。
-    void el.play().catch(() => autoPlayedAudioKeys.delete(autoPlayKey));
-  }, [autoPlay, autoPlayKey, resolvedUrl]);
+    if (!el || !autoPlay || !resolvedUrl) return;
+    // 仅对「直播到达且尚未自动播放过」的音频自动播放一次。
+    if (autoPlayedAudio.has(resolvedUrl)) return;
+    autoPlayedAudio.add(resolvedUrl);
+    // autoplay 被浏览器策略拒绝不视为失败：保留 controls 让用户手动播放。
+    el.play().catch(() => {});
+  }, [autoPlay, resolvedUrl]);
 
   if (failed || !resolvedUrl) {
     return (
@@ -598,31 +438,14 @@ function AudioCell({
   );
 }
 
-function MediaCell({
-  media,
-  autoPlay = false,
-  autoPlayKey,
-  thaSourceText = "",
-}: {
-  media: UIMediaAttachment;
-  autoPlay?: boolean;
-  autoPlayKey?: string;
-  thaSourceText?: string;
-}) {
+function MediaCell({ media, autoPlay = false }: { media: UIMediaAttachment; autoPlay?: boolean }) {
   const { t } = useTranslation();
   const { apiBase } = useClient();
   const hasUrl = typeof media.url === "string" && media.url.length > 0;
   const resolvedUrl = resolveMediaUrl(media.url, apiBase);
 
   if (media.kind === "audio") {
-    return (
-      <AudioCell
-        media={media}
-        autoPlay={autoPlay}
-        autoPlayKey={autoPlayKey}
-        thaSourceText={thaSourceText}
-      />
-    );
+    return <AudioCell media={media} autoPlay={autoPlay} />;
   }
 
   if (media.kind === "video" && hasUrl) {

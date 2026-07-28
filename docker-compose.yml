@@ -5,17 +5,8 @@ x-common-config: &common-config
   build:
     context: .
     dockerfile: Dockerfile
-  user: "99:100"
-  environment:
-    PUID: "99"
-    PGID: "100"
-    TZ: Asia/Shanghai
-    HTTP_PROXY: "http://192.168.31.73:7890"
-    HTTPS_PROXY: "http://192.168.31.73:7890"
-    NO_PROXY: "localhost,127.0.0.1,nanobot-gateway,nanobot-api"
-    OAUTH_CLI_KIT_TOKEN_PATH: "/home/nanobot/.nanobot/auth/codex.json"
-  group_add:
-    - "281"
+    args:
+      NANOBOT_CHANNELS: ${NANOBOT_CHANNELS:-whatsapp}
   volumes:
     - .:/home/nanobot/src
     - ./.nanobot:/home/nanobot/.nanobot
@@ -29,11 +20,6 @@ x-common-config: &common-config
     - /var/run/docker.sock:/var/run/docker.sock
   cap_drop:
     - ALL
-  cap_add:
-    - SYS_ADMIN
-  security_opt:
-    - apparmor=unconfined
-    - seccomp=unconfined
 
 services:
   nanobot-gateway:
@@ -42,7 +28,7 @@ services:
     command: ["gateway"]
     restart: unless-stopped
     ports:
-      - 18790:18790
+      - 127.0.0.1:18790:18790
       - 8765:8765
     labels:
       <<: *unraid-icon

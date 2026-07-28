@@ -9,12 +9,7 @@ import {
   toolTraceLinesFromEvents,
 } from "@/lib/tool-traces";
 import type { StreamError } from "@/lib/nanobot-client";
-import {
-  enqueueAssistantPlaybackSegment,
-  stopAssistantPlayback,
-} from "@/lib/playback-queue";
 import type {
-  AssistantPlaybackSegment,
   InboundEvent,
   OutboundCliAppMention,
   OutboundImageGeneration,
@@ -49,7 +44,7 @@ interface ActiveAssistantCursor {
 
 type PendingStreamEvent =
   | { kind: "delta"; text: string; streamId?: string }
-  | { kind: "reasoning"; text: string };
+  | { kind: "reasoning"; text: string; streamId?: string };
 
 type PendingCaptionEvent =
   | { kind: "delta"; index: number; text: string }
@@ -486,6 +481,7 @@ export function useNanobotStream(
   const [streamError, setStreamError] = useState<StreamError | null>(null);
   const buffer = useRef<StreamBuffer | null>(null);
   const activeAssistantRef = useRef<ActiveAssistantCursor | null>(null);
+  const assistantCursorByStreamIdRef = useRef<Map<string, ActiveAssistantCursor>>(new Map());
   const closedAssistantStreamIdsRef = useRef<Set<string>>(new Set());
   const activitySegmentRef = useRef<string | null>(null);
   const fileEditSegmentRef = useRef<string | null>(null);
@@ -560,7 +556,13 @@ export function useNanobotStream(
     fileEditSegmentRef.current = null;
   }, []);
 
-  const closeActiveAssistantStream = useCallback(() => {
+  const closeActiveAssistantStream = useCallback((streamId?: string) => {
+    if (streamId) {
+      const cursor = assistantCursorByStreamIdRef.current.get(streamId);
+      if (cursor) closedAssistantStreamIdsRef.current.add(cursor.id);
+      assistantCursorByStreamIdRef.current.delete(streamId);
+      if (activeAssistantRef.current?.id !== cursor?.id) return;
+    }
     const closedStreamId = buffer.current?.messageId ?? activeAssistantRef.current?.id;
     if (closedStreamId) closedAssistantStreamIdsRef.current.add(closedStreamId);
     buffer.current = null;
@@ -591,23 +593,33 @@ export function useNanobotStream(
   const appendAnswerChunk = useCallback(
     (prev: UIMessage[], chunk: string, streamId?: string): UIMessage[] => {
       let next = prev;
-      let targetIndex = streamId
-        ? next.findIndex((message) => (
-            message.id === streamId
-            && message.role === "assistant"
-            && message.kind !== "trace"
-          ))
-        : resolveActiveAssistantIndex(next);
-      if (targetIndex === -1) targetIndex = null;
+      let targetIndex: number | null = null;
+
+      if (streamId) {
+        const cursor = assistantCursorByStreamIdRef.current.get(streamId);
+        if (cursor) {
+          const indexed = next[cursor.index];
+          targetIndex = indexed?.id === cursor.id
+            ? cursor.index
+            : next.findIndex((message) => message.id === cursor.id);
+          if (targetIndex === -1) targetIndex = null;
+        }
+      } else {
+        targetIndex = resolveActiveAssistantIndex(next);
+      }
 
       if (targetIndex === null) {
         targetIndex = findActiveAssistantPlaceholderIndex(next);
+        if (targetIndex !== null && streamId) {
+          const placeholder = next[targetIndex];
+          next = replaceMessageAt(next, targetIndex, { ...placeholder, id: streamId });
+        }
       }
       if (targetIndex === null && !streamId) {
         targetIndex = findStreamingAssistantIndex(next, closedAssistantStreamIdsRef.current);
       }
       if (targetIndex === null) {
-        const id = streamId ?? crypto.randomUUID();
+        const id = streamId || crypto.randomUUID();
         next = [
           ...next,
           {
@@ -622,15 +634,19 @@ export function useNanobotStream(
       }
 
       const target = next[targetIndex];
-      const mergedId = streamId ?? target.id;
       const merged: UIMessage = {
         ...target,
-        id: mergedId,
         content: target.content + chunk,
         isStreaming: true,
       };
       closedAssistantStreamIdsRef.current.delete(merged.id);
       activeAssistantRef.current = { id: merged.id, index: targetIndex };
+      if (streamId) {
+        assistantCursorByStreamIdRef.current.set(streamId, {
+          id: merged.id,
+          index: targetIndex,
+        });
+      }
       buffer.current = { messageId: merged.id };
       return replaceMessageAt(next, targetIndex, merged);
     },
@@ -641,15 +657,15 @@ export function useNanobotStream(
     (prev: UIMessage[], events: PendingStreamEvent[]): UIMessage[] => {
       let next = prev;
       for (let i = 0; i < events.length;) {
-        const current = events[i];
-        const kind = current.kind;
-        const streamId = current.kind === "delta" ? current.streamId : undefined;
+        const kind = events[i].kind;
+        const streamId = events[i].streamId;
         let text = "";
-        while (i < events.length) {
-          const event = events[i];
-          if (event.kind !== kind) break;
-          if (kind === "delta" && (event.kind !== "delta" || event.streamId !== streamId)) break;
-          text += event.text;
+        while (
+          i < events.length
+          && events[i].kind === kind
+          && events[i].streamId === streamId
+        ) {
+          text += events[i].text;
           i += 1;
         }
         next = kind === "delta"
@@ -666,7 +682,6 @@ export function useNanobotStream(
   const flushPendingStreamEvents = useCallback((options?: {
     closeAnswerSegment?: boolean;
     finalAnswerText?: string;
-    streamId?: string;
   }) => {
     if (streamFrameRef.current !== null) {
       window.cancelAnimationFrame(streamFrameRef.current);
@@ -682,28 +697,19 @@ export function useNanobotStream(
     setMessages((prev) => {
       let next = events.length > 0 ? applyPendingStreamEvents(prev, events) : prev;
       if (finalAnswerText !== undefined) {
-        const streamTargetIndex = options?.streamId
-          ? next.findIndex((message) => (
-              message.id === options.streamId
-              && message.role === "assistant"
-              && message.kind !== "trace"
-            ))
-          : -1;
         const targetIndex =
-          (streamTargetIndex >= 0 ? streamTargetIndex : null)
-          ?? (!options?.streamId ? resolveActiveAssistantIndex(next) : null)
-          ?? (!options?.streamId ? findStreamingAssistantIndex(next, closedAssistantStreamIdsRef.current) : null)
-          ?? (!options?.streamId ? findLatestAssistantAnswerIndex(next) : null);
+          resolveActiveAssistantIndex(next)
+          ?? findStreamingAssistantIndex(next, closedAssistantStreamIdsRef.current)
+          ?? findLatestAssistantAnswerIndex(next);
           if (targetIndex !== null) {
             const target = next[targetIndex];
             next = replaceMessageAt(next, targetIndex, {
               ...target,
-              id: options?.streamId ?? target.id,
               content: finalAnswerText,
               isStreaming: true,
             });
           } else {
-            const id = options?.streamId ?? crypto.randomUUID();
+            const id = crypto.randomUUID();
             closedAssistantStreamIdsRef.current.add(id);
             next = [
               ...next,
@@ -722,41 +728,15 @@ export function useNanobotStream(
     });
   }, [applyPendingStreamEvents, closeActiveAssistantStream, resolveActiveAssistantIndex]);
 
-  const attachPlaybackSegmentToMessage = useCallback((segment: AssistantPlaybackSegment) => {
-    setMessages((prev) => {
-      const index = prev.findIndex(
-        (message) => message.role === "assistant"
-          && message.kind !== "trace"
-          && message.id === segment.messageId,
-      );
-      const targetIndex = index >= 0 ? index : null;
-      if (targetIndex === null) return prev;
-      const target = prev[targetIndex];
-      const previous = target.playbackSegments ?? [];
-      const replaced = previous.some((item) => item.segmentIndex === segment.segmentIndex)
-        ? previous.map((item) => item.segmentIndex === segment.segmentIndex ? segment : item)
-        : [...previous, segment];
-      const merged: UIMessage = {
-        ...target,
-        playbackSegments: replaced.sort((a, b) => a.segmentIndex - b.segmentIndex),
-      };
-      return replaceMessageAt(prev, targetIndex, merged);
-    });
-  }, []);
-
   const schedulePendingStreamFlush = useCallback(() => {
     if (streamFrameRef.current !== null) return;
-    streamFrameRef.current = -1;
-    const frameId = window.requestAnimationFrame(() => {
+    streamFrameRef.current = window.requestAnimationFrame(() => {
       streamFrameRef.current = null;
       const events = pendingStreamEventsRef.current;
       if (events.length === 0) return;
       pendingStreamEventsRef.current = [];
       setMessages((prev) => applyPendingStreamEvents(prev, events));
     });
-    if (streamFrameRef.current === -1) {
-      streamFrameRef.current = frameId;
-    }
   }, [applyPendingStreamEvents]);
 
   const mergePendingCaptionEvents = useCallback((prev: UIMessage[], events: PendingCaptionEvent[]) => {
@@ -807,11 +787,11 @@ export function useNanobotStream(
     setGoalState(chatId ? client.getGoalState(chatId) : undefined);
     buffer.current = null;
     activeAssistantRef.current = null;
+    assistantCursorByStreamIdRef.current.clear();
     closedAssistantStreamIdsRef.current.clear();
     clearActivitySegment();
     clearPendingStreamWork();
     suppressStreamUntilTurnEndRef.current = false;
-    stopAssistantPlayback();
     if (streamEndTimerRef.current !== null) {
       clearTimeout(streamEndTimerRef.current);
       streamEndTimerRef.current = null;
@@ -833,11 +813,11 @@ export function useNanobotStream(
     setGoalState(chatId ? client.getGoalState(chatId) : undefined);
     buffer.current = null;
     activeAssistantRef.current = null;
+    assistantCursorByStreamIdRef.current.clear();
     closedAssistantStreamIdsRef.current.clear();
     clearActivitySegment();
     clearPendingStreamWork();
     suppressStreamUntilTurnEndRef.current = false;
-    stopAssistantPlayback();
     if (streamEndTimerRef.current !== null) {
       clearTimeout(streamEndTimerRef.current);
       streamEndTimerRef.current = null;
@@ -873,7 +853,7 @@ export function useNanobotStream(
         pendingStreamEventsRef.current.push({
           kind: "delta",
           text: chunk,
-          streamId: String(ev.stream_id ?? chatId),
+          ...(ev.stream_id ? { streamId: ev.stream_id } : {}),
         });
         schedulePendingStreamFlush();
         return;
@@ -885,7 +865,11 @@ export function useNanobotStream(
         if (!chunk) return;
         if (fileEditSegmentRef.current) clearActivitySegment();
         setIsStreaming(true);
-        pendingStreamEventsRef.current.push({ kind: "reasoning", text: chunk });
+        pendingStreamEventsRef.current.push({
+          kind: "reasoning",
+          text: chunk,
+          ...(ev.stream_id ? { streamId: ev.stream_id } : {}),
+        });
         schedulePendingStreamFlush();
         return;
       }
@@ -916,20 +900,12 @@ export function useNanobotStream(
       if (ev.event === "stream_end") {
         flushPendingStreamEvents({
           closeAnswerSegment: true,
-          streamId: String(ev.stream_id ?? chatId),
           ...(typeof ev.text === "string" ? { finalAnswerText: ev.text } : {}),
         });
         if (suppressStreamUntilTurnEndRef.current) return;
         // stream_end only means the text segment finished — the model may
         // still be executing tools.  Do NOT reset isStreaming here; the
         // definitive "turn is complete" signal is ``turn_end``.
-        return;
-      }
-
-      if (ev.event === "assistant_playback_segment") {
-        flushPendingStreamEvents();
-        attachPlaybackSegmentToMessage(ev.segment);
-        enqueueAssistantPlaybackSegment(ev.segment);
         return;
       }
 
@@ -990,6 +966,7 @@ export function useNanobotStream(
           finalized = stampLastAssistantTs(finalized, Date.now());
           buffer.current = null;
           activeAssistantRef.current = null;
+          assistantCursorByStreamIdRef.current.clear();
           clearActivitySegment();
           closedAssistantStreamIdsRef.current.clear();
           return finalized;
@@ -1143,7 +1120,6 @@ export function useNanobotStream(
           return absorbCompleteAssistantMessage(filtered, {
             content,
             ...(hasMedia ? { media } : {}),
-            ...(ev.tha_played ? { thaPlayed: true } : {}),
             ...(lat !== undefined ? { latencyMs: lat } : {}),
             ...(ev.source_channel ? { sourceChannel: ev.source_channel } : {}),
             ...(ev.channel_delivery ? { channelDelivery: true } : {}),
@@ -1225,7 +1201,6 @@ export function useNanobotStream(
     };
   }, [
     chatId,
-    attachPlaybackSegmentToMessage,
     client,
     clearActivitySegment,
     clearPendingStreamWork,
@@ -1300,7 +1275,6 @@ export function useNanobotStream(
       return prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
     });
     suppressStreamUntilTurnEndRef.current = false;
-    stopAssistantPlayback();
     client.sendMessage(chatId, "/stop");
   }, [chatId, clearActivitySegment, client, flushPendingStreamEvents]);
 

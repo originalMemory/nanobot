@@ -1,22 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Check, Code2, Copy, PlaySquare, StopCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AssistantNameRow } from "@/components/AssistantNameRow";
 import { BotAvatarWithFallback, MessageMedia, resolveMediaUrl } from "@/components/MessageBubble";
 import { MarkdownText } from "@/components/MarkdownText";
+import { isLiveArrival } from "@/lib/media";
 import { AgentActivityCluster } from "@/components/thread/AgentActivityCluster";
 import { useBotIdentity } from "@/contexts/BotIdentityContext";
 import { formatTurnLatency } from "@/lib/format";
-import { isLiveArrival } from "@/lib/media";
 import { pickMessageSourceFields } from "@/lib/message-source";
-import {
-  getAssistantPlaybackVersion,
-  isAssistantPlaybackActive,
-  replayAssistantPlaybackSegments,
-  stopAssistantPlayback,
-  subscribeAssistantPlayback,
-} from "@/lib/playback-queue";
 import {
   buildTokenUsageTitle,
   displayCacheRead,
@@ -24,7 +17,6 @@ import {
   displayPromptIn,
 } from "@/lib/turn-usage";
 import { cn, formatTokenCount } from "@/lib/utils";
-import { formatAssistantContentForDisplay, hasPsbTags } from "../../../psb/psb-tags";
 import { useClient } from "@/providers/ClientProvider";
 import type { CliAppInfo, McpPresetInfo, UIMessage } from "@/lib/types";
 
@@ -53,8 +45,6 @@ export function AssistantTurnBubble({
   const { botName, botIcon, botAvatarUrl } = useBotIdentity();
   const { apiBase } = useClient();
   const [copied, setCopied] = useState(false);
-  const [replayingAudio, setReplayingAudio] = useState(false);
-  const [showPsbTags, setShowPsbTags] = useState(false);
   const copyResetRef = useRef<number | null>(null);
   const baseAnim = "animate-in fade-in-0 slide-in-from-bottom-1 duration-300";
 
@@ -68,24 +58,6 @@ export function AssistantTurnBubble({
   );
   const copyText = useMemo(
     () => textSegments.map((s) => s.message.content).filter((c) => c.trim()).join("\n\n"),
-    [textSegments],
-  );
-  const playablePlaybackSegments = useMemo(
-    () => textSegments
-      .flatMap((segment) => segment.message.playbackSegments ?? [])
-      .filter((segment) => segment.audio?.status === "ready" && !!segment.audio.url)
-      .sort((a, b) => a.segmentIndex - b.segmentIndex),
-    [textSegments],
-  );
-  const playbackMessageId = playablePlaybackSegments[0]?.messageId;
-  useSyncExternalStore(
-    subscribeAssistantPlayback,
-    getAssistantPlaybackVersion,
-    getAssistantPlaybackVersion,
-  );
-  const isPlaybackActive = playbackMessageId ? isAssistantPlaybackActive(playbackMessageId) : false;
-  const hasResponseTags = useMemo(
-    () => textSegments.some((segment) => hasPsbTags(segment.message.content)),
     [textSegments],
   );
 
@@ -110,20 +82,6 @@ export function AssistantTurnBubble({
       }, 1_500);
     });
   }, [copyText]);
-
-  const onReplayAssistantAudio = useCallback(() => {
-    if (!playbackMessageId) return;
-    if (isPlaybackActive) {
-      stopAssistantPlayback(playbackMessageId);
-      setReplayingAudio(false);
-      return;
-    }
-    if (playablePlaybackSegments.length === 0) return;
-    setReplayingAudio(true);
-    void replayAssistantPlaybackSegments(playablePlaybackSegments).finally(() => {
-      window.setTimeout(() => setReplayingAudio(false), 500);
-    });
-  }, [isPlaybackActive, playablePlaybackSegments, playbackMessageId]);
 
   const lastSegmentIndex = segments.length - 1;
   const showTypingTail =
@@ -162,12 +120,10 @@ export function AssistantTurnBubble({
   const hasFooterMedia = textSegments.some((s) => (s.message.media?.length ?? 0) > 0);
   const footerCondition = turnComplete && (hasFooterText || hasFooterMedia);
   const showCopyButton = showCopyAction && turnComplete && copyText.trim().length > 0;
-  const showPlaybackButton = turnComplete && playablePlaybackSegments.length > 0;
-  const showPsbTagsButton = turnComplete && hasResponseTags;
   const showLatencyFooter = footerCondition && latencyMs != null;
   const showUsageFooter = footerCondition && usage != null;
   const showTimestampFooter = footerCondition && messageTs != null;
-  const showAssistantFooterRow = showCopyButton || showPlaybackButton || showPsbTagsButton || showLatencyFooter || showUsageFooter || showTimestampFooter;
+  const showAssistantFooterRow = showCopyButton || showLatencyFooter || showUsageFooter || showTimestampFooter;
   return (
     <div className={cn("flex w-full gap-2 text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
       <div className="flex w-10 flex-none items-start pt-0.5">
@@ -198,10 +154,6 @@ export function AssistantTurnBubble({
               }
               const { message } = segment;
               const textEmpty = message.content.trim().length === 0;
-              const displayContent = formatAssistantContentForDisplay(
-                message.content,
-                showPsbTags,
-              );
               const media = message.media ?? [];
               const hasMedia = media.length > 0;
               if (textEmpty && !hasMedia) {
@@ -211,17 +163,11 @@ export function AssistantTurnBubble({
                 <div key={message.id}>
                   {!textEmpty ? (
                     <MarkdownText streaming={!!message.isStreaming}>
-                      {displayContent}
+                      {message.content}
                     </MarkdownText>
                   ) : null}
                   {hasMedia ? (
-                    <MessageMedia
-                      media={media}
-                      align="left"
-                      autoPlayAudio={isLiveArrival(message.createdAt) && !message.thaPlayed}
-                      autoPlayAudioKey={message.id}
-                      thaSourceText={message.content}
-                    />
+                    <MessageMedia media={media} align="left" autoPlayAudio={isLiveArrival(message.createdAt)} />
                   ) : null}
                 </div>
               );
@@ -248,60 +194,6 @@ export function AssistantTurnBubble({
                 ) : (
                   <Copy className="h-4 w-4" aria-hidden />
                 )}
-              </button>
-            ) : null}
-            {showPlaybackButton ? (
-              <button
-                type="button"
-                onClick={onReplayAssistantAudio}
-                aria-label={
-                  isPlaybackActive
-                    ? t("message.stopReplyAudio")
-                    : t("message.playReplyAudio")
-                }
-                title={
-                  isPlaybackActive
-                    ? t("message.stopReplyAudio")
-                    : t("message.playReplyAudio")
-                }
-                className={cn(
-                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                  "transition-colors hover:bg-muted/55 hover:text-foreground",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                )}
-              >
-                {isPlaybackActive ? (
-                  <StopCircle className="h-4 w-4" aria-hidden />
-                ) : (
-                  <PlaySquare
-                    className={cn("h-4 w-4", replayingAudio && "text-foreground")}
-                    aria-hidden
-                  />
-                )}
-              </button>
-            ) : null}
-            {showPsbTagsButton ? (
-              <button
-                type="button"
-                onClick={() => setShowPsbTags((value) => !value)}
-                aria-label={
-                  showPsbTags
-                    ? t("message.hidePsbTags")
-                    : t("message.showPsbTags")
-                }
-                title={
-                  showPsbTags
-                    ? t("message.hidePsbTags")
-                    : t("message.showPsbTags")
-                }
-                className={cn(
-                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                  "transition-colors hover:bg-muted/55 hover:text-foreground",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  showPsbTags && "text-foreground",
-                )}
-              >
-                <Code2 className="h-4 w-4" aria-hidden />
               </button>
             ) : null}
             {showTimestampFooter ? (

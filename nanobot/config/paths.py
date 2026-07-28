@@ -33,21 +33,6 @@ def get_media_dir(channel: str | None = None) -> Path:
     return ensure_dir(base / channel) if channel else base
 
 
-def get_tha_user_models_dir() -> Path:
-    """返回用户上传的 THA 模型目录。"""
-    return get_runtime_subdir("tha_models")
-
-
-def get_tha_model_dir() -> Path:
-    """返回固定 THA 模型目录。"""
-    return get_runtime_subdir("tha_model")
-
-
-def get_psb_dir() -> Path:
-    """返回 PSB 模型目录；用户将 ``.psb`` / ``.emtbytes`` 直接放入此目录。"""
-    return get_runtime_subdir("desk_pets/psb")
-
-
 def get_cron_dir() -> Path:
     """Return the cron storage directory."""
     return get_runtime_subdir("cron")
@@ -79,11 +64,6 @@ def is_default_workspace(workspace: str | Path | None) -> bool:
 def get_cli_history_path() -> Path:
     """Return the shared CLI history file path."""
     return Path.home() / ".nanobot" / "history" / "cli_history"
-
-
-def get_bridge_install_dir() -> Path:
-    """Return the shared WhatsApp bridge installation directory."""
-    return Path.home() / ".nanobot" / "bridge"
 
 
 def get_legacy_sessions_dir() -> Path:

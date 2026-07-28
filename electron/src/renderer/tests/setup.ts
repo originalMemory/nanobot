@@ -74,7 +74,6 @@ export function mockElectronAPI(
 
 export function clearElectronAPI() {
   if (typeof window !== "undefined" && "electronAPI" in window) {
-    // @ts-expect-error test teardown
     delete window.electronAPI;
   }
 }

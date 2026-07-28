@@ -231,9 +231,9 @@ def _extract_snippet(filepath: str, words: list[str]) -> str:
         lines = r.stdout.strip().split("\n")
         # 过滤概要行和分隔线
         cleaned = [
-            l for l in lines
-            if not l.strip().startswith("概要:")
-            and l.strip() not in ("---", "--", "")
+            line for line in lines
+            if not line.strip().startswith("概要:")
+            and line.strip() not in ("---", "--", "")
         ]
         return " ".join(cleaned)[:200]
     except Exception:

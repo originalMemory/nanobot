@@ -227,7 +227,7 @@ export function useAttachedImages(): UseAttachedImagesApi {
               } else {
                 setEntry(entry.id, {
                   status: "error",
-                  error: result.reason,
+                  error: "reason" in result ? result.reason : "decode_failed",
                 });
               }
             });

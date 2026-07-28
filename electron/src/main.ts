@@ -19,8 +19,6 @@ const DEFAULT_RAISE_INBOX_ACCELERATOR = 'CmdOrCtrl+Shift+E';
 const DEFAULT_WALLPAPER_URL =
   'https://nas.xuanniao.fun:49150/api/moneyAccounting/random-image?type=1,2,3&level=5,6,7,8&orientation=2&maxResolutionLevel=2';
 const MIN_WALLPAPER_INTERVAL_MINUTES = 1;
-import { DEFAULT_PSB_LOCAL_PREFS, type DeskPetLocalPrefs } from './psb/types';
-import { cleanupPsbOnQuit, registerPsbIpcHandlers } from './main/psb-manager';
 import Store from 'electron-store';
 import { APP_ID } from '../app.meta';
 import { initTrayBlink, notifyTrayIncoming, stopTrayBlink } from './tray-blink';
@@ -94,7 +92,6 @@ interface AppConfig {
   shortcuts: {
     raiseInbox: string;
   };
-  deskPet: DeskPetLocalPrefs;
 }
 
 const store = new Store<AppConfig>({
@@ -127,19 +124,7 @@ const store = new Store<AppConfig>({
     shortcuts: {
       raiseInbox: DEFAULT_RAISE_INBOX_ACCELERATOR,
     },
-    deskPet: DEFAULT_PSB_LOCAL_PREFS,
   },
-});
-
-const preloadPath = path.join(__dirname, 'preload.js');
-
-registerPsbIpcHandlers({
-  store,
-  preloadPath,
-  getGateway: () => ({
-    url: store.get('gateway.url') ?? '',
-    token: '',
-  }),
 });
 
 // ---------------------------------------------------------------------------
@@ -211,12 +196,6 @@ ipcMain.handle(
 );
 
 type WindowAction = 'show' | 'hide' | 'minimize' | 'maximize' | 'close';
-type ThaWindowConfig = {
-  url: string;
-  token?: string;
-  width?: number;
-  height?: number;
-};
 
 ipcMain.handle('window:action', (_event, action: WindowAction) => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -243,72 +222,9 @@ ipcMain.handle('window:action', (_event, action: WindowAction) => {
   }
 });
 
-ipcMain.handle('tha:open', (_event, config: ThaWindowConfig) => {
-  const baseUrl = typeof config?.url === 'string' ? config.url.trim() : '';
-  if (!baseUrl) return { ok: false, error: 'missing_url' };
-  const width = Math.max(240, Math.min(2400, Math.floor(config.width ?? 540)));
-  const height = Math.max(240, Math.min(2400, Math.floor(config.height ?? 540)));
-  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
-  const window = new BrowserWindow({
-    width,
-    height,
-    x: Math.max(0, screenWidth - width - 32),
-    y: Math.max(0, screenHeight - height - 32),
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: true,
-    hasShadow: false,
-    acceptFirstMouse: true,
-    backgroundColor: '#00000000',
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      webSecurity: false,
-      preload: path.join(__dirname, 'preload.js'),
-    },
-  });
-  const target = new URL('/tha.html', baseUrl);
-  if (config.token) target.searchParams.set('token', config.token);
-  void window.loadURL(target.toString());
-  window.setIgnoreMouseEvents(false);
-  thaWindows.push(window);
-  window.on('closed', () => {
-    thaWindows = thaWindows.filter((item) => item !== window);
-  });
-  return { ok: true, id: window.id };
-});
-
-ipcMain.handle('tha:close-all', () => {
-  for (const window of thaWindows) {
-    if (!window.isDestroyed()) window.close();
-  }
-  thaWindows = [];
-});
-
-ipcMain.handle(
-  'tha:set-ignore-mouse-events',
-  (event, ignore: boolean, options?: { forward?: boolean }) => {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    if (!window || window.isDestroyed() || !thaWindows.includes(window)) return;
-    window.setIgnoreMouseEvents(ignore, options);
-  },
-);
-
 ipcMain.handle('app:quit', () => {
   app.isQuitting = true;
   app.quit();
-});
-
-ipcMain.handle('app:open-settings', (_event, section?: string) => {
-  showMainWindow();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('app:open-settings', {
-      section: typeof section === 'string' && section.trim() ? section.trim() : 'overview',
-    });
-  }
-  return { ok: true };
 });
 
 // ---------------------------------------------------------------------------
@@ -409,7 +325,6 @@ function loadTrayIcon(): Electron.NativeImage {
 // ---------------------------------------------------------------------------
 
 let mainWindow: BrowserWindow | null = null;
-let thaWindows: BrowserWindow[] = [];
 let registeredRaiseInboxAccelerator: string | null = null;
 let pendingRaiseInboxEvent = false;
 /** 设置页录制快捷键时暂停全局注册，避免按下当前组合键触发跳转。 */
@@ -834,6 +749,5 @@ if (gotSingleInstanceLock) {
     stopTrayBlink();
     stopWallpaperScheduler();
     unregisterRaiseInboxShortcut();
-    cleanupPsbOnQuit();
   });
 }

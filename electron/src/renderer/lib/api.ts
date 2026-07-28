@@ -9,10 +9,6 @@ import type {
   SettingsUpdate,
   SidebarStatePayload,
   SlashCommand,
-  ThaSettingsUpdate,
-  PsbSettingsUpdate,
-  PsbInitialState,
-  PsbModelDetail,
   WebuiThreadPersistedPayload,
 } from "./types";
 import type {
@@ -381,50 +377,8 @@ export async function updateImageGenerationSettings(
   );
 }
 
-export async function updateThaSettings(
-  token: string,
-  update: ThaSettingsUpdate,
-  base: string = DEFAULT_GATEWAY_HTTP,
-): Promise<SettingsPayload> {
-  const query = new URLSearchParams();
-  Object.entries(update).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) query.set(key, String(value));
-  });
-  return request<SettingsPayload>(
-    `${base}/api/settings/desk-pet/tha/update?${query}`,
-    token,
-  );
-}
-
-export async function updateDeskPetPsbSettings(
-  token: string,
-  update: PsbSettingsUpdate,
-  base: string = DEFAULT_GATEWAY_HTTP,
-): Promise<SettingsPayload> {
-  const query = new URLSearchParams();
-  Object.entries(update).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) query.set(key, String(value));
-  });
-  return request<SettingsPayload>(
-    `${base}/api/settings/desk-pet/psb/update?${query}`,
-    token,
-  );
-}
-
-export async function fetchPsbModelDetail(
-  token: string,
-  modelId: string,
-  base: string = DEFAULT_GATEWAY_HTTP,
-): Promise<{ model: PsbModelDetail }> {
-  return request<{ model: PsbModelDetail }>(
-    `${base}/api/desk-pet/psb/models/${encodeURIComponent(modelId)}`,
-    token,
-  );
-}
-
 export interface TtsSettingsUpdate {
   enabled?: boolean;
-  message_playback_enabled?: boolean;
   default_voice?: string;
 }
 
@@ -442,52 +396,10 @@ export async function updateTtsSettings(
     token,
   );
 }
-
-export async function deletePsbModel(
-  token: string,
-  modelId: string,
-  base: string = DEFAULT_GATEWAY_HTTP,
-): Promise<{ ok: boolean; clearedSelection?: boolean }> {
-  return request(
-    `${base}/api/desk-pet/psb/models/${encodeURIComponent(modelId)}/delete`,
-    token,
-  );
-}
-
-export async function savePsbInitialState(
-  token: string,
-  modelId: string,
-  state: PsbInitialState,
-  base: string = DEFAULT_GATEWAY_HTTP,
-): Promise<{ model: PsbModelDetail }> {
-  const query = new URLSearchParams();
-  query.set("state", JSON.stringify(state));
-  return request<{ model: PsbModelDetail }>(
-    `${base}/api/desk-pet/psb/models/${encodeURIComponent(modelId)}/initial-state/update?${query}`,
-    token,
-  );
-}
-
-/** 将音频回放事件转发给已连接的 THA 窗口；有订阅者时由 THA 负责出声。 */
-export async function playThaAudio(
-  token: string,
-  payload: { url: string; text?: string; name?: string },
-  base: string = DEFAULT_GATEWAY_HTTP,
-): Promise<{ ok: boolean; subscribers: number }> {
-  const query = new URLSearchParams();
-  query.set("url", payload.url);
-  if (payload.text) query.set("text", payload.text);
-  if (payload.name) query.set("name", payload.name);
-  return request<{ ok: boolean; subscribers: number }>(
-    `${base}/api/tha/play?${query}`,
-    token,
-  );
-}
-
 export async function fetchWorkspaceList(
   token: string,
   base: string = DEFAULT_GATEWAY_HTTP,
-  path = "",
+  path: string = "",
 ): Promise<WorkspaceListPayload> {
   const query = new URLSearchParams();
   if (path) query.set("path", path);

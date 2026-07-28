@@ -11,7 +11,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nanobot.channels.websocket import _MAX_SCREENSHOT_BYTES, WebSocketChannel
+from nanobot.channels.websocket.runtime import (
+    _MAX_SCREENSHOT_BYTES,
+    WebSocketChannel,
+    WebSocketConfig,
+)
+from nanobot.webui.gateway_services import build_gateway_services
 
 
 def _ch(bus: Any, **kw: Any) -> WebSocketChannel:
@@ -24,7 +29,19 @@ def _ch(bus: Any, **kw: Any) -> WebSocketChannel:
         "websocketRequiresToken": False,
     }
     cfg.update(kw)
-    return WebSocketChannel(cfg, bus)
+    parsed = WebSocketConfig.model_validate(cfg)
+    gateway = build_gateway_services(
+        config=parsed,
+        bus=bus,
+        session_manager=None,
+        static_dist_path=None,
+        workspace_path=Path.cwd(),
+        default_restrict_to_workspace=False,
+        runtime_model_name=None,
+        runtime_surface="native",
+        runtime_capabilities_overrides=None,
+    )
+    return WebSocketChannel(cfg, bus, gateway=gateway)
 
 
 @pytest.fixture()
@@ -57,7 +74,7 @@ async def test_request_screenshot_sends_event(bus: MagicMock, tmp_path: Path) ->
     ch = _ch(bus)
     conn = _mock_conn()
 
-    with patch("nanobot.channels.websocket.get_media_dir", return_value=tmp_path):
+    with patch("nanobot.channels.websocket.runtime.get_media_dir", return_value=tmp_path):
         # 不等待结果，只验证帧已发出
         task = asyncio.create_task(ch.request_screenshot(conn, timeout_s=0.1))
         await asyncio.sleep(0)  # 让 request_screenshot 运行到 send
@@ -98,7 +115,7 @@ async def test_request_screenshot_success(bus: MagicMock, tmp_path: Path) -> Non
 
     conn.send = AsyncMock(side_effect=_fake_send)
 
-    with patch("nanobot.channels.websocket.get_media_dir", return_value=tmp_path):
+    with patch("nanobot.channels.websocket.runtime.get_media_dir", return_value=tmp_path):
         result = await ch.request_screenshot(conn, timeout_s=2.0)
 
     assert result is not None
@@ -117,7 +134,7 @@ async def test_request_screenshot_timeout(bus: MagicMock, tmp_path: Path) -> Non
     ch = _ch(bus)
     conn = _mock_conn()
 
-    with patch("nanobot.channels.websocket.get_media_dir", return_value=tmp_path):
+    with patch("nanobot.channels.websocket.runtime.get_media_dir", return_value=tmp_path):
         result = await ch.request_screenshot(conn, timeout_s=0.05)
 
     assert result is None
@@ -140,7 +157,7 @@ async def test_screenshot_result_rejects_non_jpeg(bus: MagicMock, tmp_path: Path
     ch._conn_screenshot_requests[conn] = {req_id}
 
     png_data = "data:image/png;base64," + base64.b64encode(b"\x89PNG").decode()
-    with patch("nanobot.channels.websocket.get_media_dir", return_value=tmp_path):
+    with patch("nanobot.channels.websocket.runtime.get_media_dir", return_value=tmp_path):
         await ch._dispatch_envelope(
             conn, "client-1",
             {"type": "screenshot_result", "request_id": req_id, "data": png_data},
@@ -170,7 +187,7 @@ async def test_screenshot_result_rejects_oversized(bus: MagicMock, tmp_path: Pat
     oversized_b64 = "A" * ((_MAX_SCREENSHOT_BYTES * 4 // 3) + 100)
     oversized = "data:image/jpeg;base64," + oversized_b64
 
-    with patch("nanobot.channels.websocket.get_media_dir", return_value=tmp_path):
+    with patch("nanobot.channels.websocket.runtime.get_media_dir", return_value=tmp_path):
         await ch._dispatch_envelope(
             conn, "client-1",
             {"type": "screenshot_result", "request_id": req_id, "data": oversized},
@@ -193,7 +210,7 @@ async def test_screenshot_result_unknown_request_id_is_ignored(
     ch = _ch(bus)
     conn = _mock_conn()
 
-    with patch("nanobot.channels.websocket.get_media_dir", return_value=tmp_path):
+    with patch("nanobot.channels.websocket.runtime.get_media_dir", return_value=tmp_path):
         # 不应抛出
         await ch._dispatch_envelope(
             conn, "client-1",
@@ -244,8 +261,8 @@ async def test_screenshot_result_does_not_write_transcript(
     ch._conn_screenshot_requests[conn] = {req_id}
 
     with (
-        patch("nanobot.channels.websocket.get_media_dir", return_value=tmp_path),
-        patch.object(ch, "_try_append_webui_transcript") as mock_transcript,
+        patch("nanobot.channels.websocket.runtime.get_media_dir", return_value=tmp_path),
+        patch.object(ch._transcripts, "prepare_and_append") as mock_transcript,
     ):
         await ch._dispatch_envelope(
             conn, "client-1",

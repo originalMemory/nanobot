@@ -8,7 +8,6 @@ import { ThreadViewport } from "@/components/thread/ThreadViewport";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNanobotStream, type SendImage, type SendOptions } from "@/hooks/useNanobotStream";
-import { usePsbTagEffects } from "@/hooks/usePsbTagEffects";
 import { ApiError, fetchCliApps, fetchInboxThread, fetchMcpPresets, listSlashCommands } from "@/lib/api";
 import { channelLabel } from "@/lib/channels";
 import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
@@ -71,8 +70,6 @@ export function InboxView({
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const [cliApps, setCliApps] = useState<CliAppInfo[]>([]);
   const [mcpPresets, setMcpPresets] = useState<McpPresetInfo[]>([]);
-  const psbTurnEndRef = useRef<() => void>(() => {});
-  const psbSkipHistoryRef = useRef<() => void>(() => {});
   const {
     messages,
     isStreaming,
@@ -83,14 +80,7 @@ export function InboxView({
     replaceMessagesFromSnapshot,
     streamError,
     dismissStreamError,
-  } = useNanobotStream(
-    INBOX_CHAT_ID,
-    initialMessages,
-    false,
-    () => psbTurnEndRef.current(),
-    activeChannel,
-  );
-  usePsbTagEffects(messages, modelSettings, psbTurnEndRef, psbSkipHistoryRef, isStreaming);
+  } = useNanobotStream(INBOX_CHAT_ID, initialMessages, false, undefined, activeChannel);
 
   const showToast = useCallback((message: string) => {
     if (toastTimerRef.current !== null) {
@@ -120,7 +110,6 @@ export function InboxView({
         return;
       }
       replaceMessagesFromSnapshot(thread.messages ?? []);
-      psbSkipHistoryRef.current();
       setScrollToBottomSignal((value) => value + 1);
     } catch (err) {
       console.warn("[nanobot] fetchInboxThread refresh failed:", err);

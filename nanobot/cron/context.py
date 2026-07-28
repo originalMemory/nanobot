@@ -89,7 +89,7 @@ def build_unified_context_prefix(
         return ""
 
     session = session_manager.get_or_create(UNIFIED_SESSION_KEY)
-    history = session.get_history(max_messages=max_messages, include_timestamps=False)
+    history = session.get_history(max_messages=max_messages)
     if not history:
         return ""
 

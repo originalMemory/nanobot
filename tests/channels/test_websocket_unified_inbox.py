@@ -14,15 +14,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from ws_test_client import WsTestClient
 
 from nanobot.bus.events import OutboundMessage
-from nanobot.channels.websocket import (
+from nanobot.channels.websocket.runtime import (
     INBOX_UNIFIED_CHAT_ID,
     WebSocketChannel,
+    WebSocketConfig,
     _is_valid_chat_id,
 )
+from nanobot.channels.websocket.tests.ws_test_client import WsTestClient
 from nanobot.session.manager import SessionManager
+from nanobot.webui.gateway_services import build_gateway_services
 from nanobot.webui.transcript import build_inbox_thread_from_session
 
 _PORT_BASE = 29950  # Port range for this test file
@@ -46,13 +48,19 @@ def _ch(
         "websocketRequiresToken": False,
     }
     cfg.update(kw)
-    return WebSocketChannel(
-        cfg,
-        bus,
+    parsed = WebSocketConfig.model_validate(cfg)
+    gateway = build_gateway_services(
+        config=parsed,
+        bus=bus,
         session_manager=session_manager,
-        unified_session=unified_session,
-        workspace_path=workspace_path,
+        static_dist_path=None,
+        workspace_path=workspace_path or Path.cwd(),
+        default_restrict_to_workspace=False,
+        runtime_model_name=None,
+        runtime_surface="native",
+        runtime_capabilities_overrides=None,
     )
+    return WebSocketChannel(cfg, bus, gateway=gateway, unified_session=unified_session)
 
 
 @pytest.fixture()
@@ -303,7 +311,7 @@ async def test_non_ws_inbound_fan_out_to_inbox_unified(bus: MagicMock, tmp_path:
     img.write_bytes(b"fake image")
 
     ch = _ch(bus, _PORT_BASE + 7, unified_session=True, workspace_path=tmp_path)
-    with patch("nanobot.channels.websocket.get_media_dir", return_value=media_dir):
+    with patch("nanobot.channels.websocket.get_media_dir", return_value=media_dir, create=True):
         t = asyncio.create_task(ch.start())
         await asyncio.sleep(0.3)
         try:
@@ -485,7 +493,7 @@ async def test_inbox_thread_returns_empty_when_no_session(
             )
         )
         assert resp_bs.status_code == 200
-        token = resp_bs.json()["token"]
+        token = resp_bs.json()["api_token"]
 
         resp = await _http_get(
             f"http://127.0.0.1:{_PORT_BASE + 12}/api/inbox/thread",
@@ -525,7 +533,7 @@ async def test_inbox_thread_returns_messages_from_session(
             )
         )
         assert resp_bs.status_code == 200
-        token = resp_bs.json()["token"]
+        token = resp_bs.json()["api_token"]
 
         resp = await _http_get(
             f"http://127.0.0.1:{_PORT_BASE + 13}/api/inbox/thread",
@@ -572,7 +580,7 @@ async def test_inbox_thread_omits_unread_count(bus: MagicMock, tmp_path: Path) -
                 timeout=5.0,
             )
         )
-        token = resp_bs.json()["token"]
+        token = resp_bs.json()["api_token"]
         resp = await _http_get(
             f"http://127.0.0.1:{_PORT_BASE + 15}/api/inbox/thread",
             headers={"Authorization": f"Bearer {token}"},

@@ -9,9 +9,11 @@ and tightens the runtime error for ``add`` without ``message``.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
-from nanobot.agent.tools.context import RequestContext
+from nanobot.agent.tools.context import RequestContext, request_context
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.registry import ToolRegistry
 
@@ -44,12 +46,14 @@ class _SvcStub:
 
 
 @pytest.fixture
-def registry() -> ToolRegistry:
+def registry() -> Iterator[ToolRegistry]:
     tool = CronTool(_SvcStub(), default_timezone="UTC")
-    tool.set_context(RequestContext(channel="channel", chat_id="chat-id"))
     reg = ToolRegistry()
     reg.register(tool)
-    return reg
+    with request_context(
+        RequestContext(channel="channel", chat_id="chat-id", session_key="channel:chat-id")
+    ):
+        yield reg
 
 
 class TestSchemaContract:
@@ -103,60 +107,3 @@ class TestSchemaSelfDescribesRequirements:
         # accidentally introduced).
         tool = CronTool(_SvcStub())
         assert tool.parameters["required"] == ["action"]
-
-    def test_context_messages_exposed_with_default_zero(self) -> None:
-        tool = CronTool(_SvcStub())
-        prop = tool.parameters["properties"]["context_messages"]
-        assert prop["type"] == "integer"
-        assert prop["minimum"] == 0
-        assert "default 0" in prop["description"]
-
-    def test_add_passes_context_messages_to_service(self, registry: ToolRegistry) -> None:
-        import asyncio
-
-        tool = registry._tools["cron"]  # type: ignore[attr-defined]
-        asyncio.run(
-            tool.execute(
-                action="add",
-                message="remind me",
-                at="2030-01-01T00:00:00",
-                context_messages=30,
-            )
-        )
-        assert tool._cron.last_add_kwargs is not None
-        assert tool._cron.last_add_kwargs["context_messages"] == 30
-
-    def test_list_shows_context_messages_when_set(self, registry: ToolRegistry) -> None:
-        import asyncio
-        from nanobot.cron.types import CronJob, CronJobState, CronPayload, CronSchedule
-
-        class _ListSvc(_SvcStub):
-            def list_jobs(self):
-                return [
-                    CronJob(
-                        id="j1",
-                        name="with-ctx",
-                        schedule=CronSchedule(kind="every", every_ms=60_000),
-                        payload=CronPayload(message="hi", context_messages=12),
-                        state=CronJobState(),
-                    ),
-                ]
-
-        tool = CronTool(_ListSvc(), default_timezone="UTC")
-        out = asyncio.run(tool.execute(action="list"))
-        assert "Context: 12 recent unified messages" in out
-
-    def test_invalid_context_messages_defaults_to_zero(self, registry: ToolRegistry) -> None:
-        import asyncio
-
-        tool = registry._tools["cron"]  # type: ignore[attr-defined]
-        asyncio.run(
-            tool.execute(
-                action="add",
-                message="remind me",
-                at="2030-01-01T00:00:00",
-                context_messages="not-a-number",  # type: ignore[arg-type]
-            )
-        )
-        assert tool._cron.last_add_kwargs is not None
-        assert tool._cron.last_add_kwargs["context_messages"] == 0

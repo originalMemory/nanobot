@@ -14,9 +14,10 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.channels.manager import ChannelManager
-from nanobot.channels.websocket import WebSocketChannel
+from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
+from nanobot.channels.websocket.tests.ws_test_client import WsTestClient
 from nanobot.config.schema import Config
-from ws_test_client import WsTestClient
+from nanobot.webui.gateway_services import build_gateway_services
 
 
 def _get_free_port() -> int:
@@ -24,6 +25,30 @@ def _get_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def _real_websocket(bus: MessageBus, port: int, workspace: Path) -> WebSocketChannel:
+    raw = {
+        "enabled": True,
+        "allowFrom": ["*"],
+        "host": "127.0.0.1",
+        "port": port,
+        "path": "/",
+        "websocketRequiresToken": False,
+    }
+    config = WebSocketConfig.model_validate(raw)
+    gateway = build_gateway_services(
+        config=config,
+        bus=bus,
+        session_manager=None,
+        static_dist_path=None,
+        workspace_path=workspace,
+        default_restrict_to_workspace=False,
+        runtime_model_name=None,
+        runtime_surface="native",
+        runtime_capabilities_overrides=None,
+    )
+    return WebSocketChannel(raw, bus, gateway=gateway, unified_session=True)
 
 
 class StreamMockChannel(BaseChannel):
@@ -44,8 +69,24 @@ class StreamMockChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         await self._send_mock(msg)
 
-    async def send_delta(self, chat_id: str, delta: str, metadata=None) -> None:
-        await self._send_delta_mock(chat_id, delta, metadata)
+    async def send_delta(
+        self,
+        chat_id: str,
+        delta: str,
+        metadata=None,
+        *,
+        stream_id: str | None = None,
+        stream_end: bool = False,
+        resuming: bool = False,
+    ) -> None:
+        await self._send_delta_mock(
+            chat_id,
+            delta,
+            metadata,
+            stream_id=stream_id,
+            stream_end=stream_end,
+            resuming=resuming,
+        )
 
 
 class CaptureWsChannel(BaseChannel):
@@ -355,19 +396,7 @@ async def test_dispatch_telegram_stream_fan_out_to_inbox_ws(
     config.agents.defaults.unified_session = True
 
     port = _get_free_port()
-    ws = WebSocketChannel(
-        {
-            "enabled": True,
-            "allowFrom": ["*"],
-            "host": "127.0.0.1",
-            "port": port,
-            "path": "/",
-            "websocketRequiresToken": False,
-        },
-        bus,
-        unified_session=True,
-        workspace_path=tmp_path,
-    )
+    ws = _real_websocket(bus, port, tmp_path)
     tg = StreamMockChannel({}, bus)
 
     mgr = ChannelManager(config, bus)
@@ -450,19 +479,7 @@ async def test_dispatch_telegram_caption_and_turn_end_fan_out_to_inbox_ws(
     config.agents.defaults.unified_session = True
 
     port = _get_free_port()
-    ws = WebSocketChannel(
-        {
-            "enabled": True,
-            "allowFrom": ["*"],
-            "host": "127.0.0.1",
-            "port": port,
-            "path": "/",
-            "websocketRequiresToken": False,
-        },
-        bus,
-        unified_session=True,
-        workspace_path=tmp_path,
-    )
+    ws = _real_websocket(bus, port, tmp_path)
     tg = StreamMockChannel({}, bus)
 
     mgr = ChannelManager(config, bus)

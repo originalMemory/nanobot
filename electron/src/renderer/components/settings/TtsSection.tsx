@@ -21,7 +21,6 @@ export function TtsSection({ settings, token, apiBase, onSaved }: TtsSectionProp
   const tts = settings.tts;
 
   const [enabled, setEnabled] = useState(tts.enabled);
-  const [messagePlayback, setMessagePlayback] = useState(tts.message_playback_enabled);
   const [defaultVoice, setDefaultVoice] = useState(tts.default_voice);
   const [saving, setSaving] = useState(false);
 
@@ -47,24 +46,10 @@ export function TtsSection({ settings, token, apiBase, onSaved }: TtsSectionProp
         >
           <ToggleButton
             checked={enabled}
-            disabled={saving}
+            label={t("settings.tts.enabled", "启用 TTS")}
             onChange={(v) => {
               setEnabled(v);
               void handleSave({ enabled: v });
-            }}
-          />
-        </SettingsRow>
-
-        <SettingsRow
-          title={t("settings.tts.messagePlayback", "自动语音播放")}
-          description={t("settings.tts.messagePlaybackDesc", "每条回复自动按句合成并播放 TTS")}
-        >
-          <ToggleButton
-            checked={messagePlayback}
-            disabled={saving}
-            onChange={(v) => {
-              setMessagePlayback(v);
-              void handleSave({ message_playback_enabled: v });
             }}
           />
         </SettingsRow>

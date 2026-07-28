@@ -9,8 +9,6 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.utils.helpers import ensure_dir
-
 
 def extract_content_text(message: dict[str, Any]) -> str:
     """从消息 dict 提取可搜索纯文本（OpenAI / Anthropic 混合格式）。"""

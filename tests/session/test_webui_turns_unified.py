@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from nanobot.bus.events import InboundMessage
+from nanobot.bus.outbound_events import TurnEndEvent
 from nanobot.bus.queue import MessageBus
 from nanobot.bus.runtime_events import RuntimeEventContext, TurnCompleted
 from nanobot.session.webui_turns import WebuiTurnCoordinator
@@ -41,8 +41,8 @@ async def test_unified_session_publishes_turn_end_for_external_channel() -> None
     msg = await bus.consume_outbound()
     assert msg.channel == "telegram"
     assert msg.chat_id == "999"
-    assert (msg.metadata or {}).get("_turn_end") is True
-    assert (msg.metadata or {}).get("latency_ms") == 800
+    assert isinstance(msg.event, TurnEndEvent)
+    assert msg.event.latency_ms == 800
 
 
 @pytest.mark.asyncio
@@ -80,7 +80,7 @@ async def test_unified_session_turn_end_includes_usage() -> None:
 
     assert bus.outbound_size == 1
     msg = await bus.consume_outbound()
-    assert (msg.metadata or {}).get("_turn_end") is True
+    assert isinstance(msg.event, TurnEndEvent)
     assert (msg.metadata or {}).get("usage") == usage
 
 

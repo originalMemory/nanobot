@@ -88,14 +88,14 @@ git merge main
 | `README.md`                             | 双方都在更新 What's New              | 保留双方内容，fork 独有内容加 `<!-- fork -->` 注释 |
 | `docker-compose.yml`                    | fork 有 Unraid 定制                  | 保留 fork 定制                                |
 | `nanobot/config/schema.py`              | 双方都新增配置字段                   | 合并字段，检查 default 值                     |
-| `nanobot/channels/websocket.py`         | 双方都改 WebSocket 协议              | 逐段对比，保留 fork 的 fan-out/presence 逻辑  |
+| `nanobot/channels/websocket/`           | 双方都改 WebSocket 协议与网关生命周期 | 以 upstream `GatewayServices`/runtime 为骨架，移植 fork 的 fan-out/presence 逻辑 |
 | `nanobot/agent/loop.py`                 | agent 主循环改动                     | 最高优先级审查；保留 fork 的 unified session 逻辑 |
 | `webui/` 下的组件                        | 上游 WebUI 更新，fork 有同源 electron 组件 | 合并后检查 electron 是否需要同步移植          |
 
 冲突解决原则：
 
 1. **版本号**：取上游值
-2. **fork 独有模块**（`electron/`、`nanobot/agent/tools/desktop_context.py`、`nanobot/agent/historical_memory.py`）：保留 fork 版本
+2. **fork 独有模块**（`electron/`、`nanobot/agent/tools/desktop_context.py`、`nanobot/session/history_store.py`）：确认仍有价值后再保留
 3. **上游新功能**：接受上游，检查是否与 fork 功能冲突
 4. **同一函数双方都改**：读懂两边意图后手动合并；写测试覆盖
 5. **上游删除的模块**：检查 fork 里是否还残留对已删模块的调用（如 `nanobot/heartbeat/`、`nanobot/heartbeat/service.py` 在 v0.2.1 已删）；若有，须一并清理，否则运行时会 NameError
@@ -147,7 +147,7 @@ git push origin lover
 - [ ] 上游 WebUI 新组件/改动是否需要移植到 `electron/src/renderer/`
 - [ ] 上游新增/修改的 i18n key 是否需要在 `electron/` 侧的 `zh-CN/common.json` 同步
 - [ ] `nanobot/agent/loop.py` 的改动是否影响 unified session / heartbeat 主动感知逻辑
-- [ ] 历史记忆（`historical_memory.py`）的 `memory_search` 工具描述是否与上游 tool 注册方式兼容
+- [ ] 历史会话检索（`history_store.py`）和主动记忆/日记检索是否与上游 tool 注册方式兼容
 - [ ] 上游安全修复是否已完整合入（搜索 `[security]` 标记的 PR）
 - [ ] 测试通过
 
@@ -157,26 +157,29 @@ git push origin lover
 
 以下路径/功能为 fork 独有，合并时上游不会触碰，但需注意接口变化：
 
-| 模块                               | 说明                          |
-| ---------------------------------- | ----------------------------- |
-| `nanobot/webui/fork_http.py`        | fork HTTP 路由（替代 upstream `ws_http.py` 的生产路径） |
-| `electron/`                        | Electron 桌面客户端           |
-| `nanobot/agent/tools/desktop_context.py` | heartbeat 桌面上下文工具 |
-| `nanobot/agent/historical_memory.py` | 外部日记库 FTS 检索         |
-| `nanobot/agent/tools/tts.py`       | TTS 工具                      |
-| `nanobot/providers/tts.py`         | TTS provider                  |
-| `openspec/`                        | OpenSpec 变更管理              |
-| `specs/`                           | Spec-lite 规格                 |
-| `docs/nanobot-vs-openclaw-zh/`     | 架构对比文档                  |
-| `docs/electron-unified-inbox.md`   | 统一收件箱文档                |
-| `docs/poc-baseline-comparison.md`  | POC 基底分析                  |
+| 模块                                      | 说明                                  |
+| ----------------------------------------- | ------------------------------------- |
+| `electron/`                               | Electron 桌面客户端                   |
+| `nanobot/agent/tools/desktop_context.py`  | heartbeat 桌面上下文工具              |
+| `nanobot/session/history_store.py`        | 可检索的历史会话归档                  |
+| `nanobot/agent/active_memory.py`          | 主动记忆召回                          |
+| `nanobot/agent/tools/diary_search.py`     | 外部日记库检索                        |
+| `nanobot/agent/tools/tts.py`              | 标准 TTS 工具                         |
+| `nanobot/providers/tts.py`                | 标准 TTS provider                     |
+| `openspec/`                               | OpenSpec 变更管理                     |
+| `specs/`                                  | Spec-lite 规格                        |
+| `docs/nanobot-vs-openclaw-zh/`            | 架构对比文档                          |
+| `docs/electron-unified-inbox.md`          | 统一收件箱文档                        |
+| `docs/poc-baseline-comparison.md`         | POC 基底分析                          |
 
 ### 与 upstream 的有意差异
 
-| 项目 | upstream | fork |
-| ---- | -------- | ---- |
-| HTTP handler | `ws_http.GatewayHTTPHandler` | `fork_http.ForkGatewayHTTPHandler`（生产路径） |
-| `GET /api/workspaces` | 有，供 WebUI 工作区选择器 | **不实现** — 生产跑 Docker，容器已隔离文件系统，不需要 WebUI 工作区沙箱限制 |
+| 项目 | upstream 基础 | fork 扩展 |
+| ---- | ------------- | --------- |
+| HTTP / Gateway | `GatewayServices` + `GatewayHTTPHandler` | 直接使用官方实现，不再维护 `fork_http.py` |
+| WebSocket runtime | 官方 package/runtime 与 typed events | 统一收件箱、稳定 chat ID、来源元数据、桌面 presence/截图 |
+| 会话与记忆 | 官方 session retention、Dream consolidation | 历史会话归档、主动记忆和日记检索 |
+| TTS | 官方 provider/tool 基础 | 保留普通 TTS；不绑定桌宠或自动消息分段播放 |
 
 ---
 
@@ -224,3 +227,4 @@ git checkout lover && git merge --no-commit --no-ff main && git diff --name-only
 | 日期       | 上游版本 | merge commit | 冲突数 | 详细记录                                              |
 | ---------- | -------- | ------------ | ------ | ----------------------------------------------------- |
 | 2026-06-05 | v0.2.1   | `e7240cad`   | 16     | [详情](merges/2026-06-05-upstream-v0.2.1.md)          |
+| 2026-07-28 | v0.3.0   | 本次提交     | 约 40  | [详情](merges/2026-07-28-upstream-v0.3.0.md)          |

@@ -16,17 +16,18 @@ Nanobot can act as a WebSocket server, allowing external clients (web apps, CLIs
 
 ### 1. Configure
 
-Add to `config.json` under `channels.websocket`:
+The WebSocket channel is enabled by default. Add only the fields you want to
+override under `channels.websocket`:
 
 ```json
 {
   "channels": {
     "websocket": {
-      "enabled": true,
       "host": "127.0.0.1",
       "port": 8765,
       "path": "/",
-      "websocketRequiresToken": false,
+      "tokenIssueSecret": "your-webui-password",
+      "websocketRequiresToken": true,
       "allowFrom": ["*"],
       "streaming": true
     }
@@ -151,46 +152,8 @@ All frames are JSON text. Each message has an `event` field.
 
 Reasoning frames only flow when the channel's `showReasoning` is `true` (default) and the model returns reasoning content (DeepSeek-R1 / Kimi / MiMo / OpenAI reasoning models, Anthropic extended thinking, or inline `<think>` / `<thought>` tags). Models without reasoning produce zero `reasoning_delta` frames.
 
-**`message` with `kind: "tool_hint"`** — tool-call progress while the agent executes tools. Carries a human-readable hint in `text` and structured lifecycle data in `tool_events` (phase `start` → `end` / `error`, keyed by `call_id`). WebUI/Electron fold these into activity trace rows (e.g. `Using read_file`). See [Tool call UI mapping](./tool-call-ui.md) for the full live + replay pipeline.
-
-```json
-{
-  "event": "message",
-  "chat_id": "uuid-v4",
-  "text": "read_file({\"path\": \"notes.md\"})",
-  "kind": "tool_hint",
-  "tool_events": [
-    {
-      "phase": "start",
-      "call_id": "call_1",
-      "name": "read_file",
-      "arguments": {"path": "notes.md"}
-    }
-  ]
-}
-```
-
-**`file_edit`** — structured file-edit progress from edit tools (added/deleted lines, path, status). Separate from `tool_hint`; the WebUI renders these inside the same activity cluster.
-
-```json
-{
-  "event": "file_edit",
-  "chat_id": "uuid-v4",
-  "edits": [
-    {
-      "call_id": "call-write",
-      "tool": "write_file",
-      "path": "foo.txt",
-      "phase": "end",
-      "added": 12,
-      "deleted": 0,
-      "status": "done"
-    }
-  ]
-}
-```
-
-**`runtime_model_updated`** — broadcast when the gateway runtime model changes, for example after `/model <preset>`:
+**`runtime_model_updated`** — broadcast when the gateway default runtime changes or
+when a config reload requires clients to refresh their model catalog:
 
 ```json
 {
@@ -200,7 +163,10 @@ Reasoning frames only flow when the channel's `showReasoning` is `true` (default
 }
 ```
 
-`model_preset` is omitted when no named preset is active. WebUI clients use this event to keep the displayed model badge in sync across slash commands, config reloads, and settings changes.
+`model_preset` is omitted when no named preset is active. WebUI clients use this event
+to refresh model settings after default-runtime and config changes. `/model <preset>`
+is session-scoped; its selection is reflected through `session_updated` and the
+session row's `model_preset` field instead of this global event.
 
 **`attached`** — confirmation for `new_chat` / `attach` inbound envelopes (see [Multi-chat multiplexing](#multi-chat-multiplexing)):
 
@@ -246,7 +212,7 @@ All fields go under `channels.websocket` in `config.json`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable the WebSocket server. |
+| `enabled` | bool | `true` | Enable the WebSocket server. Set to `false` only when you intentionally do not want the bundled WebUI/WebSocket surface. |
 | `host` | string | `"127.0.0.1"` | Bind address. Use `"0.0.0.0"` to accept external connections. |
 | `port` | int | `8765` | Listen port. |
 | `path` | string | `"/"` | WebSocket upgrade path. Trailing slashes are normalized (root `/` is preserved). |
@@ -259,7 +225,7 @@ All fields go under `channels.websocket` in `config.json`.
 | `token` | string | `""` | Static shared secret. When set, clients must provide `?token=<value>` matching this secret (timing-safe comparison). Issued tokens are also accepted as a fallback. |
 | `websocketRequiresToken` | bool | `true` | When `true` and no static `token` is configured, clients must still present a valid issued token. Set to `false` to allow unauthenticated connections (only safe for local/trusted networks). |
 | `tokenIssuePath` | string | `""` | HTTP path for issuing short-lived tokens. Must differ from `path`. See [Token Issuance](#token-issuance). |
-| `tokenIssueSecret` | string | `""` | Secret required to obtain tokens via the issue endpoint. If empty, any client can obtain tokens (logged as a warning). |
+| `tokenIssueSecret` | string | `""` | Secret required to obtain tokens via the issue endpoint. If empty, any client can obtain WebSocket connection tokens from `tokenIssuePath` (logged as a warning). `/webui/bootstrap` still issues WebUI REST API tokens for same-machine localhost browser requests; remote or forwarded bootstrap requires `tokenIssueSecret` or `token`. |
 | `tokenTtlS` | int | `300` | Time-to-live for issued tokens in seconds (30 – 86,400). |
 
 ### Access Control
@@ -304,13 +270,17 @@ For production deployments where `websocketRequiresToken: true`, use short-lived
 3. Client opens WebSocket with `?token=nbwt_aBcDeFg...&client_id=...`.
 4. The token is consumed (single use) and cannot be reused.
 
+The embedded WebUI's `/webui/bootstrap` route also returns a WebSocket token.
+It returns a separate `api_token` for REST routes to same-machine localhost
+browser requests, or after the request proves knowledge of `tokenIssueSecret`
+or the static `token`.
+
 ### Example setup
 
 ```json
 {
   "channels": {
     "websocket": {
-      "enabled": true,
       "port": 8765,
       "path": "/ws",
       "tokenIssuePath": "/auth/token",
@@ -405,7 +375,6 @@ Outbound `message` events may include a `media` field containing local filesyste
 {
   "channels": {
     "websocket": {
-      "enabled": true,
       "host": "0.0.0.0",
       "port": 8765,
       "websocketRequiresToken": false,
@@ -422,7 +391,6 @@ Outbound `message` events may include a `media` field containing local filesyste
 {
   "channels": {
     "websocket": {
-      "enabled": true,
       "token": "my-shared-secret",
       "allowFrom": ["alice", "bob"]
     }
@@ -438,7 +406,6 @@ Clients connect with `?token=my-shared-secret&client_id=alice`.
 {
   "channels": {
     "websocket": {
-      "enabled": true,
       "host": "0.0.0.0",
       "port": 8765,
       "path": "/ws",
@@ -459,7 +426,6 @@ Clients connect with `?token=my-shared-secret&client_id=alice`.
 {
   "channels": {
     "websocket": {
-      "enabled": true,
       "path": "/chat/ws",
       "allowFrom": ["*"]
     }

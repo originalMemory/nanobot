@@ -14,7 +14,6 @@ import pytest
 
 from nanobot.providers.base import GenerationSettings, LLMProvider, LLMResponse
 
-
 # ── minimal concrete provider ─────────────────────────────────────────────────
 
 class _FakeProvider(LLMProvider):

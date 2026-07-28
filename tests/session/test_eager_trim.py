@@ -10,6 +10,7 @@ import pytest
 from nanobot.agent.memory import Consolidator, MemoryStore
 from nanobot.session.history_store import SessionHistoryStore
 from nanobot.session.manager import Session
+from nanobot.utils.llm_runtime import LLMRuntime
 
 
 def _archived_contents(history_store: SessionHistoryStore) -> list[str]:
@@ -57,16 +58,17 @@ def consolidator(store, mock_provider, history_store):
 
     consolidator = Consolidator(
         store=store,
-        provider=mock_provider,
-        model="test-model",
         sessions=sessions,
-        context_window_tokens=10000,
         build_messages=MagicMock(return_value=[]),
         get_tool_definitions=MagicMock(return_value=[]),
-        max_completion_tokens=100,
         history_store=history_store,
     )
     consolidator._cache = cache
+    consolidator._test_runtime = LLMRuntime.capture(
+        mock_provider,
+        "test-model",
+        context_window_tokens=10000,
+    )
     return consolidator
 
 
@@ -82,12 +84,15 @@ class TestEagerTrim:
 
         estimates = [9000, 100]
         consolidator.estimate_session_prompt_tokens = MagicMock(
-            side_effect=lambda _session: (estimates.pop(0), "mock"),
+            side_effect=lambda _session, **_kwargs: (estimates.pop(0), "mock"),
         )
         consolidator.pick_consolidation_boundary = MagicMock(return_value=(4, 100))
         consolidator.archive = AsyncMock(return_value="summary")
 
-        await consolidator.maybe_consolidate_by_tokens(session)
+        await consolidator.maybe_consolidate_by_tokens(
+            session,
+            runtime=consolidator._test_runtime,
+        )
 
         assert len(session.messages) == 20
         assert session.last_consolidated == 0
@@ -109,7 +114,11 @@ class TestEagerTrim:
         consolidator._cache["cli:idle"] = session
         consolidator.archive = AsyncMock(return_value="summary")
 
-        await consolidator.compact_idle_session("cli:idle", max_suffix=2)
+        await consolidator.compact_idle_session(
+            "cli:idle",
+            runtime=consolidator._test_runtime,
+            max_suffix=2,
+        )
 
         assert len(session.messages) == 2
         assert session.last_consolidated == 0
@@ -131,14 +140,15 @@ class TestEagerTrim:
 
         consolidator = Consolidator(
             store=store,
-            provider=mock_provider,
-            model="test-model",
             sessions=sessions,
-            context_window_tokens=10000,
             build_messages=MagicMock(return_value=[]),
             get_tool_definitions=MagicMock(return_value=[]),
-            max_completion_tokens=100,
             history_store=None,
+        )
+        runtime = LLMRuntime.capture(
+            mock_provider,
+            "test-model",
+            context_window_tokens=10000,
         )
 
         session = Session(key="cli:no-store")
@@ -153,7 +163,7 @@ class TestEagerTrim:
         consolidator.pick_consolidation_boundary = MagicMock(return_value=(4, 100))
         consolidator.archive = AsyncMock(return_value="summary")
 
-        await consolidator.maybe_consolidate_by_tokens(session)
+        await consolidator.maybe_consolidate_by_tokens(session, runtime=runtime)
 
         assert len(session.messages) == 20
         assert session.last_consolidated == 0

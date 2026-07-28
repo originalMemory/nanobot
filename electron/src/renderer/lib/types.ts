@@ -63,8 +63,6 @@ export interface UIMessage {
   images?: UIImage[];
   /** Signed or local UI-renderable media attachments. */
   media?: UIMediaAttachment[];
-  /** 后端已将本条消息的音频交给 THA，Electron 不再本地自动播放。 */
-  thaPlayed?: boolean;
   /** App-specific CLI adapters explicitly attached to this user turn. */
   cliApps?: UICliAppAttachment[];
   /** Settings-managed MCP presets explicitly attached to this user turn. */
@@ -84,8 +82,6 @@ export interface UIMessage {
   usage?: TurnUsageStats;
   /** Wall-clock timestamp of the assistant message (ISO local-time string from backend, or ms epoch for live turns). */
   messageTs?: string | number;
-  /** Assistant message-bound TTS playback segments, persisted in WebUI transcript. */
-  playbackSegments?: AssistantPlaybackSegment[];
 }
 
 /** Per-turn token stats: last-call context size vs turn-total billing. */
@@ -206,6 +202,7 @@ export interface SidebarStatePayload {
 
 export interface BootstrapResponse {
   token: string;
+  api_token?: string;
   ws_path: string;
   expires_in: number;
   model_name?: string | null;
@@ -297,30 +294,8 @@ export interface SettingsPayload {
       default_api_base?: string | null;
     }>;
   };
-  deskPet: {
-    tha: {
-      config: {
-        enabledEmotions: boolean;
-        enabledMouthSync: boolean;
-        windowWidth: number;
-        windowHeight: number;
-        audioDelayMs: number;
-      };
-      model: ThaModel;
-      motions: string[];
-      emotions: string[];
-    };
-    psb: {
-      autoShow: boolean;
-      selectedModelId: string | null;
-      followMouse: boolean;
-      enabledResponseTags: boolean;
-      models: PsbModelSummary[];
-    };
-  };
   tts: {
     enabled: boolean;
-    message_playback_enabled: boolean;
     default_voice: string;
     provider: string;
     model: string;
@@ -561,70 +536,6 @@ export interface ImageGenerationSettingsUpdate {
   maxImagesPerTurn: number;
 }
 
-export interface ThaModel {
-  id: string;
-  name: string;
-  available: boolean;
-  format: "" | "onnx" | "mlpackage";
-  path: string;
-}
-
-export interface ThaSettingsUpdate {
-  enabledEmotions?: boolean;
-  enabledMouthSync?: boolean;
-  windowWidth?: number;
-  windowHeight?: number;
-  audioDelayMs?: number;
-}
-
-export interface PsbInitialState {
-  timeline: string;
-  expression: string;
-  face: Record<string, number>;
-  fade: Record<string, number>;
-}
-
-export interface PsbModelDetail {
-  modelId: string;
-  name: string;
-  format: string;
-  compatible: boolean;
-  parseError?: string | null;
-  translationStatus?: string;
-  hasFaceTalk?: boolean;
-  psbFile?: string;
-  timelines: Array<{ label: string; labelZh?: string; looping?: boolean }>;
-  expressions: Array<{ label: string; labelZh?: string }>;
-  faceVariables: Array<{
-    label: string;
-    labelZh?: string;
-    frames?: Array<{ label: string; labelZh?: string; value: number }>;
-  }>;
-  fadeVariables: Array<{
-    label: string;
-    labelZh?: string;
-    frames?: Array<{ label: string; labelZh?: string; value: number }>;
-  }>;
-  initialState: PsbInitialState;
-}
-
-export interface PsbModelSummary {
-  modelId: string;
-  name: string;
-  format: string;
-  compatible: boolean;
-  parseError?: string | null;
-  translationStatus?: string;
-  hasFaceTalk?: boolean;
-}
-
-export interface PsbSettingsUpdate {
-  autoShow?: boolean;
-  selectedModelId?: string | null;
-  followMouse?: boolean;
-  enabledResponseTags?: boolean;
-}
-
 export interface SlashCommand {
   command: string;
   title: string;
@@ -641,21 +552,6 @@ export type ConnectionStatus =
   | "closed"
   | "error";
 
-export interface AssistantPlaybackSegment {
-  messageId: string;
-  segmentIndex: number;
-  rawText: string;
-  controls?: Array<{ kind?: string; type: string; payload?: Record<string, unknown> }>;
-  debug?: Record<string, unknown>;
-  audio?: {
-    status: "idle" | "pending" | "ready" | "playing" | "done" | "failed" | "skipped";
-    url?: string;
-    name?: string;
-    mimeType?: string;
-    error?: string;
-  };
-}
-
 export type InboundEvent =
   | { event: "ready"; chat_id: string; client_id: string }
   | { event: "attached"; chat_id: string }
@@ -666,7 +562,6 @@ export type InboundEvent =
       reply_to?: string;
       media?: string[];
       media_urls?: Array<{ url: string; name?: string }>;
-      tha_played?: boolean;
       tool_events?: ToolProgressEvent[];
       /** Present when the frame is an agent breadcrumb (e.g. tool hint,
        * generic progress line) rather than a conversational reply. */
@@ -716,11 +611,6 @@ export type InboundEvent =
       text?: string;
       source_channel?: string;
       source_chat_id?: string;
-    }
-  | {
-      event: "assistant_playback_segment";
-      chat_id: string;
-      segment: AssistantPlaybackSegment;
     }
   | {
       event: "reasoning_delta";

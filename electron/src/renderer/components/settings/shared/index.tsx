@@ -11,6 +11,7 @@ import {
   Gem,
   Grid3X3,
   Hexagon,
+  Info,
   Layers,
   Loader2,
   Moon,
@@ -55,7 +56,6 @@ export type SettingsSectionKey =
   | "web"
   | "apps"
   | "runtime"
-  | "deskPet"
   | "tts"
   | "advanced";
 

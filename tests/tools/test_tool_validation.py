@@ -1,4 +1,5 @@
 import shlex
+import socket
 import subprocess
 import sys
 from typing import Any
@@ -125,6 +126,7 @@ def test_schema_classes_equivalent_to_sample_tool_parameters() -> None:
             required=["tag"],
         ),
         required=["query", "count"],
+        additional_properties=None,
     )
     assert built == SampleTool().parameters
 
@@ -195,6 +197,25 @@ def test_validate_params_ignores_unknown_fields() -> None:
     assert errors == []
 
 
+def test_tool_parameters_schema_rejects_unknown_fields_by_default() -> None:
+    tool = DecoratedSampleTool()
+    errors = tool.validate_params({"query": "hi", "count": 2, "extra": "x"})
+    assert errors == ["unexpected parameter extra"]
+
+
+def test_validate_params_validates_typed_additional_properties() -> None:
+    schema = {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {"type": "integer"},
+    }
+    tool = CastTestTool(schema)
+
+    errors = tool.validate_params({"extra": "2"})
+
+    assert errors == ["extra should be integer"]
+
+
 async def test_registry_returns_validation_error() -> None:
     reg = ToolRegistry()
     reg.register(SampleTool())
@@ -236,7 +257,13 @@ def test_exec_extract_absolute_paths_ignores_urls() -> None:
         'python3 -c "import urllib.request; print(urllib.request.urlopen(\'http://example.com\').read()[:100])"',
     ],
 )
-def test_exec_guard_allows_public_urls(tmp_path, command: str) -> None:
+def test_exec_guard_allows_public_urls(tmp_path, command: str, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "nanobot.security.network.socket.getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0)),
+        ],
+    )
     tool = ExecTool(restrict_to_workspace=True)
     error = tool._guard_command(command, str(tmp_path))
     assert error is None
@@ -269,6 +296,19 @@ def test_exec_extract_absolute_paths_captures_home_paths() -> None:
     assert "~/out.txt" in paths
 
 
+def test_exec_extract_absolute_paths_captures_paths_after_equals() -> None:
+    cmd = "curl --output=/etc/passwd --config=~/.nanobot/config.json"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert "/etc/passwd" in paths
+    assert "~/.nanobot/config.json" in paths
+
+
+def test_exec_extract_absolute_paths_does_not_capture_query_tilde() -> None:
+    cmd = 'python query.py --query \'{job=~"app"}\''
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert not any(p.startswith("~") for p in paths)
+
+
 def test_exec_extract_absolute_paths_captures_quoted_paths() -> None:
     cmd = 'cat "/tmp/data.txt" "~/.nanobot/config.json"'
     paths = ExecTool._extract_absolute_paths(cmd)
@@ -284,6 +324,15 @@ def test_exec_guard_blocks_home_path_outside_workspace(tmp_path) -> None:
         "Error: Command blocked by safety guard (path outside working dir)"
     )
     assert "hard policy boundary" in error
+
+
+def test_exec_guard_blocks_equals_home_path_outside_workspace(tmp_path) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+    error = tool._guard_command("cat --config=~/.nanobot/config.json", str(tmp_path))
+    assert error is not None
+    assert error.startswith(
+        "Error: Command blocked by safety guard (path outside working dir)"
+    )
 
 
 def test_exec_guard_blocks_quoted_home_path_outside_workspace(tmp_path) -> None:

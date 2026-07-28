@@ -93,7 +93,6 @@
       "cliApps": "CLI 应用",
       "mcp": "MCP",
       "runtime": "运行时",
-      "deskPet": "桌宠",
       "advanced": "高级",
       "apps": "应用"
     },
@@ -422,67 +421,6 @@
         "baseUrlRequired": "SearXNG 需要 Base URL。",
         "missingCredential": "填写所需凭证后才能保存。",
         "saveHint": "改动会应用到新的网页搜索请求。"
-      }
-    },
-    "deskPet": {
-      "tabs": {
-        "psb": "PSB",
-        "tha": "THA"
-      },
-      "common": {
-        "open": "打开",
-        "close": "关闭",
-        "closeAll": "关闭全部",
-        "toggleOff": "已关闭",
-        "show": "展示",
-        "hide": "隐藏"
-      },
-      "tha": {
-        "title": "THA Desk Pet",
-        "behaviorSection": "行为",
-        "windowSection": "窗口",
-        "windowSize": "窗口大小",
-        "launch": "启动 THA",
-        "launchDescription": "打开独立 2D 桌面宠物页面；Electron 中会创建透明置顶窗口。",
-        "emotionTags": "表情标签",
-        "emotionTagsDescription": "允许模型输出 <happy> / <nod> 等标签驱动 THA。",
-        "mouthSync": "口型同步",
-        "mouthSyncDescription": "THA 页面播放音频并分析音量后驱动 mouth。",
-        "modelReady": "模型已就绪",
-        "modelMissing": "未找到模型",
-        "modelPathDescription": "固定读取 tha_model/model.mlpackage 或 tha_model/model.onnx；更换模型时直接替换该文件。",
-        "audioDelay": "音频延迟",
-        "audioDelayDescription": "远程 gateway 场景用于补偿 mouth 指令、后端渲染和 JPEG 回传延迟。",
-        "closeWindows": "关闭 THA 窗口"
-      },
-      "psb": {
-        "title": "PSB Desk Pet",
-        "modelsSection": "模型",
-        "behaviorSection": "行为与窗口",
-        "modelDirectory": "模型目录",
-        "modelDirectoryDescription": "将 .psb / .emtbytes 放入 ~/.nanobot/desk_pets/psb/ 后重启 gateway 即可注册。若元数据有误，删除同名 .meta.json 后重新打开桌宠，会全量重新上报。",
-        "autoShow": "启动时自动展示",
-        "autoShowDescription": "应用启动且已选可用模型时自动打开 PSB 窗口。",
-        "followMouse": "鼠标追踪",
-        "followMouseDescription": "全屏鼠标坐标驱动眼、头、身体变量。",
-        "responseTags": "回复特殊标签",
-        "responseTagsDescription": "向 AI 注入 PSB 标签说明并解析 assistant 回复。",
-        "currentModel": "当前模型",
-        "currentModelDescription": "仅兼容模型可选为当前展示模型。",
-        "noSelection": "未选择",
-        "unavailableSuffix": "（不可用）",
-        "windowSize": "窗口大小",
-        "windowSizeDescription": "保存在本机。打开窗口后点齿轮进入配置面板设置 timeline、表情、Face/Fade；也可拖拽边缘调整大小。",
-        "noModels": "暂无模型",
-        "noModelsDescription": "将文件放入目录并重启 gateway 后刷新设置页。",
-        "status": {
-          "incompatible": "不兼容",
-          "translateFailed": "翻译失败",
-          "pendingTranslate": "待翻译",
-          "translating": "翻译中",
-          "available": "可用"
-        },
-        "deleteConfirm": "确定删除模型「{{name}}」？"
       }
     },
     "overview": {
@@ -814,10 +752,6 @@
     "imageAttachment": "图片附件",
     "copyReply": "复制回复",
     "copiedReply": "已复制回复",
-    "playReplyAudio": "播放回复语音",
-    "stopReplyAudio": "停止回复语音",
-    "showPsbTags": "显示桌宠动作标签",
-    "hidePsbTags": "隐藏桌宠动作标签",
     "turnLatencyTitle": "本轮耗时（端到端）",
     "source": {
       "proactive": "主动推送",

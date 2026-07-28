@@ -12,8 +12,6 @@ import {
   updateSettings,
   updateWebSearchSettings,
   updateImageGenerationSettings,
-  updateThaSettings,
-  updateDeskPetPsbSettings,
   createModelConfiguration,
 } from "@/lib/api";
 import type {
@@ -23,16 +21,15 @@ import type {
   ProviderSettingsUpdate,
   SettingsPayload,
   SettingsUpdate,
-  ThaSettingsUpdate,
-  PsbSettingsUpdate,
   WebSearchSettingsUpdate,
 } from "@/lib/types";
 import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
 import { useClient } from "@/providers/ClientProvider";
 import type { Theme } from "@/hooks/useTheme";
 import { useElectronPreference } from "@/hooks/useElectronPreference";
-import { DEFAULT_LOCAL_PREFS, type LocalPreferences, type SettingsSectionKey } from "./shared";
+import { DEFAULT_LOCAL_PREFS, type LocalPreferences } from "./shared";
 import { SettingsLayout } from "./SettingsLayout";
+import type { SettingsSectionKey } from "./shared";
 import { OverviewSection } from "./OverviewSection";
 import { AppearanceSection } from "./AppearanceSection";
 import { ModelsSection, type AgentSettingsDraft } from "./ModelsSection";
@@ -41,7 +38,6 @@ import { WebSection } from "./WebSection";
 import { AppsSection } from "./AppsSection";
 import { RuntimeSection } from "./RuntimeSection";
 import { AdvancedSection } from "./AdvancedSection";
-import { DeskPetSection } from "./DeskPetSection";
 import { TtsSection } from "./TtsSection";
 
 interface ProviderForm {
@@ -82,16 +78,9 @@ interface SettingsViewProps {
   theme: Theme;
   onThemeChange: (t: Theme) => void;
   onSettingsChange?: (settings: SettingsPayload) => void;
-  navigateSection?: SettingsSectionKey | null;
 }
 
-export function SettingsView({
-  onBack,
-  theme,
-  onThemeChange,
-  onSettingsChange,
-  navigateSection,
-}: SettingsViewProps) {
+export function SettingsView({ onBack, theme, onThemeChange, onSettingsChange }: SettingsViewProps) {
   const { token, apiBase } = useClient();
   const [localPrefs, setLocalPrefs] = useElectronPreference<LocalPreferences>(
     "appearance.preferences",
@@ -102,14 +91,14 @@ export function SettingsView({
   // ---------- section state ----------
   const [activeSection, setActiveSection] = useState<SettingsSectionKey>("overview");
 
-  useEffect(() => {
-    if (navigateSection) setActiveSection(navigateSection);
-  }, [navigateSection]);
-
   // ---------- settings data ----------
   const [settings, setSettings] = useState<SettingsPayload | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+
+  const handleRefreshSettings = useCallback(async () => {
+    setSettings(await fetchSettings(token, apiBase));
+  }, [apiBase, token]);
 
   // ---------- cli / mcp data ----------
   const [cliApps, setCliApps] = useState<CliAppsPayload | null>(null);
@@ -236,21 +225,6 @@ export function SettingsView({
 
   const handleSaveImageGeneration = useCallback(async (update: ImageGenerationSettingsUpdate) => {
     const payload = await updateImageGenerationSettings(token, update, apiBase);
-    handleSettingsUpdate(payload);
-  }, [token, apiBase, handleSettingsUpdate]);
-
-  const handleSaveTha = useCallback(async (update: ThaSettingsUpdate) => {
-    const payload = await updateThaSettings(token, update, apiBase);
-    handleSettingsUpdate(payload);
-  }, [token, apiBase, handleSettingsUpdate]);
-
-  const handleSavePsb = useCallback(async (update: PsbSettingsUpdate) => {
-    const payload = await updateDeskPetPsbSettings(token, update, apiBase);
-    handleSettingsUpdate(payload);
-  }, [token, apiBase, handleSettingsUpdate]);
-
-  const handleRefreshSettings = useCallback(async () => {
-    const payload = await fetchSettings(token, apiBase);
     handleSettingsUpdate(payload);
   }, [token, apiBase, handleSettingsUpdate]);
 
@@ -387,17 +361,6 @@ export function SettingsView({
             onRestart={handleRestart}
             isRestarting={isRestarting}
             onSave={handleSaveWebSearch}
-          />
-        );
-      case "deskPet":
-        return (
-          <DeskPetSection
-            settings={settings}
-            token={token}
-            apiBase={apiBase}
-            onSaveTha={handleSaveTha}
-            onSavePsb={handleSavePsb}
-            onRefreshSettings={handleRefreshSettings}
           />
         );
       case "tts":

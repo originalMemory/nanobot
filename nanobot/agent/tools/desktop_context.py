@@ -11,11 +11,11 @@ from pydantic import Field
 
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import BooleanSchema, NumberSchema, tool_parameters_schema
-from nanobot.config.schema import Base
+from nanobot.config_base import Base
 from nanobot.utils.helpers import build_image_content_blocks, detect_image_mime
 
 if TYPE_CHECKING:
-    from nanobot.channels.websocket import WebSocketChannel
+    from nanobot.channels.websocket.runtime import WebSocketChannel
     from nanobot.providers.base import LLMProvider
 
 VisionProviderGetter = Callable[[], tuple["LLMProvider | None", str | None]]

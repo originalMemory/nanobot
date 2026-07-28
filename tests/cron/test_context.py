@@ -1,7 +1,6 @@
 """Tests for unified-session context injection in cron jobs."""
 
 from nanobot.cron.context import build_unified_context_prefix, prepend_unified_context
-from nanobot.cron.types import CronJob, CronPayload
 from nanobot.session import UNIFIED_SESSION_KEY
 from nanobot.session.manager import SessionManager
 
@@ -112,10 +111,3 @@ def test_prepend_unified_context_joins_prompt(tmp_path):
     assert result.startswith("## Recent Conversation")
     assert result.endswith("Do the task")
     assert "\n\n---\n\n" in result
-
-
-def test_cron_payload_backward_compatible_without_context_messages():
-    payload = CronPayload(kind="agent_turn", message="hello")
-
-    assert payload.context_messages == 0
-

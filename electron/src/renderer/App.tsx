@@ -5,7 +5,6 @@ import { InboxSidebar } from "@/components/InboxSidebar";
 import { InboxView } from "@/components/InboxView";
 import { ScreenshotPreviewModal } from "@/components/ScreenshotPreviewModal";
 import { SettingsView } from "@/components/settings/SettingsView";
-import type { SettingsSectionKey } from "@/components/settings/shared";
 import { WorkspaceView } from "@/components/workspace/WorkspaceView";
 import { WallpaperLayer } from "@/components/WallpaperLayer";
 import { WindowTitleBar } from "@/components/WindowTitleBar";
@@ -192,7 +191,6 @@ function Shell({
   const [modelSelectionError, setModelSelectionError] = useState<string | null>(null);
   const [reasoningSelectionPending, setReasoningSelectionPending] = useState(false);
   const [reasoningSelectionError, setReasoningSelectionError] = useState<string | null>(null);
-  const [settingsNavigateSection, setSettingsNavigateSection] = useState<SettingsSectionKey | null>(null);
 
   const applySettings = useCallback((payload: SettingsPayload) => {
     setSettings(payload);
@@ -212,20 +210,6 @@ function Shell({
       .catch((): void => undefined);
     return () => { cancelled = true; };
   }, [token, gatewayUrl, applySettings]);
-
-  useEffect(() => {
-    const api = window.electronAPI?.app;
-    if (!api?.onOpenSettings) return;
-    return api.onOpenSettings((section) => {
-      setView("settings");
-      const allowed: SettingsSectionKey[] = [
-        "overview", "appearance", "models", "image", "web", "apps", "runtime", "deskPet", "advanced",
-      ];
-      if (allowed.includes(section as SettingsSectionKey)) {
-        setSettingsNavigateSection(section as SettingsSectionKey);
-      }
-    });
-  }, []);
 
   useEffect(() => {
     return client.onRuntimeModelUpdate((modelName, _modelPreset) => {
@@ -399,7 +383,6 @@ function Shell({
                   theme={theme}
                   onThemeChange={setTheme}
                   onSettingsChange={applySettings}
-                  navigateSection={settingsNavigateSection}
                 />
               </div>
             ) : view === "workspace" ? (
@@ -469,7 +452,7 @@ export default function App() {
           // before any real-time events arrive (#3)
           let initialMessages: UIMessage[] = [];
           try {
-            const thread = await fetchInboxThread(boot.token, url);
+            const thread = await fetchInboxThread(boot.api_token ?? boot.token, url);
             if (!cancelled) {
               initialMessages = thread?.messages ?? [];
             }
@@ -491,7 +474,7 @@ export default function App() {
                   current.status === "ready" && current.client === client
                     ? {
                         ...current,
-                        token: refreshed.token,
+                        token: refreshed.api_token ?? refreshed.token,
                         tokenExpiresAt,
                         modelName: refreshed.model_name ?? current.modelName,
                       }
@@ -508,7 +491,7 @@ export default function App() {
           setState({
             status: "ready",
             client,
-            token: boot.token,
+            token: boot.api_token ?? boot.token,
             tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
             modelName: boot.model_name ?? null,
             initialMessages,
@@ -563,7 +546,7 @@ export default function App() {
           current.status === "ready" && current.client === client
             ? {
                 ...current,
-                token: boot.token,
+                token: boot.api_token ?? boot.token,
                 tokenExpiresAt,
                 modelName: boot.model_name ?? current.modelName,
               }
@@ -595,14 +578,6 @@ export default function App() {
     };
   }, [state]);
 
-  // gateway 连上后通知主进程尝试自动打开 PSB 桌宠
-  const bootReadyKey =
-    state.status === "ready" ? `${state.gatewayUrl}:${state.token}` : null;
-  useEffect(() => {
-    if (!bootReadyKey || state.status !== "ready") return;
-    void window.electronAPI?.psb?.tryAutoOpen?.(state.token, state.gatewayUrl);
-  }, [bootReadyKey, state.gatewayUrl, state.status, state.token]);
-
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     (async () => {
@@ -613,8 +588,10 @@ export default function App() {
         try {
           const gateway = await window.electronAPI.config.get("gateway") as {
             url?: string;
+            token?: string;
           } | undefined;
           url = gateway?.url ?? DEFAULT_GATEWAY_HTTP;
+          secret = gateway?.token ?? "";
         } catch {
           // fall back to localStorage / defaults
         }

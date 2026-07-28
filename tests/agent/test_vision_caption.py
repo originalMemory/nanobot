@@ -14,13 +14,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nanobot.agent.vision_caption import (
-    CaptionResult,
     _CAPTION_PROMPT,
+    CaptionResult,
     caption_images,
-    format_captions,
 )
 from nanobot.bus.events import InboundMessage
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -300,7 +298,7 @@ def _make_fake_loop(
 
 
 def _make_turn_ctx(content: str = "用户消息", media: list[str] | None = None):
-    from nanobot.agent.loop import TurnContext, TurnState
+    from nanobot.agent.loop import TurnContext, TurnKind, TurnState
 
     msg = _fake_msg(content=content, media=media or [])
     return TurnContext(
@@ -308,6 +306,9 @@ def _make_turn_ctx(content: str = "用户消息", media: list[str] | None = None
         session_key="test:chat1",
         state=TurnState.CAPTION,
         turn_id="turn-1",
+        runtime=None,
+        kind=TurnKind.USER,
+        delivery=MagicMock(),
     )
 
 

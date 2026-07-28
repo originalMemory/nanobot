@@ -8,31 +8,6 @@ type WallpaperConfig = {
   url: string;
   intervalMinutes: number;
 };
-type ThaWindowConfig = {
-  url: string;
-  token?: string;
-  width?: number;
-  height?: number;
-};
-type PsbOpenConfig = {
-  url: string;
-  token?: string;
-  modelId?: string;
-  width?: number;
-  height?: number;
-};
-type PsbWindowStatePatch = {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  scale?: number;
-  opacity?: number;
-};
-type PsbRuntimeAction = {
-  type: string;
-  payload?: Record<string, unknown>;
-};
 
 interface ElectronAPI {
   platform: {
@@ -49,36 +24,7 @@ interface ElectronAPI {
   };
   app: {
     quit(): Promise<void>;
-    openSettings(section?: string): Promise<{ ok: boolean }>;
-    onOpenSettings(cb: (section: string) => void): () => void;
   };
-  tha: {
-    open(config: ThaWindowConfig): Promise<{ ok: true; id: number } | { ok: false; error: string }>;
-    closeAll(): Promise<void>;
-  };
-  psb: {
-    open(
-      config: PsbOpenConfig,
-    ): Promise<{ ok: true; id: number; reused?: boolean } | { ok: false; error: string }>;
-    close(): Promise<void>;
-    closePermanent(): Promise<{ ok: boolean }>;
-    closeAll(): Promise<void>;
-    getWindowState(): Promise<PsbWindowStatePatch>;
-    startWindowDrag(screenX: number, screenY: number): void;
-    stopWindowDrag(): void;
-    saveWindowState(
-      patch: PsbWindowStatePatch,
-    ): Promise<{ ok: boolean; state?: PsbWindowStatePatch; error?: string }>;
-    sendAction(action: PsbRuntimeAction): Promise<{ ok: boolean }>;
-    setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): Promise<void>;
-    onAction(cb: (action: PsbRuntimeAction) => void): () => void;
-    onConfig(cb: (config: { scale?: number; opacity?: number; followMouse?: boolean }) => void): () => void;
-    onMouse(cb: (point: { x?: number; y?: number; leave?: boolean }) => void): () => void;
-    updateFollowMouse(enabled: boolean): Promise<{ ok: boolean; followMouse?: boolean }>;
-    tryAutoOpen(token?: string, url?: string): Promise<void>;
-  };
-  /** THA 透明窗口鼠标穿透 */
-  setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): Promise<void>;
   screenshot: {
     capture(): Promise<string | null>;
     /** 订阅全局快捷键触发的截图事件，返回取消监听的清理函数。 */
