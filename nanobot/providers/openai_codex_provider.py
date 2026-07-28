@@ -250,6 +250,8 @@ def _codex_error_response(exc: Exception) -> LLMResponse:
 
     status_code = getattr(exc, "status_code", None)
     error_kind: str | None = None
+    error_type = getattr(exc, "error_type", None)
+    error_code = getattr(exc, "error_code", None)
     default_detail: str | None = None
     should_retry: bool | None = getattr(exc, "should_retry", None)
 
@@ -268,13 +270,18 @@ def _codex_error_response(exc: Exception) -> LLMResponse:
     elif isinstance(exc, _CodexHTTPError):
         error_kind = "http"
         default_detail = "HTTP request failed"
+    elif isinstance(exc, RuntimeError) and "server_error" in detail.lower():
+        error_kind = "server"
+        error_type = error_type or "server_error"
+        error_code = error_code or "server_error"
+        should_retry = True if should_retry is None else should_retry
 
     if status_code is not None and should_retry is None:
         retry_content = None if int(status_code) == 429 and isinstance(exc, _CodexHTTPError) else detail
         should_retry = _should_retry_status(
             int(status_code),
-            getattr(exc, "error_type", None),
-            getattr(exc, "error_code", None),
+            error_type,
+            error_code,
             retry_content,
         )
 
@@ -287,8 +294,8 @@ def _codex_error_response(exc: Exception) -> LLMResponse:
         retry_after=retry_after,
         error_status_code=int(status_code) if status_code is not None else None,
         error_kind=error_kind,
-        error_type=getattr(exc, "error_type", None),
-        error_code=getattr(exc, "error_code", None),
+        error_type=error_type,
+        error_code=error_code,
         error_retry_after_s=retry_after,
         error_should_retry=should_retry,
     )

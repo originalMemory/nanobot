@@ -307,6 +307,49 @@ async def test_codex_retry_uses_structured_timeout_metadata(monkeypatch) -> None
     assert delays == [1]
 
 
+def test_codex_sse_server_error_is_typed_and_retryable() -> None:
+    response = _codex_error_response(RuntimeError(
+        "Response failed: {'type': 'server_error', 'code': 'server_error', "
+        "'message': 'An error occurred while processing your request. You can retry your request.'}"
+    ))
+
+    assert response.finish_reason == "error"
+    assert response.error_kind == "server"
+    assert response.error_type == "server_error"
+    assert response.error_code == "server_error"
+    assert response.error_should_retry is True
+
+
+@pytest.mark.asyncio
+async def test_codex_retry_uses_sse_server_error_metadata(monkeypatch) -> None:
+    calls = 0
+    delays: list[float] = []
+
+    _mock_codex_token(monkeypatch)
+
+    async def fake_request(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError(
+                "Response failed: {'type': 'server_error', 'code': 'server_error'}"
+            )
+        return "ok", [], "stop", None
+
+    async def fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
+    monkeypatch.setattr(provider_base.asyncio, "sleep", fake_sleep)
+
+    provider = OpenAICodexProvider()
+    response = await provider.chat_with_retry(messages=[{"role": "user", "content": "hello"}])
+
+    assert response.content == "ok"
+    assert calls == 2
+    assert delays == [1]
+
+
 @pytest.mark.asyncio
 async def test_codex_http_error_preserves_status_and_retry_after(monkeypatch) -> None:
     _mock_codex_token(monkeypatch)
