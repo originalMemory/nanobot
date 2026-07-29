@@ -1,14 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-/**
- * IPC bridge exposed to the renderer via window.electronAPI.
- *
- * Namespace design (6.4):
- *   - config.*     — electron-store read / write (extensible for settings page)
- *   - screenshot.* — desktopCapturer integration (wired up in 8.1)
- *
- * All handlers live in main.ts ipcMain.handle() calls.
- */
+/** Electron 原生能力桥；业务 UI 由 gateway 的 WebUI 提供。 */
 type WindowAction = 'show' | 'hide' | 'minimize' | 'maximize' | 'close';
 type WindowState = 'maximized' | 'normal';
 type SetRaiseInboxResult =
@@ -18,11 +10,30 @@ type WallpaperConfig = {
   url: string;
   intervalMinutes: number;
 };
+type SetGatewayUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; error: 'empty' | 'invalid' | 'unsupported' | 'credentials' };
 
-contextBridge.exposeInMainWorld('electronAPI', {
+const nativeHostApi = {
   platform: {
     isMac: process.platform === 'darwin',
     isWindows: process.platform === 'win32',
+  },
+
+  gateway: {
+    getUrl: (): Promise<string> => ipcRenderer.invoke('gateway:get-url'),
+
+    setUrl: (url: string): Promise<SetGatewayUrlResult> =>
+      ipcRenderer.invoke('gateway:set-url', url),
+
+    setSecret: (secret: string): Promise<void> =>
+      ipcRenderer.invoke('gateway:set-secret', secret),
+
+    clearSecret: (): Promise<void> =>
+      ipcRenderer.invoke('gateway:clear-secret'),
+
+    setConnection: (url: string, secret: string): Promise<SetGatewayUrlResult> =>
+      ipcRenderer.invoke('gateway:set-connection', url, secret),
   },
 
   window: {
@@ -35,22 +46,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('window:state', handler);
       return () => ipcRenderer.removeListener('window:state', handler);
     },
-  },
-
-  config: {
-    /** Read a value from electron-store. Supports dot-notation keys, e.g.
-     *  "gateway.url", "appearance.theme". */
-    get: (key: string): Promise<unknown> =>
-      ipcRenderer.invoke('config:get', key),
-
-    /** Write a value to electron-store. */
-    set: (key: string, value: unknown): Promise<void> =>
-      ipcRenderer.invoke('config:set', key, value),
-  },
-
-  app: {
-    /** 完全退出应用（与托盘菜单「退出」一致） */
-    quit: (): Promise<void> => ipcRenderer.invoke('app:quit'),
   },
 
   screenshot: {
@@ -68,11 +63,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   presence: {
-    /** 订阅主进程推送的窗口焦点变更事件（focused=true 获焦，false 失焦）。
-     *  返回取消监听的清理函数。连接建立后由 renderer 主动同步当前状态。 */
-    onChange: (cb: (focused: boolean) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, payload: { focused: boolean }) =>
-        cb(payload.focused);
+    onChange: (
+      cb: (payload: { focused?: boolean; locked?: boolean }) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: { focused?: boolean; locked?: boolean },
+      ) => cb(payload);
       ipcRenderer.on('window:presence', handler);
       return () => ipcRenderer.removeListener('window:presence', handler);
     },
@@ -122,4 +119,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   tray: {
     notifyIncoming: (): Promise<void> => ipcRenderer.invoke('tray:notify-incoming'),
   },
-});
+};
+
+contextBridge.exposeInMainWorld('nanobotHost', nativeHostApi);

@@ -8,19 +8,29 @@ import {
   nativeImage,
   powerMonitor,
   screen,
+  shell,
   Tray,
 } from 'electron';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import started from 'electron-squirrel-startup';
+import Store from 'electron-store';
 
 const SCREENSHOT_ACCELERATOR = 'CmdOrCtrl+Shift+S';
 const DEFAULT_RAISE_INBOX_ACCELERATOR = 'CmdOrCtrl+Shift+E';
 const DEFAULT_WALLPAPER_URL =
   'https://nas.xuanniao.fun:49150/api/moneyAccounting/random-image?type=1,2,3&level=5,6,7,8&orientation=2&maxResolutionLevel=2';
 const MIN_WALLPAPER_INTERVAL_MINUTES = 1;
-import Store from 'electron-store';
 import { APP_ID } from '../app.meta';
+import {
+  DEFAULT_GATEWAY_URL,
+  gatewaySecretForUrl,
+  normalizeGatewayUrl,
+  resolveGatewayUrl,
+  type SetGatewayUrlResult,
+} from './gateway-config';
+import { createGatewayRendererLoader } from './gateway-loader';
+import { gatewaySetupPageUrl } from './gateway-setup-page';
 import { initTrayBlink, notifyTrayIncoming, stopTrayBlink } from './tray-blink';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -52,33 +62,18 @@ if (!gotSingleInstanceLock) {
 // Store schema (6.3)
 // ---------------------------------------------------------------------------
 
-interface LocalPreferences {
-  density: 'comfortable' | 'compact';
-  activityMode: 'auto' | 'expanded';
-  codeWrap: boolean;
-  brandLogos: boolean;
-}
-
 interface WallpaperConfig {
   url: string;
   intervalMinutes: number;
 }
 
-// Keep in sync with renderer: src/renderer/hooks/useTheme.ts → Theme
-type Theme =
-  | 'light' | 'dark' | 'midnight' | 'desert'
-  | 'neon' | 'marshmallow' | 'ink' | 'party' | 'rainbow';
-
 interface AppConfig {
   gateway: {
     url: string;
     token: string;
-    chatId: string;
+    tokenOrigin: string;
   };
   appearance: {
-    theme: Theme;
-    language: string;
-    preferences: LocalPreferences;
     wallpaper: WallpaperConfig;
   };
   window: {
@@ -87,8 +82,6 @@ interface AppConfig {
     width: number;
     height: number;
   };
-  providers: Record<string, unknown>;
-  models: Record<string, unknown>;
   shortcuts: {
     raiseInbox: string;
   };
@@ -97,19 +90,11 @@ interface AppConfig {
 const store = new Store<AppConfig>({
   defaults: {
     gateway: {
-      url: 'http://127.0.0.1:8765',
+      url: DEFAULT_GATEWAY_URL,
       token: '',
-      chatId: 'electron-main',
+      tokenOrigin: '',
     },
     appearance: {
-      theme: 'light',
-      language: '',
-      preferences: {
-        density: 'comfortable',
-        activityMode: 'auto',
-        codeWrap: true,
-        brandLogos: true,
-      },
       wallpaper: {
         url: DEFAULT_WALLPAPER_URL,
         intervalMinutes: 1,
@@ -119,25 +104,108 @@ const store = new Store<AppConfig>({
       width: 1200,
       height: 800,
     },
-    providers: {},
-    models: {},
     shortcuts: {
       raiseInbox: DEFAULT_RAISE_INBOX_ACCELERATOR,
     },
   },
 });
 
+let activeGatewayUrl = resolveGatewayUrl({
+  argv: process.argv,
+  envUrl: process.env.NANOBOT_GATEWAY_URL,
+  storedUrl: store.get('gateway.url'),
+}).url;
+
+function getGatewayUrl(): URL {
+  return new URL(activeGatewayUrl);
+}
+
+function clearGatewaySecret(): void {
+  store.set('gateway.token', '');
+  store.set('gateway.tokenOrigin', '');
+}
+
+function saveGatewaySecret(secret: string): void {
+  const normalized = secret.trim();
+  if (!normalized) {
+    clearGatewaySecret();
+    return;
+  }
+  store.set('gateway.token', normalized);
+  store.set('gateway.tokenOrigin', getGatewayUrl().origin);
+}
+
+function saveGatewayUrl(url: string): void {
+  const rawCredentialOrigin = (
+    store.get('gateway.tokenOrigin')
+    || store.get('gateway.url')
+    || ''
+  );
+  const previousCredentialOrigin =
+    typeof rawCredentialOrigin === 'string' ? rawCredentialOrigin.trim() : '';
+  store.set('gateway.url', url);
+  activeGatewayUrl = url;
+  if (previousCredentialOrigin && previousCredentialOrigin !== url) {
+    clearGatewaySecret();
+  }
+}
+
+function getRendererUrl(): URL {
+  const url = getGatewayUrl();
+  url.pathname = '/';
+  url.search = '';
+  const secret = gatewaySecretForUrl({
+    gatewayUrl: url.origin,
+    storedUrl: store.get('gateway.url'),
+    tokenOrigin: store.get('gateway.tokenOrigin'),
+    token: store.get('gateway.token'),
+  });
+  url.hash = secret
+    ? `#/?bootstrapSecret=${encodeURIComponent(secret)}`
+    : '#/';
+  return url;
+}
+
 // ---------------------------------------------------------------------------
 // IPC handlers (6.4)
 // ---------------------------------------------------------------------------
 
-ipcMain.handle('config:get', (_event, key: string) => {
-  return store.get(key);
+ipcMain.handle('gateway:get-url', (): string => getGatewayUrl().origin);
+
+ipcMain.handle(
+  'gateway:set-url',
+  (_event, raw: unknown): SetGatewayUrlResult => {
+    const result = normalizeGatewayUrl(typeof raw === 'string' ? raw : '');
+    if (!result.ok) return result;
+    saveGatewayUrl(result.url);
+    setTimeout(() => reloadGatewayRenderer?.(), 0);
+    return result;
+  },
+);
+
+ipcMain.handle('gateway:set-secret', (_event, raw: unknown): void => {
+  saveGatewaySecret(typeof raw === 'string' ? raw : '');
 });
 
-ipcMain.handle('config:set', (_event, key: string, value: unknown) => {
-  store.set(key, value);
+ipcMain.handle('gateway:clear-secret', (): void => {
+  clearGatewaySecret();
 });
+
+ipcMain.handle(
+  'gateway:set-connection',
+  (_event, rawUrl: unknown, rawSecret: unknown): SetGatewayUrlResult => {
+    const result = normalizeGatewayUrl(typeof rawUrl === 'string' ? rawUrl : '');
+    if (!result.ok) return result;
+    const previousUrl = getGatewayUrl().origin;
+    saveGatewayUrl(result.url);
+    saveGatewaySecret(typeof rawSecret === 'string' ? rawSecret : '');
+    // 同 origin 由当前 renderer 直接完成认证，避免只有 hash 变化时 React 不重新挂载。
+    if (result.url !== previousUrl) {
+      setTimeout(() => reloadGatewayRenderer?.(), 0);
+    }
+    return result;
+  },
+);
 
 function getWallpaperConfig(): WallpaperConfig {
   const stored = store.get('appearance').wallpaper;
@@ -220,11 +288,6 @@ ipcMain.handle('window:action', (_event, action: WindowAction) => {
       mainWindow.close();
       break;
   }
-});
-
-ipcMain.handle('app:quit', () => {
-  app.isQuitting = true;
-  app.quit();
 });
 
 // ---------------------------------------------------------------------------
@@ -325,6 +388,7 @@ function loadTrayIcon(): Electron.NativeImage {
 // ---------------------------------------------------------------------------
 
 let mainWindow: BrowserWindow | null = null;
+let reloadGatewayRenderer: (() => void) | null = null;
 let registeredRaiseInboxAccelerator: string | null = null;
 let pendingRaiseInboxEvent = false;
 /** 设置页录制快捷键时暂停全局注册，避免按下当前组合键触发跳转。 */
@@ -538,6 +602,7 @@ function ensureWindowOnScreen(bounds: {
 }
 
 function createWindow(): void {
+  const gatewaySetupUrl = gatewaySetupPageUrl(app.getLocale());
   const saved = store.get('window');
   const bounds = ensureWindowOnScreen(saved);
 
@@ -556,10 +621,44 @@ function createWindow(): void {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      // 关闭同源策略：renderer 是 file:// origin，需要向本地 gateway 发送请求。
-      // 这是纯本地桌面应用的有意选择，风险面等同于直接在浏览器中打开 localhost webui。
-      webSecurity: false,
+      webSecurity: true,
     },
+  });
+  const rendererLoader = createGatewayRendererLoader(
+    mainWindow,
+    () => getRendererUrl().toString(),
+    undefined,
+    undefined,
+    (error) => {
+      console.error('[gateway] renderer load failed:', error);
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      void mainWindow.loadURL(gatewaySetupUrl);
+    },
+  );
+  reloadGatewayRenderer = () => rendererLoader.reload();
+
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    if (targetUrl === gatewaySetupUrl) return;
+    try {
+      if (new URL(targetUrl).origin === getGatewayUrl().origin) return;
+    } catch {
+      // Invalid targets are blocked below.
+    }
+    event.preventDefault();
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const target = new URL(url);
+      if (target.protocol === 'https:' || target.protocol === 'http:') {
+        void shell.openExternal(target.toString());
+      }
+    } catch {
+      // Ignore invalid external URLs.
+    }
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-attach-webview', (event) => {
+    event.preventDefault();
   });
 
   // Persist window bounds on resize / move (debounced to avoid excessive disk writes)
@@ -594,6 +693,8 @@ function createWindow(): void {
   });
 
   mainWindow.on('closed', () => {
+    rendererLoader.stop();
+    reloadGatewayRenderer = null;
     stopTrayBlink();
     stopWallpaperScheduler();
     mainWindow = null;
@@ -653,16 +754,10 @@ function createWindow(): void {
     onWallpaperVisibilityChange();
   });
 
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
-  } else {
-    mainWindow.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-    );
-  }
+  rendererLoader.start();
 
   // Open DevTools in development
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+  if (!app.isPackaged) {
     mainWindow.webContents.openDevTools();
   }
 }
@@ -717,8 +812,6 @@ if (gotSingleInstanceLock) {
       app.setAppUserModelId(APP_ID);
     }
 
-    // BrowserWindow 的 webSecurity: false 已关闭 renderer 的 CORS 检查，
-    // 无需在 session 层面额外处理 CORS。
     // Windows/Linux 默认会显示 File/Edit/View 菜单栏，无边框窗口需移除；
     // macOS 保留原生应用菜单，避免影响状态栏菜单和 Cmd+Q/C/V 等快捷键。
     if (process.platform !== 'darwin') {

@@ -12,12 +12,8 @@
     "outDir": "dist",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
-    "jsx": "react-jsx",
     "strict": false,
-    "types": ["vite/client"],
-    "paths": {
-      "@/*": ["./src/renderer/*"]
-    }
+    "types": ["vite/client"]
   },
   "include": ["src", "forge.env.d.ts"]
 }
