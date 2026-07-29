@@ -729,6 +729,25 @@ describe("MessageBubble", () => {
     expect(container.querySelector("img")).toHaveClass("h-auto", "w-full", "object-contain");
   });
 
+  it("shows context usage only after an assistant message is complete", () => {
+    const message: UIMessage = {
+      id: "a-context",
+      role: "assistant",
+      content: "done",
+      createdAt: Date.now(),
+      usage: {
+        context_tokens: 42_000,
+        context_pct: 42,
+      },
+    };
+
+    const { rerender } = render(<MessageBubble message={message} />);
+    expect(screen.getByText("42% ctx")).toHaveAttribute("title", "Context window");
+
+    rerender(<MessageBubble message={{ ...message, isStreaming: true }} />);
+    expect(screen.queryByText("42% ctx")).not.toBeInTheDocument();
+  });
+
   it("renders mislabeled html assistant media as a file attachment", () => {
     const message: UIMessage = {
       id: "a-html",

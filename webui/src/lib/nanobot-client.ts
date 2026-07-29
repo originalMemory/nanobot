@@ -96,6 +96,7 @@ interface PendingRequest<T> {
 }
 
 const SYSTEM_COMMAND_TURN_PREFIX = "webui-system:";
+const SYSTEM_METADATA_COMMAND_TURN_PREFIX = "webui-system:metadata:";
 
 export function isSystemCommandTurnId(value: string | null | undefined): value is string {
   return typeof value === "string" && value.startsWith(SYSTEM_COMMAND_TURN_PREFIX);
@@ -431,7 +432,11 @@ export class NanobotClient {
 
   sendSystemCommand(chatId: string, command: string, timeoutMs = 5_000): Promise<void> {
     const normalized = command.trim();
-    const turnId = `${SYSTEM_COMMAND_TURN_PREFIX}${crypto.randomUUID()}`;
+    const metadataOnly = normalized === "/model" || normalized.startsWith("/model ");
+    const prefix = metadataOnly
+      ? SYSTEM_METADATA_COMMAND_TURN_PREFIX
+      : SYSTEM_COMMAND_TURN_PREFIX;
+    const turnId = `${prefix}${crypto.randomUUID()}`;
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingSystemCommands.delete(turnId);

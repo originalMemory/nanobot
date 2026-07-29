@@ -60,11 +60,13 @@ from nanobot.webui.http_utils import (
     query_first as _query_first,
 )
 from nanobot.webui.mcp_presets_api import normalize_mcp_preset_mentions
+from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 from nanobot.webui.transcription_ws import webui_transcription_event
 from nanobot.webui.websocket_logging import websockets_server_logger
 
 # Plain HTTP WebUI routes also run through websockets.process_request.
 _WEBUI_HTTP_OPEN_TIMEOUT_S = 360.0
+_WEBUI_METADATA_SYSTEM_TURN_PREFIX = "webui-system:metadata:"
 
 
 class WebSocketConfig(Base):
@@ -880,7 +882,16 @@ class WebSocketChannel(BaseChannel):
                 goal_state=event.goal_state,
                 metadata=msg.metadata,
             )
-            await self.send_session_updated(msg.chat_id, scope="thread")
+            turn_id = msg.metadata.get(WEBUI_TURN_METADATA_KEY)
+            scope = (
+                "metadata"
+                if (
+                    isinstance(turn_id, str)
+                    and turn_id.startswith(_WEBUI_METADATA_SYSTEM_TURN_PREFIX)
+                )
+                else "thread"
+            )
+            await self.send_session_updated(msg.chat_id, scope=scope)
             return
         if isinstance(event, SessionUpdatedEvent):
             if conns:
@@ -1192,6 +1203,9 @@ class WebSocketChannel(BaseChannel):
         body: dict[str, Any] = {"event": "turn_end", "chat_id": chat_id}
         if latency_ms is not None:
             body["latency_ms"] = int(latency_ms)
+        usage = (metadata or {}).get("usage")
+        if isinstance(usage, dict) and usage:
+            body["usage"] = usage
         if goal_state is not None:
             body["goal_state"] = goal_state
         self._transcripts.prepare_and_append(

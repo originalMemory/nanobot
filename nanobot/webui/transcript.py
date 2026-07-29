@@ -1760,6 +1760,20 @@ def replay_transcript_to_ui_messages(
                 }
                 return
 
+    def stamp_usage(usage: dict[str, Any], turn_id: str | None = None) -> None:
+        for i in range(len(messages) - 1, -1, -1):
+            message = messages[i]
+            if (
+                message.get("role") == "assistant"
+                and message.get("kind") != "trace"
+                and (
+                    not turn_id
+                    or message.get("turnId") == turn_id
+                )
+            ):
+                messages[i] = {**message, "usage": usage}
+                return
+
     def absorb_complete(extra: dict[str, Any], idx: int, created_at_ms: int) -> None:
         nonlocal active_activity_segment_id, active_file_edit_segment_id
         last = messages[-1] if messages else None
@@ -2190,6 +2204,9 @@ def replay_transcript_to_ui_messages(
             lat = rec.get("latency_ms")
             if isinstance(lat, (int, float)) and lat >= 0:
                 extra["latencyMs"] = int(lat)
+            usage = rec.get("usage")
+            if isinstance(usage, dict) and usage:
+                extra["usage"] = usage
             extra.update(_turn_fields(rec, "answer"))
             extra.update(_source_fields(rec))
             source_channel = rec.get("source_channel")
@@ -2230,6 +2247,9 @@ def replay_transcript_to_ui_messages(
             lat = rec.get("latency_ms")
             if isinstance(lat, (int, float)) and lat >= 0:
                 stamp_latency(int(lat))
+            usage = rec.get("usage")
+            if isinstance(usage, dict) and usage:
+                stamp_usage(usage, turn_id if isinstance(turn_id, str) else None)
             buffer_message_id = None
             buffer_parts = []
             continue

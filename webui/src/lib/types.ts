@@ -34,6 +34,21 @@ export interface UIMediaAttachment {
 
 export interface UIMessageSource { kind: "cron" | "local_trigger" | "trigger" | string; label?: string; }
 
+/** Per-turn token stats: last-call context size vs turn-total billing. */
+export interface TurnUsageStats {
+  last_prompt_tokens?: number;
+  turn_prompt_tokens?: number;
+  turn_completion_tokens?: number;
+  last_cached_tokens?: number;
+  turn_cached_tokens?: number;
+  context_tokens?: number;
+  context_pct?: number;
+  /** @deprecated Pre-split saves. */
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cached_tokens?: number;
+}
+
 export interface UIMessage {
   id: string;
   role: Role;
@@ -70,6 +85,8 @@ export interface UIMessage {
   reasoningStreaming?: boolean;
   /** End-to-end wall time for this assistant turn (persisted ``latency_ms`` / ``turn_end``). */
   latencyMs?: number;
+  /** Token usage for this assistant turn (persisted ``usage`` / ``turn_end``). */
+  usage?: TurnUsageStats;
   /** Lightweight provenance for proactive assistant messages. */
   source?: UIMessageSource;
   /** Unified Inbox provenance. */
@@ -1123,6 +1140,7 @@ export type InboundEvent =
       kind?: "tool_hint" | "progress" | "reasoning";
       /** Server-measured turn wall time when this frame finishes an assistant reply. */
       latency_ms?: number;
+      usage?: TurnUsageStats;
       /** Lightweight provenance for proactive assistant messages. */
       source?: UIMessageSource;
       channel_delivery?: boolean;
@@ -1181,6 +1199,7 @@ export type InboundEvent =
       event: "turn_end";
       chat_id: string;
       latency_ms?: number;
+      usage?: TurnUsageStats;
       /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
       goal_state?: GoalStateWsPayload;
     } & InboundTurnMetadata)

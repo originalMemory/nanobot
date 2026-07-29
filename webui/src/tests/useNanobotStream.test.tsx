@@ -2127,7 +2127,7 @@ describe("useNanobotStream", () => {
     });
   });
 
-  it("stamps latency on the last assistant bubble from turn_end", () => {
+  it("stamps latency and usage on the last assistant bubble from turn_end", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-lat", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
@@ -2146,11 +2146,57 @@ describe("useNanobotStream", () => {
         event: "turn_end",
         chat_id: "chat-lat",
         latency_ms: 2400,
+        usage: {
+          context_tokens: 42_000,
+          context_pct: 42,
+        },
       });
     });
 
     const lastAssistant = [...result.current.messages].reverse().find((m) => m.role === "assistant");
     expect(lastAssistant?.latencyMs).toBe(2400);
+    expect(lastAssistant?.usage).toEqual({
+      context_tokens: 42_000,
+      context_pct: 42,
+    });
+  });
+
+  it("does not stamp usage onto a later unscoped Unified Inbox reply", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", EMPTY_MESSAGES),
+      { wrapper: wrap(fake.client) },
+    );
+
+    act(() => {
+      fake.emit("inbox:unified", {
+        event: "message",
+        chat_id: "inbox:unified",
+        text: "Local answer",
+        turn_id: "local-turn",
+      });
+      fake.emit("inbox:unified", {
+        event: "message",
+        chat_id: "inbox:unified",
+        text: "Heartbeat answer",
+      });
+      fake.emit("inbox:unified", {
+        event: "turn_end",
+        chat_id: "inbox:unified",
+        turn_id: "local-turn",
+        usage: {
+          context_tokens: 42_000,
+          context_pct: 42,
+        },
+      });
+    });
+
+    const local = result.current.messages.find((message) => message.content === "Local answer");
+    const heartbeat = result.current.messages.find(
+      (message) => message.content === "Heartbeat answer",
+    );
+    expect(local?.usage?.context_pct).toBe(42);
+    expect(heartbeat?.usage).toBeUndefined();
   });
 
   it("tracks goal_status running and clears on idle", () => {

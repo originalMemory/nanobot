@@ -1570,6 +1570,67 @@ async def test_send_turn_end_emits_turn_end_event() -> None:
 
 
 @pytest.mark.asyncio
+async def test_system_command_turn_end_only_refreshes_session_metadata() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus),
+    )
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=TurnEndEvent(),
+            metadata={"webui_turn_id": "webui-system:metadata:model-change"},
+        )
+    )
+
+    assert _sent_ws_payloads(mock_ws) == [
+        {
+            "event": "turn_end",
+            "chat_id": "chat-1",
+            "turn_id": "webui-system:metadata:model-change",
+            "turn_phase": "complete",
+            "turn_seq": 1,
+        },
+        {"event": "session_updated", "chat_id": "chat-1", "scope": "metadata"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_regular_system_command_turn_end_refreshes_thread() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus),
+    )
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=TurnEndEvent(),
+            metadata={"webui_turn_id": "webui-system:restart"},
+        )
+    )
+
+    assert _sent_ws_payloads(mock_ws)[-1] == {
+        "event": "session_updated",
+        "chat_id": "chat-1",
+        "scope": "thread",
+    }
+
+
+@pytest.mark.asyncio
 async def test_send_turn_end_includes_latency_ms_when_present() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
@@ -1585,6 +1646,34 @@ async def test_send_turn_end_includes_latency_ms_when_present() -> None:
 
     assert _sent_ws_payloads(mock_ws) == [
         {"event": "turn_end", "chat_id": "chat-1", "latency_ms": 1500},
+        {"event": "session_updated", "chat_id": "chat-1", "scope": "thread"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_turn_end_includes_usage_from_metadata() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus),
+    )
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+    usage = {"context_tokens": 42000, "context_pct": 42}
+
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=TurnEndEvent(),
+            metadata={"usage": usage},
+        )
+    )
+
+    assert _sent_ws_payloads(mock_ws) == [
+        {"event": "turn_end", "chat_id": "chat-1", "usage": usage},
         {"event": "session_updated", "chat_id": "chat-1", "scope": "thread"},
     ]
 

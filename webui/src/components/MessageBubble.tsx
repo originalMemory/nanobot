@@ -251,7 +251,13 @@ export function MessageBubble({
     && latencyMs != null
     && !message.isStreaming
     && (!empty || hasReasoning || media.length > 0);
-  const showAssistantFooterRow = showCopyButton || showForkButton || showLatencyFooter;
+  const contextPct = message.role === "assistant" ? message.usage?.context_pct : undefined;
+  const showContextUsage =
+    typeof contextPct === "number"
+    && contextPct >= 0
+    && !message.isStreaming;
+  const showAssistantFooterRow =
+    showCopyButton || showForkButton || showLatencyFooter || showContextUsage;
   return (
     <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
       {showSourceBadge ? <MessageSourceBadge message={message} /> : null}
@@ -289,7 +295,7 @@ export function MessageBubble({
           ) : null}
           {showAssistantFooterRow ? (
             <TooltipProvider delayDuration={220} skipDelayDuration={80}>
-              <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+              <div className="assistant-message-footer mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
                 {showCopyButton ? (
                   <MessageCopyButton content={message.content} />
                 ) : null}
@@ -314,10 +320,18 @@ export function MessageBubble({
                 ) : null}
                 {showLatencyFooter ? (
                   <span
-                    className="text-[11px] leading-none text-muted-foreground/70 tabular-nums"
+                    className="assistant-message-footer-metric text-[11px] leading-none text-muted-foreground/70 tabular-nums"
                     title={t("message.turnLatencyTitle")}
                   >
                     {formatTurnLatency(latencyMs)}
+                  </span>
+                ) : null}
+                {showContextUsage ? (
+                  <span
+                    className="assistant-message-footer-metric text-[11px] leading-none text-muted-foreground/70 tabular-nums"
+                    title={t("settings.rows.contextWindow")}
+                  >
+                    {contextPct}% ctx
                   </span>
                 ) : null}
               </div>

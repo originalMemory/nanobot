@@ -290,7 +290,12 @@ def test_replay_delta_and_turn_end(tmp_path, monkeypatch) -> None:
         {"event": "reasoning_end", "chat_id": "t2"},
         {"event": "delta", "chat_id": "t2", "text": "a"},
         {"event": "stream_end", "chat_id": "t2"},
-        {"event": "turn_end", "chat_id": "t2", "latency_ms": 42},
+        {
+            "event": "turn_end",
+            "chat_id": "t2",
+            "latency_ms": 42,
+            "usage": {"context_tokens": 42000, "context_pct": 42},
+        },
     ):
         append_transcript_object(key, ev)
     lines = read_transcript_lines(key)
@@ -302,6 +307,34 @@ def test_replay_delta_and_turn_end(tmp_path, monkeypatch) -> None:
     assert msgs[1]["content"] == "a"
     assert msgs[1]["reasoning"] == "think"
     assert msgs[1]["latencyMs"] == 42
+    assert msgs[1]["usage"] == {"context_tokens": 42000, "context_pct": 42}
+
+
+def test_replay_usage_ignores_later_unscoped_assistant_message() -> None:
+    msgs = replay_transcript_to_ui_messages(
+        [
+            {
+                "event": "message",
+                "chat_id": "inbox:unified",
+                "text": "Local answer",
+                "turn_id": "local-turn",
+            },
+            {
+                "event": "message",
+                "chat_id": "inbox:unified",
+                "text": "Heartbeat answer",
+            },
+            {
+                "event": "turn_end",
+                "chat_id": "inbox:unified",
+                "turn_id": "local-turn",
+                "usage": {"context_tokens": 42000, "context_pct": 42},
+            },
+        ]
+    )
+
+    assert msgs[0]["usage"]["context_pct"] == 42
+    assert "usage" not in msgs[1]
 
 
 def test_replay_uses_persisted_created_at_ms() -> None:

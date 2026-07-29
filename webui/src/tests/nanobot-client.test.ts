@@ -571,7 +571,7 @@ describe("NanobotClient", () => {
       content: "/model fast",
       webui: true,
     });
-    expect(frame.turn_id).toMatch(/^webui-system:/);
+    expect(frame.turn_id).toMatch(/^webui-system:metadata:/);
 
     lastSocket().fakeMessage({
       event: "message",
@@ -585,6 +585,11 @@ describe("NanobotClient", () => {
       text: "Switched model preset to fast.",
       turn_id: frame.turn_id,
     });
+    lastSocket().fakeMessage({
+      event: "turn_end",
+      chat_id: "chat-x",
+      turn_id: frame.turn_id,
+    });
 
     await expect(pending).resolves.toBeUndefined();
     expect(chatHandler).toHaveBeenCalledTimes(1);
@@ -592,6 +597,17 @@ describe("NanobotClient", () => {
       text: "normal reply",
       turn_id: "normal-turn",
     }));
+
+    const restart = client.sendSystemCommand("chat-x", "/restart", 1_000);
+    const restartFrame = JSON.parse(lastSocket().sent.at(-1) as string);
+    expect(restartFrame.turn_id).toMatch(/^webui-system:(?!metadata:)/);
+    lastSocket().fakeMessage({
+      event: "turn_end",
+      chat_id: "chat-x",
+      turn_id: restartFrame.turn_id,
+    });
+    await expect(restart).resolves.toBeUndefined();
+
     const interrupted = client.sendSystemCommand("chat-x", "/model fast", 1_000);
     lastSocket().close();
     await expect(interrupted).rejects.toThrow("socket closed");

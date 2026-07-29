@@ -261,6 +261,29 @@ function stampLastAssistantLatency(
   return prev;
 }
 
+function stampLastAssistantUsage(
+  prev: UIMessage[],
+  usage: UIMessage["usage"],
+  turnId?: string,
+): UIMessage[] {
+  if (!usage) return prev;
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    const message = prev[i];
+    if (
+      message.role === "assistant"
+      && message.kind !== "trace"
+      && (!turnId || message.turnId === turnId)
+    ) {
+      return [
+        ...prev.slice(0, i),
+        { ...message, usage },
+        ...prev.slice(i + 1),
+      ];
+    }
+  }
+  return prev;
+}
+
 function absorbCompleteAssistantMessage(
   prev: UIMessage[],
   message: Omit<UIMessage, "id" | "role" | "createdAt">,
@@ -971,6 +994,9 @@ export function useNanobotStream(
               ev.turn_id,
             );
           }
+          if (ev.usage && typeof ev.usage === "object") {
+            finalized = stampLastAssistantUsage(finalized, ev.usage, ev.turn_id);
+          }
           buffer.current = null;
           activeAssistantRef.current = null;
           clearActivitySegment();
@@ -1124,6 +1150,7 @@ export function useNanobotStream(
             content,
             ...(hasMedia ? { media } : {}),
             ...(lat !== undefined ? { latencyMs: lat } : {}),
+            ...(ev.usage && typeof ev.usage === "object" ? { usage: ev.usage } : {}),
             ...(ev.source ? { source: ev.source } : {}),
             ...(ev.channel_delivery ? { channelDelivery: true } : {}),
             ...(ev.user_initiated_delivery ? { userInitiatedDelivery: true } : {}),
