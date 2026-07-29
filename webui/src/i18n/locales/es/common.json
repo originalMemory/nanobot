@@ -119,7 +119,15 @@
       "apps": "Aplicaciones",
       "nativeHost": "Host nativo",
       "hostSafety": "Seguridad de la app",
-      "voiceInput": "Entrada de voz"
+      "voiceInput": "Entrada de voz",
+      "tts": "Salida de voz",
+      "auxiliaryVision": "Visión auxiliar"
+    },
+    "tts": {
+      "enabled": "Activar TTS",
+      "enabledDesc": "Permite que el agente sintetice respuestas habladas.",
+      "defaultVoice": "Voz predeterminada",
+      "defaultVoiceDesc": "Nombre de voz o ID de voz del proveedor."
     },
     "rows": {
       "theme": "Tema",
@@ -173,7 +181,9 @@
       "transcriptionProviderStatus": "Estado del proveedor",
       "transcriptionModel": "Modelo",
       "transcriptionLanguage": "Idioma",
-      "voiceLimits": "Limites"
+      "voiceLimits": "Limites",
+      "visionModel": "Modelo de visión",
+      "visionProvider": "Proveedor de visión"
     },
     "help": {
       "theme": "Cambia entre apariencia clara y oscura.",
@@ -221,6 +231,8 @@
       "transcriptionProvider": "Usa las credenciales del proveedor correspondiente en Proveedores.",
       "transcriptionProviderStatus": "Las claves API permanecen en proveedores, no en la configuracion de transcripcion.",
       "transcriptionModel": "Dejalo como el valor predeterminado resuelto salvo que el proveedor necesite un id de modelo personalizado.",
+      "visionModel": "Modelo opcional de descripción de imágenes para el preajuste activo. Déjalo vacío para desactivarlo.",
+      "visionProvider": "Déjalo vacío para inferir el proveedor a partir del modelo.",
       "transcriptionLanguage": "Pista ISO-639 opcional, como en, zh, ja o ko."
     },
     "values": {

@@ -451,11 +451,13 @@ describe("ThreadComposer", () => {
       />,
     );
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Primary" }));
+    const trigger = screen.getByRole("button", { name: "Primary" });
+    fireEvent.pointerDown(trigger);
     const deep = await screen.findByRole("menuitem", { name: /Deep/ });
     fireEvent.click(deep);
 
     expect(onModelPresetChange).toHaveBeenCalledWith("deep");
+    await waitFor(() => expect(trigger).not.toHaveFocus());
   });
 
   it("keeps the thread composer compact while matching the hero style", () => {

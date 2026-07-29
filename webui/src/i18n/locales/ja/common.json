@@ -119,7 +119,15 @@
       "apps": "アプリ",
       "nativeHost": "ネイティブホスト",
       "hostSafety": "アプリの安全性",
-      "voiceInput": "音声入力"
+      "voiceInput": "音声入力",
+      "tts": "音声出力",
+      "auxiliaryVision": "補助ビジョン"
+    },
+    "tts": {
+      "enabled": "TTS を有効化",
+      "enabledDesc": "Agent が応答を音声として合成できるようにします。",
+      "defaultVoice": "デフォルト音声",
+      "defaultVoiceDesc": "音声名またはプロバイダーの音声 ID。"
     },
     "rows": {
       "theme": "テーマ",
@@ -173,7 +181,9 @@
       "transcriptionProviderStatus": "プロバイダー状態",
       "transcriptionModel": "モデル",
       "transcriptionLanguage": "言語",
-      "voiceLimits": "制限"
+      "voiceLimits": "制限",
+      "visionModel": "ビジョンモデル",
+      "visionProvider": "ビジョンプロバイダー"
     },
     "help": {
       "theme": "ライト表示とダーク表示を切り替えます。",
@@ -221,6 +231,8 @@
       "transcriptionProvider": "プロバイダー設定にある対応する認証情報を使います。",
       "transcriptionProviderStatus": "APIキーは文字起こし設定ではなくプロバイダー側に保存されます。",
       "transcriptionModel": "プロバイダーがカスタムモデルIDを必要としない限り、解決済みのデフォルトのままにします。",
+      "visionModel": "現在のモデルプリセット用の任意の画像説明モデル。空欄で無効になります。",
+      "visionProvider": "空欄の場合はモデルからプロバイダーを推測します。",
       "transcriptionLanguage": "en、zh、ja、ko などの任意の ISO-639 ヒント。"
     },
     "values": {

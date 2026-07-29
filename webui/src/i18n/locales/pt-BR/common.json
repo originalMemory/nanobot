@@ -119,7 +119,15 @@
       "apps": "Aplicativos",
       "nativeHost": "Host nativo",
       "hostSafety": "Segurança do app",
-      "voiceInput": "Entrada de voz"
+      "voiceInput": "Entrada de voz",
+      "tts": "Saída de voz",
+      "auxiliaryVision": "Visão auxiliar"
+    },
+    "tts": {
+      "enabled": "Ativar TTS",
+      "enabledDesc": "Permite que o agente sintetize respostas faladas.",
+      "defaultVoice": "Voz padrão",
+      "defaultVoiceDesc": "Nome da voz ou ID de voz do provedor."
     },
     "models": {
       "selectModel": "Selecionar modelo",
@@ -225,7 +233,9 @@
       "transcriptionProviderStatus": "Status do provedor",
       "transcriptionModel": "Modelo",
       "transcriptionLanguage": "Idioma",
-      "voiceLimits": "Limites"
+      "voiceLimits": "Limites",
+      "visionModel": "Modelo de visão",
+      "visionProvider": "Provedor de visão"
     },
     "help": {
       "theme": "Alterna entre aparência clara e escura.",
@@ -273,6 +283,8 @@
       "transcriptionProvider": "Usa as credenciais do provedor correspondente em Provedores.",
       "transcriptionProviderStatus": "As chaves de API ficam em provedores, não nas configurações de transcrição.",
       "transcriptionModel": "Deixe como o padrão resolvido, a menos que seu provedor precise de um id de modelo personalizado.",
+      "visionModel": "Modelo opcional de descrição de imagens para a predefinição ativa. Deixe vazio para desativar.",
+      "visionProvider": "Deixe vazio para inferir o provedor a partir do modelo.",
       "transcriptionLanguage": "Dica ISO-639 opcional, como en, zh, ja ou ko."
     },
     "timezone": {

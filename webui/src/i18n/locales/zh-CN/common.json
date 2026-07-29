@@ -119,7 +119,15 @@
       "apps": "应用",
       "nativeHost": "原生宿主",
       "hostSafety": "应用安全",
-      "voiceInput": "语音识别"
+      "voiceInput": "语音识别",
+      "tts": "语音输出",
+      "auxiliaryVision": "辅助视觉"
+    },
+    "tts": {
+      "enabled": "启用 TTS",
+      "enabledDesc": "允许 Agent 将回复合成为语音。",
+      "defaultVoice": "默认音色",
+      "defaultVoiceDesc": "填写音色名称或服务商的音色 ID。"
     },
     "models": {
       "selectModel": "选择模型",
@@ -225,7 +233,9 @@
       "transcriptionProviderStatus": "提供商状态",
       "transcriptionModel": "模型",
       "transcriptionLanguage": "语言",
-      "voiceLimits": "限制"
+      "voiceLimits": "限制",
+      "visionModel": "视觉模型",
+      "visionProvider": "视觉提供商"
     },
     "help": {
       "theme": "在浅色和深色外观之间切换。",
@@ -273,6 +283,8 @@
       "transcriptionProvider": "使用「提供商」中对应提供商的凭据。",
       "transcriptionProviderStatus": "API Key 仍保存在 providers 里，不写进 transcription 设置。",
       "transcriptionModel": "除非提供商需要自定义模型 ID，否则保持解析后的默认值即可。",
+      "visionModel": "当前模型预设可选的图片描述模型；留空即关闭。",
+      "visionProvider": "留空时根据视觉模型自动推断提供商。",
       "transcriptionLanguage": "可选 ISO-639 语言提示，例如 en、zh、ja 或 ko。"
     },
     "timezone": {

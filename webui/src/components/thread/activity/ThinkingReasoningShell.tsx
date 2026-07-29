@@ -39,7 +39,7 @@ export function ThinkingReasoningShell({
       >
         <span
           className={cn(
-            "min-w-0 truncate text-[13px] font-medium leading-[18px] text-muted-foreground/70",
+            "activity-summary-label min-w-0 truncate text-[13px] font-medium leading-[18px] text-muted-foreground/70",
             active && "animate-pulse motion-reduce:animate-none",
           )}
         >
@@ -72,7 +72,7 @@ export function ThinkingReasoningShell({
             className="mt-1.5 max-h-[180px] overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             aria-hidden={!expanded}
           >
-            <div ref={contentRef} className="flex flex-col gap-0.5">
+            <div ref={contentRef} className="activity-detail-content flex flex-col gap-0.5">
               {children}
             </div>
           </div>

@@ -119,7 +119,15 @@
       "apps": "Applications",
       "nativeHost": "Hôte natif",
       "hostSafety": "Sécurité de l’app",
-      "voiceInput": "Saisie vocale"
+      "voiceInput": "Saisie vocale",
+      "tts": "Sortie vocale",
+      "auxiliaryVision": "Vision auxiliaire"
+    },
+    "tts": {
+      "enabled": "Activer la synthèse vocale",
+      "enabledDesc": "Autoriser l’agent à synthétiser ses réponses en audio.",
+      "defaultVoice": "Voix par défaut",
+      "defaultVoiceDesc": "Nom de la voix ou identifiant vocal du fournisseur."
     },
     "rows": {
       "theme": "Thème",
@@ -173,7 +181,9 @@
       "transcriptionProviderStatus": "Etat du fournisseur",
       "transcriptionModel": "Modele",
       "transcriptionLanguage": "Langue",
-      "voiceLimits": "Limites"
+      "voiceLimits": "Limites",
+      "visionModel": "Modèle de vision",
+      "visionProvider": "Fournisseur de vision"
     },
     "help": {
       "theme": "Basculer entre l’apparence claire et sombre.",
@@ -221,6 +231,8 @@
       "transcriptionProvider": "Utilise les identifiants du fournisseur correspondant dans Fournisseurs.",
       "transcriptionProviderStatus": "Les cles API restent dans les fournisseurs, pas dans les reglages de transcription.",
       "transcriptionModel": "Laissez le modele resolu par defaut sauf si votre fournisseur exige un id personnalise.",
+      "visionModel": "Modèle facultatif de description d’image pour le préréglage actif. Laissez vide pour désactiver.",
+      "visionProvider": "Laissez vide pour déduire le fournisseur à partir du modèle.",
       "transcriptionLanguage": "Indice ISO-639 facultatif, comme en, zh, ja ou ko."
     },
     "values": {

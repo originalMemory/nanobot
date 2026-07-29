@@ -119,7 +119,15 @@
       "apps": "Aplikasi",
       "nativeHost": "Host native",
       "hostSafety": "Keamanan aplikasi",
-      "voiceInput": "Input suara"
+      "voiceInput": "Input suara",
+      "tts": "Keluaran suara",
+      "auxiliaryVision": "Visi tambahan"
+    },
+    "tts": {
+      "enabled": "Aktifkan TTS",
+      "enabledDesc": "Izinkan agen menyintesis balasan menjadi suara.",
+      "defaultVoice": "Suara default",
+      "defaultVoiceDesc": "Nama suara atau ID suara penyedia."
     },
     "rows": {
       "theme": "Tema",
@@ -173,7 +181,9 @@
       "transcriptionProviderStatus": "Status penyedia",
       "transcriptionModel": "Model",
       "transcriptionLanguage": "Bahasa",
-      "voiceLimits": "Batas"
+      "voiceLimits": "Batas",
+      "visionModel": "Model visi",
+      "visionProvider": "Penyedia visi"
     },
     "help": {
       "theme": "Beralih antara tampilan terang dan gelap.",
@@ -221,6 +231,8 @@
       "transcriptionProvider": "Menggunakan kredensial penyedia yang sesuai dari Providers.",
       "transcriptionProviderStatus": "API key tetap berada di providers, bukan di pengaturan transkripsi.",
       "transcriptionModel": "Biarkan memakai default yang teresolusi kecuali penyedia membutuhkan id model khusus.",
+      "visionModel": "Model deskripsi gambar opsional untuk preset aktif. Kosongkan untuk menonaktifkan.",
+      "visionProvider": "Kosongkan untuk menentukan penyedia dari model.",
       "transcriptionLanguage": "Petunjuk ISO-639 opsional, seperti en, zh, ja, atau ko."
     },
     "values": {

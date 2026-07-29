@@ -1013,6 +1013,19 @@ describe("App layout", () => {
     fireEvent.keyDown(window, { key: "O", shiftKey: true, metaKey: true });
     expect(window.location.hash).toBe("#/chat/unified%3Adefault");
     expect(createChatSpy).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: ",", code: "Comma", metaKey: true });
+    await waitFor(() => expect(window.location.hash).toBe("#/settings?chat=unified%3Adefault"));
+    const chatSurface = screen.getByTestId("chat-surface");
+    expect(chatSurface).toHaveClass("opacity-0");
+    expect(chatSurface).not.toHaveClass("hidden");
+    expect(chatSurface).toHaveAttribute("inert");
+
+    fireEvent.keyDown(window, { key: ",", code: "Comma", metaKey: true });
+    await waitFor(() => expect(window.location.hash).toBe("#/chat/unified%3Adefault"));
+    expect(screen.getByTestId("chat-surface")).toBe(chatSurface);
+    expect(chatSurface).not.toHaveClass("opacity-0");
+    expect(chatSurface).not.toHaveAttribute("inert");
   });
 
   it("switches to the next session when deleting the active chat", async () => {

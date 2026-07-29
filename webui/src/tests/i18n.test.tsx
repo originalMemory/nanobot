@@ -73,6 +73,16 @@ const LOCALIZED_SETTINGS_COPY_KEYS = [
   "settings.sections.webuiSafety",
   "settings.sections.capabilities",
   "settings.sections.apps",
+  "settings.sections.tts",
+  "settings.sections.auxiliaryVision",
+  "settings.tts.enabled",
+  "settings.tts.enabledDesc",
+  "settings.tts.defaultVoice",
+  "settings.tts.defaultVoiceDesc",
+  "settings.rows.visionModel",
+  "settings.rows.visionProvider",
+  "settings.help.visionModel",
+  "settings.help.visionProvider",
   "settings.apps.description",
   "settings.apps.caption",
   "settings.apps.restartRequired",
@@ -446,6 +456,10 @@ describe("webui i18n", () => {
     expect(settings.overview.workspace).toBe("工作区");
     expect(settings.sections.wallpaper).toBe("动态壁纸");
     expect(settings.sections.desktop).toBe("桌面");
+    expect(settings.sections.tts).toBe("语音输出");
+    expect(settings.sections.auxiliaryVision).toBe("辅助视觉");
+    expect(settings.tts.defaultVoice).toBe("默认音色");
+    expect(settings.rows.visionModel).toBe("视觉模型");
     expect(settings.rows.wallpaper).toBe("图片地址");
     expect(settings.shortcut.recording).toBe("请按下快捷键…");
     expect(settings.values.minutesShort).toBe("分钟");

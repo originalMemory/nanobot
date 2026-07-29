@@ -119,7 +119,15 @@
       "apps": "Apps",
       "nativeHost": "Native host",
       "hostSafety": "App safety",
-      "voiceInput": "Voice input"
+      "voiceInput": "Voice input",
+      "tts": "Voice output",
+      "auxiliaryVision": "Auxiliary vision"
+    },
+    "tts": {
+      "enabled": "Enable TTS",
+      "enabledDesc": "Allow the agent to synthesize spoken replies.",
+      "defaultVoice": "Default voice",
+      "defaultVoiceDesc": "Voice name or provider voice ID."
     },
     "models": {
       "selectModel": "Select model",
@@ -225,7 +233,9 @@
       "transcriptionProviderStatus": "Provider status",
       "transcriptionModel": "Model",
       "transcriptionLanguage": "Language",
-      "voiceLimits": "Limits"
+      "voiceLimits": "Limits",
+      "visionModel": "Vision model",
+      "visionProvider": "Vision provider"
     },
     "help": {
       "theme": "Switch between light and dark appearance.",
@@ -273,6 +283,8 @@
       "transcriptionProvider": "Uses the matching provider credentials from Providers.",
       "transcriptionProviderStatus": "API keys stay under providers, not in transcription settings.",
       "transcriptionModel": "Leave as the resolved default unless your provider needs a custom model id.",
+      "visionModel": "Optional caption model for the active model preset. Leave empty to disable.",
+      "visionProvider": "Leave empty to infer the provider from the model.",
       "transcriptionLanguage": "Optional ISO-639 hint such as en, zh, ja, or ko."
     },
     "timezone": {

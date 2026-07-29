@@ -1118,6 +1118,7 @@ function Shell({
     useState<Record<string, WorkspaceScopePayload>>({});
   const runningChatIdsRef = useRef<Set<string>>(new Set());
   const activeChatIdRef = useRef<string | null>(null);
+  const chatSurfaceRef = useRef<HTMLDivElement>(null);
   const hostSidebarPreviewCloseTimerRef = useRef<number | null>(null);
   const effectiveRuntimeSurface =
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
@@ -1890,6 +1891,35 @@ function Shell({
     });
   }, [activeKey, navigate, sessions]);
 
+  const onToggleSettings = useCallback(() => {
+    if (view === "settings") {
+      onBackToChat();
+      return;
+    }
+    void loadSettingsView();
+    onOpenSettings();
+  }, [onBackToChat, onOpenSettings, view]);
+
+  useEffect(() => {
+    if (!showHostChrome) return;
+    const handleSettingsShortcut = (event: globalThis.KeyboardEvent) => {
+      if (
+        event.defaultPrevented
+        || !event.metaKey
+        || event.ctrlKey
+        || event.altKey
+        || event.shiftKey
+        || (event.key !== "," && event.code !== "Comma")
+      ) {
+        return;
+      }
+      event.preventDefault();
+      onToggleSettings();
+    };
+    window.addEventListener("keydown", handleSettingsShortcut);
+    return () => window.removeEventListener("keydown", handleSettingsShortcut);
+  }, [onToggleSettings, showHostChrome]);
+
   const onRestart = useCallback(() => {
     const chatId = activeSession?.chatId ?? client.defaultChatId;
     if (!chatId) return;
@@ -2145,6 +2175,10 @@ function Shell({
     };
   }, [showHostChrome]);
 
+  useEffect(() => {
+    chatSurfaceRef.current?.toggleAttribute("inert", view !== "chat");
+  }, [view]);
+
   return (
     <ThemeProvider theme={theme}>
       <div
@@ -2277,9 +2311,12 @@ function Shell({
           )}
         >
             <div
+              ref={chatSurfaceRef}
+              data-testid="chat-surface"
+              aria-hidden={view !== "chat"}
               className={cn(
                 "absolute inset-0 flex flex-col",
-                view !== "chat" && "hidden",
+                view !== "chat" && "pointer-events-none opacity-0",
               )}
             >
               <ThreadShell

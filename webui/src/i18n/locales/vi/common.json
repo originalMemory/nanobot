@@ -119,7 +119,15 @@
       "apps": "Ứng dụng",
       "nativeHost": "Host gốc",
       "hostSafety": "An toàn ứng dụng",
-      "voiceInput": "Nhap giong noi"
+      "voiceInput": "Nhap giong noi",
+      "tts": "Đầu ra giọng nói",
+      "auxiliaryVision": "Thị giác hỗ trợ"
+    },
+    "tts": {
+      "enabled": "Bật TTS",
+      "enabledDesc": "Cho phép agent tổng hợp phản hồi thành giọng nói.",
+      "defaultVoice": "Giọng mặc định",
+      "defaultVoiceDesc": "Tên giọng hoặc ID giọng của nhà cung cấp."
     },
     "rows": {
       "theme": "Chủ đề",
@@ -173,7 +181,9 @@
       "transcriptionProviderStatus": "Trang thai nha cung cap",
       "transcriptionModel": "Mo hinh",
       "transcriptionLanguage": "Ngon ngu",
-      "voiceLimits": "Gioi han"
+      "voiceLimits": "Gioi han",
+      "visionModel": "Mô hình thị giác",
+      "visionProvider": "Nhà cung cấp thị giác"
     },
     "help": {
       "theme": "Chuyển giữa giao diện sáng và tối.",
@@ -221,6 +231,8 @@
       "transcriptionProvider": "Dung thong tin xac thuc cua nha cung cap tu Providers.",
       "transcriptionProviderStatus": "API key nam trong providers, khong nam trong cai dat transcription.",
       "transcriptionModel": "Giu mac dinh da resolve tru khi nha cung cap can id model tuy chinh.",
+      "visionModel": "Mô hình mô tả hình ảnh tùy chọn cho preset đang dùng. Để trống để tắt.",
+      "visionProvider": "Để trống để suy ra nhà cung cấp từ mô hình.",
       "transcriptionLanguage": "Goi y ISO-639 tuy chon, nhu en, zh, ja hoac ko."
     },
     "values": {

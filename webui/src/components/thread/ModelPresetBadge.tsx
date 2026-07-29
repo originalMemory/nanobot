@@ -261,8 +261,9 @@ export function ModelPresetBadge({
       style={{ touchAction: canSwitch ? "manipulation" : undefined }}
       className={cn(
         "thread-composer-model-badge group/model-badge relative inline-flex w-fit min-w-0 max-w-[min(18rem,44vw)] justify-end appearance-none border-0 bg-transparent p-0 shadow-none",
+        "focus:outline-none focus-visible:outline-none",
         interactive && "cursor-pointer",
-        canSwitch && "cursor-grab select-none focus-visible:outline-none",
+        canSwitch && "cursor-grab select-none",
         motion && "z-10 cursor-grabbing",
         isHero ? "h-8" : "h-9",
       )}
@@ -328,6 +329,7 @@ export function ModelPresetBadge({
         align="end"
         side="top"
         className="w-[min(22rem,calc(100vw-2rem))]"
+        onCloseAutoFocus={(event) => event.preventDefault()}
       >
         {presets.map((preset) => {
           const selected = preset.name === activeName;
@@ -411,6 +413,7 @@ function PresetPill({
   return (
     <span
       data-fallback={fallbackModelName ? "true" : undefined}
+      data-needs-setup={needsSetup ? "true" : undefined}
       data-preset-offset={offset}
       title={fallbackModelName || title || undefined}
       className={cn(

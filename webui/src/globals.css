@@ -178,20 +178,93 @@
     overflow: hidden;
   }
 
+  html[data-wallpaper="on"] {
+    --wallpaper-background-alpha: 0.34;
+    --wallpaper-surface-alpha: 0.58;
+    --wallpaper-sidebar-alpha: 0.52;
+  }
+
+  /* 壁纸模式只保留一层云墨白雾面，避免外壳、主区和输入区重复叠底。 */
   html[data-wallpaper="on"] body,
   html[data-wallpaper="on"] .wallpaper-root,
+  html[data-wallpaper="on"] .host-window-shell,
   html[data-wallpaper="on"] main {
     background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 
   html[data-wallpaper="on"] .host-sidebar-glass {
-    background: hsl(var(--sidebar) / 0.76);
-    backdrop-filter: blur(22px) saturate(1.1);
+    background: hsl(var(--sidebar) / var(--wallpaper-sidebar-alpha));
+    -webkit-backdrop-filter: blur(18px) saturate(1.08);
+    backdrop-filter: blur(18px) saturate(1.08);
   }
 
-  html[data-wallpaper="on"] main {
-    background: hsl(var(--background) / 0.78);
-    backdrop-filter: blur(14px) saturate(1.05);
+  html[data-wallpaper="on"] .thread-viewport {
+    background:
+      radial-gradient(
+        ellipse at 50% 42%,
+        hsl(var(--background) / calc(var(--wallpaper-background-alpha) + 0.1)) 0%,
+        hsl(var(--background) / var(--wallpaper-background-alpha)) 52%,
+        hsl(var(--background) / 0.12) 82%,
+        transparent 100%
+      );
+  }
+
+  html[data-wallpaper="on"] [data-testid="thread-composer-dock"] {
+    background: transparent;
+  }
+
+  html[data-wallpaper="on"] .thread-composer-surface {
+    background-color: hsl(var(--card) / var(--wallpaper-surface-alpha));
+    -webkit-backdrop-filter: blur(18px) saturate(1.08);
+    backdrop-filter: blur(18px) saturate(1.08);
+  }
+
+  html[data-wallpaper="on"] .composer-model-pill:not([data-needs-setup="true"]) {
+    border-color: hsl(var(--border) / 0.48);
+    background-color: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  html[data-wallpaper="on"] .composer-model-badge[data-fallback="true"]::before {
+    opacity: 0.14;
+  }
+
+  html[data-wallpaper="on"] .thread-viewport-top-fade {
+    background-image: linear-gradient(
+      to bottom,
+      hsl(var(--background) / 0.28),
+      transparent
+    );
+  }
+
+  html[data-wallpaper="on"] .activity-summary-label,
+  html[data-wallpaper="on"] .assistant-message-footer {
+    color: hsl(var(--foreground) / 0.72);
+    text-shadow: 0 1px 8px hsl(var(--background) / 0.86);
+  }
+
+  html[data-wallpaper="on"] .assistant-message-footer-metric {
+    color: hsl(var(--foreground) / 0.78);
+  }
+
+  html[data-wallpaper="on"] .activity-detail-content {
+    color: hsl(var(--foreground) / 0.74);
+    text-shadow: 0 1px 8px hsl(var(--background) / 0.82);
+  }
+
+  html[data-wallpaper="on"] .activity-detail-content [class*="text-muted-foreground"] {
+    color: hsl(var(--foreground) / 0.74);
+  }
+
+  html[data-wallpaper="on"] .bg-settings-canvas {
+    background-color: hsl(var(--background) / 0.38);
+  }
+
+  html[data-wallpaper="on"] .bg-settings-surface {
+    background-color: hsl(var(--card) / 0.48);
   }
 
   .host-window-shell,

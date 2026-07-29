@@ -119,7 +119,15 @@
       "apps": "앱",
       "nativeHost": "네이티브 호스트",
       "hostSafety": "앱 보안",
-      "voiceInput": "음성 입력"
+      "voiceInput": "음성 입력",
+      "tts": "음성 출력",
+      "auxiliaryVision": "보조 비전"
+    },
+    "tts": {
+      "enabled": "TTS 사용",
+      "enabledDesc": "Agent가 응답을 음성으로 합성하도록 허용합니다.",
+      "defaultVoice": "기본 음성",
+      "defaultVoiceDesc": "음성 이름 또는 제공자의 음성 ID입니다."
     },
     "rows": {
       "theme": "테마",
@@ -173,7 +181,9 @@
       "transcriptionProviderStatus": "제공자 상태",
       "transcriptionModel": "모델",
       "transcriptionLanguage": "언어",
-      "voiceLimits": "제한"
+      "voiceLimits": "제한",
+      "visionModel": "비전 모델",
+      "visionProvider": "비전 제공자"
     },
     "help": {
       "theme": "밝은 모드와 어두운 모드를 전환합니다.",
@@ -221,6 +231,8 @@
       "transcriptionProvider": "Providers에 저장된 해당 제공자의 인증 정보를 사용합니다.",
       "transcriptionProviderStatus": "API 키는 transcription 설정이 아니라 providers 아래에 유지됩니다.",
       "transcriptionModel": "제공자가 사용자 지정 모델 ID를 요구하지 않으면 해석된 기본값을 사용하세요.",
+      "visionModel": "현재 모델 프리셋의 선택적 이미지 설명 모델입니다. 비워 두면 비활성화됩니다.",
+      "visionProvider": "비워 두면 모델에서 제공자를 추론합니다.",
       "transcriptionLanguage": "en, zh, ja, ko 같은 선택적 ISO-639 힌트입니다."
     },
     "values": {

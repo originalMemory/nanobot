@@ -119,7 +119,15 @@
       "apps": "應用程式",
       "nativeHost": "原生主機",
       "hostSafety": "應用程式安全",
-      "voiceInput": "語音輸入"
+      "voiceInput": "語音輸入",
+      "tts": "語音輸出",
+      "auxiliaryVision": "輔助視覺"
+    },
+    "tts": {
+      "enabled": "啟用 TTS",
+      "enabledDesc": "允許 Agent 將回覆合成為語音。",
+      "defaultVoice": "預設音色",
+      "defaultVoiceDesc": "填寫音色名稱或供應商的音色 ID。"
     },
     "rows": {
       "theme": "主題",
@@ -173,7 +181,9 @@
       "transcriptionProviderStatus": "供應商狀態",
       "transcriptionModel": "模型",
       "transcriptionLanguage": "語言",
-      "voiceLimits": "限制"
+      "voiceLimits": "限制",
+      "visionModel": "視覺模型",
+      "visionProvider": "視覺供應商"
     },
     "help": {
       "theme": "在淺色與深色外觀之間切換。",
@@ -221,6 +231,8 @@
       "transcriptionProvider": "使用 [供應商] 中對應供應商的憑證。",
       "transcriptionProviderStatus": "API 金鑰仍儲存在 providers 中，不會寫入 transcription 設定。",
       "transcriptionModel": "除非供應商需要自訂模型 ID，否則保留解析後的預設值即可。",
+      "visionModel": "目前模型預設可選的圖片描述模型；留空即停用。",
+      "visionProvider": "留空時會根據視覺模型自動推斷供應商。",
       "transcriptionLanguage": "選填的 ISO-639 語言提示，例如 en、zh、ja 或 ko。"
     },
     "values": {
