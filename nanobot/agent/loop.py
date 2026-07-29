@@ -805,6 +805,31 @@ class AgentLoop:
             return True
         return False
 
+    async def _publish_unified_inbox_user_message(
+        self,
+        msg: InboundMessage,
+        *,
+        original_media: list[str] | None = None,
+    ) -> None:
+        """将外部渠道用户消息推送给 Unified Inbox，仅用于实时展示。"""
+        if (
+            not self._unified_session
+            or msg.session_key_override
+            or msg.channel in {"websocket", "cli", "system"}
+        ):
+            return
+        await self.bus.publish_outbound(OutboundMessage(
+            channel="websocket",
+            chat_id="inbox:unified",
+            content=msg.content,
+            media=list(original_media or msg.media or []),
+            metadata={
+                "_unified_inbox_inbound": True,
+                "source_channel": msg.channel,
+                "source_chat_id": msg.chat_id,
+            },
+        ))
+
     def _build_initial_messages(self, ctx: TurnContext) -> list[dict[str, Any]]:
         """Build the initial message list for the LLM turn."""
         assert ctx.session is not None
@@ -1622,6 +1647,8 @@ class AgentLoop:
                 ctx.input_persisted_early = self._persist_user_message_early(
                     ctx.msg, ctx.session, _command=True
                 )
+                if ctx.input_persisted_early:
+                    await self._publish_unified_inbox_user_message(ctx.msg)
                 ctx.session.add_message(
                     "assistant", result.content,
                     _command=True, **self._source_extras(ctx.msg),
@@ -1790,6 +1817,11 @@ class AgentLoop:
                 runtime_context_blocks=ctx.runtime_context_blocks,
                 original_media=ctx.caption_original_media,
             )
+            if ctx.input_persisted_early:
+                await self._publish_unified_inbox_user_message(
+                    ctx.msg,
+                    original_media=ctx.caption_original_media,
+                )
 
         if ctx.on_progress is None:
             ctx.on_progress = ctx.delivery.progress_callback()

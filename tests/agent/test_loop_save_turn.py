@@ -186,6 +186,51 @@ def test_persist_local_trigger_turn_uses_hidden_automation_marker(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_unified_session_publishes_external_user_message_for_live_inbox(
+    tmp_path: Path,
+) -> None:
+    loop = _make_full_loop(tmp_path)
+    loop._unified_session = True
+    msg = InboundMessage(
+        channel="qq",
+        sender_id="user-1",
+        chat_id="group-2",
+        content="从 QQ 发来的消息",
+        media=["/tmp/image.png"],
+    )
+
+    await loop._publish_unified_inbox_user_message(msg)
+
+    shadow = await loop.bus.consume_outbound()
+    assert shadow.channel == "websocket"
+    assert shadow.chat_id == "inbox:unified"
+    assert shadow.content == "从 QQ 发来的消息"
+    assert shadow.media == ["/tmp/image.png"]
+    assert shadow.metadata == {
+        "_unified_inbox_inbound": True,
+        "source_channel": "qq",
+        "source_chat_id": "group-2",
+    }
+
+
+@pytest.mark.asyncio
+async def test_unified_session_does_not_echo_websocket_user_message(
+    tmp_path: Path,
+) -> None:
+    loop = _make_full_loop(tmp_path)
+    loop._unified_session = True
+
+    await loop._publish_unified_inbox_user_message(InboundMessage(
+        channel="websocket",
+        sender_id="electron",
+        chat_id="inbox:unified",
+        content="本地消息",
+    ))
+
+    assert loop.bus.outbound_size == 0
+
+
+@pytest.mark.asyncio
 async def test_new_with_bot_suffix_does_not_persist_command(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
 

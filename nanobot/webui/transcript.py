@@ -49,7 +49,21 @@ _INLINE_MARKDOWN_VIDEO_EXTS: frozenset[str] = frozenset({
     ".mov",
     ".webm",
 })
-_INLINE_MARKDOWN_MEDIA_EXTS = _INLINE_MARKDOWN_IMAGE_EXTS | _INLINE_MARKDOWN_VIDEO_EXTS
+_INLINE_MARKDOWN_AUDIO_EXTS: frozenset[str] = frozenset({
+    ".aac",
+    ".flac",
+    ".m4a",
+    ".mp3",
+    ".ogg",
+    ".opus",
+    ".wav",
+    ".weba",
+})
+_INLINE_MARKDOWN_MEDIA_EXTS = (
+    _INLINE_MARKDOWN_IMAGE_EXTS
+    | _INLINE_MARKDOWN_VIDEO_EXTS
+    | _INLINE_MARKDOWN_AUDIO_EXTS
+)
 _FILE_EDIT_TOOL_NAMES: frozenset[str] = frozenset({
     "write_file",
     "edit_file",
@@ -117,6 +131,8 @@ def _media_kind_from_name(name: str) -> str:
         return "image"
     if ext in _INLINE_MARKDOWN_VIDEO_EXTS:
         return "video"
+    if ext in _INLINE_MARKDOWN_AUDIO_EXTS:
+        return "audio"
     return "file"
 
 
@@ -1244,20 +1260,69 @@ def build_inbox_thread_from_session(
     augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_text: Callable[[str], str] | None = None,
+    limit: int | None = None,
+    direction: str | None = None,
+    before: str | None = None,
 ) -> dict[str, Any]:
-    """直接从统一 Session 构建 Electron 收件箱历史。"""
-    lines = session_messages_to_wire_events(session.messages)
+    """直接从统一 Session 构建统一收件箱历史。"""
+    paginated = limit is not None or direction is not None or before is not None
+    page: dict[str, Any] | None = None
+    source_messages = session.messages
+    if paginated:
+        turns: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        for message in session.messages:
+            if message.get("_type") == "metadata":
+                continue
+            if message.get("role") == "user" and current:
+                turns.append(current)
+                current = []
+            current.append(message)
+        if current:
+            turns.append(current)
+
+        before_turn = _decode_page_cursor(before)
+        upper = min(len(turns) if before_turn is None else before_turn, len(turns))
+        page_limit = _coerce_page_limit(limit)
+        selected: list[list[dict[str, Any]]] = []
+        selected_message_count = 0
+        for turn in reversed(turns[:upper]):
+            selected.append(turn)
+            turn_lines = session_messages_to_wire_events(turn)
+            selected_message_count += len(replay_transcript_to_ui_messages(turn_lines))
+            if selected_message_count >= page_limit:
+                break
+        selected.reverse()
+        first_turn = upper - len(selected)
+        source_messages = [message for turn in selected for message in turn]
+        page = {
+            "before_cursor": _encode_page_cursor(first_turn) if first_turn > 0 else None,
+            "has_more_before": first_turn > 0,
+            "loaded_message_count": 0,
+            "user_message_offset": sum(
+                1
+                for turn in turns[:first_turn]
+                for message in turn
+                if message.get("role") == "user"
+            ),
+        }
+
+    lines = session_messages_to_wire_events(source_messages)
     messages = replay_transcript_to_ui_messages(
         lines,
         augment_user_media=augment_user_media,
         augment_assistant_media=augment_assistant_media,
         augment_assistant_text=augment_assistant_text,
     )
-    return {
+    payload = {
         "schemaVersion": WEBUI_TRANSCRIPT_SCHEMA_VERSION,
         "sessionKey": session.key,
         "messages": messages,
     }
+    if page is not None:
+        page["loaded_message_count"] = len(messages)
+        payload["page"] = page
+    return payload
 
 
 _PHASE_RANK = {"start": 1, "end": 2, "error": 3}

@@ -265,8 +265,11 @@ def _pick_heartbeat_target_from_sessions(
     enabled_channels: Iterable[str],
     sessions: Iterable[dict[str, Any]],
     archived_keys: Iterable[str],
+    unified_session: bool = False,
 ) -> tuple[str, str]:
     enabled = set(enabled_channels)
+    if unified_session and "websocket" in enabled:
+        return "websocket", "inbox:unified"
     archived = set(archived_keys)
     for item in sessions:
         key = item.get("key") or ""
@@ -2038,6 +2041,7 @@ def _run_gateway(
             enabled_channels=channels.enabled_channels,
             sessions=session_manager.list_sessions(),
             archived_keys=sidebar_state.get("archived_keys", []),
+            unified_session=config.agents.defaults.unified_session,
         )
 
     if channels.enabled_channels:

@@ -796,6 +796,24 @@ def test_replay_infers_video_media_from_attachment_name() -> None:
     ]
 
 
+def test_replay_infers_audio_media_from_attachment_name() -> None:
+    msgs = replay_transcript_to_ui_messages(
+        [
+            {"event": "user", "chat_id": "t-audio", "text": "speak"},
+            {
+                "event": "message",
+                "chat_id": "t-audio",
+                "text": "audio ready",
+                "media_urls": [{"url": "/api/media/sig/audio", "name": "reply.mp3"}],
+            },
+        ],
+    )
+
+    assert msgs[1]["media"] == [
+        {"kind": "audio", "url": "/api/media/sig/audio", "name": "reply.mp3"},
+    ]
+
+
 def test_replay_resigns_assistant_media_paths_before_stale_urls() -> None:
     msgs = replay_transcript_to_ui_messages(
         [

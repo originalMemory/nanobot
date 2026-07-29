@@ -1813,6 +1813,32 @@ def test_heartbeat_target_skips_archived_webui_sessions():
     assert target == ("websocket", "active")
 
 
+def test_heartbeat_target_uses_unified_inbox_when_enabled():
+    from nanobot.cli.commands import _pick_heartbeat_target_from_sessions
+
+    target = _pick_heartbeat_target_from_sessions(
+        enabled_channels=["qq", "websocket"],
+        archived_keys=[],
+        sessions=[{"key": "qq:recent"}],
+        unified_session=True,
+    )
+
+    assert target == ("websocket", "inbox:unified")
+
+
+def test_heartbeat_target_falls_back_without_websocket():
+    from nanobot.cli.commands import _pick_heartbeat_target_from_sessions
+
+    target = _pick_heartbeat_target_from_sessions(
+        enabled_channels=["qq"],
+        archived_keys=[],
+        sessions=[{"key": "qq:recent"}],
+        unified_session=True,
+    )
+
+    assert target == ("qq", "recent")
+
+
 def _write_instance_config(tmp_path: Path) -> Path:
     config_file = tmp_path / "instance" / "config.json"
     config_file.parent.mkdir(parents=True)

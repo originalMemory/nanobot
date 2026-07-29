@@ -62,6 +62,16 @@ _MEDIA_ALLOWED_MIMES: frozenset[str] = frozenset({
     "video/mp4",
     "video/webm",
     "video/quicktime",
+    "audio/aac",
+    "audio/flac",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/opus",
+    "audio/wav",
+    "audio/webm",
+    "audio/x-m4a",
+    "audio/x-wav",
 })
 _SVG_MEDIA_HEADERS: tuple[tuple[str, str], ...] = (
     (
@@ -150,6 +160,8 @@ def media_attachment_kind(name: str) -> str:
         return "video"
     if mime and mime.startswith("image/"):
         return "image"
+    if mime and mime.startswith("audio/"):
+        return "audio"
     return "file"
 
 

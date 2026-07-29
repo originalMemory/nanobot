@@ -25,6 +25,7 @@ from nanobot.webui.gateway_services import build_gateway_services
 from nanobot.webui.media_api import (
     b64url_decode,
     b64url_encode,
+    media_attachment_kind,
 )
 
 from .ws_test_client import InProcessHttpChannel
@@ -39,6 +40,8 @@ _PNG_BYTES = (
     b"\x00\x00\x00\nIDATx\x9cc\x00\x00\x00\x02\x00\x01"
     b"\x00\x00\x00\x00IEND\xaeB`\x82"
 )
+_JPEG_BYTES = b"\xff\xd8\xff\xd9"
+_MP3_BYTES = b"ID3\x04\x00\x00\x00\x00\x00\x00voice"
 
 
 def _ch(
@@ -263,6 +266,81 @@ async def test_media_route_serves_video_byte_ranges(
     assert resp.headers.get("accept-ranges") == "bytes"
     assert resp.headers.get("content-range") == "bytes 2-5/10"
     assert resp.headers.get("content-length") == "4"
+
+
+@pytest.mark.asyncio
+async def test_media_route_serves_audio_with_browser_mime(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    media = tmp_path / "media"
+    media.mkdir()
+    target = media / "reply.mp3"
+    target.write_bytes(_MP3_BYTES)
+
+    channel = _ch(bus, port=29930)
+    with patch("nanobot.webui.media_gateway.get_media_dir", return_value=media):
+        url_path = channel.gateway.media.sign_media_path(target)
+        assert url_path is not None
+        server_task = asyncio.create_task(channel.start())
+        try:
+            resp = await _http_get(f"http://127.0.0.1:29930{url_path}")
+        finally:
+            await channel.stop()
+            await server_task
+
+    assert resp.status_code == 200
+    assert resp.content == _MP3_BYTES
+    assert resp.headers["content-type"].startswith("audio/mpeg")
+    assert media_attachment_kind("reply.mp3") == "audio"
+
+
+@pytest.mark.asyncio
+async def test_avatar_route_serves_fixed_media_root_avatar(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    media = tmp_path / "media"
+    media.mkdir()
+    (media / "avatar.png").write_bytes(_PNG_BYTES)
+
+    channel = _ch(bus, port=29931)
+    with patch("nanobot.webui.ws_http.get_media_dir", return_value=media):
+        server_task = asyncio.create_task(channel.start())
+        try:
+            resp = await _http_get("http://127.0.0.1:29931/api/avatar")
+        finally:
+            await channel.stop()
+            await server_task
+
+    assert resp.status_code == 200
+    assert resp.content == _PNG_BYTES
+    assert resp.headers["content-type"].startswith("image/png")
+
+
+@pytest.mark.asyncio
+async def test_avatar_route_prefers_jpg_and_returns_404_when_missing(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    media = tmp_path / "media"
+    media.mkdir()
+    (media / "avatar.jpg").write_bytes(_JPEG_BYTES)
+    (media / "avatar.png").write_bytes(_PNG_BYTES)
+
+    channel = _ch(bus, port=29932)
+    with patch("nanobot.webui.ws_http.get_media_dir", return_value=media):
+        server_task = asyncio.create_task(channel.start())
+        try:
+            preferred = await _http_get("http://127.0.0.1:29932/api/avatar")
+            (media / "avatar.jpg").unlink()
+            (media / "avatar.png").unlink()
+            missing = await _http_get("http://127.0.0.1:29932/api/avatar")
+        finally:
+            await channel.stop()
+            await server_task
+
+    assert preferred.status_code == 200
+    assert preferred.content == _JPEG_BYTES
+    assert preferred.headers["content-type"].startswith("image/jpeg")
+    assert missing.status_code == 404
 
 
 @pytest.mark.asyncio

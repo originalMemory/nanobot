@@ -24,9 +24,11 @@ from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
 from nanobot.command.builtin import builtin_command_palette
+from nanobot.config.paths import get_media_dir
 from nanobot.cron.session_turns import is_bound_cron_job
 from nanobot.cron.types import CronJob, CronSchedule
 from nanobot.runtime_context import public_history_messages
+from nanobot.session import UNIFIED_SESSION_KEY
 from nanobot.triggers.local_types import LocalTrigger
 from nanobot.utils.subagent_channel_display import scrub_subagent_messages_for_channel
 from nanobot.webui.file_preview import (
@@ -94,6 +96,11 @@ from nanobot.webui.workspaces import WebUIWorkspaceController
 
 _SLOW_WEBUI_HTTP_LOG_MS = 1_000
 _AUTOMATION_VALUES_HEADER = "X-Nanobot-Automation-Values"
+_AVATAR_FILES: tuple[tuple[str, str], ...] = (
+    ("avatar.jpg", "image/jpeg"),
+    ("avatar.png", "image/png"),
+    ("avatar.webp", "image/webp"),
+)
 
 if TYPE_CHECKING:
     from nanobot.bus.queue import MessageBus
@@ -251,8 +258,6 @@ class GatewayHTTPHandler:
             return response
 
         # Session routes
-        if got == "/api/inbox/thread":
-            return self._handle_inbox_thread(request)
         response = await self._dispatch_session_routes(request, got)
         if response is not None:
             return response
@@ -399,20 +404,6 @@ class GatewayHTTPHandler:
 
         return None
 
-    def _handle_inbox_thread(self, request: WsRequest) -> Response:
-        if not self.check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        if self.session_manager is None:
-            return _http_error(503, "session manager unavailable")
-        session = self.session_manager.get_or_create("unified:default")
-        payload = build_inbox_thread_from_session(
-            session,
-            augment_user_media=self.media.augment_transcript_media,
-            augment_assistant_media=self.media.augment_transcript_media,
-            augment_assistant_text=self.media.rewrite_local_markdown_images,
-        )
-        return _http_json_response(payload)
-
     async def _handle_sessions_list(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
@@ -469,15 +460,10 @@ class GatewayHTTPHandler:
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
-        if not _is_websocket_channel_session_key(decoded_key):
+        is_unified = decoded_key == UNIFIED_SESSION_KEY
+        if not is_unified and not _is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
         scope = self.workspaces.scope_for_session_key(decoded_key)
-        session_messages: list[dict[str, Any]] | None = None
-        if self.session_manager is not None:
-            session_data = self.session_manager.read_session_file(decoded_key)
-            raw_messages = session_data.get("messages") if isinstance(session_data, dict) else None
-            if isinstance(raw_messages, list):
-                session_messages = [m for m in raw_messages if isinstance(m, dict)]
         query = _parse_query(request.path)
         raw_limit = _query_first(query, "limit")
         limit: int | None = None
@@ -490,6 +476,29 @@ class GatewayHTTPHandler:
         if direction is not None and direction not in {"latest"}:
             return _http_error(400, "invalid direction")
         before = _query_first(query, "before")
+        if is_unified:
+            if self.session_manager is None:
+                return _http_error(503, "session manager unavailable")
+            data = build_inbox_thread_from_session(
+                self.session_manager.get_or_create(UNIFIED_SESSION_KEY),
+                augment_user_media=self.media.augment_transcript_media,
+                augment_assistant_media=self.media.augment_transcript_media,
+                augment_assistant_text=lambda text: self.media.rewrite_local_markdown_images(
+                    text,
+                    workspace_path=scope.project_path,
+                ),
+                limit=limit,
+                direction=direction,
+                before=before,
+            )
+            data["workspace_scope"] = scope.payload()
+            return _http_json_response(data)
+        session_messages: list[dict[str, Any]] | None = None
+        if self.session_manager is not None:
+            session_data = self.session_manager.read_session_file(decoded_key)
+            raw_messages = session_data.get("messages") if isinstance(session_data, dict) else None
+            if isinstance(raw_messages, list):
+                session_messages = [m for m in raw_messages if isinstance(m, dict)]
         data = build_webui_thread_response(
             decoded_key,
             augment_user_media=self.media.augment_transcript_media,
@@ -757,10 +766,32 @@ class GatewayHTTPHandler:
     # -- Media routes -------------------------------------------------------
 
     def _dispatch_media_routes(self, request: WsRequest, got: str) -> Response | None:
+        if got == "/api/avatar":
+            return self._handle_avatar_fetch()
         m = re.match(r"^/api/media/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)$", got)
         if m:
             return self._handle_media_fetch(m.group(1), m.group(2), request)
         return None
+
+    def _handle_avatar_fetch(self) -> Response:
+        media_root = get_media_dir()
+        for name, content_type in _AVATAR_FILES:
+            path = media_root / name
+            if not path.is_file():
+                continue
+            try:
+                body = path.read_bytes()
+            except OSError:
+                return _http_error(500, "read error")
+            return _http_response(
+                body,
+                content_type=content_type,
+                extra_headers=[
+                    ("Cache-Control", "no-cache"),
+                    ("X-Content-Type-Options", "nosniff"),
+                ],
+            )
+        return _http_error(404, "avatar not found")
 
     def _handle_media_fetch(
         self, sig: str, payload: str, request: WsRequest | None = None

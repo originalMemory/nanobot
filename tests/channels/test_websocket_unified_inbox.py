@@ -457,18 +457,20 @@ async def test_ws_inbound_no_longer_writes_unified_transcript(
 
 
 # ---------------------------------------------------------------------------
-# Task 4.4 — Inbox HTTP endpoint
+# Unified inbox through the shared WebUI thread endpoint
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_inbox_thread_requires_auth(bus: MagicMock, tmp_path: Path) -> None:
-    """Task 4.3: /api/inbox/thread returns 401 when no valid token is supplied."""
+async def test_unified_webui_thread_requires_auth(bus: MagicMock, tmp_path: Path) -> None:
     ch = _ch(bus, _PORT_BASE + 11, workspace_path=tmp_path)
     t = asyncio.create_task(ch.start())
     await asyncio.sleep(0.3)
     try:
-        resp = await _http_get(f"http://127.0.0.1:{_PORT_BASE + 11}/api/inbox/thread")
+        resp = await _http_get(
+            f"http://127.0.0.1:{_PORT_BASE + 11}"
+            "/api/sessions/unified%3Adefault/webui-thread"
+        )
         assert resp.status_code == 401
     finally:
         await ch.stop()
@@ -476,10 +478,9 @@ async def test_inbox_thread_requires_auth(bus: MagicMock, tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_inbox_thread_returns_empty_when_no_session(
+async def test_unified_webui_thread_returns_empty_when_no_session(
     bus: MagicMock, tmp_path: Path
 ) -> None:
-    """Plan B: /api/inbox/thread returns empty messages when session has no messages."""
     sm = SessionManager(workspace=tmp_path)
     ch = _ch(bus, _PORT_BASE + 12, session_manager=sm, workspace_path=tmp_path)
     t = asyncio.create_task(ch.start())
@@ -496,7 +497,8 @@ async def test_inbox_thread_returns_empty_when_no_session(
         token = resp_bs.json()["api_token"]
 
         resp = await _http_get(
-            f"http://127.0.0.1:{_PORT_BASE + 12}/api/inbox/thread",
+            f"http://127.0.0.1:{_PORT_BASE + 12}"
+            "/api/sessions/unified%3Adefault/webui-thread",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
@@ -508,10 +510,9 @@ async def test_inbox_thread_returns_empty_when_no_session(
 
 
 @pytest.mark.asyncio
-async def test_inbox_thread_returns_messages_from_session(
+async def test_unified_webui_thread_returns_messages_from_session(
     bus: MagicMock, tmp_path: Path
 ) -> None:
-    """Plan B: /api/inbox/thread reads from Session (file 1) via converter."""
     sm = SessionManager(workspace=tmp_path)
     session = sm.get_or_create("unified:default")
     session.add_message("user", "hey telegram",
@@ -536,7 +537,8 @@ async def test_inbox_thread_returns_messages_from_session(
         token = resp_bs.json()["api_token"]
 
         resp = await _http_get(
-            f"http://127.0.0.1:{_PORT_BASE + 13}/api/inbox/thread",
+            f"http://127.0.0.1:{_PORT_BASE + 13}"
+            "/api/sessions/unified%3Adefault/webui-thread?limit=160&direction=latest",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
@@ -545,14 +547,17 @@ async def test_inbox_thread_returns_messages_from_session(
         roles = [m["role"] for m in data["messages"]]
         assert "user" in roles
         assert "assistant" in roles
+        assert data["page"]["has_more_before"] is False
     finally:
         await ch.stop()
         await t
 
 
 @pytest.mark.asyncio
-async def test_inbox_thread_omits_unread_count(bus: MagicMock, tmp_path: Path) -> None:
-    """GET /api/inbox/thread 不再返回 unreadCount 字段。"""
+async def test_unified_webui_thread_omits_unread_count(
+    bus: MagicMock,
+    tmp_path: Path,
+) -> None:
     sm = SessionManager(workspace=tmp_path)
     session = sm.get_or_create("unified:default")
     session.add_message(
@@ -582,12 +587,31 @@ async def test_inbox_thread_omits_unread_count(bus: MagicMock, tmp_path: Path) -
         )
         token = resp_bs.json()["api_token"]
         resp = await _http_get(
-            f"http://127.0.0.1:{_PORT_BASE + 15}/api/inbox/thread",
+            f"http://127.0.0.1:{_PORT_BASE + 15}"
+            "/api/sessions/unified%3Adefault/webui-thread",
             headers={"Authorization": f"Bearer {token}"},
         )
         data = resp.json()
         assert "unreadCount" not in data
         assert len(data["messages"]) == 2
+    finally:
+        await ch.stop()
+        await t
+
+
+@pytest.mark.asyncio
+async def test_legacy_inbox_thread_endpoint_is_removed(
+    bus: MagicMock,
+    tmp_path: Path,
+) -> None:
+    ch = _ch(bus, _PORT_BASE + 16, workspace_path=tmp_path)
+    t = asyncio.create_task(ch.start())
+    await asyncio.sleep(0.3)
+    try:
+        resp = await _http_get(
+            f"http://127.0.0.1:{_PORT_BASE + 16}/api/inbox/thread",
+        )
+        assert resp.status_code == 404
     finally:
         await ch.stop()
         await t
@@ -676,3 +700,30 @@ async def test_online_streamed_reply_persists_in_thread_after_refresh(
     finally:
         await ch.stop()
         await t
+
+
+def test_unified_session_thread_paginates_complete_turns(tmp_path: Path) -> None:
+    sm = SessionManager(tmp_path)
+    session = sm.get_or_create("unified:default")
+    for index in range(1, 5):
+        session.add_message("user", f"question {index}", source_channel="qq")
+        session.add_message("assistant", f"answer {index}", source_channel="qq")
+
+    latest = build_inbox_thread_from_session(session, limit=2, direction="latest")
+    assert [message["content"] for message in latest["messages"]] == [
+        "question 4",
+        "answer 4",
+    ]
+    assert latest["page"]["has_more_before"] is True
+    assert latest["page"]["user_message_offset"] == 3
+
+    older = build_inbox_thread_from_session(
+        session,
+        limit=2,
+        before=latest["page"]["before_cursor"],
+    )
+    assert [message["content"] for message in older["messages"]] == [
+        "question 3",
+        "answer 3",
+    ]
+    assert older["page"]["user_message_offset"] == 2
