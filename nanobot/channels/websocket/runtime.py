@@ -46,6 +46,7 @@ from nanobot.security.workspace_access import (
     WorkspaceScopeError,
 )
 from nanobot.session.goal_state import goal_state_ws_blob
+from nanobot.session.keys import UNIFIED_INBOX_CHAT_ID, UNIFIED_SESSION_KEY
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
 from nanobot.webui.cli_apps_api import normalize_cli_app_mentions
 from nanobot.webui.forking import handle_webui_fork_chat
@@ -199,7 +200,7 @@ def _parse_inbound_payload(raw: str) -> str | None:
 # Accept UUIDs and short scoped keys like "unified:default". Keeps the capability
 # namespace small enough to rule out path traversal / quote injection tricks.
 _CHAT_ID_RE = re.compile(r"^[A-Za-z0-9_:-]{1,64}$")
-INBOX_UNIFIED_CHAT_ID = "inbox:unified"
+INBOX_UNIFIED_CHAT_ID = UNIFIED_INBOX_CHAT_ID
 _MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024
 
 
@@ -290,6 +291,14 @@ class WebSocketChannel(BaseChannel):
 
     def _workspace_controls_available(self, connection: Any) -> bool:
         return self._http_router.workspace_controls_available(connection)
+
+    def _session_key_for_chat(self, chat_id: str) -> str:
+        if self._unified_session and chat_id == INBOX_UNIFIED_CHAT_ID:
+            return UNIFIED_SESSION_KEY
+        return f"websocket:{chat_id}"
+
+    def _records_webui_transcript(self, chat_id: str) -> bool:
+        return not (self._unified_session and chat_id == INBOX_UNIFIED_CHAT_ID)
 
     def _attach(self, connection: Any, chat_id: str) -> None:
         """Idempotently subscribe *connection* to *chat_id*."""
@@ -656,6 +665,7 @@ class WebSocketChannel(BaseChannel):
                 lambda: self._workspaces.scope_for_set_request(
                     envelope,
                     chat_id=cid,
+                    session_key=self._session_key_for_chat(cid),
                     chat_running=websocket_turn_wall_started_at(cid) is not None,
                     controls_available=self._workspace_controls_available(connection),
                 ),
@@ -663,7 +673,11 @@ class WebSocketChannel(BaseChannel):
             )
             if scope is None:
                 return
-            self._workspaces.persist_scope(cid, scope)
+            self._workspaces.persist_scope(
+                cid,
+                scope,
+                session_key=self._session_key_for_chat(cid),
+            )
             await self._send_event(
                 connection,
                 "session_updated",
@@ -732,6 +746,7 @@ class WebSocketChannel(BaseChannel):
                 lambda: self._workspaces.scope_for_message(
                     envelope,
                     chat_id=cid,
+                    session_key=self._session_key_for_chat(cid),
                     chat_running=websocket_turn_wall_started_at(cid) is not None,
                     controls_available=self._workspace_controls_available(connection),
                 ),
@@ -751,8 +766,16 @@ class WebSocketChannel(BaseChannel):
             if mcp_presets:
                 metadata["mcp_presets"] = mcp_presets
             metadata[WORKSPACE_SCOPE_METADATA_KEY] = scope.metadata()
-            self._workspaces.persist_scope(cid, scope)
-            if metadata.get("webui") is True and self.is_allowed(client_id):
+            self._workspaces.persist_scope(
+                cid,
+                scope,
+                session_key=self._session_key_for_chat(cid),
+            )
+            if (
+                metadata.get("webui") is True
+                and self.is_allowed(client_id)
+                and self._records_webui_transcript(cid)
+            ):
                 self._transcripts.append_user_message(
                     cid,
                     content,
@@ -961,14 +984,15 @@ class WebSocketChannel(BaseChannel):
         elif progress_event:
             payload["kind"] = "progress"
         phase = "activity" if payload.get("kind") in ("tool_hint", "progress") else "answer"
-        self._transcripts.prepare_and_append(
-            msg.chat_id,
-            payload,
-            metadata=msg.metadata,
-            phase=phase,
-            include_source=True,
-            transcript_overrides={"text": text},
-        )
+        if self._records_webui_transcript(msg.chat_id):
+            self._transcripts.prepare_and_append(
+                msg.chat_id,
+                payload,
+                metadata=msg.metadata,
+                phase=phase,
+                include_source=True,
+                transcript_overrides={"text": text},
+            )
         raw = json.dumps(payload, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" ")
@@ -1086,12 +1110,13 @@ class WebSocketChannel(BaseChannel):
         }
         if stream_id is not None:
             body["stream_id"] = stream_id
-        self._transcripts.prepare_and_append(
-            chat_id,
-            body,
-            metadata=meta,
-            phase="reasoning",
-        )
+        if self._records_webui_transcript(chat_id):
+            self._transcripts.prepare_and_append(
+                chat_id,
+                body,
+                metadata=meta,
+                phase="reasoning",
+            )
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
@@ -1114,12 +1139,13 @@ class WebSocketChannel(BaseChannel):
         }
         if stream_id is not None:
             body["stream_id"] = stream_id
-        self._transcripts.prepare_and_append(
-            chat_id,
-            body,
-            metadata=meta,
-            phase="reasoning",
-        )
+        if self._records_webui_transcript(chat_id):
+            self._transcripts.prepare_and_append(
+                chat_id,
+                body,
+                metadata=meta,
+                phase="reasoning",
+            )
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
@@ -1138,12 +1164,13 @@ class WebSocketChannel(BaseChannel):
             "chat_id": chat_id,
             "edits": edits,
         }
-        self._transcripts.prepare_and_append(
-            chat_id,
-            payload,
-            metadata=metadata,
-            phase="activity",
-        )
+        if self._records_webui_transcript(chat_id):
+            self._transcripts.prepare_and_append(
+                chat_id,
+                payload,
+                metadata=metadata,
+                phase="activity",
+            )
         raw = json.dumps(payload, ensure_ascii=False)
         if not conns:
             return
@@ -1188,12 +1215,13 @@ class WebSocketChannel(BaseChannel):
             body["stream_id"] = stream_id
         if stream_end and resuming:
             body["resuming"] = True
-        self._transcripts.prepare_and_append(
-            chat_id,
-            body,
-            metadata=meta,
-            phase="answer",
-        )
+        if self._records_webui_transcript(chat_id):
+            self._transcripts.prepare_and_append(
+                chat_id,
+                body,
+                metadata=meta,
+                phase="answer",
+            )
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" stream ")
@@ -1218,12 +1246,13 @@ class WebSocketChannel(BaseChannel):
             body["usage"] = usage
         if goal_state is not None:
             body["goal_state"] = goal_state
-        self._transcripts.prepare_and_append(
-            chat_id,
-            body,
-            metadata=metadata,
-            phase="complete",
-        )
+        if self._records_webui_transcript(chat_id):
+            self._transcripts.prepare_and_append(
+                chat_id,
+                body,
+                metadata=metadata,
+                phase="complete",
+            )
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" turn_end ")

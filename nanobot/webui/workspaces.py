@@ -254,6 +254,7 @@ class WebUIWorkspaceController:
         envelope: dict[str, Any],
         *,
         chat_id: str,
+        session_key: str | None = None,
         chat_running: bool,
         controls_available: bool,
     ) -> WorkspaceScope:
@@ -261,7 +262,7 @@ class WebUIWorkspaceController:
             raise WorkspaceScopeError("chat_running", status=409)
         return self.scope_from_envelope(
             envelope,
-            session_key=f"websocket:{chat_id}",
+            session_key=session_key or f"websocket:{chat_id}",
             controls_available=controls_available,
         )
 
@@ -270,25 +271,33 @@ class WebUIWorkspaceController:
         envelope: dict[str, Any],
         *,
         chat_id: str,
+        session_key: str | None = None,
         chat_running: bool,
         controls_available: bool,
     ) -> WorkspaceScope:
+        effective_session_key = session_key or f"websocket:{chat_id}"
         scope = self.scope_from_envelope(
             envelope,
-            session_key=f"websocket:{chat_id}",
+            session_key=effective_session_key,
             controls_available=controls_available,
         )
         if (
             WORKSPACE_SCOPE_METADATA_KEY in envelope
             and chat_running
-            and scope.metadata() != self.scope_for_session_key(f"websocket:{chat_id}").metadata()
+            and scope.metadata() != self.scope_for_session_key(effective_session_key).metadata()
         ):
             raise WorkspaceScopeError("chat_running", status=409)
         return scope
 
-    def persist_scope(self, chat_id: str, scope: WorkspaceScope) -> None:
+    def persist_scope(
+        self,
+        chat_id: str,
+        scope: WorkspaceScope,
+        *,
+        session_key: str | None = None,
+    ) -> None:
         if self._sessions is not None:
-            session = self._sessions.get_or_create(f"websocket:{chat_id}")
+            session = self._sessions.get_or_create(session_key or f"websocket:{chat_id}")
             session.metadata["webui"] = True
             session.metadata[WORKSPACE_SCOPE_METADATA_KEY] = scope.metadata()
             self._sessions.save(session)

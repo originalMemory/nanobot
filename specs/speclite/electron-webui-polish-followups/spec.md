@@ -14,6 +14,8 @@
 - compose 恢复固定代理环境变量
 - 删除误入的 `.codex/hooks.json` 和 Python 3.10 `Pipfile`
 - 保留重启时本地提示与聊天通知双提示
+- Unified Inbox 使用 `unified:default` 作为 workspace 与定时任务会话，不再生成
+  `websocket:inbox:unified` 普通话题或 transcript
 
 ## Plan
 - [x] 完善来源徽章样式、文案、测试和 compose 代理配置
@@ -22,6 +24,7 @@
 - [x] 分离“用户阅读历史”与“保持贴底”状态并补 resize 回归测试
 - [x] 调整 assistant identity 尺寸与样式断言
 - [x] 删除误入工作区文件
+- [x] 修正 Unified Inbox 的 workspace、transcript 与 cron session 路由
 
 ## Apply Notes
 - 来源继续复用 channel plugin 名称、图标和品牌色；`heartbeat` 映射 i18n
@@ -30,6 +33,7 @@
 - `stickToBottomRef` 记录贴底意图；`userReadingHistoryRef` 只表示用户主动阅读历史
 - AI 开始输出后恢复自动贴底；发送后的提示词顶部锚点不视为贴底
 - 代理值沿用个人 NAS 固定 IP，不做通用化
+- 已存在的 `websocket:inbox:unified` 会话与 cron job 不做迁移，由部署时手动清理
 
 ## Verify
 - [x] WebUI 来源、消息与 viewport 针对性测试通过
@@ -39,6 +43,7 @@
 - [x] Python lint 通过
 - [x] compose YAML 与代理变量验证通过
 - [x] `git diff --check` 通过
+- [x] Unified Inbox 特殊路由回归测试通过（相关测试 74 项）
 
 ## Status
 - State: done

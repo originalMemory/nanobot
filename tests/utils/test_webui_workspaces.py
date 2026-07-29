@@ -156,6 +156,27 @@ def test_webui_default_access_does_not_override_explicit_session_scope(tmp_path,
     assert scope.access_mode == "full"
 
 
+def test_persist_scope_can_target_unified_session(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("nanobot.webui.workspaces.get_webui_dir", lambda: tmp_path / "webui")
+    default = tmp_path / "default"
+    default.mkdir()
+    sessions = SessionManager(tmp_path / "sessions")
+    controller = WebUIWorkspaceController(
+        session_manager=sessions,
+        default_workspace=default,
+        default_restrict_to_workspace=True,
+    )
+
+    controller.persist_scope(
+        "inbox:unified",
+        default_workspace_scope(default, restrict_to_workspace=True),
+        session_key="unified:default",
+    )
+
+    assert "unified:default" in sessions._cache
+    assert "websocket:inbox:unified" not in sessions._cache
+
+
 def test_scope_for_session_key_reads_metadata_without_full_history(
     tmp_path,
     monkeypatch,

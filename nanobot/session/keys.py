@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 UNIFIED_SESSION_KEY = "unified:default"
+UNIFIED_INBOX_CHAT_ID = "inbox:unified"
 
 
 def session_key_for_channel(channel: str, chat_id: str, *, unified_session: bool = False) -> str:

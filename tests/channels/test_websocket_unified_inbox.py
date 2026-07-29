@@ -212,6 +212,25 @@ async def test_attach_inbox_unified_succeeds(bus: MagicMock, tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_unified_inbox_does_not_write_webui_transcript(
+    bus: MagicMock,
+    tmp_path: Path,
+) -> None:
+    ch = _ch(bus, _PORT_BASE + 40, unified_session=True, workspace_path=tmp_path)
+    ch._transcripts.prepare_and_append = MagicMock()
+
+    await ch.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id=INBOX_UNIFIED_CHAT_ID,
+            content="unified reply",
+        )
+    )
+
+    ch._transcripts.prepare_and_append.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_fanout_to_inbox_unified_on_ws_message(bus: MagicMock, tmp_path: Path) -> None:
     """Task 3.2: outbound message to chat_id should also fan-out to inbox:unified."""
     ch = _ch(bus, _PORT_BASE + 5, unified_session=True, workspace_path=tmp_path)

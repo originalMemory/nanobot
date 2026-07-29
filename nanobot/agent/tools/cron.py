@@ -15,7 +15,7 @@ from nanobot.agent.tools.schema import (
 )
 from nanobot.cron.service import CronService
 from nanobot.cron.types import CronJob, CronJobState, CronSchedule
-from nanobot.session.keys import UNIFIED_SESSION_KEY
+from nanobot.session.keys import UNIFIED_INBOX_CHAT_ID, UNIFIED_SESSION_KEY
 
 _CRON_PARAMETERS = tool_parameters_schema(
     action=StringSchema("Action to perform", enum=["add", "list", "remove"]),
@@ -74,8 +74,15 @@ class CronTool(Tool):
         if ctx is None:
             return "", "", "", {}
         raw_key = f"{ctx.channel}:{ctx.chat_id}" if ctx.channel and ctx.chat_id else ""
+        is_unified_inbox = (
+            ctx.channel == "websocket"
+            and ctx.chat_id == UNIFIED_INBOX_CHAT_ID
+            and ctx.session_key == UNIFIED_SESSION_KEY
+        )
         session_key = (
-            raw_key if ctx.session_key == UNIFIED_SESSION_KEY else (ctx.session_key or "")
+            UNIFIED_SESSION_KEY
+            if is_unified_inbox
+            else raw_key if ctx.session_key == UNIFIED_SESSION_KEY else (ctx.session_key or "")
         )
         return session_key, ctx.channel or "", ctx.chat_id or "", dict(ctx.metadata or {})
 

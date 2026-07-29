@@ -11,7 +11,7 @@ from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.cron.service import CronService
 from nanobot.providers.base import GenerationSettings, LLMProvider
-from nanobot.session.keys import UNIFIED_SESSION_KEY
+from nanobot.session.keys import UNIFIED_INBOX_CHAT_ID, UNIFIED_SESSION_KEY
 from nanobot.utils.llm_runtime import LLMRuntime
 
 
@@ -296,6 +296,30 @@ async def test_webui_cron_tool_uses_origin_session_when_unified_enabled(tmp_path
     assert jobs[0].payload.session_key == "websocket:chat-123"
     assert jobs[0].payload.origin_channel == "websocket"
     assert jobs[0].payload.origin_chat_id == "chat-123"
+    assert jobs[0].payload.origin_metadata == {"webui": True}
+
+
+@pytest.mark.asyncio
+async def test_unified_inbox_cron_tool_keeps_unified_session(tmp_path) -> None:
+    """统一收件箱创建的任务应继续使用统一会话。"""
+    tool = CronTool(CronService(tmp_path / "jobs.json"))
+
+    with request_context(
+        RequestContext(
+            channel="websocket",
+            chat_id=UNIFIED_INBOX_CHAT_ID,
+            metadata={"webui": True},
+            session_key=UNIFIED_SESSION_KEY,
+        )
+    ):
+        result = await tool.execute(action="add", message="standup", every_seconds=300)
+    assert result.startswith("Created job")
+
+    jobs = tool._cron.list_jobs()
+    assert len(jobs) == 1
+    assert jobs[0].payload.session_key == UNIFIED_SESSION_KEY
+    assert jobs[0].payload.origin_channel == "websocket"
+    assert jobs[0].payload.origin_chat_id == UNIFIED_INBOX_CHAT_ID
     assert jobs[0].payload.origin_metadata == {"webui": True}
 
 
