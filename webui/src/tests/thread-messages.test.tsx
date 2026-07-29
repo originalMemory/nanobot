@@ -178,9 +178,19 @@ describe("ThreadMessages", () => {
     expect(screen.getAllByTestId("assistant-turn-identity")).toHaveLength(2);
     expect(screen.getAllByText("Homura")).toHaveLength(2);
     expect(screen.getAllByAltText("Homura")).toHaveLength(2);
+    expect(screen.getAllByText("Homura")[0]).toHaveClass(
+      "text-rose-600",
+      "dark:text-rose-300",
+    );
     expect(screen.getAllByText("Telegram")).toHaveLength(1);
 
     const firstHeader = screen.getAllByTestId("assistant-turn-identity")[0];
+    expect(firstHeader).toHaveClass("min-h-9");
+    expect(within(firstHeader).getByAltText("Homura").parentElement).toHaveClass(
+      "h-9",
+      "w-9",
+    );
+    expect(within(firstHeader).getByText("Homura")).toHaveClass("text-base");
     fireEvent.error(within(firstHeader).getByAltText("Homura"));
     expect(within(firstHeader).getByText("🔥")).toBeInTheDocument();
   });
@@ -195,6 +205,41 @@ describe("ThreadMessages", () => {
     ]);
 
     expect(assistantTurnHeaderMessages(units).filter(Boolean)).toHaveLength(2);
+  });
+
+  it("shows identity and source for each proactive delivery without a user boundary", () => {
+    const messages: UIMessage[] = [
+      {
+        id: "heartbeat-1",
+        role: "assistant",
+        content: "first heartbeat",
+        channelDelivery: true,
+        cronJobName: "heartbeat",
+        createdAt: 1,
+      },
+      {
+        id: "heartbeat-2",
+        role: "assistant",
+        content: "second heartbeat",
+        channelDelivery: true,
+        cronJobName: "heartbeat",
+        createdAt: 2,
+      },
+    ];
+    const units = buildDisplayUnits(messages);
+
+    expect(assistantTurnHeaderMessages(units).filter(Boolean)).toHaveLength(2);
+
+    render(
+      <ThreadMessages
+        messages={messages}
+        assistantIdentity={{ name: "Homura", icon: "🔥" }}
+      />,
+    );
+
+    expect(screen.getAllByTestId("assistant-turn-identity")).toHaveLength(2);
+    expect(screen.getAllByText("Homura")).toHaveLength(2);
+    expect(screen.getAllByText("Heartbeat")).toHaveLength(2);
   });
 
   it("keeps the browser layout free of assistant identity headers by default", () => {

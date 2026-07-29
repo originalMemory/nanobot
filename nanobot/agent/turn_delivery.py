@@ -191,6 +191,9 @@ class TurnDelivery:
     def record_latency(self, latency_ms: int | None) -> None:
         self.runtime_event_publisher.record_turn_latency(self.session_key, latency_ms)
 
+    def record_usage(self, usage: dict[str, int] | None) -> None:
+        self.runtime_event_publisher.record_turn_usage(self.session_key, usage)
+
     def background_response(
         self,
         content: str | None,

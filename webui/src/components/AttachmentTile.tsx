@@ -100,29 +100,21 @@ export function AttachmentTile({
 
   if (attachment.kind === "audio" && hasUrl && !failed) {
     return (
-      <AttachmentFrame
-        attachment={attachment}
-        className={className}
-        inline={inline}
-        variant={variant}
-      >
-        <audio
-          ref={audioRef}
-          src={attachment.url}
-          controls
-          preload="auto"
-          onError={() => setFailed(true)}
-          className="audio-attachment-player block w-full"
-          aria-label={attachment.name
-            ? `${t("message.audioAttachment", { defaultValue: "Audio attachment" })}: ${attachment.name}`
-            : t("message.audioAttachment", { defaultValue: "Audio attachment" })}
-        />
-        {attachment.name ? (
-          <figcaption className="truncate px-3 py-1.5 text-[11.5px] text-muted-foreground">
-            {attachment.name}
-          </figcaption>
-        ) : null}
-      </AttachmentFrame>
+      <audio
+        ref={audioRef}
+        src={attachment.url}
+        controls
+        preload="auto"
+        onError={() => setFailed(true)}
+        className={cn(
+          "audio-attachment-player not-prose my-3 block w-[min(100%,28rem)] max-w-full",
+          variant === "compact" && "my-1 w-[min(100%,20rem)]",
+          className,
+        )}
+        aria-label={attachment.name
+          ? `${t("message.audioAttachment", { defaultValue: "Audio attachment" })}: ${attachment.name}`
+          : t("message.audioAttachment", { defaultValue: "Audio attachment" })}
+      />
     );
   }
 
@@ -195,10 +187,8 @@ function AttachmentFrame({
     "border border-border/60 bg-muted/40",
     attachment.kind === "image" && "bg-background/85",
     attachment.kind === "video" ? "w-[min(100%,32rem)]" : "",
-    attachment.kind === "audio" ? "w-[min(100%,28rem)]" : "",
     variant === "compact" && "my-1 rounded-xl shadow-none",
     variant === "compact" && attachment.kind === "video" && "w-[min(100%,20rem)]",
-    variant === "compact" && attachment.kind === "audio" && "w-[min(100%,20rem)]",
     className,
   );
   const bodyClassName = "block max-w-full";

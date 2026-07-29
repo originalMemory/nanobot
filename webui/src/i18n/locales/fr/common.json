@@ -1231,6 +1231,10 @@
     "copyReply": "Copier",
     "copiedReply": "Copié",
     "turnLatencyTitle": "Temps de réponse (de bout en bout)",
+    "source": {
+      "proactive": "Envoi proactif",
+      "heartbeat": "Signal de présence"
+    },
     "fileEditViewDiff": "Voir le diff",
     "fileEditViewLargeDiff": "Voir le grand diff",
     "fileEditDiffLineCount": "{{count}} lignes",

@@ -1919,6 +1919,7 @@ class AgentLoop:
             **self._source_extras(ctx.msg),
         )
         ctx.delivery.record_latency(ctx.turn_latency_ms)
+        ctx.delivery.record_usage(ctx.turn_usage or None)
         if not ctx.ephemeral:
             ctx.session.enforce_file_cap(
                 on_archive=partial(self.context.memory.raw_archive, session_key=ctx.session_key)

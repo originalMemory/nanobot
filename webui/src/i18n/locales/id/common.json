@@ -1231,6 +1231,10 @@
     "copyReply": "Salin",
     "copiedReply": "Disalin",
     "turnLatencyTitle": "Waktu respons (ujung ke ujung)",
+    "source": {
+      "proactive": "Pengiriman proaktif",
+      "heartbeat": "Detak jantung"
+    },
     "fileEditViewDiff": "Lihat diff",
     "fileEditViewLargeDiff": "Lihat diff besar",
     "fileEditDiffLineCount": "{{count}} baris",

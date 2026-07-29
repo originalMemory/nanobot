@@ -1231,6 +1231,10 @@
     "copyReply": "コピー",
     "copiedReply": "コピー済み",
     "turnLatencyTitle": "応答時間（全行程）",
+    "source": {
+      "proactive": "プロアクティブ送信",
+      "heartbeat": "ハートビート"
+    },
     "fileEditViewDiff": "差分を表示",
     "fileEditViewLargeDiff": "大きな差分を表示",
     "fileEditDiffLineCount": "{{count}} 行",

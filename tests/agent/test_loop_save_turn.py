@@ -7,7 +7,7 @@ import pytest
 from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
-from nanobot.agent.loop import AgentLoop, TurnState
+from nanobot.agent.loop import AgentLoop, TurnContext, TurnKind, TurnState
 from nanobot.agent.tools.context import RequestContext, request_context
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.outbound_events import (
@@ -18,6 +18,7 @@ from nanobot.bus.outbound_events import (
     TurnEndEvent,
 )
 from nanobot.bus.queue import MessageBus
+from nanobot.bus.runtime_events import TurnCompleted
 from nanobot.cron.session_turns import CRON_HISTORY_META, CRON_TRIGGER_META
 from nanobot.providers.base import LLMResponse
 from nanobot.providers.factory import ProviderSnapshot
@@ -622,6 +623,50 @@ def test_save_turn_usage_not_written_when_empty() -> None:
     )
 
     assert "usage" not in session.messages[-1]
+
+
+@pytest.mark.asyncio
+async def test_state_save_records_usage_for_live_turn_completion(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    session_key = "websocket:live-usage"
+    session = loop.sessions.get_or_create(session_key)
+    msg = InboundMessage(
+        channel="websocket",
+        sender_id="user",
+        chat_id="live-usage",
+        content="hi",
+        metadata={"webui": True},
+    )
+    delivery = loop.turn_delivery_factory.create(msg, session_key)
+    usage = {
+        "context_tokens": 42_000,
+        "context_pct": 42,
+        "turn_completion_tokens": 120,
+    }
+    loop._build_turn_usage = MagicMock(return_value=usage)
+    completed: list[TurnCompleted] = []
+    loop.runtime_events.subscribe(completed.append, TurnCompleted)
+    ctx = TurnContext(
+        msg=msg,
+        session_key=session_key,
+        state=TurnState.SAVE,
+        turn_id="turn-live-usage",
+        runtime=None,
+        kind=TurnKind.USER,
+        delivery=delivery,
+        session=session,
+        final_content="answer",
+        all_messages=[
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "answer"},
+        ],
+        ephemeral=True,
+    )
+
+    assert await loop._state_save(ctx) == "ok"
+    await delivery.complete(None, publish_completion=True)
+
+    assert completed[-1].usage == usage
 
 
 def test_restore_runtime_checkpoint_rehydrates_completed_and_pending_tools() -> None:

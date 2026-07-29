@@ -1262,6 +1262,10 @@
     "copyReply": "Copy",
     "copiedReply": "Copied",
     "turnLatencyTitle": "Response time (end-to-end)",
+    "source": {
+      "proactive": "Proactive",
+      "heartbeat": "Heartbeat"
+    },
     "fileEditViewDiff": "View diff",
     "fileEditViewLargeDiff": "View large diff",
     "fileEditDiffLineCount": "{{count}} lines",

@@ -284,6 +284,7 @@ class WebSocketChannel(BaseChannel):
         self._unified_session = unified_session
 
         self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
+        self._pending_reconnect_messages: dict[str, list[OutboundMessage]] = {}
 
     # -- Subscription bookkeeping -------------------------------------------
 
@@ -316,6 +317,12 @@ class WebSocketChannel(BaseChannel):
             if future is not None and not future.done():
                 future.cancel()
 
+    def queue_pending_reconnect_message(self, msg: OutboundMessage) -> None:
+        """缓存重要消息，等待客户端重新订阅对应会话后投递。"""
+        queue = self._pending_reconnect_messages.setdefault(msg.chat_id, [])
+        if len(queue) < 10:
+            queue.append(msg)
+
     async def _maybe_push_active_goal_state(self, chat_id: str) -> None:
         """Replay an active sustained goal from session metadata after *chat_id* is subscribed.
 
@@ -343,6 +350,9 @@ class WebSocketChannel(BaseChannel):
 
     async def _hydrate_after_subscribe(self, chat_id: str) -> None:
         """Replay persisted or actively running per-chat state after subscribe."""
+        pending = self._pending_reconnect_messages.pop(chat_id, [])
+        for msg in pending:
+            await self.send(msg)
         await self._maybe_push_active_goal_state(chat_id)
         await self._maybe_push_turn_run_wall_clock(chat_id)
 

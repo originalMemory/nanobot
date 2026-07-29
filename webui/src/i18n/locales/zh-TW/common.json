@@ -1230,6 +1230,10 @@
     "copyReply": "複製",
     "copiedReply": "已複製",
     "turnLatencyTitle": "本輪耗時（端到端）",
+    "source": {
+      "proactive": "主動推送",
+      "heartbeat": "心跳"
+    },
     "fileEditViewDiff": "檢視差異",
     "fileEditViewLargeDiff": "檢視大型差異",
     "fileEditDiffLineCount": "{{count}} 行",

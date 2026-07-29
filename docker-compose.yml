@@ -9,6 +9,9 @@ x-common-config: &common-config
       NANOBOT_CHANNELS: ${NANOBOT_CHANNELS:-whatsapp}
   environment:
     OAUTH_CLI_KIT_TOKEN_PATH: /home/nanobot/.nanobot/auth/codex.json
+    HTTP_PROXY: "http://192.168.31.73:7890"
+    HTTPS_PROXY: "http://192.168.31.73:7890"
+    NO_PROXY: "localhost,127.0.0.1,nanobot-gateway,nanobot-api"
   volumes:
     - .:/home/nanobot/src
     - ./.nanobot:/home/nanobot/.nanobot

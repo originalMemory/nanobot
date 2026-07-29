@@ -606,6 +606,17 @@ class ChannelManager:
             logger.warning("Restart notice target channel is not enabled: {}", notice.channel)
             return
 
+        message = OutboundMessage(
+            channel=notice.channel,
+            chat_id=notice.chat_id,
+            content=format_restart_completed_message(notice.started_at_raw),
+            metadata=dict(notice.metadata or {}),
+        )
+        queue_pending = getattr(target, "queue_pending_reconnect_message", None)
+        if callable(queue_pending):
+            queue_pending(message)
+            return
+
         while not target.is_running:
             remaining = deadline - loop.time()
             if remaining <= 0:
@@ -619,12 +630,7 @@ class ChannelManager:
 
         await self._send_with_retry(
             target,
-            OutboundMessage(
-                channel=notice.channel,
-                chat_id=notice.chat_id,
-                content=format_restart_completed_message(notice.started_at_raw),
-                metadata=dict(notice.metadata or {}),
-            ),
+            message,
             deadline=deadline,
         )
 

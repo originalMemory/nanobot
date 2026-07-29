@@ -11,7 +11,7 @@ from dataclasses import replace
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -3480,6 +3480,37 @@ async def test_notify_restart_done_waits_until_channel_starts():
     assert sent_msg.channel == "feishu"
     assert sent_msg.chat_id == "oc_123"
     assert sent_msg.content.startswith("Restart completed")
+
+
+@pytest.mark.asyncio
+async def test_restart_notice_waits_for_websocket_subscription():
+    """WebSocket restart notice should be queued instead of sent before reconnect."""
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig(),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+
+    mgr = ChannelManager.__new__(ChannelManager)
+    mgr.config = fake_config
+    mgr.bus = MessageBus()
+    channel = _StartableChannel(fake_config, mgr.bus)
+    channel.queue_pending_reconnect_message = MagicMock()
+    mgr.channels = {"websocket": channel}
+    mgr._send_with_retry = AsyncMock()
+
+    notice = RestartNotice(
+        channel="websocket",
+        chat_id="inbox:unified",
+        started_at_raw="100.0",
+    )
+    await mgr._send_restart_notice_when_started(notice, timeout_s=0.1, poll_s=0.01)
+
+    channel.queue_pending_reconnect_message.assert_called_once()
+    queued = channel.queue_pending_reconnect_message.call_args.args[0]
+    assert queued.channel == "websocket"
+    assert queued.chat_id == "inbox:unified"
+    assert queued.content.startswith("Restart completed")
+    mgr._send_with_retry.assert_not_awaited()
 
 
 @pytest.mark.asyncio

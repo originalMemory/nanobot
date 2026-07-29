@@ -1231,6 +1231,10 @@
     "copyReply": "복사",
     "copiedReply": "복사됨",
     "turnLatencyTitle": "응답 시간(엔드투엔드)",
+    "source": {
+      "proactive": "선제적 전송",
+      "heartbeat": "하트비트"
+    },
     "fileEditViewDiff": "Diff 보기",
     "fileEditViewLargeDiff": "큰 diff 보기",
     "fileEditDiffLineCount": "{{count}}줄",

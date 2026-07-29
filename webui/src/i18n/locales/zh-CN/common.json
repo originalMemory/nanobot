@@ -1262,6 +1262,10 @@
     "copyReply": "复制",
     "copiedReply": "已复制",
     "turnLatencyTitle": "本轮耗时（端到端）",
+    "source": {
+      "proactive": "主动推送",
+      "heartbeat": "心跳"
+    },
     "fileEditViewDiff": "查看差异",
     "fileEditViewLargeDiff": "查看大型差异",
     "fileEditDiffLineCount": "{{count}} 行",

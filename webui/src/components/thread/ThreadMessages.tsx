@@ -77,7 +77,17 @@ export function assistantTurnHeaderMessages(units: DisplayUnit[]): Array<UIMessa
     }
     const messages = unit.type === "activity" ? unit.messages : [unit.message];
     const explicitTurnId = messages.find((message) => message.turnId)?.turnId;
-    if (explicitTurnId) activeTurnKey = `turn:${explicitTurnId}`;
+    const proactiveMessage = unit.type === "message"
+      && unit.message.role === "assistant"
+      && unit.message.channelDelivery
+      ? unit.message
+      : null;
+    if (explicitTurnId) {
+      activeTurnKey = `turn:${explicitTurnId}`;
+    } else if (proactiveMessage) {
+      legacyTurn += 1;
+      activeTurnKey = `delivery:${legacyTurn}:${proactiveMessage.id}`;
+    }
     activeTurnKey ??= `legacy:${legacyTurn}`;
     descriptors.push({ index, key: activeTurnKey, messages });
   });
@@ -323,7 +333,7 @@ function AssistantTurnHeader({
       data-testid="assistant-turn-identity"
       className="mb-2 flex min-h-9 items-center gap-2 text-muted-foreground"
     >
-      <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full bg-muted text-[13px] font-medium">
+      <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full bg-muted text-sm font-medium">
         {avatarUrl && !avatarFailed ? (
           <img
             src={avatarUrl}
@@ -333,7 +343,9 @@ function AssistantTurnHeader({
           />
         ) : fallback}
       </span>
-      <span className="text-xs font-medium">{identity.name}</span>
+      <span className="text-base font-medium text-rose-600 dark:text-rose-300">
+        {identity.name}
+      </span>
       <MessageSourceBadge message={sourceMessage} inline />
     </div>
   );

@@ -220,7 +220,17 @@ function getWallpaperConfig(): WallpaperConfig {
   return { url, intervalMinutes };
 }
 
-ipcMain.handle('wallpaper:get-config', (): WallpaperConfig => getWallpaperConfig());
+ipcMain.handle('wallpaper:get-config', (): WallpaperConfig => {
+  const config = getWallpaperConfig();
+  if (!config.url) {
+    sendWallpaperDisabled();
+  } else if (lastWallpaperDataUrl) {
+    sendWallpaperUpdate(lastWallpaperDataUrl);
+  } else {
+    void fetchAndSendWallpaper();
+  }
+  return config;
+});
 
 ipcMain.handle('wallpaper:set-config', (_event, config: WallpaperConfig): WallpaperConfig => {
   const url = typeof config.url === 'string' ? config.url.trim() : '';

@@ -271,6 +271,76 @@ describe("ThreadViewport", () => {
     expect(screen.getByTestId("thread-message-region")).toHaveClass("justify-start");
   });
 
+  it("keeps the sent prompt anchored when content resizes before agent output", async () => {
+    const resizeObserver = stubResizeObserver();
+
+    try {
+      const threaded: UIMessage[] = [
+        { id: "u1", role: "user", content: "old question", createdAt: 1 },
+        { id: "a1", role: "assistant", content: "old answer", createdAt: 2 },
+        { id: "u2", role: "user", content: "new question", createdAt: 3 },
+      ];
+      const scrollTo = vi.fn();
+      const { container, rerender } = render(
+        <ThreadViewport
+          messages={threaded}
+          isStreaming
+          composer={<div>composer</div>}
+          scrollToLatestUserPromptSignal={0}
+        />,
+      );
+      const scroller = container.firstElementChild?.firstElementChild as HTMLElement;
+      const messageRegion = screen.getByTestId("thread-message-region");
+      const content = messageRegion.parentElement as HTMLElement;
+      Object.defineProperties(scroller, {
+        scrollHeight: { configurable: true, value: 1200 },
+        clientHeight: { configurable: true, value: 500 },
+        scrollTop: { configurable: true, writable: true, value: 700 },
+        scrollTo: { configurable: true, value: scrollTo },
+      });
+      const prompt = container.querySelector<HTMLElement>('[data-user-prompt-id="u2"]');
+      expect(prompt).not.toBeNull();
+      Object.defineProperty(prompt, "offsetTop", {
+        configurable: true,
+        value: 420,
+      });
+
+      await act(async () => {
+        rerender(
+          <ThreadViewport
+            messages={threaded}
+            isStreaming
+            composer={<div>composer</div>}
+            scrollToLatestUserPromptSignal={1}
+          />,
+        );
+      });
+
+      expect(scrollTo).toHaveBeenCalledWith({
+        top: 404,
+        behavior: "auto",
+      });
+      scrollTo.mockClear();
+
+      const contentObserver = resizeObserver.observers.find(
+        (observer) => observer.element === content,
+      );
+      expect(contentObserver).toBeDefined();
+
+      act(() => {
+        contentObserver!.callback(
+          [{ target: content } as ResizeObserverEntry],
+          contentObserver as unknown as ResizeObserver,
+        );
+      });
+
+      expect(scroller.scrollTop).toBe(404);
+      expect(scrollTo).not.toHaveBeenCalled();
+    } finally {
+      resizeObserver.restore();
+    }
+  });
+
   it("keeps following active agent output after anchoring the sent prompt", async () => {
     const threaded: UIMessage[] = [
       { id: "u1", role: "user", content: "old question", createdAt: 1 },
@@ -423,6 +493,103 @@ describe("ThreadViewport", () => {
     });
 
     expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("keeps the viewport pinned above the composer when activity content collapses", () => {
+    const resizeObserver = stubResizeObserver();
+
+    try {
+      const scrollTo = vi.fn();
+      const { container } = render(
+        <ThreadViewport
+          messages={messages}
+          isStreaming={false}
+          composer={<div>composer</div>}
+        />,
+      );
+      const scroller = container.firstElementChild?.firstElementChild as HTMLElement;
+      const messageRegion = screen.getByTestId("thread-message-region");
+      const content = messageRegion.parentElement as HTMLElement;
+      let scrollHeight = 1400;
+      Object.defineProperties(scroller, {
+        scrollHeight: { configurable: true, get: () => scrollHeight },
+        clientHeight: { configurable: true, value: 500 },
+        scrollTop: { configurable: true, writable: true, value: 900 },
+        scrollTo: { configurable: true, value: scrollTo },
+      });
+
+      act(() => {
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      scrollHeight = 1200;
+      scrollTo.mockClear();
+
+      const contentObserver = resizeObserver.observers.find(
+        (observer) => observer.element === content,
+      );
+      expect(contentObserver).toBeDefined();
+
+      act(() => {
+        contentObserver!.callback(
+          [{ target: content } as ResizeObserverEntry],
+          contentObserver as unknown as ResizeObserver,
+        );
+      });
+
+      expect(scrollTo).toHaveBeenCalledWith({
+        top: 700,
+        behavior: "auto",
+      });
+    } finally {
+      resizeObserver.restore();
+    }
+  });
+
+  it("does not restore bottom on content resize after the user scrolls up", () => {
+    const resizeObserver = stubResizeObserver();
+
+    try {
+      const scrollTo = vi.fn();
+      const { container } = render(
+        <ThreadViewport
+          messages={messages}
+          isStreaming={false}
+          composer={<div>composer</div>}
+        />,
+      );
+      const scroller = container.firstElementChild?.firstElementChild as HTMLElement;
+      const messageRegion = screen.getByTestId("thread-message-region");
+      const content = messageRegion.parentElement as HTMLElement;
+      let scrollHeight = 1200;
+      Object.defineProperties(scroller, {
+        scrollHeight: { configurable: true, get: () => scrollHeight },
+        clientHeight: { configurable: true, value: 500 },
+        scrollTop: { configurable: true, writable: true, value: 300 },
+        scrollTo: { configurable: true, value: scrollTo },
+      });
+
+      act(() => {
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      scrollHeight = 1400;
+      scrollTo.mockClear();
+
+      const contentObserver = resizeObserver.observers.find(
+        (observer) => observer.element === content,
+      );
+      expect(contentObserver).toBeDefined();
+
+      act(() => {
+        contentObserver!.callback(
+          [{ target: content } as ResizeObserverEntry],
+          contentObserver as unknown as ResizeObserver,
+        );
+      });
+
+      expect(scrollTo).not.toHaveBeenCalled();
+    } finally {
+      resizeObserver.restore();
+    }
   });
 
   it("keeps the scroll-to-bottom button above a growing composer", () => {

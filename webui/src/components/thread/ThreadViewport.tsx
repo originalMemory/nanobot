@@ -144,6 +144,8 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     useRef<{ height: number; top: number } | null>(null);
   /** User scrolled away from the bottom; do not auto-yank until they return or we reset (new chat / send). */
   const userReadingHistoryRef = useRef(false);
+  /** 只有视口原本主动贴底时，内容 resize 才继续保持贴底。 */
+  const stickToBottomRef = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
   const [composerDockHeight, setComposerDockHeight] = useState(0);
   const [keyboardInsetBottom, setKeyboardInsetBottom] = useState(0);
@@ -204,6 +206,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
       marker.scrollIntoView({ block: "end", behavior });
     }
     userReadingHistoryRef.current = false;
+    stickToBottomRef.current = true;
     setAtBottom(true);
   }, []);
 
@@ -226,6 +229,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     }
     const near = el.scrollHeight - top - el.clientHeight < NEAR_BOTTOM_PX;
     userReadingHistoryRef.current = false;
+    stickToBottomRef.current = near;
     setAtBottom(near);
     return true;
   }, [markProgrammaticPromptScroll]);
@@ -263,6 +267,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
       };
     }
     userReadingHistoryRef.current = true;
+    stickToBottomRef.current = false;
     activeTurnPromptRef.current = null;
     setAtBottom(false);
     if (hiddenMessageCount > 0) {
@@ -296,6 +301,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     if (index < 0) return;
     pendingPromptJumpRef.current = promptId;
     userReadingHistoryRef.current = true;
+    stickToBottomRef.current = false;
     activeTurnPromptRef.current = null;
     setAtBottom(false);
     setVisibleMessageCount((count) => Math.max(count, messages.length - index));
@@ -401,6 +407,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     lastConversationKeyRef.current = conversationKey;
     pendingConversationScrollRef.current = true;
     userReadingHistoryRef.current = false;
+    stickToBottomRef.current = true;
     activeTurnPromptRef.current = null;
     setAtBottom(true);
     setVisibleMessageCount(INITIAL_HISTORY_WINDOW);
@@ -495,7 +502,17 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     if (!el) return;
 
     measureVerticalOverflow();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measureVerticalOverflow);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver((entries) => {
+      measureVerticalOverflow();
+      if (
+        content
+        && entries.some((entry) => entry.target === content)
+        && stickToBottomRef.current
+        && !userReadingHistoryRef.current
+      ) {
+        scrollToBottom(false, 2);
+      }
+    });
     observer?.observe(el);
     if (content) observer?.observe(content);
     window.addEventListener("resize", measureVerticalOverflow);
@@ -503,7 +520,13 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
       observer?.disconnect();
       window.removeEventListener("resize", measureVerticalOverflow);
     };
-  }, [composerDockHeight, hasMessages, measureVerticalOverflow, visibleMessages.length]);
+  }, [
+    composerDockHeight,
+    hasMessages,
+    measureVerticalOverflow,
+    scrollToBottom,
+    visibleMessages.length,
+  ]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -518,10 +541,12 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
       setAtBottom((current) => current === near ? current : near);
       if (programmatic) {
         programmaticPromptScrollTopRef.current = null;
+        stickToBottomRef.current = near;
         if (near) userReadingHistoryRef.current = false;
         return;
       }
       programmaticPromptScrollTopRef.current = null;
+      stickToBottomRef.current = near;
       userReadingHistoryRef.current = !near;
       if (!near) activeTurnPromptRef.current = null;
       if (allowHistoryLoad && !near) maybeLoadEarlierFromScroll();

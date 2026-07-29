@@ -1231,6 +1231,10 @@
     "copyReply": "Sao chép",
     "copiedReply": "Đã sao chép",
     "turnLatencyTitle": "Thời gian phản hồi (end-to-end)",
+    "source": {
+      "proactive": "Gửi chủ động",
+      "heartbeat": "Nhịp tim"
+    },
     "fileEditViewDiff": "Xem diff",
     "fileEditViewLargeDiff": "Xem diff lớn",
     "fileEditDiffLineCount": "{{count}} dòng",
