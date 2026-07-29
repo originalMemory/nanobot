@@ -20,6 +20,10 @@ x-common-config: &common-config
     - /var/run/docker.sock:/var/run/docker.sock
   cap_drop:
     - ALL
+  cap_add:
+    - CHOWN
+    - SETGID
+    - SETUID
 
 services:
   nanobot-gateway:

@@ -72,6 +72,9 @@ RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/ent
 # entrypoint.sh).
 USER root
 ENV HOME=/home/nanobot
+# Source code is mounted at /home/nanobot/src; prefer it over the packaged copy
+# so code-only updates take effect after a container restart.
+ENV PYTHONPATH=/home/nanobot/src
 # Ensure crash output reaches Render logs (app output is otherwise swallowed on
 # non-graceful exit).
 ENV PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1
