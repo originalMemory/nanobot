@@ -75,6 +75,7 @@ ENV HOME=/home/nanobot
 # Source code is mounted at /home/nanobot/src; prefer it over the packaged copy
 # so code-only updates take effect after a container restart.
 ENV PYTHONPATH=/home/nanobot/src
+ENV NANOBOT_WEBUI_DIST=/app/nanobot/web/dist
 # Ensure crash output reaches Render logs (app output is otherwise swallowed on
 # non-graceful exit).
 ENV PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1

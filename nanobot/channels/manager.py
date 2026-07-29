@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 from collections.abc import Callable, Iterable
 from contextlib import suppress
 from pathlib import Path
@@ -44,13 +45,21 @@ if TYPE_CHECKING:
 
 
 def _default_webui_dist() -> Path | None:
-    """Return the absolute path to the bundled webui dist directory if it exists."""
+    """返回可用的 WebUI 构建产物目录。"""
     try:
         import nanobot.web as web_pkg  # type: ignore[import-not-found]
     except ImportError:
+        candidate = None
+    else:
+        candidate = Path(web_pkg.__file__).resolve().parent / "dist"
+    if candidate is not None and candidate.is_dir():
+        return candidate
+
+    fallback = os.environ.get("NANOBOT_WEBUI_DIST", "").strip()
+    if not fallback:
         return None
-    candidate = Path(web_pkg.__file__).resolve().parent / "dist"
-    return candidate if candidate.is_dir() else None
+    fallback_path = Path(fallback).expanduser().resolve()
+    return fallback_path if fallback_path.is_dir() else None
 
 
 # Retry delays for message sending (exponential backoff: 1s, 2s, 4s)
