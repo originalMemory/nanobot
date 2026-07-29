@@ -179,8 +179,8 @@ describe("ThreadMessages", () => {
     expect(screen.getAllByText("Homura")).toHaveLength(2);
     expect(screen.getAllByAltText("Homura")).toHaveLength(2);
     expect(screen.getAllByText("Homura")[0]).toHaveClass(
-      "text-rose-600",
-      "dark:text-rose-300",
+      "text-rose-500/85",
+      "dark:text-rose-300/85",
     );
     expect(screen.getAllByText("Telegram")).toHaveLength(1);
 

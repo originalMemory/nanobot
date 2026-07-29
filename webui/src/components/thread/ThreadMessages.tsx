@@ -343,7 +343,7 @@ function AssistantTurnHeader({
           />
         ) : fallback}
       </span>
-      <span className="text-base font-medium text-rose-600 dark:text-rose-300">
+      <span className="text-base font-medium text-rose-500/85 dark:text-rose-300/85">
         {identity.name}
       </span>
       <MessageSourceBadge message={sourceMessage} inline />
