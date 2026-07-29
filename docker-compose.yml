@@ -7,6 +7,8 @@ x-common-config: &common-config
     dockerfile: Dockerfile
     args:
       NANOBOT_CHANNELS: ${NANOBOT_CHANNELS:-whatsapp}
+  environment:
+    OAUTH_CLI_KIT_TOKEN_PATH: /home/nanobot/.nanobot/auth/codex.json
   volumes:
     - .:/home/nanobot/src
     - ./.nanobot:/home/nanobot/.nanobot
