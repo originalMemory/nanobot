@@ -39,14 +39,23 @@ type PendingStreamEvent =
   | { kind: "delta"; text: string; turn: UIMessageTurnFields }
   | { kind: "reasoning"; text: string; turn: UIMessageTurnFields };
 
-type UIMessageTurnFields = Pick<UIMessage, "turnId" | "turnPhase" | "turnSeq">;
+type UIMessageTurnFields = Pick<
+  UIMessage,
+  "turnId" | "turnPhase" | "turnSeq" | "sourceChannel" | "sourceChatId"
+>;
 
 const FILE_EDIT_TOOL_NAMES = new Set(["write_file", "edit_file", "apply_patch"]);
 const STREAM_END_IDLE_DELAY_MS = 1000;
 const BACKGROUND_STREAM_FLUSH_INTERVAL_MS = 1_000;
 
 function turnFieldsFromEvent(
-  ev: { turn_id?: string; turn_phase?: UITurnPhase; turn_seq?: number },
+  ev: {
+    turn_id?: string;
+    turn_phase?: UITurnPhase;
+    turn_seq?: number;
+    source_channel?: string;
+    source_chat_id?: string;
+  },
   fallbackPhase?: UITurnPhase,
 ): UIMessageTurnFields {
   const fields: UIMessageTurnFields = {};
@@ -57,6 +66,12 @@ function turnFieldsFromEvent(
   if (phase) fields.turnPhase = phase;
   if (typeof ev.turn_seq === "number" && Number.isFinite(ev.turn_seq)) {
     fields.turnSeq = ev.turn_seq;
+  }
+  if (typeof ev.source_channel === "string" && ev.source_channel) {
+    fields.sourceChannel = ev.source_channel;
+  }
+  if (typeof ev.source_chat_id === "string" && ev.source_chat_id) {
+    fields.sourceChatId = ev.source_chat_id;
   }
   return fields;
 }
@@ -258,6 +273,7 @@ function absorbCompleteAssistantMessage(
         id: crypto.randomUUID(),
         role: "assistant",
         createdAt: Date.now(),
+        liveArrival: true,
         ...message,
       },
     ];
@@ -269,6 +285,7 @@ function absorbCompleteAssistantMessage(
       ...message,
       isStreaming: false,
       reasoningStreaming: false,
+      liveArrival: true,
     },
   ];
 }
@@ -965,6 +982,26 @@ export function useNanobotStream(
         return;
       }
 
+      if (ev.event === "user") {
+        const content = typeof ev.text === "string" ? ev.text : "";
+        const media = ev.media_urls?.length
+          ? ev.media_urls.map((item) => toMediaAttachment(item))
+          : undefined;
+        if (!content.trim() && !media?.length) return;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "user",
+            content,
+            createdAt: Date.now(),
+            ...(media?.length ? { media } : {}),
+            ...turnFieldsFromEvent(ev, "user"),
+          },
+        ]);
+        return;
+      }
+
       if (ev.event === "message") {
         if (
           suppressStreamUntilTurnEndRef.current &&
@@ -1088,6 +1125,10 @@ export function useNanobotStream(
             ...(hasMedia ? { media } : {}),
             ...(lat !== undefined ? { latencyMs: lat } : {}),
             ...(ev.source ? { source: ev.source } : {}),
+            ...(ev.channel_delivery ? { channelDelivery: true } : {}),
+            ...(ev.user_initiated_delivery ? { userInitiatedDelivery: true } : {}),
+            ...(ev.cron_job_id ? { cronJobId: ev.cron_job_id } : {}),
+            ...(ev.cron_job_name ? { cronJobName: ev.cron_job_name } : {}),
             ...turnFieldsFromEvent(ev, "answer"),
           });
         });

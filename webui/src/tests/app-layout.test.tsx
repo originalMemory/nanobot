@@ -228,10 +228,12 @@ vi.mock("@/lib/nanobot-client", () => {
 
 import {
   BootstrapAuthRequiredError,
+  clearSavedSecret,
   deriveWsUrl,
   fetchBootstrap,
+  loadSavedSecret,
 } from "@/lib/bootstrap";
-import App from "@/App";
+import App, { AuthForm } from "@/App";
 
 describe("App layout", () => {
   beforeEach(async () => {
@@ -248,6 +250,7 @@ describe("App layout", () => {
     runStatusHandlers.clear();
     sessionUpdateHandlers.clear();
     window.history.replaceState(null, "", "/");
+    Reflect.deleteProperty(window, "nanobotHost");
     setNavigatorPlatform("Linux x86_64");
     localStorage.removeItem("nanobot-webui.sidebar");
     localStorage.removeItem("nanobot-webui.sidebar.completed-runs.v1");
@@ -261,6 +264,8 @@ describe("App layout", () => {
       expires_in: 300,
     });
     vi.mocked(deriveWsUrl).mockReset().mockReturnValue("ws://test");
+    vi.mocked(loadSavedSecret).mockReset().mockReturnValue("");
+    vi.mocked(clearSavedSecret).mockReset();
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -272,6 +277,7 @@ describe("App layout", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    Reflect.deleteProperty(window, "nanobotHost");
   });
 
   it("shows the auth form without an invalid-password error on first load", async () => {
@@ -314,6 +320,134 @@ describe("App layout", () => {
     expect(await screen.findByText("Invalid password. Try again.")).toBeInTheDocument();
     expect(fetchBootstrap).toHaveBeenLastCalledWith("", "wrong-password");
     expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it("lets the native auth form switch Gateway URL and secret together", async () => {
+    const setConnection = vi.fn().mockResolvedValue({
+      ok: true,
+      url: "https://nas.example",
+    });
+    Object.defineProperty(window, "nanobotHost", {
+      configurable: true,
+      value: {
+        gateway: {
+          getUrl: vi.fn().mockResolvedValue("http://127.0.0.1:8765"),
+          setUrl: vi.fn(),
+          setConnection,
+        },
+      },
+    });
+    vi.mocked(fetchBootstrap).mockRejectedValueOnce(
+      new BootstrapAuthRequiredError(),
+    );
+
+    render(<App />);
+
+    const gatewayInput = await screen.findByLabelText("Gateway URL");
+    fireEvent.change(gatewayInput, { target: { value: "https://nas.example" } });
+    fireEvent.change(screen.getByPlaceholderText("Password"), {
+      target: { value: "gateway-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => {
+      expect(setConnection).toHaveBeenCalledWith(
+        "https://nas.example",
+        "gateway-secret",
+      );
+    });
+  });
+
+  it("enters the app immediately after native auth succeeds on the current Gateway", async () => {
+    const setConnection = vi.fn().mockResolvedValue({
+      ok: true,
+      url: "https://nas.example",
+    });
+    Object.defineProperty(window, "nanobotHost", {
+      configurable: true,
+      value: {
+        gateway: {
+          getUrl: vi.fn().mockResolvedValue("https://nas.example"),
+          setUrl: vi.fn(),
+          setConnection,
+          setSecret: vi.fn().mockResolvedValue(undefined),
+        },
+      },
+    });
+    const onSecret = vi.fn();
+    render(<AuthForm failed={false} onSecret={onSecret} />);
+
+    await screen.findByLabelText("Gateway URL");
+    fireEvent.change(screen.getByPlaceholderText("Password"), {
+      target: { value: "gateway-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => expect(onSecret).toHaveBeenCalledWith("gateway-secret"));
+    expect(setConnection).toHaveBeenCalledWith("https://nas.example", "gateway-secret");
+  });
+
+  it("does not submit native auth before the current Gateway URL is loaded", async () => {
+    let resolveGatewayUrl!: (url: string) => void;
+    const getUrl = vi.fn(() => new Promise<string>((resolve) => {
+      resolveGatewayUrl = resolve;
+    }));
+    const setConnection = vi.fn().mockResolvedValue({
+      ok: true,
+      url: "https://nas.example",
+    });
+    Object.defineProperty(window, "nanobotHost", {
+      configurable: true,
+      value: {
+        gateway: {
+          getUrl,
+          setUrl: vi.fn(),
+          setConnection,
+        },
+      },
+    });
+    const onSecret = vi.fn();
+    render(<AuthForm failed={false} onSecret={onSecret} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Password"), {
+      target: { value: "gateway-secret" },
+    });
+    expect(screen.getByLabelText("Gateway URL")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
+    expect(setConnection).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveGatewayUrl("https://nas.example");
+    });
+    await waitFor(() => expect(screen.getByLabelText("Gateway URL")).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => expect(onSecret).toHaveBeenCalledWith("gateway-secret"));
+    expect(setConnection).toHaveBeenCalledOnce();
+  });
+
+  it("clears rejected saved credentials from Electron", async () => {
+    const clearSecret = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "nanobotHost", {
+      configurable: true,
+      value: {
+        gateway: {
+          getUrl: vi.fn().mockResolvedValue("https://nas.example"),
+          setUrl: vi.fn(),
+          clearSecret,
+        },
+      },
+    });
+    vi.mocked(loadSavedSecret).mockReturnValue("saved-secret");
+    vi.mocked(fetchBootstrap).mockRejectedValue(
+      new BootstrapAuthRequiredError(),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText("Invalid password. Try again.")).toBeInTheDocument();
+    expect(clearSavedSecret).toHaveBeenCalled();
+    expect(clearSecret).toHaveBeenCalled();
   });
 
   it("keeps sidebar layout out of the main thread width contract", async () => {
@@ -827,6 +961,58 @@ describe("App layout", () => {
     expect(
       screen.getByRole("navigation", { name: "Sidebar navigation" }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps Electron on Unified Inbox without new-session entry points", async () => {
+    mockSessions = [
+      {
+        key: "unified:default",
+        channel: "unified",
+        chatId: "inbox:unified",
+        createdAt: "9999-12-31T23:59:59.999Z",
+        updatedAt: "9999-12-31T23:59:59.999Z",
+        title: "Unified Inbox",
+        preview: "All channels",
+        virtual: "unified_inbox",
+      },
+      {
+        key: "websocket:chat-a",
+        channel: "websocket",
+        chatId: "chat-a",
+        createdAt: "2026-04-16T10:00:00Z",
+        updatedAt: "2026-04-16T10:00:00Z",
+        preview: "Desktop chat",
+        workspaceScope: {
+          project_path: "/Users/me/nanobot",
+          project_name: "Nanobot",
+          access_mode: "default",
+          restrict_to_workspace: false,
+        },
+      },
+    ];
+    vi.mocked(fetchBootstrap).mockResolvedValue({
+      token: "tok",
+      api_token: "api-tok",
+      ws_path: "/",
+      expires_in: 300,
+      runtime_surface: "native",
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#/chat/unified%3Adefault");
+    });
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    expect(within(sidebar).queryByRole("button", { name: "New topic" })).not.toBeInTheDocument();
+    expect(
+      within(sidebar).queryByRole("button", { name: /new topic in nanobot/i }),
+    ).not.toBeInTheDocument();
+    expect(within(sidebar).getByRole("button", { name: "Search" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "O", shiftKey: true, metaKey: true });
+    expect(window.location.hash).toBe("#/chat/unified%3Adefault");
+    expect(createChatSpy).not.toHaveBeenCalled();
   });
 
   it("switches to the next session when deleting the active chat", async () => {
@@ -1687,9 +1873,8 @@ describe("App layout", () => {
     expect(screen.getByTestId("provider-logo-openai")).toBeInTheDocument();
     expect(screen.queryByText(/Product names, logos, and brands/)).not.toBeInTheDocument();
     expect(screen.queryByText("Not configured")).not.toBeInTheDocument();
-    const clickProviderRow = (label: string) => {
-      const providerLabel = screen
-        .getAllByText(label)
+    const clickProviderRow = async (label: string) => {
+      const providerLabel = (await screen.findAllByText(label))
         .find((element) => element.className.includes("font-semibold"));
       expect(providerLabel).toBeTruthy();
       fireEvent.click(providerLabel!);
@@ -1700,21 +1885,21 @@ describe("App layout", () => {
       );
       fireEvent.click(await screen.findByRole("menuitem", { name: label }));
     };
-    clickProviderRow("OpenAI");
+    await clickProviderRow("OpenAI");
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByPlaceholderText("Leave blank to keep the current key"), {
       target: { value: "unsaved-openai-key" },
     });
-    clickProviderRow("OpenAI");
+    await clickProviderRow("OpenAI");
     await chooseProvider("OpenRouter");
-    clickProviderRow("OpenRouter");
-    clickProviderRow("OpenAI");
+    await clickProviderRow("OpenRouter");
+    await clickProviderRow("OpenAI");
     expect(screen.getByText("open••••-key")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("unsaved-openai-key")).not.toBeInTheDocument();
-    clickProviderRow("OpenAI");
+    await clickProviderRow("OpenAI");
     await chooseProvider("Ant Ling");
     expect(screen.getByDisplayValue("https://api.ant-ling.com/v1")).toBeInTheDocument();
-    clickProviderRow("Ant Ling");
+    await clickProviderRow("Ant Ling");
     await chooseProvider("Atomic Chat");
     expect(screen.getByDisplayValue("http://localhost:1337/v1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save provider" })).toBeEnabled();

@@ -13,8 +13,15 @@
       "title": "Cần xác thực",
       "hint": "Nhập secret được cấu hình là tokenIssueSecret trong cấu hình gateway.",
       "placeholder": "Mật khẩu",
+      "gatewayUrl": "URL Gateway",
       "submit": "Kết nối",
-      "invalid": "Mật khẩu không hợp lệ. Hãy thử lại."
+      "invalid": "Mật khẩu không hợp lệ. Hãy thử lại.",
+      "gatewayErrors": {
+        "empty": "Nhập URL Gateway.",
+        "invalid": "Nhập URL HTTP hoặc HTTPS đầy đủ.",
+        "unsupported": "Chỉ hỗ trợ URL HTTP và HTTPS.",
+        "credentials": "Không bao gồm tên người dùng hoặc mật khẩu trong URL."
+      }
     },
     "account": {
       "section": "Tài khoản",
@@ -39,6 +46,10 @@
     "meta": {
       "description": "Giao diện web nanobot — trò chuyện với workspace nanobot của bạn."
     }
+  },
+  "inbox": {
+    "unified": "Hộp thư đến hợp nhất",
+    "allChannels": "Tất cả kênh"
   },
   "sidebar": {
     "navigation": "Điều hướng thanh bên",
@@ -89,6 +100,9 @@
       "interface": "Giao diện",
       "ai": "AI",
       "system": "Hệ thống",
+      "connection": "Kết nối",
+      "wallpaper": "Hình nền động",
+      "desktop": "Máy tính",
       "about": "Giới thiệu",
       "status": "Trạng thái",
       "localPreferences": "Tùy chọn cục bộ",
@@ -114,6 +128,10 @@
       "model": "Mô hình",
       "restart": "Khởi động lại nanobot",
       "configPath": "Đường dẫn cấu hình",
+      "gatewayUrl": "URL Gateway",
+      "wallpaper": "URL hình ảnh",
+      "wallpaperInterval": "Khoảng thời gian cập nhật",
+      "raiseInboxShortcut": "Phím tắt hộp thư hợp nhất",
       "activePreset": "Preset đang dùng",
       "gateway": "Cổng",
       "restartState": "Trạng thái khởi động lại",
@@ -163,6 +181,9 @@
       "provider": "Selecciona el proveedor para nuevas solicitudes de modelo.",
       "model": "Chọn mô hình mà cấu hình sẵn này sử dụng.",
       "configPath": "Archivo de configuración que usa actualmente el gateway.",
+      "gatewayUrl": "Nanobot Gateway được cung cấp bởi thiết bị này hoặc máy chủ từ xa.",
+      "wallpaper": "Ứng dụng máy tính tải hình ảnh khi cửa sổ đang hiển thị. Để trống để tắt.",
+      "raiseInboxShortcut": "Hiển thị cửa sổ và mở hộp thư hợp nhất từ bất kỳ đâu.",
       "selectedPreset": "Los preajustes con nombre son de solo lectura aquí; edítalos en config.json.",
       "presetModel": "Chuyển sang Default để chỉnh sửa mô hình và nhà cung cấp từ WebUI.",
       "density": "Chỉ lưu trong trình duyệt này.",
@@ -223,6 +244,7 @@
       "collapsedDiff": "Diff thu gọn",
       "on": "Bật",
       "off": "Tắt",
+      "minutesShort": "phút",
       "defaultPermission": "Quyền mặc định",
       "fullAccess": "Toàn quyền",
       "configured": "Đã cấu hình",
@@ -260,6 +282,21 @@
       "export": "Xuất",
       "opening": "Đang mở...",
       "exporting": "Đang xuất..."
+    },
+    "errors": {
+      "gatewayUrlLoadFailed": "Không thể tải URL Gateway.",
+      "gatewayUrlEmpty": "Hãy nhập URL Gateway.",
+      "gatewayUrlInvalid": "Hãy nhập URL hợp lệ có http:// hoặc https://.",
+      "gatewayUrlUnsupported": "Chỉ hỗ trợ URL HTTP và HTTPS.",
+      "gatewayUrlCredentials": "Không đưa thông tin đăng nhập vào URL Gateway.",
+      "gatewayUrlSaveFailed": "Không thể lưu URL Gateway.",
+      "raiseInboxShortcutLoadFailed": "Không thể tải phím tắt toàn cục.",
+      "raiseInboxShortcutRecordFailed": "Không thể tạm dừng phím tắt toàn cục hiện tại.",
+      "raiseInboxShortcutEmpty": "Hãy ghi phím tắt trước khi lưu.",
+      "raiseInboxShortcutRegisterFailed": "Phím tắt đã được sử dụng."
+    },
+    "shortcut": {
+      "recording": "Nhấn phím tắt…"
     },
     "byok": {
       "description": "Dùng key provider của riêng bạn. Nanobot đọc các giá trị này từ config hiện tại và chỉ provider đã cấu hình mới có thể dùng trong cấu hình mô hình đặt trước.",
@@ -1173,6 +1210,10 @@
     "agentActivityLiveSummary": "Đang chạy… · {{reasoning}} bước · {{tools}} lần gọi công cụ",
     "agentActivityLiveToolsOnly": "Đang chạy… · {{tools}} lần gọi công cụ",
     "imageAttachment": "Tệp hình ảnh đính kèm",
+    "videoAttachment": "Video đính kèm",
+    "audioAttachment": "Âm thanh đính kèm",
+    "fileAttachment": "Tệp đính kèm",
+    "attachmentUnavailable": "Tệp đính kèm không khả dụng",
     "askAboutSelection": "Hỏi về nội dung này",
     "forkFromHere": "Tách nhánh",
     "copyReply": "Sao chép",

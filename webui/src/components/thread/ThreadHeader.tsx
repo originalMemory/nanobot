@@ -16,6 +16,7 @@ interface ThreadHeaderProps {
   minimal?: boolean;
   promptNavigatorAction?: ReactNode;
   sessionInfoAction?: ReactNode;
+  titleAction?: ReactNode;
 }
 
 export function ThreadHeader({
@@ -29,6 +30,7 @@ export function ThreadHeader({
   minimal = false,
   promptNavigatorAction,
   sessionInfoAction,
+  titleAction,
 }: ThreadHeaderProps) {
   const { t } = useTranslation();
 
@@ -58,6 +60,7 @@ export function ThreadHeader({
             <span className="max-w-[min(60vw,32rem)] truncate">{title}</span>
           </div>
         ) : null}
+        {titleAction}
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-1">

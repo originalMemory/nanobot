@@ -97,6 +97,35 @@ async function flushStreamFrame() {
 }
 
 describe("useNanobotStream", () => {
+  it("appends externally delivered user messages with their source metadata", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", EMPTY_MESSAGES),
+      { wrapper: wrap(fake.client) },
+    );
+
+    act(() => {
+      fake.emit("inbox:unified", {
+        event: "user",
+        chat_id: "inbox:unified",
+        text: "telegram message",
+        source_channel: "telegram",
+        source_chat_id: "chat-1",
+        turn_id: "turn-1",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]).toMatchObject({
+      role: "user",
+      content: "telegram message",
+      sourceChannel: "telegram",
+      sourceChatId: "chat-1",
+      turnId: "turn-1",
+      turnPhase: "user",
+    });
+  });
+
   it("batches answer deltas into one animation-frame update", async () => {
     const fake = fakeClient();
     const requestFrame = vi.spyOn(window, "requestAnimationFrame");
@@ -1638,6 +1667,7 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[0].media).toEqual([
       { kind: "video", url: "/api/media/sig/payload", name: "demo.mp4" },
     ]);
+    expect(result.current.messages[0].liveArrival).toBe(true);
   });
 
   it("keeps assistant html media as a file attachment", () => {

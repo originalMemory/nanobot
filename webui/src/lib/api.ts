@@ -30,6 +30,7 @@ import type {
   SlashCommand,
   SlashCommandLifecycle,
   TranscriptionSettingsUpdate,
+  TtsSettingsUpdate,
   WebSearchSettingsUpdate,
   WorkspacesPayload,
   WebuiThreadPersistedPayload,
@@ -766,7 +767,20 @@ export async function updateSettings(
   if (update.toolHintMaxLength !== undefined) {
     query.set("tool_hint_max_length", String(update.toolHintMaxLength));
   }
+  if (update.visionModel !== undefined) query.set("vision_model", update.visionModel);
+  if (update.visionProvider !== undefined) query.set("vision_provider", update.visionProvider);
   return request<SettingsPayload>(`${base}/api/settings/update?${query}`, token);
+}
+
+export async function updateTtsSettings(
+  token: string,
+  update: TtsSettingsUpdate,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  if (update.enabled !== undefined) query.set("enabled", String(update.enabled));
+  if (update.defaultVoice !== undefined) query.set("default_voice", update.defaultVoice);
+  return request<SettingsPayload>(`${base}/api/settings/tts/update?${query}`, token);
 }
 
 function appendModelGenerationSettings(

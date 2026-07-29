@@ -27,6 +27,7 @@ import {
 } from "@/components/FileReferenceChip";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { inferMediaKind } from "@/lib/media";
+import type { UIMediaKind } from "@/lib/types";
 import { browserSafeFaviconUrls } from "@/lib/provider-brand";
 import { remarkTexMath } from "@/lib/remark-tex-math";
 import { cn } from "@/lib/utils";
@@ -112,7 +113,7 @@ function extensionOf(value: string): string {
   return dot > 0 ? name.slice(dot).toLowerCase() : "";
 }
 
-function markdownAttachmentKind(source: string, label: string): "image" | "video" | "file" {
+function markdownAttachmentKind(source: string, label: string): UIMediaKind {
   const inferredKind = inferMediaKind({ url: source, name: label });
   if (inferredKind !== "file") return inferredKind;
   return extensionOf(label) || extensionOf(source) ? "file" : "image";

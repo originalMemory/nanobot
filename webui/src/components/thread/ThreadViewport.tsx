@@ -13,7 +13,10 @@ import { ArrowDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { PromptRail } from "@/components/thread/PromptRail";
-import { ThreadMessages } from "@/components/thread/ThreadMessages";
+import {
+  ThreadMessages,
+  type AssistantIdentity,
+} from "@/components/thread/ThreadMessages";
 import { isAgentActivityMember } from "@/components/thread/AgentActivityCluster";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +34,7 @@ export interface ThreadViewportHandle {
 
 interface ThreadViewportProps {
   messages: UIMessage[];
+  assistantIdentity?: AssistantIdentity;
   isStreaming: boolean;
   composer: ReactNode;
   emptyState?: ReactNode;
@@ -104,6 +108,7 @@ function readSoftKeyboardInsetBottom(container: HTMLElement | null): number {
 
 export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportProps>(function ThreadViewport({
   messages,
+  assistantIdentity,
   isStreaming,
   composer,
   emptyState,
@@ -551,6 +556,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
               <div className="mx-auto w-full max-w-[49.5rem]">
                 <ThreadMessages
                   messages={visibleMessages}
+                  assistantIdentity={assistantIdentity}
                   isStreaming={isStreaming}
                   hiddenUserMessageCount={hiddenUserMessageCount}
                   cliApps={cliApps}

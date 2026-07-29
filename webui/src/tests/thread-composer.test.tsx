@@ -434,6 +434,30 @@ describe("ThreadComposer", () => {
     expect(screen.getByText("gpt-5.6-sol")).toBeInTheDocument();
   });
 
+  it("opens a model preset menu on click when the native surface enables it", async () => {
+    const onModelPresetChange = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        modelLabel="Primary"
+        modelPreset="primary"
+        modelPresets={[
+          { name: "primary", label: "Primary", model: "openai/gpt-5" },
+          { name: "deep", label: "Deep", model: "anthropic/claude-opus" },
+        ]}
+        onModelPresetChange={onModelPresetChange}
+        modelPresetClickMenu
+        placeholder="Ask anything..."
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Primary" }));
+    const deep = await screen.findByRole("menuitem", { name: /Deep/ });
+    fireEvent.click(deep);
+
+    expect(onModelPresetChange).toHaveBeenCalledWith("deep");
+  });
+
   it("keeps the thread composer compact while matching the hero style", () => {
     render(
       <ThreadComposer

@@ -1,13 +1,16 @@
-import { memo, useCallback, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MessageBubble } from "@/components/MessageBubble";
+import { MessageSourceBadge } from "@/components/MessageSourceBadge";
 import { AgentActivityCluster } from "@/components/thread/AgentActivityCluster";
 import { AssistantSelectionAction } from "@/components/thread/AssistantSelectionAction";
 import { normalizeActivityTimeline, type TurnUnit } from "@/lib/activity-timeline";
 import type { CliAppInfo, McpPresetInfo, SlashCommand, UIMessage } from "@/lib/types";
+import { isNativeRuntime } from "@/lib/runtime";
 
 interface ThreadMessagesProps {
   messages: UIMessage[];
+  assistantIdentity?: AssistantIdentity;
   /** When true, agent turn still in flight — keeps activity timeline expanded. */
   isStreaming?: boolean;
   hiddenUserMessageCount?: number;
@@ -21,6 +24,12 @@ interface ThreadMessagesProps {
 }
 
 export type DisplayUnit = TurnUnit;
+
+export interface AssistantIdentity {
+  name: string;
+  icon: string;
+  avatarUrl?: string | null;
+}
 
 export function buildDisplayUnits(
   messages: UIMessage[],
@@ -48,8 +57,66 @@ export function assistantForkFlags(units: DisplayUnit[]): boolean[] {
   return flags;
 }
 
+/** 每轮只为首个 agent 展示单元返回一条可用于 identity/source 的消息。 */
+export function assistantTurnHeaderMessages(units: DisplayUnit[]): Array<UIMessage | null> {
+  const descriptors: Array<{
+    index: number;
+    key: string;
+    messages: UIMessage[];
+  }> = [];
+  let legacyTurn = 0;
+  let activeTurnKey: string | null = null;
+
+  units.forEach((unit, index) => {
+    if (unit.type === "message" && unit.message.role === "user") {
+      legacyTurn += 1;
+      activeTurnKey = unit.message.turnId
+        ? `turn:${unit.message.turnId}`
+        : `legacy:${legacyTurn}`;
+      return;
+    }
+    const messages = unit.type === "activity" ? unit.messages : [unit.message];
+    const explicitTurnId = messages.find((message) => message.turnId)?.turnId;
+    if (explicitTurnId) activeTurnKey = `turn:${explicitTurnId}`;
+    activeTurnKey ??= `legacy:${legacyTurn}`;
+    descriptors.push({ index, key: activeTurnKey, messages });
+  });
+
+  const sourceByTurn = new Map<string, UIMessage>();
+  for (const descriptor of descriptors) {
+    const candidate = descriptor.messages.find(hasMessageSource)
+      ?? descriptor.messages.find((message) => message.role === "assistant")
+      ?? descriptor.messages[0];
+    if (candidate && (!sourceByTurn.has(descriptor.key) || hasMessageSource(candidate))) {
+      const current = sourceByTurn.get(descriptor.key);
+      if (!current || !hasMessageSource(current)) {
+        sourceByTurn.set(descriptor.key, candidate);
+      }
+    }
+  }
+
+  const headers = new Array<UIMessage | null>(units.length).fill(null);
+  const seen = new Set<string>();
+  for (const descriptor of descriptors) {
+    if (seen.has(descriptor.key)) continue;
+    seen.add(descriptor.key);
+    headers[descriptor.index] = sourceByTurn.get(descriptor.key) ?? null;
+  }
+  return headers;
+}
+
+function hasMessageSource(message: UIMessage): boolean {
+  return Boolean(
+    message.sourceChannel?.trim()
+    || message.cronJobName?.trim()
+    || message.channelDelivery
+    || message.userInitiatedDelivery,
+  );
+}
+
 export function ThreadMessages({
   messages,
+  assistantIdentity,
   isStreaming = false,
   hiddenUserMessageCount = 0,
   cliApps = [],
@@ -68,6 +135,10 @@ export function ThreadMessages({
     [forkBoundaryMessageCount, units],
   );
   const forkFlags = useMemo(() => assistantForkFlags(units), [units]);
+  const turnHeaderMessages = useMemo(
+    () => assistantTurnHeaderMessages(units),
+    [units],
+  );
   const liveActivityClusterIndices = useMemo(
     () => isStreaming ? currentActivityClusterIndices(units) : new Set<number>(),
     [isStreaming, units],
@@ -107,6 +178,8 @@ export function ThreadMessages({
           <ThreadDisplayUnit
             key={unitKeys[index]}
             unit={unit}
+            assistantIdentity={assistantIdentity}
+            turnHeaderMessage={turnHeaderMessages[index]}
             marginTop={marginTop}
             userPromptId={userPromptId}
             hasBodyBelow={hasBodyBelow}
@@ -128,6 +201,8 @@ export function ThreadMessages({
 
 interface ThreadDisplayUnitProps {
   unit: DisplayUnit;
+  assistantIdentity?: AssistantIdentity;
+  turnHeaderMessage?: UIMessage | null;
   marginTop: string;
   userPromptId?: string;
   hasBodyBelow: boolean;
@@ -144,6 +219,8 @@ interface ThreadDisplayUnitProps {
 
 const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
   unit,
+  assistantIdentity,
+  turnHeaderMessage,
   marginTop,
   userPromptId,
   hasBodyBelow,
@@ -170,6 +247,12 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
         className={`${marginTop}${deferOffscreenRender ? " thread-render-unit" : ""}`}
         data-user-prompt-id={userPromptId}
       >
+        {assistantIdentity && turnHeaderMessage ? (
+          <AssistantTurnHeader
+            identity={assistantIdentity}
+            sourceMessage={turnHeaderMessage}
+          />
+        ) : null}
         {unit.type === "activity" ? (
           <AgentActivityCluster
             messages={unit.messages}
@@ -184,6 +267,7 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
         ) : (
           <MessageBubble
             message={unit.message}
+            showSourceBadge={!assistantIdentity || unit.message.role === "user"}
             cliApps={cliApps}
             mcpPresets={mcpPresets}
             slashCommands={slashCommands}
@@ -192,7 +276,9 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
           />
         )}
       </div>
-      {showForkBoundary ? <ForkBoundaryDivider label={forkBoundaryLabel} /> : null}
+      {showForkBoundary && !isNativeRuntime() ? (
+        <ForkBoundaryDivider label={forkBoundaryLabel} />
+      ) : null}
     </>
   );
 }, threadDisplayUnitPropsEqual);
@@ -203,6 +289,8 @@ function threadDisplayUnitPropsEqual(
 ): boolean {
   return (
     displayUnitsEqual(previous.unit, next.unit)
+    && previous.assistantIdentity === next.assistantIdentity
+    && previous.turnHeaderMessage === next.turnHeaderMessage
     && previous.marginTop === next.marginTop
     && previous.userPromptId === next.userPromptId
     && previous.hasBodyBelow === next.hasBodyBelow
@@ -215,6 +303,39 @@ function threadDisplayUnitPropsEqual(
     && previous.slashCommands === next.slashCommands
     && previous.onOpenFilePreview === next.onOpenFilePreview
     && previous.onForkFromMessage === next.onForkFromMessage
+  );
+}
+
+function AssistantTurnHeader({
+  identity,
+  sourceMessage,
+}: {
+  identity: AssistantIdentity;
+  sourceMessage: UIMessage;
+}) {
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const avatarUrl = identity.avatarUrl?.trim();
+  const fallback = identity.icon.trim() || identity.name.trim().charAt(0).toUpperCase() || "N";
+  useEffect(() => setAvatarFailed(false), [avatarUrl]);
+
+  return (
+    <div
+      data-testid="assistant-turn-identity"
+      className="mb-2 flex min-h-9 items-center gap-2 text-muted-foreground"
+    >
+      <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full bg-muted text-[13px] font-medium">
+        {avatarUrl && !avatarFailed ? (
+          <img
+            src={avatarUrl}
+            alt={identity.name}
+            className="h-full w-full object-cover"
+            onError={() => setAvatarFailed(true)}
+          />
+        ) : fallback}
+      </span>
+      <span className="text-xs font-medium">{identity.name}</span>
+      <MessageSourceBadge message={sourceMessage} inline />
+    </div>
   );
 }
 

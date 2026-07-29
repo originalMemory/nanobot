@@ -254,6 +254,7 @@ function settingsWithFastPreset(): SettingsPayload {
 
 describe("ThreadShell", () => {
   beforeEach(() => {
+    Reflect.deleteProperty(window, "nanobotHost");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -1194,6 +1195,43 @@ describe("ThreadShell", () => {
     await waitFor(() =>
       expect(onForkChat).toHaveBeenCalledWith("long-chat", 101),
     );
+  });
+
+  it("hides fork controls on the native Electron surface", async () => {
+    Object.defineProperty(window, "nanobotHost", {
+      configurable: true,
+      value: { platform: { isMac: true, isWindows: false } },
+    });
+    const client = makeClient();
+    const onForkChat = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("websocket%3Anative-chat/webui-thread")) {
+          return httpJson(transcriptFromSimpleMessages([
+            { role: "user", content: "question" },
+            { role: "assistant", content: "native answer" },
+          ]));
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
+      }),
+    );
+
+    render(
+      wrap(
+        client,
+        <ThreadShell
+          session={session("native-chat")}
+          title="Native chat"
+          onToggleSidebar={() => {}}
+          onForkChat={onForkChat}
+        />,
+      ),
+    );
+
+    expect(await screen.findByText("native answer")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Fork" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Forked from history")).not.toBeInTheDocument();
   });
 
   it("does not cache optimistic messages under the next chat during a session switch", async () => {

@@ -67,6 +67,7 @@ const LOCALIZED_SETTINGS_COPY_KEYS = [
   "settings.automations.deleteTitle",
   "settings.sections.interface",
   "settings.sections.localPreferences",
+  "settings.sections.wallpaper",
   "settings.sections.webSearch",
   "settings.sections.webBehavior",
   "settings.sections.webuiSafety",
@@ -87,6 +88,9 @@ const LOCALIZED_SETTINGS_COPY_KEYS = [
   "settings.rows.theme",
   "settings.rows.language",
   "settings.rows.density",
+  "settings.rows.wallpaper",
+  "settings.rows.wallpaperInterval",
+  "settings.rows.raiseInboxShortcut",
   "settings.rows.activityMode",
   "settings.rows.fileEditDisplay",
   "settings.rows.codeWrap",
@@ -98,6 +102,8 @@ const LOCALIZED_SETTINGS_COPY_KEYS = [
   "settings.help.theme",
   "settings.help.language",
   "settings.help.density",
+  "settings.help.wallpaper",
+  "settings.help.raiseInboxShortcut",
   "settings.help.activityMode",
   "settings.help.fileEditDisplay",
   "settings.help.codeWrap",
@@ -119,6 +125,7 @@ const LOCALIZED_SETTINGS_COPY_KEYS = [
   "settings.status.loading",
   "settings.status.unsaved",
   "settings.status.upToDate",
+  "settings.shortcut.recording",
   "settings.actions.save",
   "settings.actions.saving",
   "settings.about.checking",
@@ -437,6 +444,12 @@ describe("webui i18n", () => {
     expect(settings.byok.tabs.webSearch).toBe("网页搜索");
     expect(settings.overview.webSearch).toBe("网页搜索");
     expect(settings.overview.workspace).toBe("工作区");
+    expect(settings.sections.wallpaper).toBe("动态壁纸");
+    expect(settings.sections.desktop).toBe("桌面");
+    expect(settings.rows.wallpaper).toBe("图片地址");
+    expect(settings.shortcut.recording).toBe("请按下快捷键…");
+    expect(settings.values.minutesShort).toBe("分钟");
+    expect(resources["zh-CN"].common.message.audioAttachment).toBe("音频附件");
   });
 
   it("keeps Brazilian Portuguese settings overview copy localized", () => {

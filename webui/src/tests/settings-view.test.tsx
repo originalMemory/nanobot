@@ -400,6 +400,7 @@ describe("SettingsView Apps catalog", () => {
   });
 
   afterEach(() => {
+    Reflect.deleteProperty(window, "nanobotHost");
     localStorage.removeItem("nanobot-webui.settings-preferences");
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -419,6 +420,78 @@ describe("SettingsView Apps catalog", () => {
       const saved = JSON.parse(localStorage.getItem("nanobot-webui.settings-preferences") || "{}");
       expect(saved.fileEditDisplayMode).toBe("diff");
     });
+  });
+
+  it("records and saves the native Unified Inbox shortcut", async () => {
+    const setRaiseInbox = vi.fn(async (accelerator: string) => ({
+      ok: true as const,
+      accelerator,
+    }));
+    const setRaiseInboxRecording = vi.fn(async () => undefined);
+    Object.defineProperty(window, "nanobotHost", {
+      configurable: true,
+      value: {
+        shortcut: {
+          getRaiseInbox: vi.fn(async () => "CmdOrCtrl+Shift+E"),
+          setRaiseInbox,
+          setRaiseInboxRecording,
+          onRaiseInbox: vi.fn(() => () => undefined),
+        },
+      },
+    });
+
+    renderSettingsView({
+      initialSection: "appearance",
+      initialSettings: settingsPayload(),
+      showSidebar: true,
+    });
+
+    const shortcutButton = await screen.findByRole("button", {
+      name: "Raise inbox shortcut",
+    });
+    expect(shortcutButton).toHaveTextContent("CmdOrCtrl+Shift+E");
+    fireEvent.click(shortcutButton);
+    await waitFor(() => expect(setRaiseInboxRecording).toHaveBeenCalledWith(true));
+
+    fireEvent.keyDown(window, {
+      key: "K",
+      code: "KeyK",
+      metaKey: true,
+      shiftKey: true,
+    });
+    expect(shortcutButton).toHaveTextContent("Command+Shift+K");
+    fireEvent.click(within(shortcutButton.parentElement!).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(setRaiseInbox).toHaveBeenCalledWith("Command+Shift+K"));
+  });
+
+  it("loads and saves the native Gateway URL", async () => {
+    const setUrl = vi.fn(async (url: string) => ({
+      ok: true as const,
+      url,
+    }));
+    Object.defineProperty(window, "nanobotHost", {
+      configurable: true,
+      value: {
+        gateway: {
+          getUrl: vi.fn(async () => "http://127.0.0.1:8765"),
+          setUrl,
+        },
+      },
+    });
+
+    renderSettingsView({
+      initialSection: "appearance",
+      initialSettings: settingsPayload(),
+      showSidebar: true,
+    });
+
+    const input = await screen.findByRole("textbox", { name: "Gateway URL" });
+    expect(input).toHaveValue("http://127.0.0.1:8765");
+    fireEvent.change(input, { target: { value: "https://nanobot.example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(setUrl).toHaveBeenCalledWith("https://nanobot.example.com"));
   });
 
   it("does not show the Settings kicker on the standalone Automations surface", async () => {

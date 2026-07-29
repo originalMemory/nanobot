@@ -174,6 +174,7 @@ interface ThreadComposerProps {
   modelPreset?: string | null;
   modelPresets?: ModelPresetOption[];
   onModelPresetChange?: (name: string) => void;
+  modelPresetClickMenu?: boolean;
   modelProvider?: string | null;
   modelProviderLabel?: string | null;
   modelNeedsSetup?: boolean;
@@ -202,6 +203,7 @@ interface ThreadComposerProps {
   quotedContext?: string | null;
   focusRequest?: number;
   onQuotedContextChange?: (text: string | null) => void;
+  images?: RestoredReadyImage[];
 }
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
@@ -824,6 +826,7 @@ export function ThreadComposer({
   modelPreset = null,
   modelPresets = [],
   onModelPresetChange,
+  modelPresetClickMenu = false,
   modelProvider = null,
   modelProviderLabel = null,
   modelNeedsSetup = false,
@@ -850,6 +853,7 @@ export function ThreadComposer({
   quotedContext = null,
   focusRequest = 0,
   onQuotedContextChange,
+  images: incomingImages = [],
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
@@ -985,6 +989,24 @@ export function ThreadComposer({
     ),
     [images],
   );
+  const restoredIncomingImagesRef = useRef(new Set<string>());
+  useEffect(() => {
+    const additions = incomingImages.filter(
+      (image) => !restoredIncomingImagesRef.current.has(image.dataUrl),
+    );
+    if (additions.length === 0) return;
+    for (const image of additions) restoredIncomingImagesRef.current.add(image.dataUrl);
+    restoreReadyImages([
+      ...readyImages.map((image) => ({
+        dataUrl: image.dataUrl,
+        name: image.file.name,
+        kind: image.kind,
+      })),
+      ...additions,
+    ]);
+    // readyImages deliberately omitted: incomingImages is the external signal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingImages, restoreReadyImages]);
   const hasErrors = images.some((img) => img.status === "error");
 
   const hasComposerContent = value.trim().length > 0 || readyImages.length > 0;
@@ -2106,6 +2128,7 @@ export function ThreadComposer({
                 fallbackModelName={fallbackModelName}
                 isHero={isHero}
                 onClick={modelNeedsSetup ? onModelBadgeClick : undefined}
+                clickToSelect={modelPresetClickMenu}
               />
             ) : null}
             {showVoiceButton ? (

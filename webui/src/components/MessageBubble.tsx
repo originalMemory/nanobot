@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { AttachmentTile } from "@/components/AttachmentTile";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText } from "@/components/MarkdownText";
+import { MessageSourceBadge } from "@/components/MessageSourceBadge";
 import { SlashCommandText } from "@/components/SlashCommandText";
 import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
 import { UserMessageText } from "@/components/UserMessageText";
@@ -34,6 +35,7 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { formatTurnLatency } from "@/lib/format";
 import { toMediaAttachment } from "@/lib/media";
 import { matchingSlashCommand } from "@/lib/slash-command";
+import { isNativeRuntime } from "@/lib/runtime";
 import { parseQuotedUserMessage } from "@/lib/user-message-quote";
 import type {
   CliAppInfo,
@@ -50,6 +52,8 @@ interface MessageBubbleProps {
   message: UIMessage;
   /** When false, hide this message's copy button. Default true. */
   showCopyAction?: boolean;
+  /** When false, the parent turn header owns provenance display. */
+  showSourceBadge?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
   slashCommands?: SlashCommand[];
@@ -134,6 +138,7 @@ function MessageCopyButton({ content }: { content: string }) {
 export function MessageBubble({
   message,
   showCopyAction = true,
+  showSourceBadge = true,
   cliApps = [],
   mcpPresets = [],
   slashCommands = [],
@@ -188,6 +193,7 @@ export function MessageBubble({
           baseAnim,
         )}
       >
+        {showSourceBadge ? <MessageSourceBadge message={message} /> : null}
         {hasImages ? <UserImages images={images} align="right" /> : null}
         {!hasImages && hasMedia ? (
           <MessageMedia media={media} align="right" />
@@ -237,7 +243,7 @@ export function MessageBubble({
 
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   const showCopyButton = showCopyAction && showAssistantActions;
-  const showForkButton = showAssistantActions && !!onForkFromHere;
+  const showForkButton = showAssistantActions && !!onForkFromHere && !isNativeRuntime();
   const forkLabel = t("message.forkFromHere");
   const latencyMs = message.latencyMs;
   const showLatencyFooter =
@@ -248,6 +254,7 @@ export function MessageBubble({
   const showAssistantFooterRow = showCopyButton || showForkButton || showLatencyFooter;
   return (
     <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
+      {showSourceBadge ? <MessageSourceBadge message={message} /> : null}
       {hasReasoning ? (
         <ReasoningBubble
           text={reasoning}
@@ -273,7 +280,13 @@ export function MessageBubble({
               {message.content}
             </MarkdownText>
           </div>
-          {media.length > 0 ? <MessageMedia media={media} align="left" /> : null}
+          {media.length > 0 ? (
+            <MessageMedia
+              media={media}
+              align="left"
+              autoPlayAudio={message.liveArrival === true}
+            />
+          ) : null}
           {showAssistantFooterRow ? (
             <TooltipProvider delayDuration={220} skipDelayDuration={80}>
               <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
@@ -419,9 +432,11 @@ function mergeCliMentionApps(
 function MessageMedia({
   media,
   align,
+  autoPlayAudio = false,
 }: {
   media: UIMediaAttachment[];
   align: "left" | "right";
+  autoPlayAudio?: boolean;
 }) {
   if (media.length === 0) return null;
   const images: UIImage[] = [];
@@ -446,7 +461,11 @@ function MessageMedia({
         <UserImages images={images} align={align} size={align === "left" ? "large" : "compact"} />
       ) : null}
       {nonImages.map((item, i) => (
-        <AttachmentTile key={`${item.url ?? item.name ?? item.kind}-${i}`} attachment={item} />
+        <AttachmentTile
+          key={`${item.url ?? item.name ?? item.kind}-${i}`}
+          attachment={item}
+          autoPlayAudio={autoPlayAudio}
+        />
       ))}
     </div>
   );

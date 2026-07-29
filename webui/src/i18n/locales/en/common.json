@@ -13,8 +13,15 @@
       "title": "Authentication required",
       "hint": "Enter the secret configured as tokenIssueSecret in your gateway config.",
       "placeholder": "Password",
+      "gatewayUrl": "Gateway URL",
       "submit": "Connect",
-      "invalid": "Invalid password. Try again."
+      "invalid": "Invalid password. Try again.",
+      "gatewayErrors": {
+        "empty": "Enter a Gateway URL.",
+        "invalid": "Enter a complete HTTP or HTTPS URL.",
+        "unsupported": "Only HTTP and HTTPS Gateway URLs are supported.",
+        "credentials": "Do not include a username or password in the Gateway URL."
+      }
     },
     "account": {
       "section": "Account",
@@ -39,6 +46,10 @@
     "meta": {
       "description": "nanobot web UI — chat with your nanobot workspace."
     }
+  },
+  "inbox": {
+    "unified": "Unified Inbox",
+    "allChannels": "All channels"
   },
   "sidebar": {
     "navigation": "Sidebar navigation",
@@ -89,6 +100,9 @@
       "interface": "Interface",
       "ai": "AI",
       "system": "System",
+      "connection": "Connection",
+      "wallpaper": "Dynamic wallpaper",
+      "desktop": "Desktop",
       "about": "About",
       "status": "Status",
       "localPreferences": "Local preferences",
@@ -168,6 +182,10 @@
       "configPath": "Config path",
       "activePreset": "Active preset",
       "gateway": "Gateway",
+      "gatewayUrl": "Gateway URL",
+      "wallpaper": "Image URL",
+      "wallpaperInterval": "Update interval",
+      "raiseInboxShortcut": "Raise inbox shortcut",
       "restartState": "Restart state",
       "pendingChanges": "Pending changes",
       "currentModel": "Current configuration",
@@ -215,6 +233,9 @@
       "provider": "Select the provider that should serve new model requests.",
       "model": "Choose the model used by this preset.",
       "configPath": "The gateway configuration file currently in use.",
+      "gatewayUrl": "The Nanobot Gateway served by this device or a remote host.",
+      "wallpaper": "Fetched by the desktop host while the window is visible. Leave empty to disable.",
+      "raiseInboxShortcut": "Shows the window and opens Unified Inbox from anywhere.",
       "currentModel": "Used for new replies.",
       "selectedModelProvider": "Set by the selected model.",
       "selectedModelValue": "Set by the selected model.",
@@ -371,6 +392,7 @@
       "collapsedDiff": "Collapsed diff",
       "on": "On",
       "off": "Off",
+      "minutesShort": "min",
       "defaultPermission": "Default Permission",
       "fullAccess": "Full Access",
       "configured": "Configured",
@@ -408,6 +430,21 @@
       "export": "Export",
       "opening": "Opening...",
       "exporting": "Exporting..."
+    },
+    "errors": {
+      "gatewayUrlLoadFailed": "Could not load the Gateway URL.",
+      "gatewayUrlEmpty": "Enter a Gateway URL.",
+      "gatewayUrlInvalid": "Enter a valid URL including http:// or https://.",
+      "gatewayUrlUnsupported": "Only HTTP and HTTPS Gateway URLs are supported.",
+      "gatewayUrlCredentials": "Do not include credentials in the Gateway URL.",
+      "gatewayUrlSaveFailed": "Could not save the Gateway URL.",
+      "raiseInboxShortcutLoadFailed": "Could not load the global shortcut.",
+      "raiseInboxShortcutRecordFailed": "Could not pause the current global shortcut.",
+      "raiseInboxShortcutEmpty": "Record a shortcut before saving.",
+      "raiseInboxShortcutRegisterFailed": "The shortcut is already in use."
+    },
+    "shortcut": {
+      "recording": "Press shortcut…"
     },
     "byok": {
       "description": "Bring your own provider keys. Nanobot reads these values from the current config and only configured providers can be used in model presets.",
@@ -1202,6 +1239,10 @@
     "cliRunRan": "Used",
     "cliRunFailed": "Failed",
     "imageAttachment": "Image attachment",
+    "videoAttachment": "Video attachment",
+    "audioAttachment": "Audio attachment",
+    "fileAttachment": "File attachment",
+    "attachmentUnavailable": "Attachment unavailable",
     "automationSourceFallback": "Automation",
     "automationTriggered": "Triggered automatically",
     "askAboutSelection": "Ask about this",

@@ -301,7 +301,7 @@ export const ChatList = memo(function ChatList({
                             ) : null}
                           </button>
                           <SessionActivityIndicator state={activityState} />
-                          <DropdownMenu modal={false}>
+                          {s.virtual !== "unified_inbox" ? <DropdownMenu modal={false}>
                             <DropdownMenuTrigger
                               className={cn(
                                 "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/75 opacity-40 transition-opacity",
@@ -361,7 +361,7 @@ export const ChatList = memo(function ChatList({
                                 {t("chat.delete")}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
-                          </DropdownMenu>
+                          </DropdownMenu> : null}
                         </div>
                       </li>
                     );

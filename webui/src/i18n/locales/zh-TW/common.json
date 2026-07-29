@@ -13,8 +13,15 @@
       "title": "需要驗證",
       "hint": "請輸入閘道設定中 tokenIssueSecret 所設定的金鑰。",
       "placeholder": "密碼",
+      "gatewayUrl": "Gateway 位址",
       "submit": "連線",
-      "invalid": "密碼無效，請再試一次。"
+      "invalid": "密碼無效，請再試一次。",
+      "gatewayErrors": {
+        "empty": "請輸入 Gateway 位址。",
+        "invalid": "請輸入完整的 HTTP 或 HTTPS 位址。",
+        "unsupported": "Gateway 位址僅支援 HTTP 或 HTTPS。",
+        "credentials": "請勿在 Gateway 位址中包含使用者名稱或密碼。"
+      }
     },
     "account": {
       "section": "帳戶",
@@ -39,6 +46,10 @@
     "meta": {
       "description": "nanobot Web UI —— 與你的 nanobot 工作區對話。"
     }
+  },
+  "inbox": {
+    "unified": "統一收件匣",
+    "allChannels": "所有頻道"
   },
   "sidebar": {
     "navigation": "側邊欄導覽",
@@ -89,6 +100,9 @@
       "interface": "介面",
       "ai": "AI",
       "system": "系統",
+      "connection": "連線",
+      "wallpaper": "動態桌布",
+      "desktop": "桌面",
       "about": "關於",
       "status": "狀態",
       "localPreferences": "本機偏好",
@@ -114,6 +128,10 @@
       "model": "模型",
       "restart": "重新啟動 nanobot",
       "configPath": "設定檔路徑",
+      "gatewayUrl": "Gateway 位址",
+      "wallpaper": "圖片位址",
+      "wallpaperInterval": "更新間隔",
+      "raiseInboxShortcut": "喚起統一會話快速鍵",
       "activePreset": "目前預設",
       "gateway": "閘道",
       "restartState": "重新啟動狀態",
@@ -163,6 +181,9 @@
       "provider": "選擇處理新模型請求的供應商。",
       "model": "選擇此預設使用的模型。",
       "configPath": "目前閘道使用中的設定檔。",
+      "gatewayUrl": "由目前裝置或遠端主機提供的 Nanobot Gateway 位址。",
+      "wallpaper": "視窗可見時由桌面端取得圖片；留空即可停用。",
+      "raiseInboxShortcut": "從任意位置顯示視窗並開啟統一會話。",
       "selectedPreset": "命名預設在此為唯讀；請在 config.json 中編輯。",
       "presetModel": "切回 Default 後可在 WebUI 中編輯模型與供應商。",
       "density": "只儲存在此瀏覽器中。",
@@ -223,6 +244,7 @@
       "collapsedDiff": "摺疊差異",
       "on": "開啟",
       "off": "關閉",
+      "minutesShort": "分鐘",
       "defaultPermission": "預設權限",
       "fullAccess": "完整存取權",
       "configured": "已設定",
@@ -260,6 +282,21 @@
       "export": "匯出",
       "opening": "正在開啟…",
       "exporting": "正在匯出…"
+    },
+    "errors": {
+      "gatewayUrlLoadFailed": "無法讀取 Gateway 位址。",
+      "gatewayUrlEmpty": "請輸入 Gateway 位址。",
+      "gatewayUrlInvalid": "請輸入包含 http:// 或 https:// 的有效位址。",
+      "gatewayUrlUnsupported": "Gateway 位址只支援 HTTP 或 HTTPS。",
+      "gatewayUrlCredentials": "請勿在 Gateway 位址中包含使用者名稱或密碼。",
+      "gatewayUrlSaveFailed": "無法儲存 Gateway 位址。",
+      "raiseInboxShortcutLoadFailed": "無法讀取全域快速鍵。",
+      "raiseInboxShortcutRecordFailed": "無法暫停目前的全域快速鍵。",
+      "raiseInboxShortcutEmpty": "請先錄製快速鍵再儲存。",
+      "raiseInboxShortcutRegisterFailed": "快速鍵已被占用或無法註冊。"
+    },
+    "shortcut": {
+      "recording": "請按下快速鍵…"
     },
     "byok": {
       "description": "使用自備的供應商金鑰。Nanobot 會從目前的設定檔讀取這些值，只有已設定的供應商可用於模型預設。",
@@ -1173,6 +1210,10 @@
     "agentActivityLiveSummary": "進行中… · {{reasoning}} 步 · {{tools}} 次工具呼叫",
     "agentActivityLiveToolsOnly": "進行中… · {{tools}} 次工具呼叫",
     "imageAttachment": "圖片附件",
+    "videoAttachment": "影片附件",
+    "audioAttachment": "音訊附件",
+    "fileAttachment": "檔案附件",
+    "attachmentUnavailable": "附件無法使用",
     "forkFromHere": "建立分支",
     "copyReply": "複製",
     "copiedReply": "已複製",

@@ -247,6 +247,15 @@ describe("MarkdownTextRenderer", () => {
     expect(screen.queryByRole("img", { name: "nanobot-intro.mp4" })).not.toBeInTheDocument();
   });
 
+  it("renders markdown audio as an inline player", () => {
+    render(<MarkdownTextRenderer>![spoken-reply.mp3](/api/media/sig/audio)</MarkdownTextRenderer>);
+
+    const audio = screen.getByLabelText("Audio attachment: spoken-reply.mp3");
+    expect(audio.tagName).toBe("AUDIO");
+    expect(audio).toHaveAttribute("src", "/api/media/sig/audio");
+    expect(audio).toHaveAttribute("controls");
+  });
+
   it("renders markdown links with file-looking names as file attachments", () => {
     render(<MarkdownTextRenderer>![index.html](/api/media/sig/html)</MarkdownTextRenderer>);
 

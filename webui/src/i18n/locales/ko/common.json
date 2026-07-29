@@ -13,8 +13,15 @@
       "title": "인증이 필요합니다",
       "hint": "gateway 설정의 tokenIssueSecret에 구성된 비밀 값을 입력하세요.",
       "placeholder": "비밀번호",
+      "gatewayUrl": "Gateway URL",
       "submit": "연결",
-      "invalid": "비밀번호가 올바르지 않습니다. 다시 시도하세요."
+      "invalid": "비밀번호가 올바르지 않습니다. 다시 시도하세요.",
+      "gatewayErrors": {
+        "empty": "Gateway URL을 입력하세요.",
+        "invalid": "완전한 HTTP 또는 HTTPS URL을 입력하세요.",
+        "unsupported": "HTTP와 HTTPS URL만 지원됩니다.",
+        "credentials": "URL에 사용자 이름이나 비밀번호를 포함하지 마세요."
+      }
     },
     "account": {
       "section": "계정",
@@ -39,6 +46,10 @@
     "meta": {
       "description": "nanobot 웹 UI — nanobot 작업공간과 대화하세요."
     }
+  },
+  "inbox": {
+    "unified": "통합 받은편지함",
+    "allChannels": "모든 채널"
   },
   "sidebar": {
     "navigation": "사이드바 탐색",
@@ -89,6 +100,9 @@
       "interface": "인터페이스",
       "ai": "AI",
       "system": "시스템",
+      "connection": "연결",
+      "wallpaper": "동적 배경화면",
+      "desktop": "데스크톱",
       "about": "정보",
       "status": "상태",
       "localPreferences": "로컬 환경설정",
@@ -114,6 +128,10 @@
       "model": "모델",
       "restart": "nanobot 재시작",
       "configPath": "설정 경로",
+      "gatewayUrl": "Gateway URL",
+      "wallpaper": "이미지 URL",
+      "wallpaperInterval": "업데이트 간격",
+      "raiseInboxShortcut": "통합 받은편지함 단축키",
       "activePreset": "활성 프리셋",
       "gateway": "게이트웨이",
       "restartState": "재시작 상태",
@@ -163,6 +181,9 @@
       "provider": "새 모델 요청을 처리할 제공자를 선택합니다.",
       "model": "이 프리셋에서 사용할 모델을 선택하세요.",
       "configPath": "현재 게이트웨이가 사용하는 설정 파일입니다.",
+      "gatewayUrl": "이 기기 또는 원격 호스트에서 제공하는 Nanobot Gateway입니다.",
+      "wallpaper": "창이 표시되는 동안 데스크톱 앱이 이미지를 가져옵니다. 비워 두면 비활성화됩니다.",
+      "raiseInboxShortcut": "어디서나 창을 표시하고 통합 받은편지함을 엽니다.",
       "selectedPreset": "이름 있는 프리셋은 여기서 읽기 전용입니다. config.json에서 편집하세요.",
       "presetModel": "Default로 전환하면 WebUI에서 모델과 제공자를 편집할 수 있습니다.",
       "density": "이 브라우저에만 저장됩니다.",
@@ -223,6 +244,7 @@
       "collapsedDiff": "접힌 diff",
       "on": "켜짐",
       "off": "꺼짐",
+      "minutesShort": "분",
       "defaultPermission": "기본 권한",
       "fullAccess": "전체 접근",
       "configured": "구성됨",
@@ -260,6 +282,21 @@
       "export": "내보내기",
       "opening": "여는 중...",
       "exporting": "내보내는 중..."
+    },
+    "errors": {
+      "gatewayUrlLoadFailed": "Gateway URL을 불러올 수 없습니다.",
+      "gatewayUrlEmpty": "Gateway URL을 입력하세요.",
+      "gatewayUrlInvalid": "http:// 또는 https://를 포함한 올바른 URL을 입력하세요.",
+      "gatewayUrlUnsupported": "HTTP 및 HTTPS URL만 지원됩니다.",
+      "gatewayUrlCredentials": "Gateway URL에 인증 정보를 포함하지 마세요.",
+      "gatewayUrlSaveFailed": "Gateway URL을 저장할 수 없습니다.",
+      "raiseInboxShortcutLoadFailed": "전역 단축키를 불러올 수 없습니다.",
+      "raiseInboxShortcutRecordFailed": "현재 전역 단축키를 일시 중지할 수 없습니다.",
+      "raiseInboxShortcutEmpty": "저장하기 전에 단축키를 기록하세요.",
+      "raiseInboxShortcutRegisterFailed": "단축키가 이미 사용 중입니다."
+    },
+    "shortcut": {
+      "recording": "단축키를 누르세요…"
     },
     "byok": {
       "description": "직접 provider 키를 가져옵니다. Nanobot은 현재 config에서 값을 읽고, 설정된 provider만 모델 프리셋에서 사용할 수 있습니다.",
@@ -1173,6 +1210,10 @@
     "agentActivityLiveSummary": "진행 중… · {{reasoning}}단계 · 도구 호출 {{tools}}회",
     "agentActivityLiveToolsOnly": "진행 중… · 도구 호출 {{tools}}회",
     "imageAttachment": "이미지 첨부",
+    "videoAttachment": "동영상 첨부",
+    "audioAttachment": "오디오 첨부",
+    "fileAttachment": "파일 첨부",
+    "attachmentUnavailable": "첨부 파일을 사용할 수 없음",
     "askAboutSelection": "이 내용에 대해 질문하기",
     "forkFromHere": "분기",
     "copyReply": "복사",

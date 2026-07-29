@@ -8,15 +8,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Moon, PanelLeft, ShieldCheck, Sun, X } from "lucide-react";
+import { Minus, Moon, PanelLeft, ShieldCheck, Square, Sun, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { channelUiPresentation } from "@/channel-plugins/registry";
 import { Sidebar } from "@/components/Sidebar";
+import { WallpaperLayer } from "@/components/native/WallpaperLayer";
 import type { SettingsSectionKey } from "@/components/settings/SettingsView";
 import { ThreadShell } from "@/components/thread/ThreadShell";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
-import { useSessions } from "@/hooks/useSessions";
+import {
+  UNIFIED_INBOX_CHAT_ID,
+  UNIFIED_INBOX_SESSION_KEY,
+  useSessions,
+} from "@/hooks/useSessions";
 import { useDeferredTitleRefresh } from "@/hooks/useDeferredTitleRefresh";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useSkills } from "@/hooks/useSkills";
@@ -58,8 +63,11 @@ import {
 } from "@/lib/api";
 import {
   createRuntimeHost,
+  getHostApi,
+  isNativeRuntime,
   toRuntimeSurface,
 } from "@/lib/runtime";
+import { NATIVE_SCREENSHOT_CAPTURED_EVENT } from "@/lib/native-events";
 import { projectNameFromPath } from "@/lib/workspace";
 
 type BootState =
@@ -282,7 +290,7 @@ function tokenRefreshDelayMs(expiresAt: number): number {
   return Math.max(TOKEN_REFRESH_MIN_DELAY_MS, remaining - margin);
 }
 
-function AuthForm({
+export function AuthForm({
   failed,
   onSecret,
 }: {
@@ -291,13 +299,58 @@ function AuthForm({
 }) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
+  const [gatewayUrl, setGatewayUrl] = useState("");
+  const [connectedGatewayUrl, setConnectedGatewayUrl] = useState("");
+  const [gatewayUrlLoaded, setGatewayUrlLoaded] = useState(false);
+  const [gatewayError, setGatewayError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const gateway = getHostApi()?.gateway;
+  const canSetConnection = typeof gateway?.setConnection === "function";
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (!gateway) return;
+    let cancelled = false;
+    void gateway.getUrl()
+      .then((url) => {
+        if (!cancelled) {
+          setGatewayUrl(url);
+          setConnectedGatewayUrl(url);
+          setGatewayUrlLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGatewayError(t("settings.errors.gatewayUrlLoadFailed"));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [gateway, t]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const secret = value.trim();
     if (!secret) return;
     setSubmitting(true);
+    setGatewayError("");
+    if (canSetConnection) {
+      try {
+        const result = await gateway.setConnection!(gatewayUrl, secret);
+        if (!result.ok) {
+          setGatewayError(t(`app.auth.gatewayErrors.${result.error}`));
+          setSubmitting(false);
+          return;
+        }
+        if (result.url === connectedGatewayUrl) {
+          onSecret(secret);
+        }
+      } catch (error) {
+        setGatewayError(error instanceof Error ? error.message : String(error));
+        setSubmitting(false);
+      }
+      return;
+    }
     onSecret(secret);
   };
 
@@ -316,6 +369,20 @@ function AuthForm({
             {t("app.auth.invalid")}
           </p>
         )}
+        {canSetConnection ? (
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium">{t("app.auth.gatewayUrl")}</span>
+            <Input
+              type="url"
+              value={gatewayUrl}
+              onChange={(e) => setGatewayUrl(e.target.value)}
+              disabled={submitting || !gatewayUrlLoaded}
+              spellCheck={false}
+              autoComplete="url"
+              placeholder="http://192.168.1.8:8765"
+            />
+          </label>
+        ) : null}
         <Input
           type="password"
           placeholder={t("app.auth.placeholder")}
@@ -324,10 +391,17 @@ function AuthForm({
           disabled={submitting}
           autoFocus
         />
+        {gatewayError ? (
+          <p className="text-center text-sm text-destructive">{gatewayError}</p>
+        ) : null}
         <Button
           type="submit"
           className="w-full"
-          disabled={!value.trim() || submitting}
+          disabled={
+            !value.trim()
+            || (canSetConnection && (!gatewayUrlLoaded || !gatewayUrl.trim()))
+            || submitting
+          }
         >
           {t("app.auth.submit")}
         </Button>
@@ -402,6 +476,8 @@ function HostChrome({
   rightAction?: ReactNode;
 }) {
   const { t } = useTranslation();
+  const host = getHostApi();
+  const showWindowControls = !!host?.window && host.platform?.isMac !== true;
 
   return (
     <header className="host-drag-region pointer-events-none absolute inset-x-0 top-0 z-40 h-11 bg-transparent text-foreground/90">
@@ -423,8 +499,41 @@ function HostChrome({
         </Button>
       ) : null}
       {rightAction ? (
-        <div className="host-no-drag pointer-events-auto absolute right-3 top-2">
+        <div
+          className={cn(
+            "host-no-drag pointer-events-auto absolute top-2",
+            showWindowControls ? "right-28" : "right-3",
+          )}
+        >
           {rightAction}
+        </div>
+      ) : null}
+      {showWindowControls ? (
+        <div className="host-no-drag pointer-events-auto absolute right-0 top-0 flex h-10 items-stretch">
+          <button
+            type="button"
+            aria-label={t("window.minimize", { defaultValue: "Minimize" })}
+            className="grid w-11 place-items-center text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+            onClick={() => void host.window?.action("minimize")}
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label={t("window.maximize", { defaultValue: "Maximize" })}
+            className="grid w-11 place-items-center text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+            onClick={() => void host.window?.action("maximize")}
+          >
+            <Square className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            aria-label={t("window.close", { defaultValue: "Close" })}
+            className="grid w-11 place-items-center text-muted-foreground hover:bg-red-500 hover:text-white"
+            onClick={() => void host.window?.action("close")}
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       ) : null}
     </header>
@@ -724,6 +833,12 @@ export default function App() {
   const [state, setState] = useState<BootState>({ status: "loading" });
   const bootstrapSecretRef = useRef("");
 
+  const clearBootstrapSecret = useCallback(() => {
+    bootstrapSecretRef.current = "";
+    clearSavedSecret();
+    void getHostApi()?.gateway?.clearSecret?.().catch(() => {});
+  }, []);
+
   const refreshReadyClient = useCallback(
     async (client: NanobotClient, fallbackSurface: RuntimeSurface) => {
       const boot = await fetchBootstrap("", bootstrapSecretRef.current);
@@ -763,7 +878,10 @@ export default function App() {
         try {
           const boot = await fetchBootstrap("", secret);
           if (cancelled) return;
-          if (secret) saveSecret(secret);
+          if (secret) {
+            saveSecret(secret);
+            await getHostApi()?.gateway?.setSecret?.(secret).catch(() => {});
+          }
           const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
           const runtimeSurface = toRuntimeSurface(boot.runtime_surface);
           const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
@@ -793,6 +911,7 @@ export default function App() {
         } catch (e) {
           if (cancelled) return;
           if (isBootstrapAuthRequired(e)) {
+            clearBootstrapSecret();
             setState({ status: "auth", failed: !!secret });
           } else {
             setState({
@@ -806,7 +925,7 @@ export default function App() {
         cancelled = true;
       };
     },
-    [refreshReadyClient],
+    [clearBootstrapSecret, refreshReadyClient],
   );
 
   useEffect(() => {
@@ -817,12 +936,14 @@ export default function App() {
         await refreshReadyClient(client, state.runtimeSurface);
       } catch (e) {
         if (isBootstrapAuthRequired(e)) {
-          setState({ status: "auth", failed: !!bootstrapSecretRef.current });
+          const hadSecret = !!bootstrapSecretRef.current;
+          clearBootstrapSecret();
+          setState({ status: "auth", failed: hadSecret });
         }
       }
     }, tokenRefreshDelayMs(state.tokenExpiresAt));
     return () => window.clearTimeout(timer);
-  }, [refreshReadyClient, state]);
+  }, [clearBootstrapSecret, refreshReadyClient, state]);
 
   useEffect(() => {
     const saved = consumeUrlBootstrapSecret() || loadSavedSecret();
@@ -876,7 +997,7 @@ export default function App() {
     if (state.status === "ready") {
       state.client.close();
     }
-    clearSavedSecret();
+    clearBootstrapSecret();
     setState({ status: "auth" });
   };
 
@@ -906,19 +1027,21 @@ export default function App() {
   };
 
   return (
-    <ClientProvider
-      client={state.client}
-      token={state.token}
-      modelName={state.modelName}
-      ingressLimits={state.ingressLimits}
-    >
-      <Shell
-        runtimeSurface={state.runtimeSurface}
-        onModelNameChange={handleModelNameChange}
-        onLogout={handleLogout}
-        onNativeEngineRestart={handleNativeEngineRestart}
-      />
-    </ClientProvider>
+    <WallpaperLayer>
+      <ClientProvider
+        client={state.client}
+        token={state.token}
+        modelName={state.modelName}
+        ingressLimits={state.ingressLimits}
+      >
+        <Shell
+          runtimeSurface={state.runtimeSurface}
+          onModelNameChange={handleModelNameChange}
+          onLogout={handleLogout}
+          onNativeEngineRestart={handleNativeEngineRestart}
+        />
+      </ClientProvider>
+    </WallpaperLayer>
   );
 }
 
@@ -944,7 +1067,7 @@ function Shell({
     forkChat,
     deleteChat,
     getSessionAutomations,
-  } = useSessions();
+  } = useSessions(isNativeRuntime(runtimeSurface));
   const { state: sidebarState, update: updateSidebarState } =
     useSidebarState(sessions, !loading);
   const initialRouteRef = useRef<ShellRoute | null>(null);
@@ -998,7 +1121,7 @@ function Shell({
   const hostSidebarPreviewCloseTimerRef = useRef<number | null>(null);
   const effectiveRuntimeSurface =
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
-  const showHostChrome = effectiveRuntimeSurface === "native";
+  const showHostChrome = isNativeRuntime(effectiveRuntimeSurface);
   const showMainSidebar = view !== "settings";
 
   const navigate = useCallback(
@@ -1039,6 +1162,72 @@ function Shell({
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    const host = getHostApi();
+    if (!host) return;
+    const cleanups: Array<() => void> = [];
+
+    if (host.screenshot) {
+      cleanups.push(host.screenshot.onCapture((dataUrl) => {
+        window.dispatchEvent(
+          new CustomEvent(NATIVE_SCREENSHOT_CAPTURED_EVENT, { detail: dataUrl }),
+        );
+      }));
+      cleanups.push(client.onScreenshotRequest(async (requestId) => {
+        const dataUrl = await host.screenshot?.capture();
+        if (dataUrl) client.sendScreenshotResult(requestId, dataUrl);
+      }));
+    }
+
+    let focused = document.hasFocus();
+    let locked = false;
+    client.sendPresence(focused, locked);
+    if (host.presence) {
+      cleanups.push(host.presence.onChange((state) => {
+        if (typeof state.focused === "boolean") focused = state.focused;
+        if (typeof state.locked === "boolean") locked = state.locked;
+        client.sendPresence(focused, locked);
+      }));
+    }
+    if (host.tray) {
+      const streamedReplies = new Map<string, string>();
+      cleanups.push(client.onChat(UNIFIED_INBOX_CHAT_ID, (event) => {
+        const sourceChannel =
+          "source_channel" in event ? event.source_channel : undefined;
+        const turnKey =
+          "turn_id" in event && event.turn_id ? event.turn_id : "legacy";
+        if (event.event === "delta" && sourceChannel && event.text.trim()) {
+          streamedReplies.set(turnKey, sourceChannel);
+          return;
+        }
+        if (event.event === "turn_end") {
+          const streamedSource = sourceChannel ?? streamedReplies.get(turnKey);
+          streamedReplies.delete(turnKey);
+          if (streamedSource) void host.tray?.notifyIncoming();
+          return;
+        }
+        if (event.event === "user" && sourceChannel) {
+          void host.tray?.notifyIncoming();
+          return;
+        }
+        if (
+          event.event === "message"
+          && event.kind !== "tool_hint"
+          && event.kind !== "progress"
+          && event.kind !== "reasoning"
+          && (event.text.trim() || event.media_urls?.length || event.media?.length)
+          && sourceChannel
+        ) {
+          void host.tray?.notifyIncoming();
+        }
+      }));
+    }
+
+    return () => {
+      for (const cleanup of cleanups) cleanup();
+    };
+  }, [client]);
 
   useEffect(() => {
     try {
@@ -1175,6 +1364,16 @@ function Shell({
       { replace: true },
     );
   }, [activeKey, loading, navigate, sessions]);
+
+  useEffect(() => {
+    if (loading || !showHostChrome || activeKey) return;
+    if (!sessions.some((session) => session.key === UNIFIED_INBOX_SESSION_KEY)) return;
+    navigate({
+      view: "chat",
+      activeKey: UNIFIED_INBOX_SESSION_KEY,
+      settingsSection: "overview",
+    }, { replace: true });
+  }, [activeKey, loading, navigate, sessions, showHostChrome]);
 
   useEffect(() => {
     return client.onSessionUpdate((chatId, scope, workspaceScope) => {
@@ -1448,6 +1647,18 @@ function Shell({
     [navigate, sessions],
   );
 
+  useEffect(() => {
+    const host = getHostApi();
+    if (!host?.shortcut) return;
+    return host.shortcut.onRaiseInbox(({ toggle }) => {
+      if (toggle && view === "chat" && activeKey === UNIFIED_INBOX_SESSION_KEY) {
+        void host.window?.action("hide");
+        return;
+      }
+      onSelectChat(UNIFIED_INBOX_SESSION_KEY);
+    });
+  }, [activeKey, onSelectChat, view]);
+
   const onTogglePin = useCallback(
     (key: string) => {
       void updateSidebarState((current) => {
@@ -1597,6 +1808,7 @@ function Shell({
       const commandShiftO =
         (event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey;
       if (commandShiftO && event.key.toLowerCase() === "o") {
+        if (showHostChrome) return;
         event.preventDefault();
         onNewChat();
         return;
@@ -1611,7 +1823,7 @@ function Shell({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onNewChat, onOpenSessionSearch]);
+  }, [onNewChat, onOpenSessionSearch, showHostChrome]);
 
   const onSelectSearchResult = useCallback(
     (key: string) => {
@@ -1889,7 +2101,7 @@ function Shell({
     sessions,
     activeKey,
     loading,
-    onNewChat,
+    onNewChat: showHostChrome ? undefined : onNewChat,
     onSelect: onSelectChat,
     onRequestDelete,
     onTogglePin,
@@ -1897,7 +2109,7 @@ function Shell({
     onToggleArchive,
     onToggleGroup,
     onRequestRenameProject,
-    onNewChatInProject,
+    onNewChatInProject: showHostChrome ? undefined : onNewChatInProject,
     onOpenSettings,
     onOpenApps,
     onOpenAutomations,
@@ -2074,9 +2286,9 @@ function Shell({
                 session={activeSession}
                 title={headerTitle}
                 onToggleSidebar={toggleSidebar}
-                onNewChat={onNewChat}
-                onCreateChat={onCreateChat}
-                onForkChat={onForkChat}
+                onNewChat={showHostChrome ? undefined : onNewChat}
+                onCreateChat={showHostChrome ? undefined : onCreateChat}
+                onForkChat={showHostChrome ? undefined : onForkChat}
                 onTurnEnd={onTurnEnd}
                 theme={theme}
                 onToggleTheme={toggle}

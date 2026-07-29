@@ -13,8 +13,15 @@
       "title": "Autentikasi diperlukan",
       "hint": "Masukkan secret yang dikonfigurasi sebagai tokenIssueSecret di konfigurasi gateway.",
       "placeholder": "Kata sandi",
+      "gatewayUrl": "URL Gateway",
       "submit": "Hubungkan",
-      "invalid": "Kata sandi tidak valid. Coba lagi."
+      "invalid": "Kata sandi tidak valid. Coba lagi.",
+      "gatewayErrors": {
+        "empty": "Masukkan URL Gateway.",
+        "invalid": "Masukkan URL HTTP atau HTTPS yang lengkap.",
+        "unsupported": "Hanya URL HTTP dan HTTPS yang didukung.",
+        "credentials": "Jangan sertakan nama pengguna atau kata sandi dalam URL."
+      }
     },
     "account": {
       "section": "Akun",
@@ -39,6 +46,10 @@
     "meta": {
       "description": "UI web nanobot — ngobrol dengan workspace nanobot Anda."
     }
+  },
+  "inbox": {
+    "unified": "Kotak masuk terpadu",
+    "allChannels": "Semua saluran"
   },
   "sidebar": {
     "navigation": "Navigasi bilah samping",
@@ -89,6 +100,9 @@
       "interface": "Antarmuka",
       "ai": "AI",
       "system": "Sistem",
+      "connection": "Koneksi",
+      "wallpaper": "Wallpaper dinamis",
+      "desktop": "Desktop",
       "about": "Tentang",
       "status": "Status",
       "localPreferences": "Preferensi lokal",
@@ -114,6 +128,10 @@
       "model": "Model",
       "restart": "Mulai ulang nanobot",
       "configPath": "Path konfigurasi",
+      "gatewayUrl": "URL Gateway",
+      "wallpaper": "URL gambar",
+      "wallpaperInterval": "Interval pembaruan",
+      "raiseInboxShortcut": "Pintasan kotak masuk terpadu",
       "activePreset": "Preset aktif",
       "gateway": "Gerbang",
       "restartState": "Status mulai ulang",
@@ -163,6 +181,9 @@
       "provider": "Selecciona el proveedor para nuevas solicitudes de modelo.",
       "model": "Pilih model yang digunakan oleh preset ini.",
       "configPath": "Archivo de configuración que usa actualmente el gateway.",
+      "gatewayUrl": "Nanobot Gateway yang disediakan perangkat ini atau host jarak jauh.",
+      "wallpaper": "Aplikasi desktop mengambil gambar saat jendela terlihat. Kosongkan untuk menonaktifkan.",
+      "raiseInboxShortcut": "Menampilkan jendela dan membuka kotak masuk terpadu dari mana saja.",
       "selectedPreset": "Los preajustes con nombre son de solo lectura aquí; edítalos en config.json.",
       "presetModel": "Beralih ke Default untuk mengedit model dan penyedia dari WebUI.",
       "density": "Hanya disimpan di browser ini.",
@@ -223,6 +244,7 @@
       "collapsedDiff": "Diff diciutkan",
       "on": "Aktif",
       "off": "Nonaktif",
+      "minutesShort": "mnt",
       "defaultPermission": "Izin default",
       "fullAccess": "Akses penuh",
       "configured": "Terkonfigurasi",
@@ -260,6 +282,21 @@
       "export": "Ekspor",
       "opening": "Membuka...",
       "exporting": "Mengekspor..."
+    },
+    "errors": {
+      "gatewayUrlLoadFailed": "Tidak dapat memuat URL Gateway.",
+      "gatewayUrlEmpty": "Masukkan URL Gateway.",
+      "gatewayUrlInvalid": "Masukkan URL valid dengan http:// atau https://.",
+      "gatewayUrlUnsupported": "Hanya URL HTTP dan HTTPS yang didukung.",
+      "gatewayUrlCredentials": "Jangan sertakan kredensial dalam URL Gateway.",
+      "gatewayUrlSaveFailed": "Tidak dapat menyimpan URL Gateway.",
+      "raiseInboxShortcutLoadFailed": "Tidak dapat memuat pintasan global.",
+      "raiseInboxShortcutRecordFailed": "Tidak dapat menjeda pintasan global saat ini.",
+      "raiseInboxShortcutEmpty": "Rekam pintasan sebelum menyimpan.",
+      "raiseInboxShortcutRegisterFailed": "Pintasan sudah digunakan."
+    },
+    "shortcut": {
+      "recording": "Tekan pintasan…"
     },
     "byok": {
       "description": "Gunakan kunci provider Anda sendiri. Nanobot membaca nilai ini dari config saat ini dan hanya provider yang sudah dikonfigurasi yang dapat digunakan dalam preset model.",
@@ -1173,6 +1210,10 @@
     "agentActivityLiveSummary": "Berjalan… · {{reasoning}} langkah · {{tools}} panggilan alat",
     "agentActivityLiveToolsOnly": "Berjalan… · {{tools}} panggilan alat",
     "imageAttachment": "Lampiran gambar",
+    "videoAttachment": "Lampiran video",
+    "audioAttachment": "Lampiran audio",
+    "fileAttachment": "Lampiran file",
+    "attachmentUnavailable": "Lampiran tidak tersedia",
     "askAboutSelection": "Tanyakan tentang ini",
     "forkFromHere": "Fork",
     "copyReply": "Salin",

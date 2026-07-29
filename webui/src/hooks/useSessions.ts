@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
-import { useClient } from "@/providers/ClientProvider";
 import i18n from "@/i18n";
+import { useClient } from "@/providers/ClientProvider";
 import {
   ApiError,
   deleteSession as apiDeleteSession,
@@ -23,6 +24,8 @@ const EMPTY_MESSAGES: UIMessage[] = [];
 const INITIAL_HISTORY_PAGE_LIMIT = 160;
 const OLDER_HISTORY_PAGE_LIMIT = 120;
 const CHAT_CREATE_TIMEOUT_MS = 60_000;
+export const UNIFIED_INBOX_SESSION_KEY = "unified:default";
+export const UNIFIED_INBOX_CHAT_ID = "inbox:unified";
 
 function persistedMessagesToUi(messages: UIMessage[]): UIMessage[] {
   return messages.map((m, idx) => ({
@@ -43,7 +46,7 @@ function hasPendingToolCallsFromThread(
 }
 
 /** Sidebar state: fetches the full session list and exposes create / delete actions. */
-export function useSessions(): {
+export function useSessions(includeUnifiedInbox = false): {
   sessions: ChatSummary[];
   loading: boolean;
   error: string | null;
@@ -57,6 +60,7 @@ export function useSessions(): {
   getSessionAutomations: (key: string) => Promise<SessionAutomationJob[]>;
 } {
   const { client, token } = useClient();
+  const { t } = useTranslation();
   const [sessions, setSessions] = useState<ChatSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -167,8 +171,23 @@ export function useSessions(): {
     return result.jobs;
   }, []);
 
+  const visibleSessions = useMemo(() => {
+    if (!includeUnifiedInbox) return sessions;
+    const inbox: ChatSummary = {
+      key: UNIFIED_INBOX_SESSION_KEY,
+      channel: "unified",
+      chatId: UNIFIED_INBOX_CHAT_ID,
+      createdAt: "9999-12-31T23:59:59.999Z",
+      updatedAt: "9999-12-31T23:59:59.999Z",
+      title: t("inbox.unified", { defaultValue: "Unified Inbox" }),
+      preview: t("inbox.allChannels", { defaultValue: "All channels" }),
+      virtual: "unified_inbox",
+    };
+    return [inbox, ...sessions.filter((session) => session.key !== inbox.key)];
+  }, [includeUnifiedInbox, sessions, t]);
+
   return {
-    sessions,
+    sessions: visibleSessions,
     loading,
     error,
     refresh,
@@ -263,10 +282,14 @@ export function useSessionHistory(key: string | null): {
         });
     (async () => {
       try {
-        const body = await fetchWebuiThread(token, key, {
-          limit: INITIAL_HISTORY_PAGE_LIMIT,
-          direction: "latest",
-        });
+        const body = await fetchWebuiThread(
+          token,
+          key,
+          {
+            limit: INITIAL_HISTORY_PAGE_LIMIT,
+            direction: "latest",
+          },
+        );
         if (cancelled) return;
         if (!body?.messages?.length) {
           setState((prev) => ({

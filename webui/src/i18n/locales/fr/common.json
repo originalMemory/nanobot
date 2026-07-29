@@ -13,8 +13,15 @@
       "title": "Authentification requise",
       "hint": "Saisissez le secret configuré comme tokenIssueSecret dans la configuration de votre gateway.",
       "placeholder": "Mot de passe",
+      "gatewayUrl": "URL de la Gateway",
       "submit": "Se connecter",
-      "invalid": "Mot de passe invalide. Réessayez."
+      "invalid": "Mot de passe invalide. Réessayez.",
+      "gatewayErrors": {
+        "empty": "Saisissez l’URL de la Gateway.",
+        "invalid": "Saisissez une URL HTTP ou HTTPS complète.",
+        "unsupported": "Seules les URL HTTP et HTTPS sont prises en charge.",
+        "credentials": "N’incluez pas de nom d’utilisateur ni de mot de passe dans l’URL."
+      }
     },
     "account": {
       "section": "Compte",
@@ -39,6 +46,10 @@
     "meta": {
       "description": "Interface web nanobot — discutez avec votre espace de travail nanobot."
     }
+  },
+  "inbox": {
+    "unified": "Boîte de réception unifiée",
+    "allChannels": "Tous les canaux"
   },
   "sidebar": {
     "navigation": "Navigation de la barre latérale",
@@ -89,6 +100,9 @@
       "interface": "Interface utilisateur",
       "ai": "AI",
       "system": "Système",
+      "connection": "Connexion",
+      "wallpaper": "Fond d’écran dynamique",
+      "desktop": "Bureau",
       "about": "À propos",
       "status": "État",
       "localPreferences": "Préférences locales",
@@ -114,6 +128,10 @@
       "model": "Modèle",
       "restart": "Redémarrer nanobot",
       "configPath": "Chemin de config",
+      "gatewayUrl": "URL de la passerelle",
+      "wallpaper": "URL de l’image",
+      "wallpaperInterval": "Intervalle de mise à jour",
+      "raiseInboxShortcut": "Raccourci de la boîte unifiée",
       "activePreset": "Préréglage actif",
       "gateway": "Passerelle",
       "restartState": "État du redémarrage",
@@ -163,6 +181,9 @@
       "provider": "Sélectionnez le fournisseur à utiliser pour les nouvelles requêtes de modèle.",
       "model": "Choisissez le modèle utilisé par ce préréglage.",
       "configPath": "Le fichier de configuration actuellement utilisé par la passerelle.",
+      "gatewayUrl": "La passerelle Nanobot servie par cet appareil ou un hôte distant.",
+      "wallpaper": "L’application de bureau récupère l’image lorsque la fenêtre est visible. Laissez vide pour désactiver.",
+      "raiseInboxShortcut": "Affiche la fenêtre et ouvre la boîte unifiée depuis n’importe où.",
       "selectedPreset": "Les préréglages nommés sont en lecture seule ici ; modifiez-les dans config.json.",
       "presetModel": "Passez à Default pour modifier le modèle et le fournisseur depuis WebUI.",
       "density": "Enregistré seulement dans ce navigateur.",
@@ -223,6 +244,7 @@
       "collapsedDiff": "Diff replié",
       "on": "Activé",
       "off": "Désactivé",
+      "minutesShort": "min",
       "defaultPermission": "Autorisation par défaut",
       "fullAccess": "Accès complet",
       "configured": "Configuré",
@@ -260,6 +282,21 @@
       "export": "Exporter",
       "opening": "Ouverture...",
       "exporting": "Exportation..."
+    },
+    "errors": {
+      "gatewayUrlLoadFailed": "Impossible de charger l’URL de la passerelle.",
+      "gatewayUrlEmpty": "Saisissez une URL de passerelle.",
+      "gatewayUrlInvalid": "Saisissez une URL valide avec http:// ou https://.",
+      "gatewayUrlUnsupported": "Seules les URL HTTP et HTTPS sont prises en charge.",
+      "gatewayUrlCredentials": "N’incluez pas d’identifiants dans l’URL de la passerelle.",
+      "gatewayUrlSaveFailed": "Impossible d’enregistrer l’URL de la passerelle.",
+      "raiseInboxShortcutLoadFailed": "Impossible de charger le raccourci global.",
+      "raiseInboxShortcutRecordFailed": "Impossible de suspendre le raccourci global actuel.",
+      "raiseInboxShortcutEmpty": "Enregistrez un raccourci avant de sauvegarder.",
+      "raiseInboxShortcutRegisterFailed": "Le raccourci est déjà utilisé."
+    },
+    "shortcut": {
+      "recording": "Appuyez sur le raccourci…"
     },
     "byok": {
       "description": "Utilisez vos propres clés de fournisseur. Nanobot lit ces valeurs depuis la configuration actuelle et seuls les fournisseurs configurés peuvent être utilisés dans les préréglages de modèle.",
@@ -1173,6 +1210,10 @@
     "agentActivityLiveSummary": "En cours… · {{reasoning}} étapes · {{tools}} appels d’outils",
     "agentActivityLiveToolsOnly": "En cours… · {{tools}} appels d’outils",
     "imageAttachment": "Pièce jointe image",
+    "videoAttachment": "Pièce jointe vidéo",
+    "audioAttachment": "Pièce jointe audio",
+    "fileAttachment": "Fichier joint",
+    "attachmentUnavailable": "Pièce jointe indisponible",
     "askAboutSelection": "Poser une question à ce sujet",
     "forkFromHere": "Bifurquer",
     "copyReply": "Copier",

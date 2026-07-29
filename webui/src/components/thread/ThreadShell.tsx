@@ -32,6 +32,8 @@ import {
   isMcpPresetsPayload,
 } from "@/lib/mcp-preset-events";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
+import { NATIVE_SCREENSHOT_CAPTURED_EVENT } from "@/lib/native-events";
+import { isNativeRuntime } from "@/lib/runtime";
 import type {
   ChatSummary,
   SettingsPayload,
@@ -410,8 +412,10 @@ export function ThreadShell({
   skills = [],
 }: ThreadShellProps) {
   const { t } = useTranslation();
+  const isNativeHost = isNativeRuntime();
   const chatId = session?.chatId ?? null;
   const historyKey = session?.key ?? null;
+  const isUnifiedInbox = session?.virtual === "unified_inbox";
   const {
     messages: historical,
     loading,
@@ -443,6 +447,14 @@ export function ThreadShell({
     selectItems: installedMcpPresetsFromPayload,
   });
   const [settings, setSettings] = useState<SettingsPayload | null>(settingsSnapshot);
+  const assistantIdentity = useMemo(() => {
+    if (!isNativeHost || !settings) return undefined;
+    return {
+      name: settings.agent.bot_name,
+      icon: settings.agent.bot_icon,
+      avatarUrl: settings.agent.bot_avatar_url,
+    };
+  }, [isNativeHost, settings]);
   const [heroGreetingKey, setHeroGreetingKey] = useState(randomHeroGreetingKey);
   const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
   const [scrollToLatestUserPromptSignal, setScrollToLatestUserPromptSignal] = useState(0);
@@ -451,6 +463,9 @@ export function ThreadShell({
   const [filePreviewWidth, setFilePreviewWidth] = useState(FILE_PREVIEW_DEFAULT_WIDTH);
   const [quotedContext, setQuotedContext] = useState<string | null>(null);
   const [composerFocusSignal, setComposerFocusSignal] = useState(0);
+  const [nativeScreenshots, setNativeScreenshots] = useState<
+    Array<{ dataUrl: string; name: string; kind: "image" }>
+  >([]);
   const shellRef = useRef<HTMLElement | null>(null);
   const filePreviewWidthRef = useRef(FILE_PREVIEW_DEFAULT_WIDTH);
   const filePreviewCloseTimerRef = useRef<number | null>(null);
@@ -466,6 +481,20 @@ export function ThreadShell({
   const pendingCanonicalHydrateRef = useRef<Set<string>>(new Set());
   const sessionKeyByChatIdRef = useRef<Map<string, string>>(new Map());
   const bottomScrolledChatIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const onCapture = (event: Event) => {
+      const dataUrl = (event as CustomEvent<string>).detail;
+      if (!dataUrl?.startsWith("data:image/")) return;
+      setNativeScreenshots((current) => [
+        ...current,
+        { dataUrl, name: `screenshot-${Date.now()}.jpg`, kind: "image" as const },
+      ].slice(-4));
+      setComposerFocusSignal((value) => value + 1);
+    };
+    window.addEventListener(NATIVE_SCREENSHOT_CAPTURED_EVENT, onCapture);
+    return () => window.removeEventListener(NATIVE_SCREENSHOT_CAPTURED_EVENT, onCapture);
+  }, []);
 
   const initial = useMemo(() => {
     if (!chatId) return historical;
@@ -519,7 +548,22 @@ export function ThreadShell({
     };
   }, []);
 
-  const displayMessages = useMemo(() => projectWebuiThreadMessages(messages), [messages]);
+  const projectedMessages = useMemo(() => projectWebuiThreadMessages(messages), [messages]);
+  const [inboxChannel, setInboxChannel] = useState<string | null>(null);
+  const inboxChannels = useMemo(
+    () => Array.from(new Set(
+      projectedMessages
+        .map((message) => message.sourceChannel?.trim())
+        .filter((channel): channel is string => !!channel && channel !== "websocket"),
+    )).sort(),
+    [projectedMessages],
+  );
+  const displayMessages = useMemo(
+    () => isUnifiedInbox && inboxChannel
+      ? projectedMessages.filter((message) => message.sourceChannel === inboxChannel)
+      : projectedMessages,
+    [inboxChannel, isUnifiedInbox, projectedMessages],
+  );
   const filePreviewAvailabilityCache = useMemo(
     () => new Map<string, FilePreviewAvailabilityCacheEntry>(),
     [historyKey, token],
@@ -720,7 +764,7 @@ export function ThreadShell({
     if (chatId) {
       const prev = prevChatIdForCacheRef.current;
       if (prev && prev !== chatId) {
-        messageCacheRef.current.set(prev, displayMessages);
+        messageCacheRef.current.set(prev, projectedMessages);
         skipLayoutCacheRef.current = true;
       }
       prevChatIdForCacheRef.current = chatId;
@@ -728,13 +772,13 @@ export function ThreadShell({
       if (prevChatIdForCacheRef.current) {
         messageCacheRef.current.set(
           prevChatIdForCacheRef.current,
-          displayMessages,
+          projectedMessages,
         );
         skipLayoutCacheRef.current = true;
       }
       prevChatIdForCacheRef.current = null;
     }
-  }, [chatId, displayMessages]);
+  }, [chatId, projectedMessages]);
 
   // Persist thread to in-memory cache after paint so ``useNanobotStream``'s chat switch
   // ``useEffect`` reset has flushed; ``skipLayoutCacheRef`` drops the first run that still
@@ -750,8 +794,8 @@ export function ThreadShell({
     if (loading) {
       return;
     }
-    messageCacheRef.current.set(chatId, displayMessages);
-  }, [chatId, displayMessages, loading]);
+    messageCacheRef.current.set(chatId, projectedMessages);
+  }, [chatId, projectedMessages, loading]);
 
   // The landing composer queues the first message while `new_chat` is in flight.
   // Only the chat created for that send may consume it; selecting another chat
@@ -938,6 +982,7 @@ export function ThreadShell({
           modelPreset={activeModelPreset}
           modelPresets={modelPresetOptions}
           onModelPresetChange={handleModelPresetChange}
+          modelPresetClickMenu={isNativeHost}
           modelProvider={modelBadge.provider}
           modelProviderLabel={modelBadge.providerLabel}
           modelNeedsSetup={modelBadge.needsSetup}
@@ -964,6 +1009,7 @@ export function ThreadShell({
           quotedContext={quotedContext}
           focusRequest={composerFocusSignal}
           onQuotedContextChange={setQuotedContext}
+          images={nativeScreenshots}
         />
       ) : (
         <ThreadComposer
@@ -980,6 +1026,7 @@ export function ThreadShell({
           modelPreset={activeModelPreset}
           modelPresets={modelPresetOptions}
           onModelPresetChange={handleModelPresetChange}
+          modelPresetClickMenu={isNativeHost}
           modelProvider={modelBadge.provider}
           modelProviderLabel={modelBadge.providerLabel}
           modelNeedsSetup={modelBadge.needsSetup}
@@ -1015,7 +1062,7 @@ export function ThreadShell({
       <HeroGreeting text={t(heroGreetingKey)} />
     </div>
   );
-  const sessionInfoAction = historyKey ? (
+  const sessionInfoAction = historyKey && !isUnifiedInbox ? (
     <SessionInfoPopover sessionKey={historyKey} token={token} title={title} />
   ) : undefined;
   const promptNavigatorAction = historyKey ? (
@@ -1023,6 +1070,19 @@ export function ThreadShell({
       messages={displayMessages}
       onJumpToPrompt={(promptId) => viewportRef.current?.jumpToUserPrompt(promptId)}
     />
+  ) : undefined;
+  const inboxFilterAction = isUnifiedInbox && inboxChannels.length > 0 ? (
+    <select
+      aria-label={t("inbox.channelFilter", { defaultValue: "Channel filter" })}
+      value={inboxChannel ?? ""}
+      onChange={(event) => setInboxChannel(event.target.value || null)}
+      className="host-no-drag h-7 max-w-40 rounded-full border border-border/60 bg-background/70 px-2 text-[11px] text-muted-foreground outline-none"
+    >
+      <option value="">{t("inbox.allChannels", { defaultValue: "All channels" })}</option>
+      {inboxChannels.map((channel) => (
+        <option key={channel} value={channel}>{channel}</option>
+      ))}
+    </select>
   ) : undefined;
 
   return (
@@ -1040,14 +1100,16 @@ export function ThreadShell({
             minimal={!session && !loading}
             promptNavigatorAction={promptNavigatorAction}
             sessionInfoAction={sessionInfoAction}
+            titleAction={inboxFilterAction}
           />
         ) : null}
         <FilePreviewAvailabilityProvider
-          resolve={historyKey ? resolveFilePreviewAvailability : undefined}
+          resolve={historyKey && !isUnifiedInbox ? resolveFilePreviewAvailability : undefined}
         >
           <ThreadViewport
             ref={viewportRef}
             messages={displayMessages}
+            assistantIdentity={assistantIdentity}
             isStreaming={isStreaming}
             emptyState={emptyState}
             composer={composer}
@@ -1058,18 +1120,22 @@ export function ThreadShell({
             cliApps={cliApps}
             mcpPresets={mcpPresets}
             slashCommands={slashCommands}
-            forkBoundaryMessageCount={forkBoundaryMessageCount}
+            forkBoundaryMessageCount={isNativeHost ? null : forkBoundaryMessageCount}
             hasMoreBefore={hasMoreBefore}
             loadingOlder={loadingOlder}
             userMessageOffset={userMessageOffset}
             onLoadOlder={loadOlder}
-            onOpenFilePreview={historyKey ? handleOpenFilePreview : undefined}
-            onForkFromMessage={onForkChat ? handleForkFromMessage : undefined}
+            onOpenFilePreview={historyKey && !isUnifiedInbox ? handleOpenFilePreview : undefined}
+            onForkFromMessage={
+              !isNativeHost && !isUnifiedInbox && onForkChat
+                ? handleForkFromMessage
+                : undefined
+            }
             onQuoteSelection={session ? handleQuoteSelection : undefined}
           />
         </FilePreviewAvailabilityProvider>
       </div>
-      {filePreviewPath && historyKey ? (
+      {filePreviewPath && historyKey && !isUnifiedInbox ? (
         <FilePreviewPanel
           sessionKey={historyKey}
           path={filePreviewPath}

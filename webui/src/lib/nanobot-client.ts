@@ -72,6 +72,7 @@ type SessionUpdateHandler = (
   workspaceScope?: WorkspaceScopePayload,
 ) => void;
 type RunStatusHandler = (chatId: string, startedAt: number | null) => void;
+type ScreenshotRequestHandler = (requestId: string) => void;
 
 /** Structured errors surfaced to the UI.
  *
@@ -125,6 +126,7 @@ export class NanobotClient {
   private sessionUpdateHandlers = new Set<SessionUpdateHandler>();
   private runStatusHandlers = new Set<RunStatusHandler>();
   private errorHandlers = new Set<ErrorHandler>();
+  private screenshotRequestHandlers = new Set<ScreenshotRequestHandler>();
   // chat_id -> handlers listening on it
   private chatHandlers = new Map<string, Set<EventHandler>>();
   /** Inbound frames received while no subscriber is registered (e.g. user switched away). */
@@ -214,6 +216,25 @@ export class NanobotClient {
     return () => {
       this.errorHandlers.delete(handler);
     };
+  }
+
+  onScreenshotRequest(handler: ScreenshotRequestHandler): Unsubscribe {
+    this.screenshotRequestHandlers.add(handler);
+    return () => {
+      this.screenshotRequestHandlers.delete(handler);
+    };
+  }
+
+  sendScreenshotResult(requestId: string, dataUrl: string): void {
+    this.queueSend({ type: "screenshot_result", request_id: requestId, data: dataUrl });
+  }
+
+  sendPresence(focused: boolean, locked?: boolean): void {
+    this.queueSend({
+      type: "presence",
+      focused,
+      ...(locked !== undefined ? { locked } : {}),
+    });
   }
 
   /** Last ``goal_status`` ``started_at`` (unix sec) for *chatId*, if the turn is running. */
@@ -515,6 +536,11 @@ export class NanobotClient {
 
     if (parsed.event === "transcription_error") {
       this.rejectTranscription(parsed.request_id, parsed.detail || "error");
+      return;
+    }
+
+    if (parsed.event === "screenshot_request") {
+      for (const handler of this.screenshotRequestHandlers) handler(parsed.request_id);
       return;
     }
 

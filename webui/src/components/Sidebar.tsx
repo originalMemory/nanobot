@@ -24,7 +24,7 @@ interface SidebarProps {
   sessions: ChatSummary[];
   activeKey: string | null;
   loading: boolean;
-  onNewChat: () => void;
+  onNewChat?: () => void;
   onSelect: (key: string) => void;
   onRequestDelete: (key: string, label: string) => void;
   onTogglePin: (key: string) => void;
@@ -32,7 +32,7 @@ interface SidebarProps {
   onToggleArchive: (key: string) => void;
   onToggleGroup: (groupId: string) => void;
   onRequestRenameProject: (projectKey: string, label: string) => void;
-  onNewChatInProject: (projectPath: string, projectName: string) => void;
+  onNewChatInProject?: (projectPath: string, projectName: string) => void;
   onOpenSettings: () => void;
   onOpenApps: () => void;
   onOpenSkills: () => void;
@@ -139,14 +139,16 @@ export function Sidebar(props: SidebarProps) {
           collapsed && "flex w-14 flex-col items-center px-0",
         )}
       >
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.newChat")}
-          onClick={props.onNewChat}
-          icon={<SquarePen className="h-4 w-4" />}
-          shortcut={newChatShortcut}
-          ariaKeyShortcuts="Meta+Shift+O Control+Shift+O"
-        />
+        {props.onNewChat ? (
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={t("sidebar.newChat")}
+            onClick={props.onNewChat}
+            icon={<SquarePen className="h-4 w-4" />}
+            shortcut={newChatShortcut}
+            ariaKeyShortcuts="Meta+Shift+O Control+Shift+O"
+          />
+        ) : null}
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.searchAria")}

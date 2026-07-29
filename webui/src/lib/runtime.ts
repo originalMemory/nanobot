@@ -23,6 +23,15 @@ export interface HostRuntimeInfo {
   engine_transport?: "unix_socket";
 }
 
+export interface WallpaperConfig {
+  url: string;
+  intervalMinutes: number;
+}
+
+export type SetGatewayUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; error: "empty" | "invalid" | "unsupported" | "credentials" };
+
 export interface NanobotHostApi {
   getRuntimeInfo?(): Promise<HostRuntimeInfo>;
   restartEngine?(): Promise<void>;
@@ -38,6 +47,52 @@ export interface NanobotHostApi {
   onRuntimeStatus?(
     listener: (status: HostRuntimeInfo["engine_status"]) => void,
   ): () => void;
+  platform?: {
+    isMac: boolean;
+    isWindows: boolean;
+  };
+  gateway?: {
+    getUrl(): Promise<string>;
+    setUrl(url: string): Promise<SetGatewayUrlResult>;
+    setSecret?(secret: string): Promise<void>;
+    clearSecret?(): Promise<void>;
+    setConnection?(url: string, secret: string): Promise<SetGatewayUrlResult>;
+  };
+  window?: {
+    action(action: "show" | "hide" | "minimize" | "maximize" | "close"): Promise<void>;
+    onStateChange?(
+      listener: (state: "maximized" | "normal") => void,
+    ): () => void;
+  };
+  screenshot?: {
+    capture(): Promise<string | null>;
+    onCapture(listener: (dataUrl: string) => void): () => void;
+  };
+  presence?: {
+    onChange(
+      listener: (state: { focused?: boolean; locked?: boolean }) => void,
+    ): () => void;
+  };
+  wallpaper?: {
+    getConfig(): Promise<WallpaperConfig>;
+    setConfig(config: WallpaperConfig): Promise<WallpaperConfig>;
+    onUpdate(listener: (dataUrl: string) => void): () => void;
+    onDisabled(listener: () => void): () => void;
+  };
+  shortcut?: {
+    getRaiseInbox(): Promise<string>;
+    setRaiseInbox(
+      accelerator: string,
+    ): Promise<
+      | { ok: true; accelerator: string }
+      | { ok: false; error: "empty" | "register_failed" }
+    >;
+    setRaiseInboxRecording(recording: boolean): Promise<void>;
+    onRaiseInbox(listener: (payload: { toggle: boolean }) => void): () => void;
+  };
+  tray?: {
+    notifyIncoming(): Promise<void>;
+  };
 }
 
 export type HostSocketEvent =
@@ -72,7 +127,7 @@ declare global {
   }
 }
 
-function getHostApi(): NanobotHostApi | null {
+export function getHostApi(): NanobotHostApi | null {
   if (typeof window === "undefined") return null;
   return window.nanobotHost ?? loopbackHostApi;
 }

@@ -13,8 +13,15 @@
       "title": "認証が必要です",
       "hint": "gateway 設定の tokenIssueSecret に指定されたシークレットを入力してください。",
       "placeholder": "パスワード",
+      "gatewayUrl": "Gateway URL",
       "submit": "接続",
-      "invalid": "パスワードが無効です。もう一度お試しください。"
+      "invalid": "パスワードが無効です。もう一度お試しください。",
+      "gatewayErrors": {
+        "empty": "Gateway URL を入力してください。",
+        "invalid": "完全な HTTP または HTTPS URL を入力してください。",
+        "unsupported": "HTTP と HTTPS の URL のみ使用できます。",
+        "credentials": "URL にユーザー名やパスワードを含めないでください。"
+      }
     },
     "account": {
       "section": "アカウント",
@@ -39,6 +46,10 @@
     "meta": {
       "description": "nanobot Web UI — nanobot ワークスペースと会話します。"
     }
+  },
+  "inbox": {
+    "unified": "統合受信トレイ",
+    "allChannels": "すべてのチャンネル"
   },
   "sidebar": {
     "navigation": "サイドバーのナビゲーション",
@@ -89,6 +100,9 @@
       "interface": "インターフェース",
       "ai": "AI",
       "system": "システム",
+      "connection": "接続",
+      "wallpaper": "ダイナミック壁紙",
+      "desktop": "デスクトップ",
       "about": "情報",
       "status": "状態",
       "localPreferences": "ローカル設定",
@@ -114,6 +128,10 @@
       "model": "モデル",
       "restart": "nanobot を再起動",
       "configPath": "設定パス",
+      "gatewayUrl": "Gateway URL",
+      "wallpaper": "画像 URL",
+      "wallpaperInterval": "更新間隔",
+      "raiseInboxShortcut": "統合受信箱ショートカット",
       "activePreset": "アクティブなプリセット",
       "gateway": "ゲートウェイ",
       "restartState": "再起動状態",
@@ -163,6 +181,9 @@
       "provider": "新しいモデルリクエストに使うプロバイダーを選択します。",
       "model": "このプリセットで使用するモデルを選択します。",
       "configPath": "現在ゲートウェイが使用している設定ファイルです。",
+      "gatewayUrl": "このデバイスまたはリモートホストが提供する Nanobot Gateway です。",
+      "wallpaper": "ウィンドウの表示中にデスクトップアプリが画像を取得します。空欄にすると無効になります。",
+      "raiseInboxShortcut": "どこからでもウィンドウを表示して統合受信箱を開きます。",
       "selectedPreset": "名前付きプリセットはここでは読み取り専用です。編集するには config.json を変更してください。",
       "presetModel": "Default に切り替えると、WebUI からモデルとプロバイダーを編集できます。",
       "density": "このブラウザーにのみ保存されます。",
@@ -223,6 +244,7 @@
       "collapsedDiff": "折りたたみ差分",
       "on": "オン",
       "off": "オフ",
+      "minutesShort": "分",
       "defaultPermission": "既定の権限",
       "fullAccess": "完全アクセス",
       "configured": "設定済み",
@@ -260,6 +282,21 @@
       "export": "書き出す",
       "opening": "開いています...",
       "exporting": "書き出しています..."
+    },
+    "errors": {
+      "gatewayUrlLoadFailed": "Gateway URL を読み込めませんでした。",
+      "gatewayUrlEmpty": "Gateway URL を入力してください。",
+      "gatewayUrlInvalid": "http:// または https:// を含む有効な URL を入力してください。",
+      "gatewayUrlUnsupported": "HTTP と HTTPS の URL のみ対応しています。",
+      "gatewayUrlCredentials": "Gateway URL に認証情報を含めないでください。",
+      "gatewayUrlSaveFailed": "Gateway URL を保存できませんでした。",
+      "raiseInboxShortcutLoadFailed": "グローバルショートカットを読み込めませんでした。",
+      "raiseInboxShortcutRecordFailed": "現在のグローバルショートカットを一時停止できませんでした。",
+      "raiseInboxShortcutEmpty": "保存する前にショートカットを記録してください。",
+      "raiseInboxShortcutRegisterFailed": "ショートカットはすでに使用されています。"
+    },
+    "shortcut": {
+      "recording": "ショートカットを押してください…"
     },
     "byok": {
       "description": "自分の provider キーを使います。Nanobot は現在の config から値を読み込み、設定済みの provider だけをモデルプリセットで使用できます。",
@@ -1173,6 +1210,10 @@
     "agentActivityLiveSummary": "実行中… · {{reasoning}} ステップ · ツール呼び出し {{tools}} 回",
     "agentActivityLiveToolsOnly": "実行中… · ツール呼び出し {{tools}} 回",
     "imageAttachment": "画像の添付",
+    "videoAttachment": "動画の添付",
+    "audioAttachment": "音声の添付",
+    "fileAttachment": "ファイルの添付",
+    "attachmentUnavailable": "添付ファイルを利用できません",
     "askAboutSelection": "この内容について質問",
     "forkFromHere": "分岐",
     "copyReply": "コピー",

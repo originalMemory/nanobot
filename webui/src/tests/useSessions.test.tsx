@@ -2,7 +2,13 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { sessionTitle, useSessionHistory, useSessions } from "@/hooks/useSessions";
+import {
+  sessionTitle,
+  UNIFIED_INBOX_SESSION_KEY,
+  useSessionHistory,
+  useSessions,
+} from "@/hooks/useSessions";
+import i18n from "@/i18n";
 import * as api from "@/lib/api";
 import { ClientProvider } from "@/providers/ClientProvider";
 
@@ -56,10 +62,91 @@ function wrap(client: ReturnType<typeof fakeClient>) {
 }
 
 describe("useSessions", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.mocked(api.listSessions).mockReset();
     vi.mocked(api.deleteSession).mockReset();
     vi.mocked(api.fetchWebuiThread).mockReset();
+    await i18n.changeLanguage("en");
+  });
+
+  it("adds the native unified inbox without replacing regular sessions", async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([
+      {
+        key: "websocket:chat-a",
+        channel: "websocket",
+        chatId: "chat-a",
+        createdAt: "2026-04-16T10:00:00Z",
+        updatedAt: "2026-04-16T10:00:00Z",
+        preview: "Alpha",
+      },
+    ]);
+
+    const { result } = renderHook(() => useSessions(true), {
+      wrapper: wrap(fakeClient()),
+    });
+
+    await waitFor(() => expect(result.current.sessions).toHaveLength(2));
+    expect(result.current.sessions[0]).toMatchObject({
+      key: UNIFIED_INBOX_SESSION_KEY,
+      chatId: "inbox:unified",
+      virtual: "unified_inbox",
+    });
+    expect(result.current.sessions[1].key).toBe("websocket:chat-a");
+  });
+
+  it("updates the unified inbox title when the language changes", async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([]);
+    const { result } = renderHook(() => useSessions(true), {
+      wrapper: wrap(fakeClient()),
+    });
+
+    await waitFor(() => expect(result.current.sessions[0]?.title).toBe("Unified Inbox"));
+    await act(async () => {
+      await i18n.changeLanguage("zh-CN");
+    });
+
+    await waitFor(() => {
+      expect(result.current.sessions[0]).toMatchObject({
+        title: "统一收件箱",
+        preview: "所有渠道",
+      });
+    });
+  });
+
+  it("loads unified inbox history from the shared thread endpoint", async () => {
+    vi.mocked(api.fetchWebuiThread).mockResolvedValue({
+      messages: [
+        {
+          id: "inbox-user",
+          role: "user",
+          content: "hello from Telegram",
+          createdAt: 42,
+          sourceChannel: "telegram",
+          sourceChatId: "chat-1",
+        },
+      ],
+    });
+
+    const { result } = renderHook(
+      () => useSessionHistory(UNIFIED_INBOX_SESSION_KEY),
+      { wrapper: wrap(fakeClient()) },
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(api.fetchWebuiThread).toHaveBeenCalledWith(
+      "tok",
+      UNIFIED_INBOX_SESSION_KEY,
+      {
+        limit: 160,
+        direction: "latest",
+      },
+    );
+    expect(result.current.messages[0]).toMatchObject({
+      content: "hello from Telegram",
+      sourceChannel: "telegram",
+      sourceChatId: "chat-1",
+    });
+    expect(result.current.hasMoreBefore).toBe(false);
   });
 
   it("does not use low-information greetings as fallback session titles", () => {
@@ -480,7 +567,7 @@ describe("useSessions", () => {
     expect(result.current.hasPendingToolCalls).toBe(false);
   });
 
-  it("loads older transcript pages before the current history", async () => {
+  it("loads older Unified Inbox pages before the current history", async () => {
     vi.mocked(api.fetchWebuiThread)
       .mockResolvedValueOnce({
         schemaVersion: 3,
@@ -509,12 +596,12 @@ describe("useSessions", () => {
         },
       });
 
-    const { result } = renderHook(() => useSessionHistory("websocket:paged"), {
+    const { result } = renderHook(() => useSessionHistory(UNIFIED_INBOX_SESSION_KEY), {
       wrapper: wrap(fakeClient()),
     });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(api.fetchWebuiThread).toHaveBeenCalledWith("tok", "websocket:paged", {
+    expect(api.fetchWebuiThread).toHaveBeenCalledWith("tok", UNIFIED_INBOX_SESSION_KEY, {
       limit: 160,
       direction: "latest",
     });
@@ -525,7 +612,7 @@ describe("useSessions", () => {
       await result.current.loadOlder();
     });
 
-    expect(api.fetchWebuiThread).toHaveBeenLastCalledWith("tok", "websocket:paged", {
+    expect(api.fetchWebuiThread).toHaveBeenLastCalledWith("tok", UNIFIED_INBOX_SESSION_KEY, {
       limit: 120,
       before: "cursor-2",
     });

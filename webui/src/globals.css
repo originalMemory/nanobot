@@ -178,6 +178,22 @@
     overflow: hidden;
   }
 
+  html[data-wallpaper="on"] body,
+  html[data-wallpaper="on"] .wallpaper-root,
+  html[data-wallpaper="on"] main {
+    background: transparent;
+  }
+
+  html[data-wallpaper="on"] .host-sidebar-glass {
+    background: hsl(var(--sidebar) / 0.76);
+    backdrop-filter: blur(22px) saturate(1.1);
+  }
+
+  html[data-wallpaper="on"] main {
+    background: hsl(var(--background) / 0.78);
+    backdrop-filter: blur(14px) saturate(1.05);
+  }
+
   .host-window-shell,
   .host-sidebar-glass {
     --host-glass-spot: hsl(var(--background) / 0.42);

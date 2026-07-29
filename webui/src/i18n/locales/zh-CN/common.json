@@ -13,8 +13,15 @@
       "title": "需要验证",
       "hint": "请输入 gateway 配置中的 tokenIssueSecret。",
       "placeholder": "密码",
+      "gatewayUrl": "Gateway 地址",
       "submit": "连接",
-      "invalid": "密码无效，请重试。"
+      "invalid": "密码无效，请重试。",
+      "gatewayErrors": {
+        "empty": "请输入 Gateway 地址。",
+        "invalid": "请输入完整的 HTTP 或 HTTPS 地址。",
+        "unsupported": "Gateway 地址只支持 HTTP 或 HTTPS。",
+        "credentials": "请不要在 Gateway 地址中包含用户名或密码。"
+      }
     },
     "account": {
       "section": "账户",
@@ -39,6 +46,10 @@
     "meta": {
       "description": "nanobot Web UI —— 与你的 nanobot 工作区对话。"
     }
+  },
+  "inbox": {
+    "unified": "统一收件箱",
+    "allChannels": "所有渠道"
   },
   "sidebar": {
     "navigation": "侧边栏导航",
@@ -89,6 +100,9 @@
       "interface": "界面",
       "ai": "AI",
       "system": "系统",
+      "connection": "连接",
+      "wallpaper": "动态壁纸",
+      "desktop": "桌面",
       "about": "关于",
       "status": "状态",
       "localPreferences": "本地偏好",
@@ -168,6 +182,10 @@
       "configPath": "配置路径",
       "activePreset": "当前预设",
       "gateway": "网关",
+      "gatewayUrl": "Gateway 地址",
+      "wallpaper": "图片地址",
+      "wallpaperInterval": "更新间隔",
+      "raiseInboxShortcut": "唤起统一会话快捷键",
       "restartState": "重启状态",
       "pendingChanges": "待应用更改",
       "currentModel": "当前配置",
@@ -215,6 +233,9 @@
       "provider": "选择处理新模型请求的提供商。",
       "model": "选择此预设使用的模型。",
       "configPath": "当前网关正在使用的配置文件。",
+      "gatewayUrl": "当前设备或远端主机提供的 Nanobot Gateway 地址。",
+      "wallpaper": "窗口可见时由桌面端获取图片；留空即可关闭。",
+      "raiseInboxShortcut": "从任意位置显示窗口并打开统一会话。",
       "currentModel": "用于新的回复。",
       "selectedModelProvider": "由选中的模型决定。",
       "selectedModelValue": "由选中的模型决定。",
@@ -371,6 +392,7 @@
       "collapsedDiff": "折叠差异",
       "on": "开启",
       "off": "关闭",
+      "minutesShort": "分钟",
       "defaultPermission": "默认权限",
       "fullAccess": "完全访问权限",
       "configured": "已配置",
@@ -408,6 +430,21 @@
       "export": "导出",
       "opening": "正在打开...",
       "exporting": "正在导出..."
+    },
+    "errors": {
+      "gatewayUrlLoadFailed": "无法读取 Gateway 地址。",
+      "gatewayUrlEmpty": "请输入 Gateway 地址。",
+      "gatewayUrlInvalid": "请输入包含 http:// 或 https:// 的有效地址。",
+      "gatewayUrlUnsupported": "Gateway 地址只支持 HTTP 或 HTTPS。",
+      "gatewayUrlCredentials": "请勿在 Gateway 地址中包含用户名或密码。",
+      "gatewayUrlSaveFailed": "无法保存 Gateway 地址。",
+      "raiseInboxShortcutLoadFailed": "无法读取全局快捷键。",
+      "raiseInboxShortcutRecordFailed": "无法暂停当前全局快捷键。",
+      "raiseInboxShortcutEmpty": "请先录制快捷键再保存。",
+      "raiseInboxShortcutRegisterFailed": "快捷键已被占用或无法注册。"
+    },
+    "shortcut": {
+      "recording": "请按下快捷键…"
     },
     "byok": {
       "description": "自带服务商密钥。Nanobot 会从当前 config 读取这些值，只有已配置的服务商才能用于模型预设。",
@@ -1202,6 +1239,10 @@
     "cliRunRan": "已使用",
     "cliRunFailed": "失败",
     "imageAttachment": "图片附件",
+    "videoAttachment": "视频附件",
+    "audioAttachment": "音频附件",
+    "fileAttachment": "文件附件",
+    "attachmentUnavailable": "附件不可用",
     "automationSourceFallback": "自动化",
     "automationTriggered": "自动触发",
     "askAboutSelection": "继续提问",

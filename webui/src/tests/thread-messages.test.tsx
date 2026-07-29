@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   assistantForkFlags,
+  assistantTurnHeaderMessages,
   buildDisplayUnits,
   ThreadMessages,
   unitKeysForDisplay,
@@ -106,6 +107,107 @@ describe("ThreadMessages", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).not.toHaveClass("mt-2", "mt-4", "mt-5");
     expect(rows[1]).toHaveClass("mt-4");
+  });
+
+  it("shows native assistant identity once per turn and takes source from the whole turn", () => {
+    const messages: UIMessage[] = [
+      {
+        id: "u1",
+        role: "user",
+        content: "first",
+        turnId: "turn-1",
+        turnPhase: "user",
+        createdAt: 1,
+      },
+      {
+        id: "t1",
+        role: "tool",
+        kind: "trace",
+        content: "search()",
+        traces: ["search()"],
+        turnId: "turn-1",
+        turnPhase: "activity",
+        createdAt: 2,
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "first answer",
+        sourceChannel: "telegram",
+        turnId: "turn-1",
+        turnPhase: "answer",
+        createdAt: 3,
+      },
+      {
+        id: "a2",
+        role: "assistant",
+        content: "second slice",
+        turnId: "turn-1",
+        turnPhase: "answer",
+        createdAt: 4,
+      },
+      {
+        id: "u2",
+        role: "user",
+        content: "second",
+        turnId: "turn-2",
+        turnPhase: "user",
+        createdAt: 5,
+      },
+      {
+        id: "a3",
+        role: "assistant",
+        content: "second answer",
+        turnId: "turn-2",
+        turnPhase: "answer",
+        createdAt: 6,
+      },
+    ];
+
+    render(
+      <ThreadMessages
+        messages={messages}
+        assistantIdentity={{
+          name: "Homura",
+          icon: "🔥",
+          avatarUrl: "/api/avatar",
+        }}
+      />,
+    );
+
+    expect(screen.getAllByTestId("assistant-turn-identity")).toHaveLength(2);
+    expect(screen.getAllByText("Homura")).toHaveLength(2);
+    expect(screen.getAllByAltText("Homura")).toHaveLength(2);
+    expect(screen.getAllByText("Telegram")).toHaveLength(1);
+
+    const firstHeader = screen.getAllByTestId("assistant-turn-identity")[0];
+    fireEvent.error(within(firstHeader).getByAltText("Homura"));
+    expect(within(firstHeader).getByText("🔥")).toBeInTheDocument();
+  });
+
+  it("uses user boundaries for one identity header per legacy turn", () => {
+    const units = buildDisplayUnits([
+      { id: "u1", role: "user", content: "first", createdAt: 1 },
+      { id: "a1", role: "assistant", content: "slice one", createdAt: 2 },
+      { id: "a2", role: "assistant", content: "slice two", createdAt: 3 },
+      { id: "u2", role: "user", content: "second", createdAt: 4 },
+      { id: "a3", role: "assistant", content: "answer", createdAt: 5 },
+    ]);
+
+    expect(assistantTurnHeaderMessages(units).filter(Boolean)).toHaveLength(2);
+  });
+
+  it("keeps the browser layout free of assistant identity headers by default", () => {
+    render(
+      <ThreadMessages
+        messages={[
+          { id: "u1", role: "user", content: "hello", createdAt: 1 },
+          { id: "a1", role: "assistant", content: "answer", createdAt: 2 },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByTestId("assistant-turn-identity")).not.toBeInTheDocument();
   });
 
   it("renders a fork boundary divider after the copied history", () => {

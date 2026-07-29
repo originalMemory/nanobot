@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FileIcon, ImageIcon, PlaySquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -10,13 +10,39 @@ interface AttachmentTileProps {
   className?: string;
   inline?: boolean;
   variant?: "default" | "compact";
+  autoPlayAudio?: boolean;
 }
 
-export function AttachmentTile({ attachment, className, inline = false, variant = "default" }: AttachmentTileProps) {
+const autoPlayedAudio = new Set<string>();
+
+export function AttachmentTile({
+  attachment,
+  className,
+  inline = false,
+  variant = "default",
+  autoPlayAudio = false,
+}: AttachmentTileProps) {
   const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const hasUrl = typeof attachment.url === "string" && attachment.url.length > 0;
   const label = attachmentLabel(attachment, t);
+
+  useEffect(() => {
+    const url = attachment.url;
+    const audio = audioRef.current;
+    if (
+      attachment.kind !== "audio"
+      || !autoPlayAudio
+      || !url
+      || !audio
+      || autoPlayedAudio.has(url)
+    ) {
+      return;
+    }
+    autoPlayedAudio.add(url);
+    void audio.play().catch(() => {});
+  }, [attachment.kind, attachment.url, autoPlayAudio]);
 
   if (attachment.kind === "image" && hasUrl && !failed) {
     return (
@@ -72,7 +98,35 @@ export function AttachmentTile({ attachment, className, inline = false, variant 
     );
   }
 
-  const Icon = attachment.kind === "video"
+  if (attachment.kind === "audio" && hasUrl && !failed) {
+    return (
+      <AttachmentFrame
+        attachment={attachment}
+        className={className}
+        inline={inline}
+        variant={variant}
+      >
+        <audio
+          ref={audioRef}
+          src={attachment.url}
+          controls
+          preload="auto"
+          onError={() => setFailed(true)}
+          className="audio-attachment-player block w-full"
+          aria-label={attachment.name
+            ? `${t("message.audioAttachment", { defaultValue: "Audio attachment" })}: ${attachment.name}`
+            : t("message.audioAttachment", { defaultValue: "Audio attachment" })}
+        />
+        {attachment.name ? (
+          <figcaption className="truncate px-3 py-1.5 text-[11.5px] text-muted-foreground">
+            {attachment.name}
+          </figcaption>
+        ) : null}
+      </AttachmentFrame>
+    );
+  }
+
+  const Icon = attachment.kind === "video" || attachment.kind === "audio"
     ? PlaySquare
     : attachment.kind === "image"
       ? ImageIcon
@@ -141,8 +195,10 @@ function AttachmentFrame({
     "border border-border/60 bg-muted/40",
     attachment.kind === "image" && "bg-background/85",
     attachment.kind === "video" ? "w-[min(100%,32rem)]" : "",
+    attachment.kind === "audio" ? "w-[min(100%,28rem)]" : "",
     variant === "compact" && "my-1 rounded-xl shadow-none",
     variant === "compact" && attachment.kind === "video" && "w-[min(100%,20rem)]",
+    variant === "compact" && attachment.kind === "audio" && "w-[min(100%,20rem)]",
     className,
   );
   const bodyClassName = "block max-w-full";
@@ -163,6 +219,9 @@ function AttachmentFrame({
 }
 
 function attachmentLabel(attachment: UIMediaAttachment, t: ReturnType<typeof useTranslation>["t"]): string {
+  if (attachment.kind === "audio") {
+    return t("message.audioAttachment", { defaultValue: "Audio attachment" });
+  }
   if (attachment.kind === "video") {
     return t("message.videoAttachment", { defaultValue: "Video attachment" });
   }

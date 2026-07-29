@@ -13,8 +13,15 @@
       "title": "Autenticação necessária",
       "hint": "Informe o segredo configurado como tokenIssueSecret na configuração do gateway.",
       "placeholder": "Senha",
+      "gatewayUrl": "URL do Gateway",
       "submit": "Conectar",
-      "invalid": "Senha inválida. Tente novamente."
+      "invalid": "Senha inválida. Tente novamente.",
+      "gatewayErrors": {
+        "empty": "Informe a URL do Gateway.",
+        "invalid": "Informe uma URL HTTP ou HTTPS completa.",
+        "unsupported": "Apenas URLs HTTP e HTTPS são aceitas.",
+        "credentials": "Não inclua usuário ou senha na URL."
+      }
     },
     "account": {
       "section": "Conta",
@@ -39,6 +46,10 @@
     "meta": {
       "description": "Interface web do nanobot — converse com o seu workspace do nanobot."
     }
+  },
+  "inbox": {
+    "unified": "Caixa de entrada unificada",
+    "allChannels": "Todos os canais"
   },
   "sidebar": {
     "navigation": "Navegação da barra lateral",
@@ -89,6 +100,9 @@
       "interface": "Interface do usuário",
       "ai": "IA",
       "system": "Sistema",
+      "connection": "Conexão",
+      "wallpaper": "Papel de parede dinâmico",
+      "desktop": "Desktop",
       "about": "Sobre",
       "status": "Status",
       "localPreferences": "Preferências locais",
@@ -166,6 +180,10 @@
       "model": "Modelo",
       "restart": "Reiniciar nanobot",
       "configPath": "Caminho da configuração",
+      "gatewayUrl": "URL do Gateway",
+      "wallpaper": "URL da imagem",
+      "wallpaperInterval": "Intervalo de atualização",
+      "raiseInboxShortcut": "Atalho da caixa unificada",
       "activePreset": "Predefinição ativa",
       "gateway": "Gateway",
       "restartState": "Estado do reinício",
@@ -215,6 +233,9 @@
       "provider": "Selecione o provedor que atenderá as novas requisições de modelo.",
       "model": "Escolha o modelo usado por esta predefinição.",
       "configPath": "O arquivo de configuração do gateway em uso.",
+      "gatewayUrl": "O Nanobot Gateway servido por este dispositivo ou um host remoto.",
+      "wallpaper": "O aplicativo desktop busca a imagem enquanto a janela está visível. Deixe vazio para desativar.",
+      "raiseInboxShortcut": "Mostra a janela e abre a caixa unificada de qualquer lugar.",
       "currentModel": "Usado para novas respostas.",
       "selectedModelProvider": "Definido pelo modelo selecionado.",
       "selectedModelValue": "Definido pelo modelo selecionado.",
@@ -371,6 +392,7 @@
       "collapsedDiff": "Diff recolhido",
       "on": "Ligado",
       "off": "Desligado",
+      "minutesShort": "min",
       "defaultPermission": "Permissão padrão",
       "fullAccess": "Acesso total",
       "configured": "Configurado",
@@ -408,6 +430,21 @@
       "export": "Exportar",
       "opening": "Abrindo...",
       "exporting": "Exportando..."
+    },
+    "errors": {
+      "gatewayUrlLoadFailed": "Não foi possível carregar a URL do Gateway.",
+      "gatewayUrlEmpty": "Informe uma URL do Gateway.",
+      "gatewayUrlInvalid": "Informe uma URL válida com http:// ou https://.",
+      "gatewayUrlUnsupported": "Somente URLs HTTP e HTTPS são compatíveis.",
+      "gatewayUrlCredentials": "Não inclua credenciais na URL do Gateway.",
+      "gatewayUrlSaveFailed": "Não foi possível salvar a URL do Gateway.",
+      "raiseInboxShortcutLoadFailed": "Não foi possível carregar o atalho global.",
+      "raiseInboxShortcutRecordFailed": "Não foi possível pausar o atalho global atual.",
+      "raiseInboxShortcutEmpty": "Grave um atalho antes de salvar.",
+      "raiseInboxShortcutRegisterFailed": "O atalho já está em uso."
+    },
+    "shortcut": {
+      "recording": "Pressione o atalho…"
     },
     "byok": {
       "description": "Traga suas próprias chaves de provedor. O nanobot lê esses valores da configuração atual e apenas provedores configurados podem ser usados nas predefinições de modelo.",
@@ -1202,6 +1239,10 @@
     "cliRunRan": "Usou",
     "cliRunFailed": "Falhou",
     "imageAttachment": "Anexo de imagem",
+    "videoAttachment": "Anexo de vídeo",
+    "audioAttachment": "Anexo de áudio",
+    "fileAttachment": "Arquivo anexado",
+    "attachmentUnavailable": "Anexo indisponível",
     "automationSourceFallback": "Automação",
     "automationTriggered": "Acionada automaticamente",
     "askAboutSelection": "Perguntar sobre isto",

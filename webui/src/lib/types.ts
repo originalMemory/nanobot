@@ -24,7 +24,7 @@ export interface UIImage {
   name?: string;
 }
 
-export type UIMediaKind = "image" | "video" | "file";
+export type UIMediaKind = "image" | "video" | "audio" | "file";
 
 export interface UIMediaAttachment {
   kind: UIMediaKind;
@@ -41,6 +41,8 @@ export interface UIMessage {
   kind?: MessageKind;
   isStreaming?: boolean;
   createdAt: number;
+  /** 本页面生命周期内由 WebSocket 实时收到；只用于即时 UI 行为，不持久化。 */
+  liveArrival?: boolean;
   /** For trace rows: each individual hint line, so consecutive hints can
    * render as a single collapsible group. */
   traces?: string[];
@@ -70,6 +72,13 @@ export interface UIMessage {
   latencyMs?: number;
   /** Lightweight provenance for proactive assistant messages. */
   source?: UIMessageSource;
+  /** Unified Inbox provenance. */
+  sourceChannel?: string;
+  sourceChatId?: string;
+  channelDelivery?: boolean;
+  userInitiatedDelivery?: boolean;
+  cronJobId?: string;
+  cronJobName?: string;
   /** Stable protocol metadata for grouping all activity emitted by one user turn. */
   turnId?: string;
   turnPhase?: UITurnPhase;
@@ -250,6 +259,8 @@ export interface ChatSummary {
   /** Unix epoch seconds when this session currently has a turn in flight. */
   runStartedAt?: number | null;
   workspaceScope?: WorkspaceScopePayload | null;
+  /** Client-owned navigation rows that are not ordinary persisted sessions. */
+  virtual?: "unified_inbox";
 }
 
 export type WorkspaceAccessMode = "restricted" | "full";
@@ -416,7 +427,10 @@ export interface SettingsPayload {
     timezone: string;
     bot_name: string;
     bot_icon: string;
+    bot_avatar_url?: string | null;
     tool_hint_max_length: number;
+    vision_model?: string | null;
+    vision_provider?: string | null;
   };
   model_presets: Array<{
     name: string;
@@ -542,6 +556,12 @@ export interface SettingsPayload {
       api_base?: string | null;
       default_api_base?: string | null;
     }>;
+  };
+  tts?: {
+    enabled: boolean;
+    default_voice: string;
+    provider: string;
+    model: string;
   };
   runtime: {
     config_path: string;
@@ -956,6 +976,13 @@ export interface SettingsUpdate {
   botName?: string;
   botIcon?: string;
   toolHintMaxLength?: number;
+  visionModel?: string;
+  visionProvider?: string;
+}
+
+export interface TtsSettingsUpdate {
+  enabled?: boolean;
+  defaultVoice?: string;
 }
 
 export interface ModelConfigurationCreate {
@@ -1076,6 +1103,8 @@ export interface InboundTurnMetadata {
   turn_id?: string;
   turn_phase?: UITurnPhase;
   turn_seq?: number;
+  source_channel?: string;
+  source_chat_id?: string;
 }
 
 export type InboundEvent =
@@ -1096,9 +1125,18 @@ export type InboundEvent =
       latency_ms?: number;
       /** Lightweight provenance for proactive assistant messages. */
       source?: UIMessageSource;
+      channel_delivery?: boolean;
+      user_initiated_delivery?: boolean;
+      cron_job_id?: string;
+      cron_job_name?: string;
       /** Optional structured payload on progress frames (channel-specific). */
       agent_ui?: AgentUIBlob;
     } & InboundTurnMetadata)
+  | ({
+      event: "user";
+      text?: string;
+      media_urls?: Array<{ url: string; name?: string }>;
+    } & { chat_id: string } & InboundTurnMetadata)
   | ({
       event: "file_edit";
       chat_id: string;
@@ -1172,6 +1210,7 @@ export type InboundEvent =
       detail?: string;
       provider?: string;
     }
+  | { event: "screenshot_request"; request_id: string }
   | { event: "error"; chat_id?: string; detail?: string; reason?: string };
 
 /** Base64-encoded file attached to an outbound ``message`` envelope.
@@ -1242,6 +1281,8 @@ export type Outbound =
   | { type: "attach"; chat_id: string }
   | { type: "set_workspace_scope"; chat_id: string; workspace_scope: WorkspaceScopePayload }
   | { type: "transcribe_audio"; request_id: string; data_url: string; duration_ms?: number }
+  | { type: "presence"; focused: boolean; locked?: boolean }
+  | { type: "screenshot_result"; request_id: string; data: string }
   | {
       type: "message";
       chat_id: string;

@@ -132,6 +132,7 @@ import {
   updateNetworkSafetySettings,
   updateProviderSettings,
   updateSettings,
+  updateTtsSettings,
   updateTranscriptionSettings,
   updateWebSearchSettings,
 } from "@/lib/api";
@@ -145,7 +146,7 @@ import {
   type LocalDensity,
   type LocalPreferences,
 } from "@/lib/local-preferences";
-import { getRuntimeHost, isNativeRuntime } from "@/lib/runtime";
+import { getHostApi, getRuntimeHost, isNativeRuntime } from "@/lib/runtime";
 import { notifyMcpPresetsChanged } from "@/lib/mcp-preset-events";
 import { fmtDateTime, relativeTime } from "@/lib/format";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
@@ -2101,19 +2102,26 @@ export function SettingsView({
         );
       case "voice":
         return (
-          <TranscriptionSettings
-            settings={settings}
-            form={transcriptionForm}
-            dirty={transcriptionDirty}
-            saving={transcriptionSaving}
-            onChangeForm={setTranscriptionForm}
-            onSave={saveTranscriptionSettings}
-            onOpenProviders={() => selectSection("models")}
-            showBrandLogos={localPrefs.brandLogos}
-            onRestart={restartViaSettingsSurface}
-            isRestarting={isRestarting || hostEngineApplying}
-            requiresRestartPending={pendingRestartSections.browser}
-          />
+          <div className="space-y-7">
+            <TranscriptionSettings
+              settings={settings}
+              form={transcriptionForm}
+              dirty={transcriptionDirty}
+              saving={transcriptionSaving}
+              onChangeForm={setTranscriptionForm}
+              onSave={saveTranscriptionSettings}
+              onOpenProviders={() => selectSection("models")}
+              showBrandLogos={localPrefs.brandLogos}
+              onRestart={restartViaSettingsSurface}
+              isRestarting={isRestarting || hostEngineApplying}
+              requiresRestartPending={pendingRestartSections.browser}
+            />
+            <TtsAndVisionSettings
+              token={token}
+              settings={settings}
+              onSaved={applyPayload}
+            />
+          </div>
         );
       case "browser":
         return (
@@ -2726,6 +2734,368 @@ function OverviewSettings({
   );
 }
 
+function NativeWallpaperSettings() {
+  const { t } = useTranslation();
+  const wallpaper = getHostApi()?.wallpaper;
+  const [savedUrl, setSavedUrl] = useState("");
+  const [savedInterval, setSavedInterval] = useState(1);
+  const [url, setUrl] = useState("");
+  const [intervalMinutes, setIntervalMinutes] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!wallpaper) return;
+    void wallpaper.getConfig().then((config) => {
+      setSavedUrl(config.url);
+      setSavedInterval(config.intervalMinutes);
+      setUrl(config.url);
+      setIntervalMinutes(config.intervalMinutes);
+    });
+  }, [wallpaper]);
+
+  if (!wallpaper) return null;
+  const normalizedInterval = Math.max(1, Math.floor(intervalMinutes) || 1);
+  const dirty = url.trim() !== savedUrl || normalizedInterval !== savedInterval;
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const config = await wallpaper.setConfig({
+        url: url.trim(),
+        intervalMinutes: normalizedInterval,
+      });
+      setSavedUrl(config.url);
+      setSavedInterval(config.intervalMinutes);
+      setUrl(config.url);
+      setIntervalMinutes(config.intervalMinutes);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section>
+      <SettingsSectionTitle>
+        {t("settings.sections.wallpaper", { defaultValue: "Dynamic wallpaper" })}
+      </SettingsSectionTitle>
+      <SettingsGroup>
+        <SettingsRow
+          title={t("settings.rows.wallpaper", { defaultValue: "Image URL" })}
+          description={t("settings.help.wallpaper", {
+            defaultValue: "Fetched by the desktop host while the window is visible. Leave empty to disable.",
+          })}
+        >
+          <Input
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            className="h-8 w-[min(380px,70vw)] rounded-full text-[13px]"
+          />
+        </SettingsRow>
+        <SettingsRow
+          title={t("settings.rows.wallpaperInterval", { defaultValue: "Update interval" })}
+        >
+          <NumberInput
+            value={intervalMinutes}
+            min={1}
+            max={1440}
+            suffix={t("settings.values.minutesShort", { defaultValue: "min" })}
+            onChange={setIntervalMinutes}
+          />
+        </SettingsRow>
+        <div className="flex items-center justify-end gap-3 px-4 py-3">
+          {error ? <span className="text-xs text-destructive">{error}</span> : null}
+          <Button
+            type="button"
+            size="sm"
+            disabled={!dirty || saving}
+            onClick={() => void save()}
+            className="rounded-full"
+          >
+            {saving
+              ? t("settings.actions.saving", { defaultValue: "Saving…" })
+              : t("settings.actions.save", { defaultValue: "Save" })}
+          </Button>
+        </div>
+      </SettingsGroup>
+    </section>
+  );
+}
+
+function NativeGatewaySettings() {
+  const { t } = useTranslation();
+  const gateway = getHostApi()?.gateway;
+  const [savedUrl, setSavedUrl] = useState("");
+  const [url, setUrl] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!gateway) return;
+    void gateway.getUrl()
+      .then((value) => {
+        setSavedUrl(value);
+        setUrl(value);
+      })
+      .catch(() => {
+        setError(t("settings.errors.gatewayUrlLoadFailed", {
+          defaultValue: "Could not load the Gateway URL.",
+        }));
+      });
+  }, [gateway, t]);
+
+  if (!gateway) return null;
+  const dirty = url.trim() !== savedUrl;
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await gateway.setUrl(url);
+      if (!result.ok) {
+        const messageByError = {
+          empty: t("settings.errors.gatewayUrlEmpty", {
+            defaultValue: "Enter a Gateway URL.",
+          }),
+          invalid: t("settings.errors.gatewayUrlInvalid", {
+            defaultValue: "Enter a valid URL including http:// or https://.",
+          }),
+          unsupported: t("settings.errors.gatewayUrlUnsupported", {
+            defaultValue: "Only HTTP and HTTPS Gateway URLs are supported.",
+          }),
+          credentials: t("settings.errors.gatewayUrlCredentials", {
+            defaultValue: "Do not include credentials in the Gateway URL.",
+          }),
+        };
+        setError(messageByError[result.error]);
+        return;
+      }
+      setSavedUrl(result.url);
+      setUrl(result.url);
+    } catch {
+      setError(t("settings.errors.gatewayUrlSaveFailed", {
+        defaultValue: "Could not save the Gateway URL.",
+      }));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section>
+      <SettingsSectionTitle>
+        {t("settings.sections.connection", { defaultValue: "Connection" })}
+      </SettingsSectionTitle>
+      <SettingsGroup>
+        <SettingsRow
+          title={t("settings.rows.gatewayUrl", { defaultValue: "Gateway URL" })}
+          description={t("settings.help.gatewayUrl", {
+            defaultValue: "The Nanobot Gateway served by this device or a remote host.",
+          })}
+        >
+          <Input
+            aria-label={t("settings.rows.gatewayUrl", { defaultValue: "Gateway URL" })}
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            className="h-8 w-[min(380px,70vw)] rounded-full text-[13px]"
+            placeholder="http://127.0.0.1:8765"
+          />
+        </SettingsRow>
+        <div className="flex items-center justify-end gap-3 px-4 py-3">
+          {error ? <span className="text-xs text-destructive" role="alert">{error}</span> : null}
+          <Button
+            type="button"
+            size="sm"
+            disabled={!dirty || saving}
+            onClick={() => void save()}
+            className="rounded-full"
+          >
+            {saving
+              ? t("settings.actions.saving", { defaultValue: "Saving…" })
+              : t("settings.actions.save", { defaultValue: "Save" })}
+          </Button>
+        </div>
+      </SettingsGroup>
+    </section>
+  );
+}
+
+function acceleratorFromKeyboardEvent(event: KeyboardEvent): string | null {
+  if (["Meta", "Control", "Alt", "Shift"].includes(event.key)) return null;
+  const modifiers = [
+    event.metaKey ? "Command" : "",
+    event.ctrlKey ? "Control" : "",
+    event.altKey ? "Alt" : "",
+    event.shiftKey ? "Shift" : "",
+  ].filter(Boolean);
+  const namedKeys: Record<string, string> = {
+    ArrowDown: "Down",
+    ArrowLeft: "Left",
+    ArrowRight: "Right",
+    ArrowUp: "Up",
+    Backspace: "Backspace",
+    Delete: "Delete",
+    End: "End",
+    Enter: "Enter",
+    Escape: "Escape",
+    Home: "Home",
+    PageDown: "PageDown",
+    PageUp: "PageUp",
+    Space: "Space",
+    Tab: "Tab",
+  };
+  let key = namedKeys[event.code] ?? "";
+  if (!key && event.code.startsWith("Key")) key = event.code.slice(3);
+  if (!key && event.code.startsWith("Digit")) key = event.code.slice(5);
+  if (!key && /^F\d{1,2}$/.test(event.code)) key = event.code;
+  if (!key && event.key.length === 1) key = event.key.toUpperCase();
+  return key ? [...modifiers, key].join("+") : null;
+}
+
+function NativeShortcutSettings() {
+  const { t } = useTranslation();
+  const shortcut = getHostApi()?.shortcut;
+  const [saved, setSaved] = useState("CmdOrCtrl+Shift+E");
+  const [draft, setDraft] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!shortcut) return;
+    void shortcut.getRaiseInbox().then(setSaved).catch(() => {
+      setError(t("settings.errors.raiseInboxShortcutLoadFailed", {
+        defaultValue: "Could not load the global shortcut.",
+      }));
+    });
+    return () => {
+      void shortcut.setRaiseInboxRecording(false);
+    };
+  }, [shortcut, t]);
+
+  useEffect(() => {
+    if (!shortcut || !recording) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        setDraft(null);
+        setRecording(false);
+        void shortcut.setRaiseInboxRecording(false);
+        return;
+      }
+      const accelerator = acceleratorFromKeyboardEvent(event);
+      if (!accelerator) return;
+      setDraft(accelerator);
+      setError(null);
+      setRecording(false);
+      void shortcut.setRaiseInboxRecording(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [recording, shortcut]);
+
+  if (!shortcut) return null;
+  const pending = draft ?? saved;
+  const beginRecording = async () => {
+    setError(null);
+    try {
+      await shortcut.setRaiseInboxRecording(true);
+      setRecording(true);
+    } catch {
+      setError(t("settings.errors.raiseInboxShortcutRecordFailed", {
+        defaultValue: "Could not pause the current global shortcut.",
+      }));
+    }
+  };
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await shortcut.setRaiseInbox(pending);
+      if (!result.ok) {
+        setError(result.error === "empty"
+          ? t("settings.errors.raiseInboxShortcutEmpty", {
+              defaultValue: "Record a shortcut before saving.",
+            })
+          : t("settings.errors.raiseInboxShortcutRegisterFailed", {
+              defaultValue: "The shortcut is already in use.",
+            }));
+        return;
+      }
+      setSaved(result.accelerator);
+      setDraft(null);
+    } catch {
+      setError(t("settings.errors.raiseInboxShortcutRegisterFailed", {
+        defaultValue: "The shortcut could not be registered.",
+      }));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section>
+      <SettingsSectionTitle>
+        {t("settings.sections.desktop", { defaultValue: "Desktop" })}
+      </SettingsSectionTitle>
+      <SettingsGroup>
+        <SettingsRow
+          title={t("settings.rows.raiseInboxShortcut", {
+            defaultValue: "Raise inbox shortcut",
+          })}
+          description={t("settings.help.raiseInboxShortcut", {
+            defaultValue: "Shows the window and opens Unified Inbox from anywhere.",
+          })}
+        >
+          <div className="flex min-w-[260px] flex-col gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                aria-label={t("settings.rows.raiseInboxShortcut", {
+                  defaultValue: "Raise inbox shortcut",
+                })}
+                className={cn(
+                  "min-w-[150px] rounded-full font-mono text-xs",
+                  recording && "ring-2 ring-primary",
+                )}
+                onClick={() => {
+                  if (recording) {
+                    setRecording(false);
+                    void shortcut.setRaiseInboxRecording(false);
+                  } else {
+                    void beginRecording();
+                  }
+                }}
+              >
+                {recording
+                  ? t("settings.shortcut.recording", { defaultValue: "Press shortcut…" })
+                  : pending}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={recording || saving || pending === saved}
+                onClick={() => void save()}
+                className="rounded-full"
+              >
+                {saving
+                  ? t("settings.actions.saving", { defaultValue: "Saving…" })
+                  : t("settings.actions.save", { defaultValue: "Save" })}
+              </Button>
+            </div>
+            {error ? <p className="text-right text-xs text-destructive" role="alert">{error}</p> : null}
+          </div>
+        </SettingsRow>
+      </SettingsGroup>
+    </section>
+  );
+}
+
 function VersionCheckRow({ currentVersion }: { currentVersion?: string }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -2953,6 +3323,9 @@ function AppearanceSettings({
           </SettingsRow>
         </SettingsGroup>
       </section>
+      <NativeGatewaySettings />
+      <NativeShortcutSettings />
+      <NativeWallpaperSettings />
     </div>
   );
 }
@@ -4994,6 +5367,162 @@ function TranscriptionSettings({
         />
       </SettingsGroup>
     </section>
+  );
+}
+
+function TtsAndVisionSettings({
+  token,
+  settings,
+  onSaved,
+}: {
+  token: string;
+  settings: SettingsPayload;
+  onSaved: (payload: SettingsPayload) => void;
+}) {
+  const { t } = useTranslation();
+  const currentTts = settings.tts ?? {
+    enabled: false,
+    default_voice: "",
+    provider: "",
+    model: "",
+  };
+  const [ttsEnabled, setTtsEnabled] = useState(currentTts.enabled);
+  const [defaultVoice, setDefaultVoice] = useState(currentTts.default_voice);
+  const [visionModel, setVisionModel] = useState(settings.agent.vision_model ?? "");
+  const [visionProvider, setVisionProvider] = useState(settings.agent.vision_provider ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTtsEnabled(currentTts.enabled);
+    setDefaultVoice(currentTts.default_voice);
+    setVisionModel(settings.agent.vision_model ?? "");
+    setVisionProvider(settings.agent.vision_provider ?? "");
+  }, [
+    currentTts.default_voice,
+    currentTts.enabled,
+    settings.agent.vision_model,
+    settings.agent.vision_provider,
+  ]);
+
+  const ttsDirty =
+    ttsEnabled !== currentTts.enabled
+    || defaultVoice.trim() !== currentTts.default_voice;
+  const visionDirty =
+    visionModel.trim() !== (settings.agent.vision_model ?? "")
+    || visionProvider.trim() !== (settings.agent.vision_provider ?? "");
+  const dirty = ttsDirty || visionDirty;
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      let payload = settings;
+      if (ttsDirty) {
+        payload = await updateTtsSettings(token, {
+          enabled: ttsEnabled,
+          defaultVoice: defaultVoice.trim(),
+        });
+      }
+      if (visionDirty) {
+        payload = await updateSettings(token, {
+          visionModel: visionModel.trim(),
+          visionProvider: visionProvider.trim(),
+        });
+      }
+      onSaved(payload);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <section>
+        <SettingsSectionTitle>
+          {t("settings.sections.tts", { defaultValue: "Voice output" })}
+        </SettingsSectionTitle>
+        <SettingsGroup>
+          <SettingsRow
+            title={t("settings.tts.enabled", { defaultValue: "Enable TTS" })}
+            description={t("settings.tts.enabledDesc", {
+              defaultValue: "Allow the agent to synthesize spoken replies.",
+            })}
+          >
+            <ToggleButton
+              checked={ttsEnabled}
+              onChange={setTtsEnabled}
+              ariaLabel={t("settings.tts.enabled", { defaultValue: "Enable TTS" })}
+              label={ttsEnabled
+                ? t("settings.values.on", { defaultValue: "On" })
+                : t("settings.values.off", { defaultValue: "Off" })}
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={t("settings.tts.defaultVoice", { defaultValue: "Default voice" })}
+            description={t("settings.tts.defaultVoiceDesc", {
+              defaultValue: "Voice name or provider voice ID.",
+            })}
+          >
+            <Input
+              value={defaultVoice}
+              onChange={(event) => setDefaultVoice(event.target.value)}
+              className="h-8 w-[min(280px,70vw)] rounded-full text-[13px]"
+            />
+          </SettingsRow>
+        </SettingsGroup>
+      </section>
+
+      <section>
+        <SettingsSectionTitle>
+          {t("settings.sections.auxiliaryVision", { defaultValue: "Auxiliary vision" })}
+        </SettingsSectionTitle>
+        <SettingsGroup>
+          <SettingsRow
+            title={t("settings.rows.visionModel", { defaultValue: "Vision model" })}
+            description={t("settings.help.visionModel", {
+              defaultValue: "Optional caption model for the active model preset. Leave empty to disable.",
+            })}
+          >
+            <Input
+              value={visionModel}
+              onChange={(event) => setVisionModel(event.target.value)}
+              placeholder="gemini-2.5-flash"
+              className="h-8 w-[min(280px,70vw)] rounded-full text-[13px]"
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={t("settings.rows.visionProvider", { defaultValue: "Vision provider" })}
+            description={t("settings.help.visionProvider", {
+              defaultValue: "Leave empty to infer the provider from the model.",
+            })}
+          >
+            <Input
+              value={visionProvider}
+              onChange={(event) => setVisionProvider(event.target.value)}
+              placeholder={t("settings.values.auto", { defaultValue: "Auto" })}
+              className="h-8 w-[min(220px,65vw)] rounded-full text-[13px]"
+            />
+          </SettingsRow>
+          <div className="flex items-center justify-end gap-3 px-4 py-3">
+            {error ? <span className="text-xs text-destructive">{error}</span> : null}
+            <Button
+              type="button"
+              size="sm"
+              disabled={!dirty || saving}
+              onClick={() => void save()}
+              className="rounded-full"
+            >
+              {saving
+                ? t("settings.actions.saving", { defaultValue: "Saving…" })
+                : t("settings.actions.save", { defaultValue: "Save" })}
+            </Button>
+          </div>
+        </SettingsGroup>
+      </section>
+    </>
   );
 }
 

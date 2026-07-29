@@ -6,11 +6,17 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { CircleHelp, Sparkles } from "lucide-react";
+import { Check, CircleHelp, Sparkles } from "lucide-react";
 
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { inferProviderFromModelName, providerBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export interface ModelPresetOption {
   name: string;
@@ -31,6 +37,7 @@ interface ModelPresetBadgeProps {
   fallbackModelName?: string | null;
   isHero: boolean;
   onClick?: () => void;
+  clickToSelect?: boolean;
 }
 
 interface PresetGesture {
@@ -93,6 +100,7 @@ export function ModelPresetBadge({
   fallbackModelName,
   isHero,
   onClick,
+  clickToSelect = false,
 }: ModelPresetBadgeProps) {
   const activeName = modelPreset?.trim() || "";
   const listedIndex = modelPresets.findIndex((preset) => preset.name === activeName);
@@ -108,7 +116,14 @@ export function ModelPresetBadge({
     : listedIndex < 0
       ? [activePreset, ...modelPresets]
       : modelPresets.map((preset, index) => index === listedIndex ? activePreset : preset);
-  const interactive = Boolean(onClick);
+  const hasClickMenu = (
+    clickToSelect
+    && !needsSetup
+    && Boolean(onPresetChange)
+    && activeName !== ""
+    && presets.length > 1
+  );
+  const interactive = Boolean(onClick) || hasClickMenu;
   const canSwitch = !interactive && Boolean(onPresetChange) && activeName !== "" && presets.length > 1;
   const currentIndex = Math.max(0, presets.findIndex((preset) => preset.name === activeName));
   const pillHeight = isHero ? 32 : 36;
@@ -216,7 +231,7 @@ export function ModelPresetBadge({
   const Container = interactive || canSwitch ? "button" : "span";
   const trackOffset = motion ? -pillStride * (2 + motion.remainder) : 0;
 
-  return (
+  const badge = (
     <Container
       data-switching={motion ? "true" : undefined}
       data-settling={motion?.settling ? "true" : undefined}
@@ -228,7 +243,7 @@ export function ModelPresetBadge({
       aria-valuetext={canSwitch ? previewPreset?.label || label : undefined}
       role={canSwitch ? "spinbutton" : undefined}
       type={interactive || canSwitch ? "button" : undefined}
-      onClick={interactive ? onClick : undefined}
+      onClick={onClick}
       onKeyDown={handleKeyDown}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -303,6 +318,46 @@ export function ModelPresetBadge({
         </span>
       ) : null}
     </Container>
+  );
+  if (!hasClickMenu) return badge;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{badge}</DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        side="top"
+        className="w-[min(22rem,calc(100vw-2rem))]"
+      >
+        {presets.map((preset) => {
+          const selected = preset.name === activeName;
+          return (
+            <DropdownMenuItem
+              key={preset.name}
+              onSelect={() => {
+                if (!selected) onPresetChange?.(preset.name);
+              }}
+              className={cn(
+                "flex items-center justify-between gap-3",
+                selected && "bg-muted/80 text-foreground",
+              )}
+            >
+              <span className="min-w-0 text-left">
+                <span className="block truncate font-medium">
+                  {preset.label || preset.name}
+                </span>
+                {preset.model ? (
+                  <span className="mt-0.5 block truncate text-[11.5px] text-muted-foreground">
+                    {preset.model}
+                  </span>
+                ) : null}
+              </span>
+              {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MessageBubble } from "@/components/MessageBubble";
 import type {
@@ -43,6 +43,10 @@ const CLI_APPS: CliAppInfo[] = [
     skill_installed: false,
   },
 ];
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const MCP_PRESETS: McpPresetInfo[] = [
   {
@@ -541,6 +545,61 @@ describe("MessageBubble", () => {
     expect(container.querySelector("video[controls]")).toBeInTheDocument();
     expect(screen.queryByText("Preview")).not.toBeInTheDocument();
     expect(screen.queryByText("Code")).not.toBeInTheDocument();
+  });
+
+  it("renders audio media and auto-plays a live URL only once", async () => {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined);
+    const message: UIMessage = {
+      id: "a-audio",
+      role: "assistant",
+      content: "voice reply",
+      createdAt: Date.now(),
+      liveArrival: true,
+      media: [{
+        kind: "audio",
+        url: "/api/media/sig/live-voice",
+        name: "reply.mp3",
+      }],
+    };
+
+    const first = render(<MessageBubble message={message} />);
+    const audio = screen.getByLabelText(/audio attachment/i);
+    expect(audio.tagName).toBe("AUDIO");
+    expect(audio).toHaveAttribute("controls");
+    expect(audio).toHaveAttribute("preload", "auto");
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+
+    first.unmount();
+    render(<MessageBubble message={message} />);
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not auto-play audio restored from history", () => {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined);
+
+    render(
+      <MessageBubble
+        message={{
+          id: "a-history-audio",
+          role: "assistant",
+          content: "old voice reply",
+          // 即使后端回放器补成当前/未来时间，历史消息也不能自动播放。
+          createdAt: Date.now() + 60_000,
+          media: [{
+            kind: "audio",
+            url: "/api/media/sig/history-voice",
+            name: "history.ogg",
+          }],
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText(/audio attachment/i)).toHaveAttribute("controls");
+    expect(play).not.toHaveBeenCalled();
   });
 
   it("renders streaming reasoning as one compact activity line", () => {
