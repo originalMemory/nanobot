@@ -8,7 +8,6 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { FileReferenceChip } from "@/components/FileReferenceChip";
-import { StreamingLabelSheen } from "@/components/MessageBubble";
 import { codeLanguageFromPath } from "@/lib/code-language";
 import {
   hasRenderableFileDiff,
@@ -16,7 +15,10 @@ import {
 } from "@/lib/file-diff";
 import type { UIFileDiff, UIFileEdit } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+import { ActivityStep } from "./ActivityStep";
 import { DiffSyntaxHighlight } from "./DiffSyntaxHighlight";
+import { DiffPair } from "./DiffPair";
 
 export interface FileEditSummary {
   key: string;
@@ -33,16 +35,34 @@ export interface FileEditSummary {
   diff?: UIFileDiff;
 }
 
-export function FileEditGroup({ edits }: { edits: FileEditSummary[] }) {
-  if (!edits.length) return null;
+export function FileEditGroup({
+  edits,
+  onOpenFilePreview,
+}: {
+  edits: FileEditSummary[];
+  onOpenFilePreview?: (path: string) => void;
+}) {
+  if (edits.length === 0) return null;
   return (
-    <div className="space-y-1">
-      {edits.map((edit) => <FileEditRow key={edit.key} edit={edit} />)}
-    </div>
+    <>
+      {edits.map((edit) => (
+        <FileEditRow
+          key={edit.key}
+          edit={edit}
+          onOpenFilePreview={onOpenFilePreview}
+        />
+      ))}
+    </>
   );
 }
 
-function FileEditRow({ edit }: { edit: FileEditSummary }) {
+function FileEditRow({
+  edit,
+  onOpenFilePreview,
+}: {
+  edit: FileEditSummary;
+  onOpenFilePreview?: (path: string) => void;
+}) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const editing = edit.status === "editing";
@@ -52,73 +72,74 @@ function FileEditRow({ edit }: { edit: FileEditSummary }) {
     () => expanded && edit.diff ? parseRenderableFileDiff(edit.diff) : [],
     [edit.diff, expanded],
   );
-  const label = failed
-    ? edit.operation === "delete"
-      ? t("message.fileEditDeleteFailed")
-      : t("message.fileEditEditFailed")
-    : edit.operation === "delete"
-      ? (editing ? t("message.fileEditDeleting") : t("message.fileEditDeleted"))
-      : (editing ? t("message.fileEditEditing") : t("message.fileEditEdited"));
-  const error = failed
-    ? cleanFileEditError(edit.error) || t("message.fileEditUnknownError")
-    : "";
+  const action = fileEditAction(edit, editing, failed);
+  const hasCountedDiff = !failed && !edit.binary && hasVisibleDiffStats(edit);
+  const statusIcon = failed ? (
+    <AlertCircle className="h-3 w-3" aria-hidden />
+  ) : editing ? (
+    <CircleDashed className="h-3 w-3 animate-spin" aria-hidden />
+  ) : (
+    <CheckCircle2 className="h-3 w-3" aria-hidden />
+  );
 
   return (
     <div className="min-w-0">
-      <button
-        type="button"
-        disabled={!canExpand}
-        onClick={() => setExpanded((value) => !value)}
-        className={cn(
-          "activity-detail-content flex w-full min-w-0 items-center gap-2 py-0.5 text-left text-xs",
-          canExpand && "cursor-pointer rounded hover:bg-muted/30",
-          !canExpand && "cursor-default",
-        )}
-        aria-expanded={canExpand ? expanded : undefined}
-      >
-        <span className="grid h-5 w-5 shrink-0 place-items-center text-muted-foreground/60">
-          {failed ? <AlertCircle className="h-3.5 w-3.5 text-destructive/75" />
-            : editing ? <CircleDashed className="h-3.5 w-3.5 animate-spin" />
-              : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500/75" />}
-        </span>
-        <span className="shrink-0 text-muted-foreground/78">{label}</span>
-        {edit.pending && !edit.path ? (
-          <StreamingLabelSheen active className="min-w-0 truncate">
-            {t("message.fileEditPreparing")}
-          </StreamingLabelSheen>
-        ) : (
-          <FileReferenceChip
-            path={edit.path}
-            tooltipPath={edit.absolute_path}
-            display="path"
-            active={editing}
-            className="min-w-0"
-            textClassName="text-[12px]"
-            testId="activity-file-reference"
-          />
-        )}
-        {!failed && !edit.binary && (edit.added > 0 || edit.deleted > 0) ? (
-          <span className="ml-auto inline-flex shrink-0 gap-1.5 tabular-nums">
-            <span className="text-emerald-500/80">+{edit.added}</span>
-            <span className="text-rose-500/80">-{edit.deleted}</span>
-            {edit.approximate ? (
-              <span className="text-muted-foreground/65">
-                {t("message.fileEditEstimated")}
-              </span>
-            ) : null}
+      <ActivityStep
+        marker={(
+          <span
+            className={cn(
+              "grid h-3.5 w-3.5 place-items-center rounded-full border bg-background transition-colors",
+              failed && "border-destructive/30 text-destructive/78",
+              editing && "border-muted-foreground/24 text-muted-foreground/65",
+              !failed && !editing && "border-emerald-500/28 text-emerald-500/78",
+            )}
+          >
+            {statusIcon}
           </span>
-        ) : null}
-        {canExpand ? (
-          <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
-        ) : null}
-      </button>
-      {failed ? (
-        <div className="activity-detail-content ml-7 break-words pr-2 text-[11px] text-destructive/80">
-          {error}
-        </div>
-      ) : null}
+        )}
+        active={editing}
+        tone={failed ? "error" : editing ? "active" : "success"}
+        className="text-xs"
+        ariaLabel={edit.path ? `${action} ${edit.path}` : action}
+        label={edit.pending && !edit.path
+          ? t("message.fileEditPreparing", { defaultValue: "Preparing file edit…" })
+          : (
+            <span className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+              <span className="shrink-0">{action}</span>
+              <FileReferenceChip
+                path={edit.path}
+                previewPath={edit.absolute_path || edit.path}
+                onOpen={onOpenFilePreview}
+                display="path"
+                active={editing}
+                className="min-w-0"
+                textClassName="truncate text-[12px]"
+                testId="activity-file-reference"
+              />
+              {hasCountedDiff ? <DiffPair added={edit.added} deleted={edit.deleted} /> : null}
+              {canExpand ? (
+                <button
+                  type="button"
+                  aria-label={t("message.fileDiffToggle", {
+                    defaultValue: `${expanded ? "Hide" : "Show"} diff for ${edit.path}`,
+                  })}
+                  aria-expanded={expanded}
+                  onClick={() => setExpanded((value) => !value)}
+                  className="grid h-5 w-5 shrink-0 place-items-center rounded transition-colors hover:bg-muted/55"
+                >
+                  <ChevronRight
+                    className={cn(
+                      "h-3.5 w-3.5 transition-transform",
+                      expanded && "rotate-90",
+                    )}
+                  />
+                </button>
+              ) : null}
+            </span>
+          )}
+      />
       {expanded && hunks.length ? (
-        <div className="ml-7 mt-1 max-h-80 overflow-auto rounded-md border border-border/55 bg-background/55">
+        <div className="ml-[1.625rem] mt-1 max-h-80 overflow-auto rounded-md border border-border/55 bg-background/55">
           {edit.diff?.truncated ? (
             <div className="border-b border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-200">
               {t("message.fileDiffTruncated")}
@@ -129,7 +150,10 @@ function FileEditRow({ edit }: { edit: FileEditSummary }) {
               <div className="border-y border-border/35 bg-muted/35 px-3 py-1 font-mono text-[10px] text-muted-foreground">
                 {hunk.header}
               </div>
-              <DiffSyntaxHighlight language={codeLanguageFromPath(edit.path)} lines={hunk.lines} />
+              <DiffSyntaxHighlight
+                language={codeLanguageFromPath(edit.path)}
+                lines={hunk.lines}
+              />
             </div>
           ))}
         </div>
@@ -138,7 +162,13 @@ function FileEditRow({ edit }: { edit: FileEditSummary }) {
   );
 }
 
-function cleanFileEditError(error: string | undefined): string {
-  if (!error) return "";
-  return error.replace(/^(?:error|runtimeerror|exception):\s*/i, "").trim();
+export function hasVisibleDiffStats(edit: Pick<FileEditSummary, "added" | "deleted">): boolean {
+  return edit.added > 0 || edit.deleted > 0;
+}
+
+function fileEditAction(edit: FileEditSummary, editing: boolean, failed: boolean): string {
+  const deleting = edit.operation === "delete";
+  if (failed) return deleting ? "Could not delete" : "Could not edit";
+  if (editing) return deleting ? "Deleting" : "Editing";
+  return deleting ? "Deleted" : "Edited";
 }

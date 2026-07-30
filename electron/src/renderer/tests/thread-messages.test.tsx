@@ -3,15 +3,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
 import {
-  assistantCopyFlags,
+  assistantTurnFooterFlags,
+  assistantTurnHeaderMessages,
   buildDisplayUnits,
-  buildFinalDisplayUnits,
   ThreadMessages,
 } from "@/components/thread/ThreadMessages";
-import { isNearThreadBottom } from "@/components/thread/ThreadViewport";
+import { isNearThreadBottom, ThreadViewport } from "@/components/thread/ThreadViewport";
 import type { NanobotClient } from "@/lib/nanobot-client";
-import { ClientProvider } from "@/providers/ClientProvider";
 import type { UIMessage } from "@/lib/types";
+import { ClientProvider } from "@/providers/ClientProvider";
 
 function renderThread(messages: UIMessage[], isStreaming = false) {
   return render(
@@ -25,40 +25,77 @@ function renderThread(messages: UIMessage[], isStreaming = false) {
   );
 }
 
+function turnMessage(
+  message: Omit<UIMessage, "turnId" | "turnSeq">,
+  turnId = "turn-1",
+  turnSeq = 0,
+): UIMessage {
+  return { ...message, turnId, turnSeq };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("ThreadMessages turn coalescing", () => {
+describe("ThreadMessages turn timeline", () => {
   it("only treats the viewport as sticky near the bottom", () => {
     expect(isNearThreadBottom(12)).toBe(true);
     expect(isNearThreadBottom(120)).toBe(false);
   });
-  it("merges interleaved activity and text into one assistant-turn unit", () => {
+
+  it("uses one translucent surface around the full thread viewport", () => {
+    const { container } = render(
+      <ClientProvider
+        client={{} as NanobotClient}
+        token=""
+        apiBase="http://127.0.0.1:8765"
+      >
+        <ThreadViewport
+          messages={[turnMessage({
+            id: "a1",
+            role: "assistant",
+            content: "answer",
+            createdAt: 1,
+          })]}
+          isStreaming={false}
+          composer={<div>composer</div>}
+        />
+      </ClientProvider>,
+    );
+
+    const surface = screen.getByTestId("thread-viewport-surface");
+    expect(surface).toHaveClass("bg-background/60");
+    expect(surface.className).not.toContain("backdrop-blur");
+    expect(screen.getByTestId("thread-message-region")).toHaveClass("pb-4");
+    expect(screen.getByTestId("thread-message-region")).not.toHaveClass("pb-20");
+    expect(screen.getByTestId("thread-composer-dock")).toHaveClass("bg-transparent");
+    expect(container.querySelector(".chat-ai-bubble")).toBeNull();
+  });
+
+  it("keeps interleaved activity and assistant replies as separate units", () => {
     const messages: UIMessage[] = [
-      {
+      turnMessage({
         id: "r1",
         role: "assistant",
         content: "",
         reasoning: "plan read",
-        reasoningStreaming: false,
         createdAt: 1,
-      },
-      {
+      }, "turn-1", 1),
+      turnMessage({
         id: "t1",
         role: "tool",
         kind: "trace",
         content: "read_file()",
         traces: ["read_file()"],
         createdAt: 2,
-      },
-      {
+      }, "turn-1", 2),
+      turnMessage({
         id: "a1",
         role: "assistant",
         content: "先看下文件。",
         createdAt: 3,
-      },
-      {
+      }, "turn-1", 3),
+      turnMessage({
         id: "t2",
         role: "tool",
         kind: "trace",
@@ -74,240 +111,148 @@ describe("ThreadMessages turn coalescing", () => {
           status: "done",
         }],
         createdAt: 4,
-      },
-      {
+      }, "turn-1", 4),
+      turnMessage({
         id: "a2",
         role: "assistant",
         content: "改好了。",
         latencyMs: 34_000,
         createdAt: 5,
-      },
+      }, "turn-1", 5),
     ];
 
-    const raw = buildDisplayUnits(messages);
-    expect(raw.map((u) => u.type)).toEqual(["cluster", "single", "cluster", "single"]);
+    const units = buildDisplayUnits(messages);
+    expect(units.map((unit) => unit.type)).toEqual([
+      "activity",
+      "message",
+      "activity",
+      "message",
+    ]);
+    expect(units.filter((unit) => unit.type === "message")).toHaveLength(2);
+  });
 
-    const units = buildFinalDisplayUnits(messages, false);
-    expect(units).toHaveLength(1);
-    expect(units[0].type).toBe("assistant-turn");
-    if (units[0].type !== "assistant-turn") return;
-    expect(units[0].segments.map((s) => s.kind)).toEqual([
-      "activity",
-      "text",
-      "activity",
-      "text",
+  it("orders one turn by turnSeq instead of arrival order", () => {
+    const messages: UIMessage[] = [
+      turnMessage({ id: "a2", role: "assistant", content: "second", createdAt: 2 }, "turn-1", 2),
+      turnMessage({ id: "a1", role: "assistant", content: "first", createdAt: 1 }, "turn-1", 1),
+    ];
+    const units = buildDisplayUnits(messages);
+    expect(units.map((unit) => unit.type === "message" ? unit.message.id : "")).toEqual([
+      "a1",
+      "a2",
     ]);
   });
 
-  it("keeps user messages as separate units", () => {
+  it("does not merge proactive delivery with the previous turn", () => {
     const messages: UIMessage[] = [
-      { id: "u1", role: "user", content: "hello", createdAt: 1 },
-      {
+      turnMessage({ id: "u1", role: "user", content: "phase2?", createdAt: 1 }, "turn-user", 0),
+      turnMessage({ id: "a1", role: "assistant", content: "explanation", createdAt: 2 }, "turn-user", 1),
+      turnMessage({
+        id: "a2",
+        role: "assistant",
+        content: "早上好",
+        channelDelivery: true,
+        createdAt: 3,
+      }, "turn-cron", 0),
+    ];
+    const units = buildDisplayUnits(messages);
+    expect(units.map((unit) => unit.type === "message" ? unit.message.turnId : "")).toEqual([
+      "turn-user",
+      "turn-user",
+      "turn-cron",
+    ]);
+  });
+
+  it("shows one turn header and footer only on the last reply", () => {
+    const units = buildDisplayUnits([
+      turnMessage({ id: "a1", role: "assistant", content: "part one", createdAt: 1 }, "turn-1", 1),
+      turnMessage({
+        id: "a2",
+        role: "assistant",
+        content: "part two",
+        latencyMs: 2_000,
+        createdAt: 2,
+      }, "turn-1", 2),
+    ]);
+    expect(assistantTurnFooterFlags(units)).toEqual([false, true]);
+    expect(assistantTurnHeaderMessages(units).map((message) => message?.id ?? null)).toEqual([
+      "a1",
+      null,
+    ]);
+
+    const { container } = renderThread(
+      units.flatMap((unit) => unit.type === "message" ? [unit.message] : unit.messages),
+    );
+    expect(screen.getAllByTestId("assistant-turn-identity")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /copy reply|复制回复/i })).toHaveLength(1);
+    expect(container.querySelectorAll(".assistant-message-footer")).toHaveLength(1);
+    expect(container.querySelector(".assistant-message-footer-metric")).toHaveTextContent("2s");
+  });
+
+  it("renders the turn header before activity and document-style assistant text", () => {
+    const { container } = renderThread([
+      turnMessage({
+        id: "t1",
+        role: "tool",
+        kind: "trace",
+        content: "read_file()",
+        traces: ["read_file()"],
+        createdAt: 1,
+      }, "turn-1", 1),
+      turnMessage({
         id: "a1",
         role: "assistant",
-        content: "hi",
+        content: "文件看完了。",
+        sourceChannel: "telegram",
+        latencyMs: 148_000,
         createdAt: 2,
-      },
-    ];
-    const units = buildFinalDisplayUnits(messages, false);
-    expect(units).toHaveLength(2);
-    expect(units[0].type).toBe("single");
-    expect(units[1].type).toBe("assistant-turn");
-    if (units[1].type === "assistant-turn") {
-      expect(units[1].startedAtMs).toBe(1);
-    }
+      }, "turn-1", 2),
+    ]);
+
+    const identity = screen.getByTestId("assistant-turn-identity");
+    const activity = screen.getByRole("button", {
+      name: /worked|working|thought|thinking|处理|思考/i,
+    });
+    const answer = screen.getByText("文件看完了。");
+
+    expect(identity.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(activity.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText(/telegram/i)).toBeInTheDocument();
+    expect(activity).toHaveAttribute("aria-expanded", "false");
+    expect(activity).not.toHaveAccessibleName(/2m|148|分钟/);
+    expect(answer.closest("[data-message-id]")).toHaveAttribute("class", "");
+    expect(container.querySelector(".chat-ai-bubble")).toBeNull();
   });
 
-  it("marks only the last assistant-turn as streaming", () => {
-    const messages: UIMessage[] = [
-      { id: "u1", role: "user", content: "one", createdAt: 1 },
-      { id: "a1", role: "assistant", content: "done", createdAt: 2 },
-      { id: "u2", role: "user", content: "two", createdAt: 3 },
-      {
-        id: "r1",
-        role: "assistant",
-        content: "",
-        reasoning: "thinking",
-        reasoningStreaming: true,
-        createdAt: 4,
-      },
-    ];
-    const units = buildFinalDisplayUnits(messages, true);
-    expect(units.filter((u) => u.type === "assistant-turn").map((u) => (
-      u.type === "assistant-turn" ? u.isStreaming : false
-    ))).toEqual([false, true]);
-  });
-
-  it("does not revive a completed assistant turn after a follow-up user message", () => {
-    const messages: UIMessage[] = [
-      { id: "u1", role: "user", content: "one", createdAt: 1 },
-      {
-        id: "r1",
-        role: "assistant",
-        content: "",
-        reasoning: "done thinking",
-        reasoningStreaming: false,
-        createdAt: 2,
-      },
-      { id: "a1", role: "assistant", content: "done", createdAt: 3 },
-      { id: "u2", role: "user", content: "follow up", createdAt: 4 },
-    ];
-
-    const units = buildFinalDisplayUnits(messages, true);
-    const assistantTurns = units.filter((u) => u.type === "assistant-turn");
-    expect(assistantTurns).toHaveLength(1);
-    if (assistantTurns[0]?.type !== "assistant-turn") throw new Error("expected assistant turn");
-    expect(assistantTurns[0].isStreaming).toBe(false);
-  });
-
-  it("keeps an active assistant turn streaming after a follow-up user message", () => {
-    const messages: UIMessage[] = [
-      { id: "u1", role: "user", content: "one", createdAt: 1 },
-      {
-        id: "r1",
-        role: "assistant",
-        content: "",
-        reasoning: "still thinking",
-        reasoningStreaming: true,
-        isStreaming: true,
-        createdAt: 2,
-      },
-      { id: "u2", role: "user", content: "follow up", createdAt: 3 },
-    ];
-
-    const units = buildFinalDisplayUnits(messages, true);
-    const assistantTurns = units.filter((u) => u.type === "assistant-turn");
-    expect(assistantTurns).toHaveLength(1);
-    if (assistantTurns[0]?.type !== "assistant-turn") throw new Error("expected assistant turn");
-    expect(assistantTurns[0].isStreaming).toBe(true);
-  });
-
-  it("inserts replayed early reasoning before tool traces when cluster has no leading reasoning", () => {
-    const messages: UIMessage[] = [
-      {
+  it("keeps replayed reasoning in turnSeq order with tool traces", () => {
+    const units = buildDisplayUnits([
+      turnMessage({
         id: "t1",
         role: "tool",
         kind: "trace",
         content: "grep()",
         traces: ["grep()"],
         createdAt: 2,
-      },
-      {
-        id: "t2",
-        role: "tool",
-        kind: "trace",
-        content: "read_file()",
-        traces: ["read_file()"],
-        createdAt: 3,
-      },
-      {
+      }, "turn-1", 1),
+      turnMessage({
         id: "a1",
         role: "assistant",
         content: "final answer",
         reasoning: "earliest thought",
-        reasoningStreaming: false,
         createdAt: 4,
-      },
-    ];
-
-    const raw = buildDisplayUnits(messages);
-    expect(raw).toHaveLength(2);
-    expect(raw[0].type).toBe("cluster");
-    if (raw[0].type !== "cluster") return;
-    expect(raw[0].messages.map((m) => m.id)).toEqual([
-      "a1-reasoning",
-      "t1",
-      "t2",
+      }, "turn-1", 2),
     ]);
-  });
-
-  it("appends post-tool reasoning after traces when cluster already has leading reasoning", () => {
-    const messages: UIMessage[] = [
-      {
-        id: "r1",
-        role: "assistant",
-        content: "",
-        reasoning: "search plan",
-        createdAt: 1,
-      },
-      {
-        id: "t1",
-        role: "tool",
-        kind: "trace",
-        content: "grep()",
-        traces: ["grep()"],
-        createdAt: 2,
-      },
-      {
-        id: "a1",
-        role: "assistant",
-        content: "final answer",
-        reasoning: "summarize results",
-        createdAt: 3,
-      },
-    ];
-
-    const raw = buildDisplayUnits(messages);
-    if (raw[0].type !== "cluster") throw new Error("expected cluster");
-    expect(raw[0].messages.map((m) => m.id)).toEqual([
-      "r1",
+    expect(units[0].type).toBe("activity");
+    if (units[0].type !== "activity") return;
+    expect(units[0].messages.map((message) => message.id)).toEqual([
       "t1",
       "a1-reasoning",
     ]);
   });
 
-  it("distinguishes completed thinking from tool work", () => {
-    const messages: UIMessage[] = [
-      {
-        id: "r1",
-        role: "assistant",
-        content: "",
-        reasoning: "first thought",
-        reasoningStreaming: false,
-        createdAt: 1,
-      },
-      {
-        id: "a1",
-        role: "assistant",
-        content: "第一段正文。",
-        createdAt: 4_000,
-      },
-      {
-        id: "r2",
-        role: "assistant",
-        content: "",
-        reasoning: "second thought",
-        reasoningStreaming: false,
-        createdAt: 5_000,
-      },
-      {
-        id: "t1",
-        role: "tool",
-        kind: "trace",
-        content: "read_file()",
-        traces: ["read_file()"],
-        createdAt: 8_000,
-      },
-      {
-        id: "a2",
-        role: "assistant",
-        content: "最终总结。",
-        latencyMs: 12_000,
-        createdAt: 12_000,
-      },
-    ];
-
-    renderThread(messages, false);
-
-    expect(screen.getByText(/Thought for|思考了/i)).toBeInTheDocument();
-    expect(screen.getByText(/Worked for|处理了/i)).toBeInTheDocument();
-    expect(screen.getByText("第一段正文。")).toBeInTheDocument();
-    expect(screen.getByText("最终总结。")).toBeInTheDocument();
-  });
-
-  it("renders assistant media-only messages inside a coalesced turn", () => {
-    const messages: UIMessage[] = [
-      {
+  it("renders assistant media-only messages", () => {
+    renderThread([
+      turnMessage({
         id: "a1",
         role: "assistant",
         content: "",
@@ -317,74 +262,93 @@ describe("ThreadMessages turn coalescing", () => {
           name: "generated.png",
         }],
         createdAt: 1,
-      },
-    ];
-
-    renderThread(messages, false);
-
+      }),
+    ]);
     expect(screen.getByAltText("generated.png")).toBeInTheDocument();
   });
 
-  it("splits proactive channel delivery from the previous assistant turn", () => {
-    const messages: UIMessage[] = [
-      { id: "u1", role: "user", content: "phase2?", createdAt: 1 },
-      { id: "a1", role: "assistant", content: "explanation", createdAt: 2 },
-      {
+  it("preserves playback segments on each original assistant message", () => {
+    const messages = [
+      turnMessage({
+        id: "a1",
+        role: "assistant",
+        content: "part one",
+        playbackSegments: [{
+          messageId: "a1",
+          segmentIndex: 0,
+          rawText: "part one",
+          audio: { status: "ready", url: "/audio/one.mp3" },
+        }],
+        createdAt: 1,
+      }, "turn-1", 1),
+      turnMessage({
         id: "a2",
         role: "assistant",
-        content: "早上好",
-        channelDelivery: true,
-        createdAt: 3,
-      },
+        content: "part two",
+        playbackSegments: [{
+          messageId: "a2",
+          segmentIndex: 0,
+          rawText: "part two",
+          audio: { status: "ready", url: "/audio/two.mp3" },
+        }],
+        createdAt: 2,
+      }, "turn-1", 2),
     ];
-    const units = buildFinalDisplayUnits(messages, false);
-    expect(units).toHaveLength(3);
-    expect(units.filter((u) => u.type === "assistant-turn")).toHaveLength(2);
-    if (units[1].type !== "assistant-turn" || units[2].type !== "assistant-turn") return;
-    expect(units[1].segments).toHaveLength(1);
-    expect(units[2].segments).toHaveLength(1);
-    if (units[2].segments[0].kind !== "text") return;
-    expect(units[2].segments[0].message.channelDelivery).toBe(true);
+    const units = buildDisplayUnits(messages);
+    const assistantMessages = units.flatMap(
+      (unit) => unit.type === "message" && unit.message.role === "assistant"
+        ? [unit.message]
+        : [],
+    );
+    expect(assistantMessages.map((message) => message.playbackSegments?.[0]?.messageId)).toEqual([
+      "a1",
+      "a2",
+    ]);
   });
 
-  it("only enables copy on the final coalesced assistant turn unit", () => {
-    const messages: UIMessage[] = [
-      { id: "u1", role: "user", content: "hi", createdAt: 1 },
-      { id: "a1", role: "assistant", content: "part one", createdAt: 2 },
-      {
+  it("keeps trailing tool activity expanded while its turn is running", () => {
+    renderThread([
+      turnMessage({ id: "u1", role: "user", content: "edit", createdAt: 1 }, "turn-1", 0),
+      turnMessage({
         id: "t1",
         role: "tool",
         kind: "trace",
-        content: "read()",
-        traces: ["read()"],
-        createdAt: 3,
-      },
-      { id: "a2", role: "assistant", content: "part two", createdAt: 4 },
-      { id: "u2", role: "user", content: "again", createdAt: 5 },
-      { id: "a3", role: "assistant", content: "latest", createdAt: 6 },
-    ];
-    const units = buildFinalDisplayUnits(messages, false);
-    expect(assistantCopyFlags(units)).toEqual([true, true, true, true]);
-    expect(units.filter((u) => u.type === "assistant-turn")).toHaveLength(2);
+        content: "edit_file()",
+        traces: ["edit_file()"],
+        createdAt: 2,
+      }, "turn-1", 1),
+    ], true);
+    expect(screen.getByRole("button", {
+      name: /worked|working|thought|thinking|处理|思考/i,
+    })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("agent-activity-scroll")).toBeInTheDocument();
   });
 
-  it("keeps activity reasoning open until after the full assistant turn ends", () => {
+  it("briefly keeps completed reasoning expanded before auto-collapsing", () => {
     vi.useFakeTimers();
-    const messages: UIMessage[] = [
-      { id: "u1", role: "user", content: "hi", createdAt: 1 },
-      {
+    const messages = [
+      turnMessage({ id: "u1", role: "user", content: "hi", createdAt: 1 }, "turn-1", 0),
+      turnMessage({
         id: "a1",
         role: "assistant",
         content: "answer",
         reasoning: "thinking text",
-        reasoningStreaming: false,
         isStreaming: true,
         createdAt: 2,
-      },
+      }, "turn-1", 1),
     ];
-
     const { rerender } = renderThread(messages, true);
-    expect(screen.getByText("thinking text")).toBeInTheDocument();
+    const reasoningText = screen.getByText("thinking text");
+    expect(reasoningText).toBeInTheDocument();
+    const reasoningLine = reasoningText.closest("[data-testid='activity-line']");
+    expect(reasoningLine).toHaveClass("whitespace-normal");
+    expect(reasoningLine).not.toHaveAttribute("title");
+    expect(reasoningText).toHaveClass("whitespace-pre-wrap", "break-words");
+    expect(reasoningText).not.toHaveClass("truncate");
+    const activityToggle = screen.getByRole("button", {
+      name: /worked|working|thought|thinking|处理|思考/i,
+    });
+    expect(activityToggle).toHaveAttribute("aria-expanded", "true");
 
     rerender(
       <ClientProvider
@@ -393,21 +357,15 @@ describe("ThreadMessages turn coalescing", () => {
         apiBase="http://127.0.0.1:8765"
       >
         <ThreadMessages
-          messages={[{ ...messages[0] }, { ...messages[1], isStreaming: false }]}
+          messages={[messages[0], { ...messages[1], isStreaming: false }]}
           isStreaming={false}
         />
       </ClientProvider>,
     );
-    expect(screen.getByText("thinking text")).toBeInTheDocument();
-
-    act(() => {
-      vi.advanceTimersByTime(2_999);
-    });
-    expect(screen.getByText("thinking text")).toBeInTheDocument();
-
-    act(() => {
-      vi.advanceTimersByTime(1);
-    });
-    expect(screen.queryByText("thinking text")).not.toBeInTheDocument();
+    expect(activityToggle).toHaveAttribute("aria-expanded", "true");
+    act(() => vi.advanceTimersByTime(899));
+    expect(activityToggle).toHaveAttribute("aria-expanded", "true");
+    act(() => vi.advanceTimersByTime(1));
+    expect(activityToggle).toHaveAttribute("aria-expanded", "false");
   });
 });

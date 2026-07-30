@@ -243,7 +243,10 @@ export function ThreadViewport({
   }, []);
 
   return (
-    <div className="relative flex min-h-0 flex-1 overflow-hidden">
+    <div
+      data-testid="thread-viewport-surface"
+      className="relative flex min-h-0 flex-1 overflow-hidden bg-background/60"
+    >
       <div
         ref={scrollRef}
         className={cn(
@@ -256,7 +259,10 @@ export function ThreadViewport({
       >
         {hasMessages ? (
           <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[72rem] flex-col">
-            <div className="flex-1 px-4 pb-20 pt-4">
+            <div
+              data-testid="thread-message-region"
+              className="flex-1 px-4 pb-4 pt-4"
+            >
               <div className="mx-auto w-full max-w-[58rem]">
                 <ThreadMessages
                   messages={visibleMessages}
@@ -272,7 +278,7 @@ export function ThreadViewport({
             <div
               ref={composerDockRef}
               data-testid="thread-composer-dock"
-              className="sticky bottom-0 z-10 mt-auto bg-background"
+              className="sticky bottom-0 z-10 mt-auto bg-transparent"
             >
               <div className="px-4 pb-3">
                 {composer}
@@ -294,7 +300,7 @@ export function ThreadViewport({
 
       <div
         aria-hidden
-        className="thread-viewport-top-fade pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-background to-transparent"
+        className="thread-viewport-top-fade pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-background/60 to-transparent"
       />
 
       {showScrollToBottomButton && !atBottom && (

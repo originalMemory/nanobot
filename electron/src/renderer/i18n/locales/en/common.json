@@ -836,10 +836,12 @@
       "proactive": "Proactive",
       "heartbeat": "Heartbeat"
     },
-    "tokenUsageTitle": "↑ context at cutoff · ↓ turn output · R cache read · ctx% window used",
+    "tokenUsageTitle": "↑ turn input · ↓ turn output · R turn cache read · ctx% window used",
     "tokenUsageContextSize": "Context at this message (estimated size for replay on next turn)",
     "tokenUsageTurnTotalIn": "Turn total input (all LLM calls)",
-    "tokenUsageTurnTotalOut": "Turn total output"
+    "tokenUsageTurnTotalOut": "Turn total output",
+    "tokenUsageTurnCacheRead": "Turn cache read",
+    "tokenUsageLastCallIn": "Last LLM call input"
   },
   "lightbox": {
     "title": "Image preview",

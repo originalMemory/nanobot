@@ -6,6 +6,7 @@ import asyncio
 import dataclasses
 import os
 import time
+import uuid
 from contextlib import AsyncExitStack, nullcontext, suppress
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -64,6 +65,7 @@ from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
     SUSTAINED_GOAL_CONTINUE_PROMPT,
 )
+from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 
 if TYPE_CHECKING:
     from nanobot.config.schema import (
@@ -723,9 +725,11 @@ class AgentLoop:
         dispatch_fn: Callable[[CommandContext], Awaitable[OutboundMessage | None]],
     ) -> None:
         """Dispatch a command directly from the run() loop and publish the result."""
+        msg = self._with_webui_turn_metadata(msg)
         ctx = CommandContext(msg=msg, session=None, key=key, raw=raw, loop=self)
         result = await dispatch_fn(ctx)
         if result:
+            result.metadata = {**msg.metadata, **result.metadata}
             await self.bus.publish_outbound(result)
         else:
             logger.warning("Command '{}' matched but dispatch returned None", raw)
@@ -748,6 +752,15 @@ class AgentLoop:
         if self._unified_session and not msg.session_key_override:
             return UNIFIED_SESSION_KEY
         return msg.session_key
+
+    @staticmethod
+    def _with_webui_turn_metadata(msg: InboundMessage) -> InboundMessage:
+        """确保同一入站消息派生的所有 WebUI 事件都能归入同一 turn。"""
+        if msg.metadata.get(WEBUI_TURN_METADATA_KEY):
+            return msg
+        metadata = dict(msg.metadata)
+        metadata[WEBUI_TURN_METADATA_KEY] = f"{msg.channel}:{uuid.uuid4()}"
+        return dataclasses.replace(msg, metadata=metadata)
 
     def _replay_token_budget(self) -> int:
         """Derive a token budget for session history replay from the context window."""
@@ -1021,6 +1034,7 @@ class AgentLoop:
 
     async def _dispatch(self, msg: InboundMessage) -> None:
         """Process a message: per-session serial, cross-session concurrent."""
+        msg = self._with_webui_turn_metadata(msg)
         session_key = self._effective_session_key(msg)
         if session_key != msg.session_key:
             msg = dataclasses.replace(msg, session_key_override=session_key)
@@ -1044,6 +1058,7 @@ class AgentLoop:
                         "_unified_inbox_inbound": True,
                         "source_channel": msg.channel,
                         "source_chat_id": msg.chat_id,
+                        WEBUI_TURN_METADATA_KEY: msg.metadata[WEBUI_TURN_METADATA_KEY],
                     },
                 ))
             except Exception:
@@ -1096,6 +1111,7 @@ class AgentLoop:
                     completed_channel = msg.channel
                     completed_chat_id = msg.chat_id
                     if response is not None:
+                        response.metadata = {**msg.metadata, **response.metadata}
                         await self.bus.publish_outbound(response)
                         completed_channel = response.channel
                         completed_chat_id = response.chat_id
@@ -1143,6 +1159,7 @@ class AgentLoop:
                     await self.bus.publish_outbound(OutboundMessage(
                         channel=msg.channel, chat_id=msg.chat_id,
                         content="Sorry, I encountered an error.",
+                        metadata=msg.metadata,
                     ))
                     if not turn_continuation.internal_continuation_pending(msg.metadata):
                         await self._runtime_events().turn_completed(
@@ -1296,7 +1313,7 @@ class AgentLoop:
             )
         )
         content = final_content or "Background task completed."
-        outbound_metadata: dict[str, Any] = {}
+        outbound_metadata: dict[str, Any] = dict(msg.metadata)
         if channel == "slack" and key.startswith("slack:") and key.count(":") >= 2:
             outbound_metadata["slack"] = {"thread_ts": key.split(":", 2)[2]}
         if origin_message_id := msg.metadata.get("origin_message_id"):
@@ -1541,6 +1558,7 @@ class AgentLoop:
                     chat_id=ctx.msg.chat_id,
                     content=text,
                     metadata={
+                        **ctx.msg.metadata,
                         "_vision_caption_delta": True,
                         "image_index": index,
                         "_stream_id": stream_id,
@@ -1550,6 +1568,7 @@ class AgentLoop:
             async def _on_caption_image_end(index: int, result: CaptionResult) -> None:
                 stream_id = f"{ctx.session_key}:caption:{index}"
                 meta: dict[str, Any] = {
+                    **ctx.msg.metadata,
                     "_vision_caption_end": True,
                     "image_index": index,
                     "_stream_id": stream_id,
@@ -1606,7 +1625,7 @@ class AgentLoop:
                     channel=ctx.msg.channel,
                     chat_id=ctx.msg.chat_id,
                     content=warning_text,
-                    metadata={"_caption_warning": True},
+                    metadata={**ctx.msg.metadata, "_caption_warning": True},
                 ))
             except Exception:
                 logger.debug("发送 caption warning 失败", exc_info=True)

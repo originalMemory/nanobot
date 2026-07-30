@@ -32,6 +32,8 @@ export interface UIMediaAttachment {
   name?: string;
 }
 
+export type UITurnPhase = "user" | "reasoning" | "activity" | "answer" | "complete";
+
 export interface UIMessage {
   id: string;
   role: Role;
@@ -86,6 +88,10 @@ export interface UIMessage {
   messageTs?: string | number;
   /** Assistant message-bound TTS playback segments, persisted in WebUI transcript. */
   playbackSegments?: AssistantPlaybackSegment[];
+  /** Stable protocol metadata for grouping all output emitted by one turn. */
+  turnId?: string;
+  turnPhase?: UITurnPhase;
+  turnSeq?: number;
 }
 
 /** Per-turn token stats: last-call context size vs turn-total billing. */
@@ -665,7 +671,13 @@ export interface AssistantPlaybackSegment {
   };
 }
 
-export type InboundEvent =
+export interface InboundTurnMetadata {
+  turn_id?: string;
+  turn_phase?: UITurnPhase;
+  turn_seq?: number;
+}
+
+type InboundEventPayload =
   | { event: "ready"; chat_id: string; client_id: string }
   | { event: "attached"; chat_id: string }
   | {
@@ -797,6 +809,8 @@ export type InboundEvent =
   | { event: "error"; chat_id?: string; detail?: string }
   | { event: "screenshot_request"; request_id: string };
 
+export type InboundEvent = InboundEventPayload & InboundTurnMetadata;
+
 /** Base64-encoded image attached to an outbound ``message`` envelope.
  *
  * ``data_url`` must be a ``data:image/<png|jpeg|webp|gif>;base64,...`` string
@@ -856,6 +870,7 @@ export type Outbound =
       image_generation?: OutboundImageGeneration;
       cli_apps?: OutboundCliAppMention[];
       mcp_presets?: OutboundMcpPresetMention[];
+      turn_id: string;
       /** Marks messages sent by the embedded WebUI, without changing the
        * generic websocket protocol for other clients. */
       webui?: true;

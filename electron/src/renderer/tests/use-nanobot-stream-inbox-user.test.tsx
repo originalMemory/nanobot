@@ -10,9 +10,25 @@ import { ClientProvider } from "@/providers/ClientProvider";
 
 function createMockClient() {
   const chatHandlers = new Map<string, (ev: InboundEvent) => void>();
+  let turnSeq = 0;
   const client = {
     onChat: (chatId: string, handler: (ev: InboundEvent) => void) => {
-      chatHandlers.set(chatId, handler);
+      chatHandlers.set(chatId, (event) => handler({
+        ...event,
+        turn_id: event.turn_id ?? "turn-test",
+        turn_phase: event.turn_phase ?? (
+          event.event === "user"
+            ? "user"
+            : event.event === "turn_end"
+              ? "complete"
+              : event.event.startsWith("reasoning")
+                ? "reasoning"
+                : event.event === "message" && event.kind
+                  ? "activity"
+                  : "answer"
+        ),
+        turn_seq: event.turn_seq ?? turnSeq++,
+      }));
       return () => {
         chatHandlers.delete(chatId);
       };
@@ -454,6 +470,54 @@ describe("useNanobotStream inbox user events", () => {
       { id: "stream-a", content: "A1A2" },
       { id: "stream-b", content: "B1" },
     ]);
+  });
+
+  it("finalizes only the matching turn when turn events interleave", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        stream_id: "stream-a",
+        text: "A",
+        turn_id: "turn-a",
+        turn_phase: "answer",
+        turn_seq: 1,
+      });
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        stream_id: "stream-b",
+        text: "B",
+        turn_id: "turn-b",
+        turn_phase: "answer",
+        turn_seq: 1,
+      });
+      handle({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+        turn_id: "turn-a",
+        turn_phase: "complete",
+        turn_seq: 2,
+      });
+    });
+
+    expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ turnId: "turn-a", content: "A", isStreaming: false }),
+      expect.objectContaining({ turnId: "turn-b", content: "B", isStreaming: true }),
+    ]));
+    expect(result.current.isStreaming).toBe(true);
   });
 
   it("keeps streamed reasoning when answer delta adopts a stream id", () => {

@@ -16,6 +16,7 @@ from nanobot.utils.progress_events import (
     invoke_file_edit_progress,
     on_progress_accepts_file_edit_events,
 )
+from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 
 
 def _make_loop(tmp_path: Path) -> AgentLoop:
@@ -267,6 +268,14 @@ class TestToolEventProgress:
 
         tool_event_msgs = [m for m in outbound if m.metadata and m.metadata.get("_tool_events")]
         assert tool_event_msgs, "expected at least one outbound message with _tool_events"
+        response_msgs = [m for m in outbound if m.content == "Done"]
+        assert response_msgs
+        turn_ids = {
+            m.metadata.get(WEBUI_TURN_METADATA_KEY)
+            for m in [*tool_event_msgs, *response_msgs]
+        }
+        assert len(turn_ids) == 1
+        assert next(iter(turn_ids))
 
         start_msgs = [m for m in tool_event_msgs if m.metadata["_tool_events"][0]["phase"] == "start"]
         finish_msgs = [m for m in tool_event_msgs if m.metadata["_tool_events"][0]["phase"] in ("end", "error")]

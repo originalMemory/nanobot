@@ -1,3 +1,5 @@
+import type { KeyboardEvent, MouseEvent } from "react";
+
 import {
   Tooltip,
   TooltipContent,
@@ -24,6 +26,8 @@ interface FileReferenceChipProps {
   active?: boolean;
   className?: string;
   textClassName?: string;
+  previewPath?: string;
+  onOpen?: (path: string) => void;
   testId?: string;
 }
 
@@ -34,12 +38,26 @@ export function FileReferenceChip({
   active = false,
   className,
   textClassName,
+  previewPath,
+  onOpen,
   testId = "inline-file-path",
 }: FileReferenceChipProps) {
   const { directory, name } = splitFilePath(path);
   const kind = fileKindForPath(path);
   const displayText = display === "path" ? path.replace(/\\/g, "/") : name;
   const fullPath = tooltipPath || path;
+  const targetPath = previewPath || tooltipPath || path;
+  const interactive = Boolean(onOpen);
+  const openPreview = (event: MouseEvent | KeyboardEvent) => {
+    if (!onOpen) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onOpen(targetPath);
+  };
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    openPreview(event);
+  };
   return (
     <TooltipProvider delayDuration={500} skipDelayDuration={100}>
       <Tooltip>
@@ -50,10 +68,18 @@ export function FileReferenceChip({
             <span
               data-testid={testId}
               aria-label={fullPath}
+              role={interactive ? "button" : undefined}
+              tabIndex={interactive ? 0 : undefined}
+              onClick={interactive ? openPreview : undefined}
+              onKeyDown={interactive ? onKeyDown : undefined}
               className={cn(
                 "inline-flex max-w-full items-baseline gap-[0.28em] font-medium leading-[inherit]",
                 "text-sky-600 transition-colors hover:text-sky-700",
                 "dark:text-sky-300 dark:hover:text-sky-200",
+                interactive && [
+                  "cursor-pointer rounded-[5px]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/45",
+                ],
               )}
             >
               <FileReferenceIcon kind={kind} />

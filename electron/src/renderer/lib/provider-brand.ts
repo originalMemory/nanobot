@@ -17,12 +17,26 @@ function googleFaviconUrl(domain: string): string {
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
 }
 
+function faviconImUrl(domain: string): string {
+  return `https://favicon.im/${encodeURIComponent(domain)}?larger=true`;
+}
+
 export function faviconUrls(domain: string): string[] {
   const faviconDomain = faviconDomainFromValue(domain);
   return [
     officialFaviconUrl(faviconDomain),
     duckDuckGoFaviconUrl(faviconDomain),
     googleFaviconUrl(domain),
+  ];
+}
+
+export function browserSafeFaviconUrls(domain: string): string[] {
+  const faviconDomain = faviconDomainFromValue(domain);
+  return [
+    faviconImUrl(faviconDomain),
+    googleFaviconUrl(domain),
+    duckDuckGoFaviconUrl(faviconDomain),
+    officialFaviconUrl(faviconDomain),
   ];
 }
 

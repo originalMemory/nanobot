@@ -836,10 +836,12 @@
       "proactive": "主动推送",
       "heartbeat": "心跳"
     },
-    "tokenUsageTitle": "↑ 截止本条时的上下文规模 · ↓ 本轮输出合计 · R 末次缓存命中 · ctx% 窗口占用",
+    "tokenUsageTitle": "↑ 本轮输入合计 · ↓ 本轮输出合计 · R 本轮缓存读取 · ctx% 窗口占用",
     "tokenUsageContextSize": "截止本条时的上下文规模（预估下次回放时的 prompt 大小）",
     "tokenUsageTurnTotalIn": "本轮输入合计（所有 LLM 调用累加）",
-    "tokenUsageTurnTotalOut": "本轮输出合计"
+    "tokenUsageTurnTotalOut": "本轮输出合计",
+    "tokenUsageTurnCacheRead": "本轮缓存读取",
+    "tokenUsageLastCallIn": "最后一次 LLM 调用输入"
   },
   "lightbox": {
     "title": "图片预览",

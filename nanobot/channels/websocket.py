@@ -60,7 +60,7 @@ from nanobot.webui.http_utils import (
 )
 from nanobot.webui.mcp_presets_api import normalize_mcp_preset_mentions
 from nanobot.webui.tha_api import tha_websocket_loop
-from nanobot.webui.transcript import append_transcript_object
+from nanobot.webui.transcript import WebUITranscriptRecorder, append_transcript_object
 from nanobot.webui.websocket_logging import websockets_server_logger
 from nanobot.webui.workspaces import WebUIWorkspaceController
 
@@ -490,6 +490,7 @@ class WebSocketChannel(BaseChannel):
         self._server_task: asyncio.Task[None] | None = None
         self._session_manager = session_manager
         self._unified_session = unified_session
+        self._transcripts = WebUITranscriptRecorder(self.logger)
         self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
         self._playback_segmenters: dict[tuple[str, str], AssistantPlaybackSegmenter] = {}
         self._playback_queues: dict[str, deque[tuple[AssistantPlaybackSegment, Any]]] = {}
@@ -1127,6 +1128,7 @@ class WebSocketChannel(BaseChannel):
             metadata: dict[str, Any] = {"remote": getattr(connection, "remote_address", None)}
             if envelope.get("webui") is True:
                 metadata["webui"] = True
+                metadata.update(self._transcripts.client_turn_metadata(envelope.get("turn_id")))
             cli_apps = normalize_cli_app_mentions(envelope.get("cli_apps"))
             if cli_apps:
                 metadata["cli_apps"] = cli_apps
@@ -1142,6 +1144,23 @@ class WebSocketChannel(BaseChannel):
                     "enabled": True,
                     "aspect_ratio": aspect_ratio if isinstance(aspect_ratio, str) else None,
                 }
+            user_event: dict[str, Any] = {
+                "event": "user",
+                "chat_id": cid,
+                "text": content,
+            }
+            if media_paths:
+                user_event["media_paths"] = media_paths
+            if cli_apps:
+                user_event["cli_apps"] = cli_apps
+            if mcp_presets:
+                user_event["mcp_presets"] = mcp_presets
+            self._transcripts.prepare_and_append(
+                cid,
+                user_event,
+                metadata=metadata,
+                phase="user",
+            )
             await self._handle_message(
                 sender_id=client_id,
                 chat_id=cid,
@@ -1518,10 +1537,29 @@ class WebSocketChannel(BaseChannel):
         payload: dict[str, Any],
         source_channel: str,
         source_chat_id: str,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """将任意 wire 事件推送给 ``inbox:unified`` 订阅者（供 ChannelManager 跨通道 fan-out）。"""
         if not self._unified_session:
             return
+        event = payload.get("event")
+        phase = (
+            "user"
+            if event in {"user", "vision_caption_delta", "vision_caption_end"}
+            else "reasoning"
+            if event in {"reasoning_delta", "reasoning_end"}
+            else "activity"
+            if event == "file_edit" or payload.get("kind") in {"tool_hint", "progress"}
+            else "complete"
+            if event == "turn_end"
+            else "answer"
+        )
+        self._transcripts.prepare_event(
+            INBOX_UNIFIED_CHAT_ID,
+            payload,
+            metadata=metadata,
+            phase=phase,
+        )
         await self._fan_out_to_unified_inbox(payload, source_channel, source_chat_id)
 
     async def send(self, msg: OutboundMessage) -> None:
@@ -1590,6 +1628,12 @@ class WebSocketChannel(BaseChannel):
                     )
                     if tha_subscribers > 0:
                         payload["tha_played"] = True
+            self._transcripts.prepare_event(
+                INBOX_UNIFIED_CHAT_ID,
+                payload,
+                metadata=msg.metadata,
+                phase="answer",
+            )
             # 进程重启后历史图片失效是现有的已知限制（签名 URL 绑定进程生命周期）。
             await self._fan_out_to_unified_inbox(payload, source_ch, source_cid)
             return
@@ -1616,6 +1660,12 @@ class WebSocketChannel(BaseChannel):
                         urls.append(signed)
                 if urls:
                     user_obj["media_urls"] = urls
+            self._transcripts.prepare_event(
+                INBOX_UNIFIED_CHAT_ID,
+                user_obj,
+                metadata=msg.metadata,
+                phase="user",
+            )
             await self._fan_out_to_unified_inbox(user_obj, source_ch, source_cid)
             return
 
@@ -1659,7 +1709,13 @@ class WebSocketChannel(BaseChannel):
             gs_blob = gs if isinstance(gs, dict) else None
             usg = msg.metadata.get("usage")
             usg_dict = usg if isinstance(usg, dict) else None
-            await self.send_turn_end(msg.chat_id, latency_ms=lat_i, goal_state=gs_blob, usage=usg_dict)
+            await self.send_turn_end(
+                msg.chat_id,
+                latency_ms=lat_i,
+                goal_state=gs_blob,
+                usage=usg_dict,
+                metadata=msg.metadata,
+            )
             return
         if msg.metadata.get("_session_updated"):
             scope = msg.metadata.get("_session_update_scope")
@@ -1747,9 +1803,14 @@ class WebSocketChannel(BaseChannel):
         cron_job_name = msg.metadata.get("_cron_job_name")
         if isinstance(cron_job_name, str) and cron_job_name:
             payload["cron_job_name"] = cron_job_name
-        transcript_payload = dict(payload)
-        transcript_payload["text"] = text
-        self._try_append_webui_transcript(msg.chat_id, transcript_payload)
+        phase = "activity" if payload.get("kind") in {"tool_hint", "progress"} else "answer"
+        self._transcripts.prepare_and_append(
+            msg.chat_id,
+            payload,
+            metadata=msg.metadata,
+            phase=phase,
+            transcript_overrides={"text": text},
+        )
         raw = json.dumps(payload, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" ")
@@ -1784,7 +1845,12 @@ class WebSocketChannel(BaseChannel):
         stream_id = meta.get("_stream_id")
         if stream_id is not None:
             body["stream_id"] = stream_id
-        self._try_append_webui_transcript(chat_id, body)
+        self._transcripts.prepare_and_append(
+            chat_id,
+            body,
+            metadata=meta,
+            phase="reasoning",
+        )
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" reasoning ")
@@ -1811,7 +1877,12 @@ class WebSocketChannel(BaseChannel):
         stream_id = meta.get("_stream_id")
         if stream_id is not None:
             body["stream_id"] = stream_id
-        self._try_append_webui_transcript(chat_id, body)
+        self._transcripts.prepare_and_append(
+            chat_id,
+            body,
+            metadata=meta,
+            phase="reasoning",
+        )
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" reasoning_end ")
@@ -1839,7 +1910,12 @@ class WebSocketChannel(BaseChannel):
         image_index = meta.get("image_index")
         if isinstance(image_index, int):
             body["image_index"] = image_index
-        self._try_append_webui_transcript(chat_id, body)
+        self._transcripts.prepare_and_append(
+            chat_id,
+            body,
+            metadata=meta,
+            phase="user",
+        )
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" vision_caption ")
@@ -1869,7 +1945,12 @@ class WebSocketChannel(BaseChannel):
             body["error"] = error
         if text:
             body["text"] = text
-        self._try_append_webui_transcript(chat_id, body)
+        self._transcripts.prepare_and_append(
+            chat_id,
+            body,
+            metadata=meta,
+            phase="user",
+        )
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" vision_caption_end ")
@@ -1888,7 +1969,12 @@ class WebSocketChannel(BaseChannel):
             "chat_id": chat_id,
             "edits": edits,
         }
-        self._try_append_webui_transcript(chat_id, payload)
+        self._transcripts.prepare_and_append(
+            chat_id,
+            payload,
+            metadata=metadata,
+            phase="activity",
+        )
         raw = json.dumps(payload, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" file_edit ")
@@ -1923,7 +2009,12 @@ class WebSocketChannel(BaseChannel):
                 }
                 if meta.get("_stream_id") is not None:
                     tail_body["stream_id"] = meta["_stream_id"]
-                self._try_append_webui_transcript(chat_id, tail_body)
+                self._transcripts.prepare_and_append(
+                    chat_id,
+                    tail_body,
+                    metadata=meta,
+                    phase="answer",
+                )
                 if fan_out_unified:
                     await self._fan_out_to_unified_inbox(
                         tail_body, "websocket", chat_id
@@ -1956,7 +2047,12 @@ class WebSocketChannel(BaseChannel):
                 self._schedule_playback_segments(segmenter.feed(delta), tts_config)
         if meta.get("_stream_id") is not None:
             body["stream_id"] = meta["_stream_id"]
-        self._try_append_webui_transcript(chat_id, body)
+        self._transcripts.prepare_and_append(
+            chat_id,
+            body,
+            metadata=meta,
+            phase="answer",
+        )
         if fan_out_unified and body.get("event") == "delta":
             await self._fan_out_to_unified_inbox(body, "websocket", chat_id)
         if fan_out_unified and full_text is not None:
@@ -1972,6 +2068,7 @@ class WebSocketChannel(BaseChannel):
         *,
         goal_state: dict[str, Any] | None = None,
         usage: dict[str, int] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Signal that the agent has fully finished processing the current turn."""
         conns = list(self._subs.get(chat_id, ()))
@@ -1987,7 +2084,12 @@ class WebSocketChannel(BaseChannel):
             body["goal_state"] = goal_state
         if usage:
             body["usage"] = usage
-        self._try_append_webui_transcript(chat_id, body)
+        self._transcripts.prepare_and_append(
+            chat_id,
+            body,
+            metadata=metadata,
+            phase="complete",
+        )
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" turn_end ")

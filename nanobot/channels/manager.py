@@ -400,7 +400,7 @@ class ChannelManager:
         if isinstance(error, str) and error:
             payload["error"] = error
         try:
-            await fan_out(payload, msg.channel, msg.chat_id)
+            await fan_out(payload, msg.channel, msg.chat_id, msg.metadata)
         except Exception:
             logger.warning(
                 "unified inbox stream fan-out failed for {}:{}",
@@ -432,7 +432,7 @@ class ChannelManager:
         if isinstance(usg, dict) and usg:
             payload["usage"] = usg
         try:
-            await fan_out(payload, msg.channel, msg.chat_id)
+            await fan_out(payload, msg.channel, msg.chat_id, msg.metadata)
         except Exception:
             logger.warning(
                 "unified inbox turn_end fan-out failed for {}:{}",

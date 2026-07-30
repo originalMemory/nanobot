@@ -1,7 +1,7 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { Suspense, lazy, type ReactNode } from "react";
 import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
 
-import { isDarkTheme, useThemeValue } from "@/hooks/useTheme";
+import { useThemeValue } from "@/hooks/useTheme";
 import type { RenderableFileDiffLine } from "@/lib/file-diff";
 import { cn } from "@/lib/utils";
 
@@ -11,7 +11,7 @@ interface DiffSyntaxHighlightProps {
 }
 
 interface LoadedDiffSyntaxHighlightProps extends DiffSyntaxHighlightProps {
-  dark: boolean;
+  isDark: boolean;
 }
 
 type RendererArgs = Parameters<NonNullable<SyntaxHighlighterProps["renderer"]>>[0];
@@ -29,7 +29,7 @@ const CODE_FONT_STACK = [
   "monospace",
 ].join(", ");
 
-const LazyHighlightedDiff = lazy(async () => {
+const LazyDiffSyntaxHighlight = lazy(async () => {
   const [
     { default: SyntaxHighlighter },
     { default: createSyntaxElement },
@@ -42,16 +42,17 @@ const LazyHighlightedDiff = lazy(async () => {
     import("react-syntax-highlighter/dist/esm/styles/prism/one-light"),
   ]);
   return {
-    default: function HighlightedDiff({
+    default: function LoadedDiffSyntaxHighlight({
       language,
       lines,
-      dark,
+      isDark,
     }: LoadedDiffSyntaxHighlightProps) {
+      const theme = isDark ? oneDark : oneLight;
       const code = lines.map((line) => line.content || " ").join("\n");
       return (
         <SyntaxHighlighter
           language={language}
-          style={dark ? oneDark : oneLight}
+          style={theme}
           PreTag="div"
           CodeTag="div"
           customStyle={{
@@ -72,7 +73,7 @@ const LazyHighlightedDiff = lazy(async () => {
           data-language={language}
           data-testid="syntax-highlighted-diff-hunk"
           renderer={({ rows, stylesheet, useInlineStyles }) => (
-            <DiffTable
+            <DiffLineTable
               lines={lines}
               renderCode={(line, index) => {
                 const node = rows[index];
@@ -95,10 +96,10 @@ const LazyHighlightedDiff = lazy(async () => {
 });
 
 export function DiffSyntaxHighlight({ language, lines }: DiffSyntaxHighlightProps) {
-  const dark = isDarkTheme(useThemeValue());
+  const isDark = useThemeValue() === "dark";
   return (
     <Suspense fallback={<PlainDiffLines lines={lines} />}>
-      <LazyHighlightedDiff language={language} lines={lines} dark={dark} />
+      <LazyDiffSyntaxHighlight language={language} lines={lines} isDark={isDark} />
     </Suspense>
   );
 }
@@ -106,12 +107,12 @@ export function DiffSyntaxHighlight({ language, lines }: DiffSyntaxHighlightProp
 function PlainDiffLines({ lines }: { lines: RenderableFileDiffLine[] }) {
   return (
     <div data-testid="plain-diff-hunk">
-      <DiffTable lines={lines} renderCode={(line) => line.content || " "} />
+      <DiffLineTable lines={lines} renderCode={(line) => line.content || " "} />
     </div>
   );
 }
 
-function DiffTable({
+function DiffLineTable({
   lines,
   renderCode,
 }: {
@@ -122,37 +123,55 @@ function DiffTable({
     <table className="w-full border-collapse font-mono text-[11px] leading-5">
       <tbody>
         {lines.map((line, index) => (
-          <tr
+          <DiffLineRow
             key={`${line.old_lineno ?? ""}:${line.new_lineno ?? ""}:${index}`}
-            className={cn(
-              "border-0",
-              line.kind === "add" && "bg-emerald-500/[0.10]",
-              line.kind === "delete" && "bg-rose-500/[0.10]",
-            )}
+            line={line}
           >
-            <td className="w-9 select-none border-r border-border/35 px-1 text-right text-muted-foreground/55">
-              {line.old_lineno ?? ""}
-            </td>
-            <td className="w-9 select-none border-r border-border/35 px-1 text-right text-muted-foreground/55">
-              {line.new_lineno ?? ""}
-            </td>
-            <td
-              className={cn(
-                "w-5 select-none px-1 text-center",
-                line.kind === "add" && "text-emerald-500",
-                line.kind === "delete" && "text-rose-500",
-                line.kind === "context" && "text-muted-foreground/45",
-              )}
-            >
-              {line.kind === "add" ? "+" : line.kind === "delete" ? "-" : " "}
-            </td>
-            <td className="min-w-[16rem] px-1.5">
-              <span className="whitespace-pre">{renderCode(line, index)}</span>
-            </td>
-          </tr>
+            {renderCode(line, index)}
+          </DiffLineRow>
         ))}
       </tbody>
     </table>
+  );
+}
+
+function DiffLineRow({
+  line,
+  children,
+}: {
+  line: RenderableFileDiffLine;
+  children: ReactNode;
+}) {
+  const kind = line.kind === "add" || line.kind === "delete" ? line.kind : "context";
+  const marker = kind === "add" ? "+" : kind === "delete" ? "-" : " ";
+  return (
+    <tr
+      className={cn(
+        "border-0",
+        kind === "add" && "bg-emerald-500/[0.09] dark:bg-emerald-300/[0.11]",
+        kind === "delete" && "bg-rose-500/[0.09] dark:bg-rose-300/[0.11]",
+      )}
+    >
+      <td className="w-10 select-none border-r border-border/35 px-1.5 text-right text-muted-foreground/55">
+        {line.old_lineno ?? ""}
+      </td>
+      <td className="w-10 select-none border-r border-border/35 px-1.5 text-right text-muted-foreground/55">
+        {line.new_lineno ?? ""}
+      </td>
+      <td
+        className={cn(
+          "w-5 select-none px-1 text-center",
+          kind === "add" && "text-emerald-600/80 dark:text-emerald-300/85",
+          kind === "delete" && "text-rose-600/80 dark:text-rose-300/85",
+          kind === "context" && "text-muted-foreground/45",
+        )}
+      >
+        {marker}
+      </td>
+      <td className="min-w-[16rem] px-1.5 text-foreground/86">
+        <span className="whitespace-pre">{children}</span>
+      </td>
+    </tr>
   );
 }
 
@@ -179,6 +198,8 @@ function stripConflictingTableClass(node: SyntaxNode): SyntaxNode {
       ? {
           properties: {
             ...node.properties,
+            // Tailwind's global `.table` utility changes Prism's inline Markdown
+            // table tokens into CSS tables, splitting a single diff line vertically.
             className: className.filter((name) => name !== "table"),
           },
         }

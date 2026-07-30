@@ -285,13 +285,20 @@ async def test_webui_message_envelope_marks_inbound_metadata(bus: MagicMock) -> 
     await channel._dispatch_envelope(
         conn,
         "webui-client",
-        {"type": "message", "chat_id": "chat-1", "content": "hello", "webui": True},
+        {
+            "type": "message",
+            "chat_id": "chat-1",
+            "content": "hello",
+            "webui": True,
+            "turn_id": "electron-turn",
+        },
     )
 
     msg = bus.publish_inbound.await_args.args[0]
     assert msg.channel == "websocket"
     assert msg.chat_id == "chat-1"
     assert msg.metadata["webui"] is True
+    assert msg.metadata["webui_turn_id"] == "electron-turn"
     assert msg.metadata["_wants_stream"] is True
 
 
@@ -1275,7 +1282,11 @@ async def test_send_reasoning_delta_emits_streaming_frame() -> None:
     await channel.send_reasoning_delta(
         "chat-1",
         "step-by-step thinking",
-        {"_reasoning_delta": True, "_stream_id": "r1"},
+        {
+            "_reasoning_delta": True,
+            "_stream_id": "r1",
+            "webui_turn_id": "electron-turn",
+        },
     )
 
     mock_ws.send.assert_awaited_once()
@@ -1284,6 +1295,9 @@ async def test_send_reasoning_delta_emits_streaming_frame() -> None:
     assert payload["chat_id"] == "chat-1"
     assert payload["text"] == "step-by-step thinking"
     assert payload["stream_id"] == "r1"
+    assert payload["turn_id"] == "electron-turn"
+    assert payload["turn_phase"] == "reasoning"
+    assert payload["turn_seq"] == 0
 
 
 @pytest.mark.asyncio
@@ -1490,12 +1504,18 @@ async def test_send_turn_end_emits_turn_end_event() -> None:
         channel="websocket",
         chat_id="chat-1",
         content="",
-        metadata={"_turn_end": True},
+        metadata={"_turn_end": True, "webui_turn_id": "electron-turn"},
     ))
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
-    assert body == {"event": "turn_end", "chat_id": "chat-1"}
+    assert body == {
+        "event": "turn_end",
+        "chat_id": "chat-1",
+        "turn_id": "electron-turn",
+        "turn_phase": "complete",
+        "turn_seq": 0,
+    }
 
 
 @pytest.mark.asyncio

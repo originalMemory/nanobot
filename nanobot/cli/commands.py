@@ -5,6 +5,7 @@ import os
 import select
 import signal
 import sys
+import uuid
 from collections.abc import Callable
 from contextlib import nullcontext, suppress
 from pathlib import Path
@@ -52,8 +53,8 @@ from rich.table import Table  # noqa: E402
 from rich.text import Text  # noqa: E402
 
 from nanobot import __logo__, __version__  # noqa: E402
-from nanobot.agent.loop import AgentLoop  # noqa: E402
 from nanobot.agent.active_memory import ActiveMemoryHook  # noqa: E402
+from nanobot.agent.loop import AgentLoop  # noqa: E402
 from nanobot.cli.stream import StreamRenderer, ThinkingSpinner  # noqa: E402
 from nanobot.config.paths import get_workspace_path, is_default_workspace  # noqa: E402
 from nanobot.config.schema import Config  # noqa: E402
@@ -64,6 +65,7 @@ from nanobot.utils.restart import (  # noqa: E402
     format_restart_completed_message,
     should_show_cli_restart_notice,
 )
+from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY  # noqa: E402
 
 
 def _sanitize_surrogates(text: str) -> str:
@@ -985,6 +987,7 @@ def _run_gateway(
         from nanobot.utils.media_staging import normalize_outbound_media
 
         metadata = dict(msg.metadata or {})
+        metadata.setdefault(WEBUI_TURN_METADATA_KEY, f"delivery:{uuid.uuid4()}")
         record = record or bool(metadata.pop("_record_channel_delivery", False))
         user_initiated = bool(metadata.pop("_user_initiated_channel_delivery", False))
         cron_job_id = metadata.pop("_cron_job_id", None)

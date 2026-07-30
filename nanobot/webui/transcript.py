@@ -15,6 +15,7 @@ from loguru import logger
 from nanobot.config.paths import get_webui_dir
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.media_staging import is_remote_media_url
+from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 
 WEBUI_TRANSCRIPT_SCHEMA_VERSION = 3
 
@@ -56,6 +57,7 @@ _FILE_EDIT_TOOL_NAMES: frozenset[str] = frozenset({
     "edit_file",
     "apply_patch",
 })
+_WEBUI_TURN_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
 def _remote_media_payloads(media: Any) -> list[dict[str, str]]:
@@ -180,6 +182,71 @@ def append_transcript_object(session_key: str, obj: dict[str, Any]) -> None:
         f.write(line)
         f.flush()
         os.fsync(f.fileno())
+
+
+def normalize_webui_turn_id(value: Any) -> str:
+    if isinstance(value, str):
+        candidate = value.strip()
+        if _WEBUI_TURN_ID_RE.fullmatch(candidate):
+            return candidate
+    return str(uuid.uuid4())
+
+
+class WebUITranscriptRecorder:
+    """为 WebUI wire event 注入 turn 元数据并持久化。"""
+
+    def __init__(self, log: Any = logger) -> None:
+        self._log = log
+        self._turn_sequences: dict[tuple[str, str], int] = {}
+
+    def client_turn_metadata(self, value: Any) -> dict[str, str]:
+        return {WEBUI_TURN_METADATA_KEY: normalize_webui_turn_id(value)}
+
+    def prepare_event(
+        self,
+        chat_id: str,
+        event: dict[str, Any],
+        *,
+        metadata: dict[str, Any] | None = None,
+        phase: str | None = None,
+    ) -> None:
+        if phase is None:
+            return
+        turn_id = (metadata or {}).get(WEBUI_TURN_METADATA_KEY)
+        if not isinstance(turn_id, str) or not turn_id:
+            return
+        event["turn_id"] = turn_id
+        event["turn_phase"] = phase
+        event["turn_seq"] = self._next_turn_seq(chat_id, turn_id)
+        if phase == "complete":
+            self._turn_sequences.pop((chat_id, turn_id), None)
+
+    def prepare_and_append(
+        self,
+        chat_id: str,
+        event: dict[str, Any],
+        *,
+        metadata: dict[str, Any] | None = None,
+        phase: str | None = None,
+        transcript_overrides: dict[str, Any] | None = None,
+    ) -> None:
+        self.prepare_event(chat_id, event, metadata=metadata, phase=phase)
+        record = dict(event)
+        if transcript_overrides:
+            record.update(transcript_overrides)
+        self.append(chat_id, record)
+
+    def append(self, chat_id: str, event: dict[str, Any]) -> None:
+        try:
+            append_transcript_object(f"websocket:{chat_id}", event)
+        except (OSError, ValueError, TypeError):
+            self._log.debug("webui transcript append failed for chat {}", chat_id)
+
+    def _next_turn_seq(self, chat_id: str, turn_id: str) -> int:
+        key = (chat_id, turn_id)
+        seq = self._turn_sequences.get(key, -1) + 1
+        self._turn_sequences[key] = seq
+        return seq
 
 
 def delete_webui_transcript(session_key: str) -> bool:
@@ -412,6 +479,76 @@ def _media_from_signed_urls(value: Any) -> list[dict[str, Any]]:
     return media
 
 
+def _turn_phase_for_record(record: dict[str, Any]) -> str:
+    event = record.get("event")
+    if event == "user":
+        return "user"
+    if event in {"reasoning_delta", "reasoning_end"}:
+        return "reasoning"
+    if event == "file_edit" or record.get("kind") in {"tool_hint", "progress", "reasoning"}:
+        return "activity"
+    if event == "turn_end":
+        return "complete"
+    return "answer"
+
+
+def _normalize_transcript_turns(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """为旧 transcript 补稳定 turn 边界，renderer 不再猜测归属。"""
+    normalized: list[dict[str, Any]] = []
+    current_turn_id: str | None = None
+    sequences: dict[str, int] = {}
+    closed_turn_ids: set[str] = set()
+    reused_aliases: dict[str, str] = {}
+
+    for index, raw in enumerate(lines):
+        record = dict(raw)
+        event = record.get("event")
+        stored_turn_id = record.get("turn_id")
+        valid_stored_id = (
+            stored_turn_id.strip()
+            if isinstance(stored_turn_id, str) and stored_turn_id.strip()
+            else None
+        )
+        if valid_stored_id and valid_stored_id in closed_turn_ids:
+            turn_id = reused_aliases.setdefault(
+                valid_stored_id,
+                f"{valid_stored_id}:replay:{index}",
+            )
+        elif valid_stored_id:
+            turn_id = valid_stored_id
+        elif event == "user":
+            turn_id = f"legacy:user:{index}"
+        elif (
+            record.get("channel_delivery")
+            and not record.get("user_initiated_delivery")
+        ):
+            turn_id = f"legacy:delivery:{index}"
+        else:
+            turn_id = current_turn_id or f"legacy:proactive:{index}"
+
+        if event == "user" or current_turn_id is None or turn_id != current_turn_id:
+            current_turn_id = turn_id
+        record["turn_id"] = turn_id
+        record.setdefault("turn_phase", _turn_phase_for_record(record))
+        stored_seq = record.get("turn_seq")
+        if isinstance(stored_seq, int):
+            sequences[turn_id] = max(sequences.get(turn_id, -1), stored_seq)
+        else:
+            next_seq = sequences.get(turn_id, -1) + 1
+            sequences[turn_id] = next_seq
+            record["turn_seq"] = next_seq
+        normalized.append(record)
+
+        if event == "turn_end":
+            if valid_stored_id:
+                closed_turn_ids.add(valid_stored_id)
+                reused_aliases.pop(valid_stored_id, None)
+            if current_turn_id == turn_id:
+                current_turn_id = None
+
+    return normalized
+
+
 def replay_transcript_to_ui_messages(
     lines: list[dict[str, Any]],
     *,
@@ -424,10 +561,10 @@ def replay_transcript_to_ui_messages(
     message+kind, turn_end). ``augment_media_paths`` maps persisted filesystem
     paths to ``{url, name?}`` / attachment dicts the client expects.
     """
+    lines = _normalize_transcript_turns(lines)
     messages: list[dict[str, Any]] = []
-    buffer_message_id: str | None = None
-    buffer_parts: list[str] = []
-    suppress_until_turn_end = False
+    stream_buffers: dict[tuple[str, str], tuple[str, list[str]]] = {}
+    suppressed_turn_ids: set[str] = set()
     active_activity_segment_id: str | None = None
     active_file_edit_segment_id: str | None = None
     activity_segment_counter = 0
@@ -446,6 +583,28 @@ def replay_transcript_to_ui_messages(
             active_activity_segment_id = segment_id
         return segment_id
 
+    def _turn_fields(rec: dict[str, Any], fallback_phase: str) -> dict[str, Any]:
+        fields: dict[str, Any] = {
+            "turnId": str(rec["turn_id"]),
+            "turnPhase": str(rec.get("turn_phase") or fallback_phase),
+        }
+        seq = rec.get("turn_seq")
+        if isinstance(seq, int):
+            fields["turnSeq"] = seq
+        return fields
+
+    def _same_turn(message: dict[str, Any], turn_fields: dict[str, Any]) -> bool:
+        return message.get("turnId") == turn_fields.get("turnId")
+
+    def _stream_key(rec: dict[str, Any]) -> tuple[str, str]:
+        turn_id = str(rec["turn_id"])
+        stream_id = rec.get("stream_id")
+        return turn_id, str(stream_id) if isinstance(stream_id, str) and stream_id else ""
+
+    def _clear_turn_streams(turn_id: str) -> None:
+        for key in [key for key in stream_buffers if key[0] == turn_id]:
+            stream_buffers.pop(key, None)
+
     def _ensure_activity_segment() -> str:
         return active_activity_segment_id or _new_activity_segment()
 
@@ -460,7 +619,12 @@ def replay_transcript_to_ui_messages(
             active_activity_segment_id = None
             active_file_edit_segment_id = None
 
-    def attach_reasoning_chunk(prev: list[dict[str, Any]], chunk: str, idx: int) -> None:
+    def attach_reasoning_chunk(
+        prev: list[dict[str, Any]],
+        chunk: str,
+        idx: int,
+        turn_fields: dict[str, Any],
+    ) -> None:
         for i in range(len(prev) - 1, -1, -1):
             candidate = prev[i]
             if candidate.get("role") == "user":
@@ -469,6 +633,8 @@ def replay_transcript_to_ui_messages(
                 break
             if candidate.get("role") != "assistant":
                 continue
+            if not _same_turn(candidate, turn_fields):
+                break
             content = str(candidate.get("content") or "")
             has_answer = len(content) > 0
             if (
@@ -482,6 +648,7 @@ def replay_transcript_to_ui_messages(
                     "reasoning": (str(candidate.get("reasoning") or "")) + chunk,
                     "reasoningStreaming": True,
                     "activitySegmentId": candidate.get("activitySegmentId") or _ensure_activity_segment(),
+                    **turn_fields,
                 }
                 return
             if not has_answer and candidate.get("isStreaming"):
@@ -490,6 +657,7 @@ def replay_transcript_to_ui_messages(
                     "reasoning": chunk,
                     "reasoningStreaming": True,
                     "activitySegmentId": candidate.get("activitySegmentId") or _ensure_activity_segment(),
+                    **turn_fields,
                 }
                 return
             break
@@ -503,11 +671,15 @@ def replay_transcript_to_ui_messages(
                 "reasoning": chunk,
                 "reasoningStreaming": True,
                 "activitySegmentId": segment,
+                **turn_fields,
                 "createdAt": _ts_base + idx,
             },
         )
 
-    def find_active_placeholder(prev: list[dict[str, Any]]) -> str | None:
+    def find_active_placeholder(
+        prev: list[dict[str, Any]],
+        turn_fields: dict[str, Any],
+    ) -> str | None:
         last = prev[-1] if prev else None
         if not last:
             return None
@@ -517,13 +689,19 @@ def replay_transcript_to_ui_messages(
             return None
         if not last.get("isStreaming"):
             return None
+        if not _same_turn(last, turn_fields):
+            return None
         return str(last.get("id"))
 
-    def demote_interrupted_assistant(segment: str) -> None:
-        nonlocal buffer_message_id, buffer_parts
+    def demote_interrupted_assistant(
+        segment: str,
+        turn_fields: dict[str, Any],
+    ) -> None:
         for i in range(len(messages) - 1, -1, -1):
             candidate = messages[i]
             if candidate.get("role") == "user":
+                break
+            if not _same_turn(candidate, turn_fields):
                 break
             content = candidate.get("content")
             if (
@@ -548,13 +726,16 @@ def replay_transcript_to_ui_messages(
                 "isStreaming": False,
                 "activitySegmentId": candidate.get("activitySegmentId") or segment,
             }
-            if buffer_message_id == candidate.get("id"):
-                buffer_message_id = None
-                buffer_parts = []
+            turn_id = str(turn_fields.get("turnId") or "")
+            for key, (message_id, _) in list(stream_buffers.items()):
+                if key[0] == turn_id and message_id == candidate.get("id"):
+                    stream_buffers.pop(key, None)
             return
 
-    def close_reasoning(prev: list[dict[str, Any]]) -> None:
+    def close_reasoning(prev: list[dict[str, Any]], turn_id: str) -> None:
         for i in range(len(prev) - 1, -1, -1):
+            if prev[i].get("turnId") != turn_id:
+                continue
             if prev[i].get("reasoningStreaming"):
                 prev[i] = {**prev[i], "reasoningStreaming": False}
                 return
@@ -580,11 +761,20 @@ def replay_transcript_to_ui_messages(
             and (bool(str(m.get("content") or "").strip()) or bool(m.get("media")))
         )
 
-    def prune_reasoning_only() -> None:
+    def prune_reasoning_only(turn_id: str) -> None:
         nonlocal messages
         kept: list[dict[str, Any]] = []
         for i, m in enumerate(messages):
-            if is_reasoning_only_placeholder(m) and not is_tool_trace_at(i + 1):
+            if m.get("turnId") != turn_id:
+                kept.append(m)
+                continue
+            if (
+                is_reasoning_only_placeholder(m)
+                and not (
+                    is_tool_trace_at(i + 1)
+                    and messages[i + 1].get("turnId") == turn_id
+                )
+            ):
                 continue
             # Prune cleared placeholders (reasoning was moved to the answer message).
             if (
@@ -600,9 +790,9 @@ def replay_transcript_to_ui_messages(
             kept.append(m)
         messages = kept
 
-    def stamp_latency(latency_ms: int) -> None:
+    def stamp_latency(latency_ms: int, turn_id: str) -> None:
         for i in range(len(messages) - 1, -1, -1):
-            if is_assistant_answer(messages[i]):
+            if is_assistant_answer(messages[i]) and messages[i].get("turnId") == turn_id:
                 messages[i] = {
                     **messages[i],
                     "latencyMs": latency_ms,
@@ -610,16 +800,16 @@ def replay_transcript_to_ui_messages(
                 }
                 return
 
-    def stamp_usage(usage: dict[str, Any]) -> None:
+    def stamp_usage(usage: dict[str, Any], turn_id: str) -> None:
         for i in range(len(messages) - 1, -1, -1):
-            if is_assistant_answer(messages[i]):
+            if is_assistant_answer(messages[i]) and messages[i].get("turnId") == turn_id:
                 messages[i] = {**messages[i], "usage": usage}
                 return
 
     def absorb_complete(extra: dict[str, Any], idx: int) -> None:
         nonlocal active_activity_segment_id, active_file_edit_segment_id
         last = messages[-1] if messages else None
-        if last and is_reasoning_only_placeholder(last):
+        if last and is_reasoning_only_placeholder(last) and _same_turn(last, extra):
             messages[-1] = {
                 **last,
                 **extra,
@@ -636,6 +826,8 @@ def replay_transcript_to_ui_messages(
             for i in range(len(messages) - 1, -1, -1):
                 m = messages[i]
                 if m.get("role") == "user":
+                    break
+                if not _same_turn(m, extra):
                     break
                 if is_reasoning_only_placeholder(m):
                     inline_reasoning = str(m.get("reasoning") or "") or None
@@ -657,6 +849,7 @@ def replay_transcript_to_ui_messages(
     def find_file_edit_trace_index(
         segment: str | None,
         edits: list[dict[str, Any]],
+        turn_fields: dict[str, Any],
     ) -> int | None:
         incoming_keys = {_file_edit_key(edit) for edit in edits if isinstance(edit, dict)}
         incoming_tool_keys = {
@@ -666,6 +859,8 @@ def replay_transcript_to_ui_messages(
             candidate = messages[i]
             if candidate.get("role") == "user":
                 break
+            if not _same_turn(candidate, turn_fields):
+                continue
             if candidate.get("kind") != "trace":
                 continue
             if segment and candidate.get("activitySegmentId") == segment:
@@ -685,7 +880,11 @@ def replay_transcript_to_ui_messages(
                         return i
         return None
 
-    def upsert_file_edits(edits: list[dict[str, Any]], idx: int) -> None:
+    def upsert_file_edits(
+        edits: list[dict[str, Any]],
+        idx: int,
+        turn_fields: dict[str, Any],
+    ) -> None:
         nonlocal active_file_edit_segment_id
         if not edits:
             return
@@ -693,8 +892,8 @@ def replay_transcript_to_ui_messages(
         if not segment:
             segment = _new_activity_segment(activate=False)
             active_file_edit_segment_id = segment
-        demote_interrupted_assistant(segment)
-        target_index = find_file_edit_trace_index(segment, edits)
+        demote_interrupted_assistant(segment, turn_fields)
+        target_index = find_file_edit_trace_index(segment, edits, turn_fields)
         if target_index is not None:
             last = messages[target_index]
             segment = str(last.get("activitySegmentId") or segment or _new_activity_segment(activate=False))
@@ -713,6 +912,7 @@ def replay_transcript_to_ui_messages(
                     "traces": [],
                     "fileEdits": [],
                     "activitySegmentId": segment,
+                    **turn_fields,
                     "createdAt": _ts_base + idx,
                 },
             )
@@ -761,6 +961,7 @@ def replay_transcript_to_ui_messages(
             **last,
             "fileEdits": existing,
             "activitySegmentId": last.get("activitySegmentId") or segment,
+            **turn_fields,
         }
 
     def attach_playback_segment(segment: dict[str, Any]) -> None:
@@ -807,9 +1008,8 @@ def replay_transcript_to_ui_messages(
     for idx, rec in enumerate(lines):
         ev = rec.get("event")
         if ev == "user":
-            suppress_until_turn_end = False
-            buffer_message_id = None
-            buffer_parts = []
+            suppressed_turn_ids.discard(str(rec["turn_id"]))
+            _clear_turn_streams(str(rec["turn_id"]))
             active_activity_segment_id = None
             active_file_edit_segment_id = None
             text = rec.get("text")
@@ -838,6 +1038,7 @@ def replay_transcript_to_ui_messages(
                 "id": _new_id("u", idx),
                 "role": "user",
                 "content": text_s,
+                **_turn_fields(rec, "user"),
                 "createdAt": _ts_base + idx,
             }
             if media_att:
@@ -865,18 +1066,25 @@ def replay_transcript_to_ui_messages(
         if ev == "file_edit":
             raw_edits = rec.get("edits")
             if isinstance(raw_edits, list):
-                upsert_file_edits([e for e in raw_edits if isinstance(e, dict)], idx)
+                upsert_file_edits(
+                    [e for e in raw_edits if isinstance(e, dict)],
+                    idx,
+                    _turn_fields(rec, "activity"),
+                )
             continue
 
         if ev == "delta":
-            if suppress_until_turn_end:
+            if str(rec["turn_id"]) in suppressed_turn_ids:
                 continue
             chunk = rec.get("text")
             if not isinstance(chunk, str):
                 continue
             close_activity_for_answer()
-            adopted = find_active_placeholder(messages) if buffer_message_id is None else None
-            if buffer_message_id is None:
+            turn_fields = _turn_fields(rec, "answer")
+            stream_key = _stream_key(rec)
+            buffer_state = stream_buffers.get(stream_key)
+            if buffer_state is None:
+                adopted = find_active_placeholder(messages, turn_fields)
                 if adopted:
                     buffer_message_id = adopted
                 else:
@@ -888,23 +1096,35 @@ def replay_transcript_to_ui_messages(
                             "role": "assistant",
                             "content": "",
                             "isStreaming": True,
+                            **turn_fields,
                             "createdAt": _ts_base + idx,
                         },
                     )
+                buffer_parts: list[str] = []
+            else:
+                buffer_message_id, buffer_parts = buffer_state
             buffer_parts.append(chunk)
+            stream_buffers[stream_key] = (buffer_message_id, buffer_parts)
             combined = "".join(buffer_parts)
             for i, m in enumerate(messages):
                 if m.get("id") == buffer_message_id:
-                    messages[i] = {**m, "content": combined, "isStreaming": True}
+                    messages[i] = {
+                        **m,
+                        "content": combined,
+                        "isStreaming": True,
+                        **turn_fields,
+                    }
                     break
             continue
 
         if ev == "stream_end":
-            if suppress_until_turn_end:
-                buffer_message_id = None
-                buffer_parts = []
+            stream_key = _stream_key(rec)
+            if str(rec["turn_id"]) in suppressed_turn_ids:
+                stream_buffers.pop(stream_key, None)
                 continue
             final_text = rec.get("text")
+            buffer_state = stream_buffers.get(stream_key)
+            buffer_message_id = buffer_state[0] if buffer_state is not None else None
             if isinstance(final_text, str):
                 if buffer_message_id is None:
                     stream_id = rec.get("stream_id")
@@ -915,16 +1135,21 @@ def replay_transcript_to_ui_messages(
                             "role": "assistant",
                             "content": final_text,
                             "isStreaming": True,
+                            **_turn_fields(rec, "answer"),
                             "createdAt": _ts_base + idx,
                         },
                     )
                 else:
                     for i, m in enumerate(messages):
                         if m.get("id") == buffer_message_id:
-                            messages[i] = {**m, "content": final_text, "isStreaming": True}
+                            messages[i] = {
+                                **m,
+                                "content": final_text,
+                                "isStreaming": True,
+                                **_turn_fields(rec, "answer"),
+                            }
                             break
-            buffer_message_id = None
-            buffer_parts = []
+            stream_buffers.pop(stream_key, None)
             continue
 
         if ev == "assistant_playback_segment":
@@ -934,23 +1159,28 @@ def replay_transcript_to_ui_messages(
             continue
 
         if ev == "reasoning_delta":
-            if suppress_until_turn_end:
+            if str(rec["turn_id"]) in suppressed_turn_ids:
                 continue
             chunk = rec.get("text")
             if not isinstance(chunk, str) or not chunk:
                 continue
             close_file_edit_phase_before_activity()
-            attach_reasoning_chunk(messages, chunk, idx)
+            attach_reasoning_chunk(
+                messages,
+                chunk,
+                idx,
+                _turn_fields(rec, "reasoning"),
+            )
             continue
 
         if ev == "reasoning_end":
-            if suppress_until_turn_end:
+            if str(rec["turn_id"]) in suppressed_turn_ids:
                 continue
-            close_reasoning(messages)
+            close_reasoning(messages, str(rec["turn_id"]))
             continue
 
         if ev == "message":
-            if suppress_until_turn_end and rec.get("kind") in (
+            if str(rec["turn_id"]) in suppressed_turn_ids and rec.get("kind") in (
                 "tool_hint",
                 "progress",
                 "reasoning",
@@ -962,8 +1192,13 @@ def replay_transcript_to_ui_messages(
                 if not isinstance(line, str) or not line:
                     continue
                 close_file_edit_phase_before_activity()
-                attach_reasoning_chunk(messages, line, idx)
-                close_reasoning(messages)
+                attach_reasoning_chunk(
+                    messages,
+                    line,
+                    idx,
+                    _turn_fields(rec, "reasoning"),
+                )
+                close_reasoning(messages, str(rec["turn_id"]))
                 continue
             if kind in ("tool_hint", "progress"):
                 structured_events = _normalize_tool_events(rec.get("tool_events"))
@@ -981,12 +1216,14 @@ def replay_transcript_to_ui_messages(
                 if not trace_lines:
                     continue
                 segment = _ensure_activity_segment()
-                demote_interrupted_assistant(segment)
+                turn_fields = _turn_fields(rec, "activity")
+                demote_interrupted_assistant(segment, turn_fields)
                 last = messages[-1] if messages else None
                 if (
                     last
                     and last.get("kind") == "trace"
                     and not last.get("isStreaming")
+                    and _same_turn(last, turn_fields)
                     and (last.get("activitySegmentId") in (None, segment))
                 ):
                     prev_traces = list(last.get("traces") or [last.get("content")])
@@ -1004,6 +1241,7 @@ def replay_transcript_to_ui_messages(
                         if visible_structured_events
                         else last.get("toolEvents"),
                         "activitySegmentId": last.get("activitySegmentId") or segment,
+                        **_turn_fields(rec, "activity"),
                     }
                     messages[-1] = merged
                 else:
@@ -1016,13 +1254,13 @@ def replay_transcript_to_ui_messages(
                             "traces": trace_lines,
                             **({"toolEvents": visible_structured_events} if visible_structured_events else {}),
                             "activitySegmentId": segment,
+                            **_turn_fields(rec, "activity"),
                             "createdAt": _ts_base + idx,
                         },
                     )
                 continue
 
-            buffer_message_id = None
-            buffer_parts = []
+            _clear_turn_streams(str(rec["turn_id"]))
             text = rec.get("text")
             content_s = text if isinstance(text, str) else ""
             media: list[dict[str, Any]] = []
@@ -1071,27 +1309,28 @@ def replay_transcript_to_ui_messages(
             cjn = rec.get("cron_job_name")
             if isinstance(cjn, str) and cjn:
                 extra["cronJobName"] = cjn
+            extra.update(_turn_fields(rec, "answer"))
             absorb_complete(extra, idx)
             if media and not rec.get("channel_delivery"):
-                suppress_until_turn_end = True
+                suppressed_turn_ids.add(str(rec["turn_id"]))
             continue
 
         if ev == "turn_end":
-            suppress_until_turn_end = False
+            suppressed_turn_ids.discard(str(rec["turn_id"]))
             active_activity_segment_id = None
             active_file_edit_segment_id = None
+            turn_id = str(rec["turn_id"])
             for i, m in enumerate(messages):
-                if m.get("isStreaming"):
+                if m.get("isStreaming") and m.get("turnId") == turn_id:
                     messages[i] = {**m, "isStreaming": False}
-            prune_reasoning_only()
+            prune_reasoning_only(turn_id)
             lat = rec.get("latency_ms")
             if isinstance(lat, (int, float)) and lat >= 0:
-                stamp_latency(int(lat))
+                stamp_latency(int(lat), turn_id)
             usg = rec.get("usage")
             if isinstance(usg, dict) and usg:
-                stamp_usage(usg)
-            buffer_message_id = None
-            buffer_parts = []
+                stamp_usage(usg, turn_id)
+            _clear_turn_streams(turn_id)
             continue
 
     for i, m in enumerate(messages):

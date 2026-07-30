@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 from nanobot.webui.transcript import (
     WEBUI_TRANSCRIPT_SCHEMA_VERSION,
+    WebUITranscriptRecorder,
     append_transcript_object,
     read_transcript_lines,
     replay_transcript_to_ui_messages,
@@ -19,6 +21,114 @@ def test_append_and_read_roundtrip(tmp_path, monkeypatch) -> None:
     lines = read_transcript_lines(key)
     assert len(lines) == 1
     assert lines[0]["text"] == "hello"
+
+
+def test_recorder_stamps_monotonic_turn_metadata(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    recorder = WebUITranscriptRecorder()
+    metadata = {WEBUI_TURN_METADATA_KEY: "turn-live"}
+    events = [
+        ({"event": "user", "chat_id": "turns", "text": "hello"}, "user"),
+        ({"event": "reasoning_delta", "chat_id": "turns", "text": "think"}, "reasoning"),
+        ({"event": "delta", "chat_id": "turns", "text": "answer"}, "answer"),
+        ({"event": "turn_end", "chat_id": "turns"}, "complete"),
+    ]
+
+    for event, phase in events:
+        recorder.prepare_and_append("turns", event, metadata=metadata, phase=phase)
+
+    lines = read_transcript_lines("websocket:turns")
+    assert [line["turn_id"] for line in lines] == ["turn-live"] * 4
+    assert [line["turn_phase"] for line in lines] == [
+        "user",
+        "reasoning",
+        "answer",
+        "complete",
+    ]
+    assert [line["turn_seq"] for line in lines] == [0, 1, 2, 3]
+
+
+def test_replay_preserves_separate_messages_and_turns() -> None:
+    messages = replay_transcript_to_ui_messages([
+        {
+            "event": "user",
+            "chat_id": "turns",
+            "text": "question",
+            "turn_id": "turn-user",
+            "turn_phase": "user",
+            "turn_seq": 0,
+        },
+        {
+            "event": "message",
+            "chat_id": "turns",
+            "text": "first",
+            "turn_id": "turn-user",
+            "turn_phase": "answer",
+            "turn_seq": 1,
+        },
+        {
+            "event": "message",
+            "chat_id": "turns",
+            "text": "second",
+            "turn_id": "turn-user",
+            "turn_phase": "answer",
+            "turn_seq": 2,
+        },
+        {
+            "event": "turn_end",
+            "chat_id": "turns",
+            "turn_id": "turn-user",
+            "turn_phase": "complete",
+            "turn_seq": 3,
+        },
+        {
+            "event": "message",
+            "chat_id": "turns",
+            "text": "cron",
+            "channel_delivery": True,
+            "turn_id": "turn-cron",
+            "turn_phase": "answer",
+            "turn_seq": 0,
+        },
+    ])
+
+    assert [message["content"] for message in messages] == [
+        "question",
+        "first",
+        "second",
+        "cron",
+    ]
+    assert [message["turnId"] for message in messages] == [
+        "turn-user",
+        "turn-user",
+        "turn-user",
+        "turn-cron",
+    ]
+    assert [message["turnSeq"] for message in messages] == [0, 1, 2, 0]
+
+
+def test_replay_assigns_stable_turns_to_legacy_records() -> None:
+    messages = replay_transcript_to_ui_messages([
+        {"event": "user", "chat_id": "legacy", "text": "one"},
+        {"event": "message", "chat_id": "legacy", "text": "reply one"},
+        {"event": "turn_end", "chat_id": "legacy"},
+        {"event": "user", "chat_id": "legacy", "text": "two"},
+        {"event": "message", "chat_id": "legacy", "text": "reply two"},
+        {
+            "event": "message",
+            "chat_id": "legacy",
+            "text": "cron",
+            "channel_delivery": True,
+        },
+    ])
+
+    assert all(message.get("turnId") for message in messages)
+    assert all(message.get("turnPhase") for message in messages)
+    assert all(isinstance(message.get("turnSeq"), int) for message in messages)
+    assert messages[0]["turnId"] == messages[1]["turnId"]
+    assert messages[2]["turnId"] == messages[3]["turnId"]
+    assert messages[0]["turnId"] != messages[2]["turnId"]
+    assert messages[4]["turnId"] not in {messages[0]["turnId"], messages[2]["turnId"]}
 
 
 def test_replay_delta_and_turn_end(tmp_path, monkeypatch) -> None:
@@ -42,6 +152,70 @@ def test_replay_delta_and_turn_end(tmp_path, monkeypatch) -> None:
     assert msgs[1]["content"] == "a"
     assert msgs[1]["reasoning"] == "think"
     assert msgs[1]["latencyMs"] == 42
+
+
+def test_replay_keeps_interleaved_stream_buffers_separate() -> None:
+    msgs = replay_transcript_to_ui_messages([
+        {
+            "event": "delta",
+            "chat_id": "interleaved",
+            "text": "A1",
+            "stream_id": "stream-a",
+            "turn_id": "turn-a",
+        },
+        {
+            "event": "delta",
+            "chat_id": "interleaved",
+            "text": "B1",
+            "stream_id": "stream-b",
+            "turn_id": "turn-b",
+        },
+        {
+            "event": "delta",
+            "chat_id": "interleaved",
+            "text": "A2",
+            "stream_id": "stream-a",
+            "turn_id": "turn-a",
+        },
+        {
+            "event": "stream_end",
+            "chat_id": "interleaved",
+            "stream_id": "stream-a",
+            "turn_id": "turn-a",
+        },
+        {
+            "event": "stream_end",
+            "chat_id": "interleaved",
+            "stream_id": "stream-b",
+            "turn_id": "turn-b",
+        },
+    ])
+
+    assistants = [message for message in msgs if message["role"] == "assistant"]
+    assert [(message["turnId"], message["content"]) for message in assistants] == [
+        ("turn-a", "A1A2"),
+        ("turn-b", "B1"),
+    ]
+
+
+def test_replay_assigns_each_legacy_proactive_delivery_its_own_turn() -> None:
+    msgs = replay_transcript_to_ui_messages([
+        {
+            "event": "message",
+            "chat_id": "proactive",
+            "text": "first job",
+            "channel_delivery": True,
+        },
+        {
+            "event": "message",
+            "chat_id": "proactive",
+            "text": "second job",
+            "channel_delivery": True,
+        },
+    ])
+
+    assert [message["content"] for message in msgs] == ["first job", "second job"]
+    assert msgs[0]["turnId"] != msgs[1]["turnId"]
 
 
 def test_replay_augments_assistant_text() -> None:

@@ -72,6 +72,7 @@ class CaptureWsChannel(BaseChannel):
         payload: dict,
         source_channel: str,
         source_chat_id: str,
+        metadata: dict | None = None,
     ) -> None:
         self.stream_events.append(
             (payload.get("event", ""), payload.get("text", ""), source_channel),

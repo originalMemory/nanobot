@@ -60,8 +60,10 @@ export function resolveMediaUrl(url: string | undefined, apiBase: string): strin
 
 interface MessageBubbleProps {
   message: UIMessage;
-  /** When false, hide the assistant reply copy button (mid-turn text before more agent activity). Default true. */
-  showAssistantCopyAction?: boolean;
+  /** 同一 turn 只有首条 assistant 消息展示头像和名称。 */
+  showAssistantIdentity?: boolean;
+  /** 同一 turn 只有末条 assistant 消息展示操作和统计 footer。 */
+  showAssistantFooter?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
 }
@@ -77,7 +79,8 @@ interface MessageBubbleProps {
  */
 export function MessageBubble({
   message,
-  showAssistantCopyAction = true,
+  showAssistantIdentity = true,
+  showAssistantFooter = true,
   cliApps = [],
   mcpPresets = [],
 }: MessageBubbleProps) {
@@ -209,16 +212,16 @@ export function MessageBubble({
   const hasReasoning = reasoning.length > 0 || reasoningStreaming;
 
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
-  const showCopyButton = showAssistantCopyAction && showAssistantActions;
-  const showPsbTagsButton = showAssistantActions && hasResponseTags;
-  const showPlaybackButton = showAssistantActions && playablePlaybackSegments.length > 0;
+  const showCopyButton = showAssistantFooter && showAssistantActions;
+  const showPsbTagsButton = showAssistantFooter && showAssistantActions && hasResponseTags;
+  const showPlaybackButton = showAssistantFooter && showAssistantActions && playablePlaybackSegments.length > 0;
   const latencyMs = message.latencyMs;
   const usage = message.role === "assistant" ? message.usage : undefined;
   const messageTs = message.role === "assistant" ? message.messageTs : undefined;
   const footerCondition = message.role === "assistant" && !message.isStreaming && (!empty || hasReasoning || media.length > 0);
-  const showLatencyFooter = footerCondition && latencyMs != null;
-  const showUsageFooter = footerCondition && usage != null;
-  const showTimestampFooter = footerCondition && messageTs != null;
+  const showLatencyFooter = showAssistantFooter && footerCondition && latencyMs != null;
+  const showUsageFooter = showAssistantFooter && footerCondition && usage != null;
+  const showTimestampFooter = showAssistantFooter && footerCondition && messageTs != null;
   const showAssistantFooterRow = showCopyButton || showPsbTagsButton || showPlaybackButton || showLatencyFooter || showUsageFooter || showTimestampFooter;
 
   const isTypingOnly = empty && message.isStreaming && !hasReasoning;
@@ -227,13 +230,22 @@ export function MessageBubble({
 
   if (isTypingOnly) {
     return (
-      <div className={cn("flex w-full gap-2 text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-        <div className="flex w-10 flex-none items-start pt-0.5">
-          <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
-        </div>
+      <div
+        className={cn(showAssistantIdentity && "flex gap-2", "w-full text-[15px]", baseAnim)}
+        style={{ lineHeight: "var(--cjk-line-height)" }}
+      >
+        {showAssistantIdentity ? (
+          <div className="flex w-10 flex-none items-start pt-0.5">
+            <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
+          </div>
+        ) : null}
         <div className="min-w-0 flex-1">
-          <AssistantNameRow botName={botName} message={message} />
-          <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
+          {showAssistantIdentity ? <AssistantNameRow botName={botName} message={message} /> : null}
+          <div className={cn(
+            "[letter-spacing:0.3px]",
+            showAssistantIdentity
+              && "rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3",
+          )}>
             <TypingDots />
           </div>
         </div>
@@ -243,13 +255,22 @@ export function MessageBubble({
 
   if (empty && message.isStreaming) {
     return (
-      <div className={cn("flex w-full gap-2 text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-        <div className="flex w-10 flex-none items-start pt-0.5">
-          <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
-        </div>
+      <div
+        className={cn(showAssistantIdentity && "flex gap-2", "w-full text-[15px]", baseAnim)}
+        style={{ lineHeight: "var(--cjk-line-height)" }}
+      >
+        {showAssistantIdentity ? (
+          <div className="flex w-10 flex-none items-start pt-0.5">
+            <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
+          </div>
+        ) : null}
         <div className="min-w-0 flex-1">
-          <AssistantNameRow botName={botName} message={message} />
-          <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
+          {showAssistantIdentity ? <AssistantNameRow botName={botName} message={message} /> : null}
+          <div className={cn(
+            "[letter-spacing:0.3px]",
+            showAssistantIdentity
+              && "rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3",
+          )}>
             <ReasoningBubble
               text={reasoning}
               streaming={reasoningStreaming}
@@ -263,15 +284,22 @@ export function MessageBubble({
   }
 
   return (
-    <div className={cn("flex w-full gap-2 text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-      {/* 左列：头像，靠顶部对齐 */}
-      <div className="flex w-10 flex-none items-start pt-0.5">
-        <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
-      </div>
-      {/* 右列：名字 + 气泡 + footer */}
+    <div
+      className={cn(showAssistantIdentity && "flex gap-2", "w-full text-[15px]", baseAnim)}
+      style={{ lineHeight: "var(--cjk-line-height)" }}
+    >
+      {showAssistantIdentity ? (
+        <div className="flex w-10 flex-none items-start pt-0.5">
+          <BotAvatarWithFallback name={botName} icon={botIcon} avatarUrl={resolveMediaUrl(botAvatarUrl ?? undefined, apiBase)} />
+        </div>
+      ) : null}
       <div className="min-w-0 flex-1">
-        <AssistantNameRow botName={botName} message={message} />
-        <div className="rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3 [letter-spacing:0.3px]">
+        {showAssistantIdentity ? <AssistantNameRow botName={botName} message={message} /> : null}
+        <div className={cn(
+          "[letter-spacing:0.3px]",
+          showAssistantIdentity
+            && "rounded-[18px_18px_18px_4px] border border-border chat-ai-bubble px-4 py-3",
+        )}>
           {hasReasoning ? (
             <ReasoningBubble
               text={reasoning}
@@ -292,7 +320,7 @@ export function MessageBubble({
           />
         ) : null}
         {showAssistantFooterRow ? (
-          <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+          <div className="assistant-message-footer mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
             {showCopyButton ? (
               <button
                 type="button"
@@ -374,7 +402,7 @@ export function MessageBubble({
             ) : null}
             {showLatencyFooter ? (
               <span
-                className="text-[11px] leading-none text-muted-foreground/70 tabular-nums"
+                className="assistant-message-footer-metric text-[11px] leading-none text-muted-foreground/70 tabular-nums"
                 title={t("message.turnLatencyTitle")}
               >
                 {formatTurnLatency(latencyMs)}
@@ -896,7 +924,10 @@ function MessageTimestamp({ ts }: { ts: string | number }) {
   const formatted = formatMessageTimestamp(ts);
   if (!formatted) return null;
   return (
-    <span className="text-[11px] leading-none text-muted-foreground/50 tabular-nums" title={String(ts)}>
+    <span
+      className="assistant-message-footer-metric text-[11px] leading-none text-muted-foreground/50 tabular-nums"
+      title={String(ts)}
+    >
       {formatted}
     </span>
   );
@@ -926,7 +957,7 @@ function TokenUsageFooter({ usage }: { usage: NonNullable<UIMessage["usage"]> })
 
   return (
     <span
-      className="text-[11px] leading-none text-muted-foreground/60 tabular-nums"
+      className="assistant-message-footer-metric text-[11px] leading-none text-muted-foreground/60 tabular-nums"
       title={buildTokenUsageTitle(usage, t)}
     >
       {parts.join(" ")}
@@ -939,21 +970,26 @@ export function StreamingLabelSheen({
   children,
   active,
   className,
+  multiline = false,
 }: {
   children: ReactNode;
   active: boolean;
   className?: string;
+  multiline?: boolean;
 }) {
   const sheenText =
     typeof children === "string" || typeof children === "number"
       ? String(children)
       : undefined;
   return (
-    <span className={cn("block min-w-0 overflow-hidden py-px", className)}>
+    <span className={cn("block min-w-0 py-px", !multiline && "overflow-hidden", className)}>
       <span
         data-sheen-text={active ? sheenText : undefined}
         className={cn(
-          "block w-fit max-w-full truncate font-medium leading-normal",
+          "block max-w-full font-medium leading-normal",
+          multiline
+            ? "w-full whitespace-pre-wrap break-words"
+            : "w-fit truncate",
           active ? "streaming-text-sheen" : "text-muted-foreground",
         )}
       >

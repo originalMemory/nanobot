@@ -1365,20 +1365,20 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
         "like 'Done' or 'Reminded'.\n\n"
         "Reminder: Remind me to stretch."
     )
-    bus.publish_outbound.assert_awaited_once_with(
-        OutboundMessage(
-            channel="telegram",
-            chat_id="user-1",
-            content="Time to stretch.",
-            metadata={
-                "_channel_delivery": True,
-                "source_channel": "telegram",
-                "source_chat_id": "user-1",
-                "_cron_job_id": "cron-1",
-                "_cron_job_name": "stretch",
-            },
-        )
-    )
+    bus.publish_outbound.assert_awaited_once()
+    delivered = bus.publish_outbound.await_args.args[0]
+    assert delivered.channel == "telegram"
+    assert delivered.chat_id == "user-1"
+    assert delivered.content == "Time to stretch."
+    assert delivered.metadata["webui_turn_id"].startswith("delivery:")
+    assert delivered.metadata == {
+        "webui_turn_id": delivered.metadata["webui_turn_id"],
+        "_channel_delivery": True,
+        "source_channel": "telegram",
+        "source_chat_id": "user-1",
+        "_cron_job_id": "cron-1",
+        "_cron_job_name": "stretch",
+    }
     assert seen["session_key"] == "telegram:user-1"
     saved_session = seen["saved_session"]
     assert isinstance(saved_session, _FakeSession)
