@@ -47,14 +47,14 @@ def _bound_session_delivery_context(
 
     if channel == "websocket":
         metadata["webui"] = True
-        metadata.update(
-            cron_proactive_delivery_metadata(
-                "websocket",
-                metadata,
-                turn_seed=turn_seed,
-                source_label=source_label,
-            )
+    metadata.update(
+        cron_proactive_delivery_metadata(
+            channel,
+            metadata,
+            turn_seed=turn_seed,
+            source_label=source_label,
         )
+    )
 
     return channel, chat_id, metadata
 

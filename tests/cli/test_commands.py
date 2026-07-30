@@ -56,6 +56,22 @@ def test_proactive_websocket_delivery_gets_fresh_turn_id() -> None:
     assert out[WEBUI_MESSAGE_SOURCE_METADATA_KEY] == {"kind": "cron", "label": "drink water"}
 
 
+def test_proactive_channel_delivery_keeps_cron_source_without_webui_turn_id() -> None:
+    out = cron_proactive_delivery_metadata(
+        "qq",
+        {"message_id": "qq-message"},
+        turn_seed="cron:daily-check",
+        source_label="Daily check",
+    )
+
+    assert out["message_id"] == "qq-message"
+    assert WEBUI_TURN_METADATA_KEY not in out
+    assert out[WEBUI_MESSAGE_SOURCE_METADATA_KEY] == {
+        "kind": "cron",
+        "label": "Daily check",
+    }
+
+
 def _fake_provider():
     """Return a minimal fake provider that satisfies AgentLoop.__init__."""
     p = MagicMock()
@@ -2851,6 +2867,10 @@ def test_gateway_bound_cron_runs_as_session_turn(
     assert msg.metadata["context_chat_id"] == "456"
     assert msg.metadata["parent_channel_id"] == "456"
     assert msg.metadata["thread_id"] == "777"
+    assert msg.metadata[WEBUI_MESSAGE_SOURCE_METADATA_KEY] == {
+        "kind": "cron",
+        "label": "Thread check",
+    }
 
     telegram_job = CronJob(
         id="telegram-topic",

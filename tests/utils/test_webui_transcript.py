@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from nanobot.cron.session_turns import CRON_HISTORY_META
+from nanobot.session.automation_turns import AUTOMATION_HISTORY_META
 from nanobot.session.history_visibility import HIDDEN_HISTORY_META
+from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY
 from nanobot.webui.transcript import (
     WEBUI_TRANSCRIPT_SCHEMA_VERSION,
     append_fork_marker,
@@ -1552,6 +1555,69 @@ def test_session_messages_to_wire_events_marks_user_initiated_delivery() -> None
     assert message["channel_delivery"] is True
     assert message["user_initiated_delivery"] is True
     assert message["source_channel"] == "qq"
+
+
+def test_unified_history_hides_cron_trigger_and_preserves_reply_source() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {
+            "role": "user",
+            "content": "Scheduled cron job triggered: Daily check",
+            AUTOMATION_HISTORY_META: {"kind": "cron"},
+            CRON_HISTORY_META: True,
+        },
+        {
+            "role": "assistant",
+            "content": "今日检查完成",
+            WEBUI_MESSAGE_SOURCE_METADATA_KEY: {
+                "kind": "cron",
+                "label": "Daily check",
+            },
+        },
+    ])
+
+    assert not any(event.get("event") == "user" for event in events)
+    reply = next(event for event in events if event.get("event") == "message")
+    assert reply["text"] == "今日检查完成"
+    assert reply["source"] == {"kind": "cron", "label": "Daily check"}
+
+
+def test_unified_history_restores_user_image_attachment() -> None:
+    from nanobot.webui.transcript import (
+        replay_transcript_to_ui_messages,
+        session_messages_to_wire_events,
+    )
+
+    events = session_messages_to_wire_events([
+        {
+            "role": "user",
+            "content": "看一下这张图",
+            "media": ["/workspace/media/input.png"],
+        },
+    ])
+    messages = replay_transcript_to_ui_messages(
+        events,
+        augment_user_media=lambda paths: [
+            {
+                "kind": "image",
+                "url": f"/api/media/signed/{Path(path).name}",
+                "name": Path(path).name,
+            }
+            for path in paths
+        ],
+    )
+
+    assert messages[0]["media"] == [
+        {
+            "kind": "image",
+            "url": "/api/media/signed/input.png",
+            "name": "input.png",
+        }
+    ]
+    assert messages[0]["images"] == [
+        {"url": "/api/media/signed/input.png", "name": "input.png"}
+    ]
 
 
 def test_replay_preserves_user_initiated_delivery() -> None:

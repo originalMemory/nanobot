@@ -95,6 +95,7 @@ from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
 )
+from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY
 
 if TYPE_CHECKING:
     from nanobot.agent.tools.mcp import MCPConnection
@@ -738,10 +739,14 @@ class AgentLoop:
             self._runtime_context_providers.append(provider)
 
     def _source_extras(self, msg: InboundMessage) -> dict[str, Any]:
-        """统一会话模式下返回 source_channel/source_chat_id 字段，否则返回空 dict。"""
+        """返回需要随 turn 持久化的来源字段。"""
+        extras: dict[str, Any] = {}
         if self._unified_session:
-            return {"source_channel": msg.channel, "source_chat_id": msg.chat_id}
-        return {}
+            extras.update({"source_channel": msg.channel, "source_chat_id": msg.chat_id})
+        source = msg.metadata.get(WEBUI_MESSAGE_SOURCE_METADATA_KEY)
+        if isinstance(source, Mapping):
+            extras[WEBUI_MESSAGE_SOURCE_METADATA_KEY] = dict(source)
+        return extras
 
     def _runtime_events(self) -> RuntimeEventPublisher:
         return ensure_runtime_event_publisher(self)
@@ -2004,6 +2009,7 @@ class AgentLoop:
         turn_usage: dict[str, int] | None = None,
         source_channel: str | None = None,
         source_chat_id: str | None = None,
+        _webui_message_source: dict[str, Any] | None = None,
     ) -> None:
         """Save new-turn messages into session, truncating large tool results."""
         from datetime import datetime, timezone
@@ -2070,6 +2076,11 @@ class AgentLoop:
                 entry.setdefault("source_channel", source_channel)
             if source_chat_id:
                 entry.setdefault("source_chat_id", source_chat_id)
+            if _webui_message_source:
+                entry.setdefault(
+                    WEBUI_MESSAGE_SOURCE_METADATA_KEY,
+                    dict(_webui_message_source),
+                )
             entry.setdefault("timestamp", datetime.now(timezone.utc).astimezone().isoformat())
             session.messages.append(entry)
             if role == "assistant":

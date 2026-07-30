@@ -47,6 +47,7 @@ from nanobot.session.webui_turns import (
 )
 from nanobot.triggers.local_session_turns import LOCAL_TRIGGER_META
 from nanobot.utils.llm_runtime import LLMRuntime
+from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY
 
 
 def _mk_loop() -> AgentLoop:
@@ -146,6 +147,29 @@ def test_persist_cron_turn_uses_distinct_history_marker(tmp_path: Path) -> None:
     assert message["cron_job_name"] == "Daily check"
     assert message["cron_run_id"] == "job-1:1"
     assert message["cron_prompt_ref"] == prompt_ref
+
+
+def test_cron_source_is_persisted_on_assistant_reply(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    loop._unified_session = True
+    source = {"kind": "cron", "label": "Daily check"}
+    msg = InboundMessage(
+        channel="websocket",
+        sender_id="cron",
+        chat_id="inbox:unified",
+        content="Cron job: internal prompt",
+        metadata={WEBUI_MESSAGE_SOURCE_METADATA_KEY: source},
+    )
+    session = loop.sessions.get_or_create("unified:default")
+
+    loop._save_turn(
+        session,
+        [{"role": "assistant", "content": "任务完成"}],
+        0,
+        **loop._source_extras(msg),
+    )
+
+    assert session.messages[-1][WEBUI_MESSAGE_SOURCE_METADATA_KEY] == source
 
 
 def test_persist_local_trigger_turn_uses_hidden_automation_marker(tmp_path: Path) -> None:

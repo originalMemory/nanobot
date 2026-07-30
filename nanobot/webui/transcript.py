@@ -1152,6 +1152,8 @@ def session_messages_to_wire_events(
     for message in messages:
         if message.get("_type") == "metadata":
             continue
+        if is_hidden_history_message(message):
+            continue
         role = message.get("role")
         text = _session_message_text(message.get("content"))
         base: dict[str, Any] = {"chat_id": chat_id}
@@ -1159,6 +1161,8 @@ def session_messages_to_wire_events(
             value = message.get(key)
             if value:
                 base[key] = value
+        if source := webui_message_source(message):
+            base["source"] = source
         cron_job_id = message.get("_cron_job_id")
         if isinstance(cron_job_id, str) and cron_job_id:
             base["cron_job_id"] = cron_job_id

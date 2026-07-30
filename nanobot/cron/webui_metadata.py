@@ -20,8 +20,8 @@ def cron_proactive_delivery_metadata(
     out.pop(WEBUI_TURN_METADATA_KEY, None)
     if channel == "websocket":
         out[WEBUI_TURN_METADATA_KEY] = f"{turn_seed}:{uuid.uuid4().hex}"
-        source: dict[str, str] = {"kind": "cron"}
-        if source_label:
-            source["label"] = source_label
-        out[WEBUI_MESSAGE_SOURCE_METADATA_KEY] = source
+    source: dict[str, str] = {"kind": "cron"}
+    if source_label:
+        source["label"] = source_label
+    out[WEBUI_MESSAGE_SOURCE_METADATA_KEY] = source
     return out
