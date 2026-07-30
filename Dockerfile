@@ -54,8 +54,9 @@ RUN for channel in $(printf '%s' "$NANOBOT_CHANNELS" | tr ',' ' '); do \
 # won't shadow it. Only used when RENDER=true; ignored by local runs.
 COPY render-config.json ./
 
-# Create the non-root user and hand ownership of the writable virtualenv to it.
-RUN useradd -m -u 1000 -s /bin/bash nanobot && \
+# Match Unraid's nobody:users identity so bind-mounted files stay editable.
+RUN groupadd -g 100 -o nanobot && \
+    useradd -m -u 99 -g 100 -o -s /bin/bash nanobot && \
     mkdir -p /home/nanobot/.nanobot && \
     chown -R nanobot:nanobot /home/nanobot /app/.venv
 
