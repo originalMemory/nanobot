@@ -624,6 +624,32 @@ class LLMProvider(ABC):
                         found = True
         return found
 
+    @staticmethod
+    def _explicitly_rejects_image_input(response: LLMResponse) -> bool:
+        """仅在上游明确拒绝图片能力时允许去图降级。"""
+        detail = " ".join(
+            value
+            for value in (response.content, response.error_type, response.error_code)
+            if isinstance(value, str)
+        ).lower()
+        return any(
+            marker in detail
+            for marker in (
+                "model does not support image",
+                "model doesn't support image",
+                "images are not supported",
+                "image input is not supported",
+                "image inputs are not supported",
+                "image not supported",
+                "images not allowed",
+                "vision not supported",
+                "unsupported image input",
+                "不支持图片",
+                "不支持图像",
+                "不支持视觉",
+            )
+        )
+
     async def _safe_chat(self, **kwargs: Any) -> LLMResponse:
         """Call chat() and convert unexpected exceptions to error responses."""
         try:
@@ -928,7 +954,11 @@ class LLMProvider(ABC):
 
             if not self._is_transient_response(response):
                 stripped = self._strip_image_content(original_messages)
-                if stripped is not None and stripped != kw["messages"]:
+                if (
+                    stripped is not None
+                    and stripped != kw["messages"]
+                    and self._explicitly_rejects_image_input(response)
+                ):
                     logger.warning(
                         "Non-transient LLM error with image content, retrying without images"
                     )

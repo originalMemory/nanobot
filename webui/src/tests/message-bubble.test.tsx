@@ -729,6 +729,28 @@ describe("MessageBubble", () => {
     expect(container.querySelector("img")).toHaveClass("h-auto", "w-full", "object-contain");
   });
 
+  it("renders images attached to user messages", () => {
+    const message: UIMessage = {
+      id: "u-image",
+      role: "user",
+      content: "看一下这张图",
+      createdAt: Date.now(),
+      media: [
+        {
+          kind: "image",
+          url: "/api/media/sig/input",
+          name: "input.png",
+        },
+      ],
+    };
+
+    const { container } = render(<MessageBubble message={message} />);
+
+    expect(screen.getByText("看一下这张图")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /view image/i })).toBeInTheDocument();
+    expect(container.querySelector("img")).toHaveAttribute("src", "/api/media/sig/input");
+  });
+
   it("shows context usage only after an assistant message is complete", () => {
     const message: UIMessage = {
       id: "a-context",

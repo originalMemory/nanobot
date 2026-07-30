@@ -293,23 +293,16 @@ _IMAGE_MSG_NO_META = [
 
 
 @pytest.mark.asyncio
-async def test_non_transient_error_with_images_retries_without_images() -> None:
-    """Any non-transient error retries once with images stripped when images are present."""
+async def test_generic_non_transient_error_with_images_keeps_images() -> None:
+    """与视觉能力无关的请求错误不得擅自删除图片重试。"""
     provider = ScriptedProvider([
         LLMResponse(content="API调用参数有误,请检查文档", finish_reason="error"),
-        LLMResponse(content="ok, no image"),
     ])
 
     response = await provider.chat_with_retry(messages=copy.deepcopy(_IMAGE_MSG))
 
-    assert response.content == "ok, no image"
-    assert provider.calls == 2
-    msgs_on_retry = provider.last_kwargs["messages"]
-    for msg in msgs_on_retry:
-        content = msg.get("content")
-        if isinstance(content, list):
-            assert all(b.get("type") != "image_url" for b in content)
-            assert any("not delivered" in (b.get("text") or "").lower() for b in content)
+    assert response.content == "API调用参数有误,请检查文档"
+    assert provider.calls == 1
 
 
 @pytest.mark.asyncio
@@ -349,7 +342,7 @@ async def test_non_transient_error_without_images_no_retry() -> None:
 async def test_image_fallback_returns_error_on_second_failure() -> None:
     """If the image-stripped retry also fails, return that error."""
     provider = ScriptedProvider([
-        LLMResponse(content="some model error", finish_reason="error"),
+        LLMResponse(content="model does not support images", finish_reason="error"),
         LLMResponse(content="still failing", finish_reason="error"),
     ])
 
@@ -364,7 +357,7 @@ async def test_image_fallback_returns_error_on_second_failure() -> None:
 async def test_image_fallback_without_meta_uses_default_placeholder() -> None:
     """When _meta is absent, fallback placeholder is non-descriptive."""
     provider = ScriptedProvider([
-        LLMResponse(content="error", finish_reason="error"),
+        LLMResponse(content="image input is not supported", finish_reason="error"),
         LLMResponse(content="ok"),
     ])
 
