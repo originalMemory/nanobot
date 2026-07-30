@@ -83,4 +83,22 @@ describe("MessageMedia 音频自动播放", () => {
 
     await waitFor(() => expect(play).toHaveBeenCalledTimes(2));
   });
+
+  it("不展示音频文件名，并将图片与音频分成上下两行", () => {
+    const { container } = render(
+      <MessageMedia
+        media={[
+          { kind: "image", url: "/media/reply.png", name: "reply.png" },
+          { kind: "audio", url: "/media/reply.mp3", name: "reply.mp3" },
+        ]}
+        align="left"
+      />,
+    );
+
+    expect(container.textContent).not.toContain("reply.mp3");
+    const mediaRoot = container.firstElementChild;
+    const nonImageRow = container.querySelector('[data-testid="message-non-image-media"]');
+    expect(mediaRoot?.children).toHaveLength(2);
+    expect(nonImageRow?.parentElement).toBe(mediaRoot);
+  });
 });

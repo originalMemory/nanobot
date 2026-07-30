@@ -508,22 +508,32 @@ export function MessageMedia({
   return (
     <div
       className={cn(
-        "mt-2 flex flex-wrap gap-2",
-        align === "right" ? "justify-end" : "justify-start",
+        "mt-2 flex flex-col gap-2",
+        align === "right" ? "items-end" : "items-start",
       )}
     >
       {images.length > 0 ? (
         <UserImages images={images} align={align} size={align === "left" ? "large" : "compact"} />
       ) : null}
-      {nonImages.map((item, i) => (
-        <MediaCell
-          key={`${item.url ?? item.name ?? item.kind}-${i}`}
-          media={item}
-          autoPlay={autoPlayAudio}
-          autoPlayKey={autoPlayAudioKey ? `${autoPlayAudioKey}:${i}` : undefined}
-          thaSourceText={thaSourceText}
-        />
-      ))}
+      {nonImages.length > 0 ? (
+        <div
+          className={cn(
+            "flex w-full flex-wrap gap-2",
+            align === "right" ? "justify-end" : "justify-start",
+          )}
+          data-testid="message-non-image-media"
+        >
+          {nonImages.map((item, i) => (
+            <MediaCell
+              key={`${item.url ?? item.name ?? item.kind}-${i}`}
+              media={item}
+              autoPlay={autoPlayAudio}
+              autoPlayKey={autoPlayAudioKey ? `${autoPlayAudioKey}:${i}` : undefined}
+              thaSourceText={thaSourceText}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -601,7 +611,7 @@ function AudioCell({
         className="flex max-w-[18rem] items-center gap-2 rounded-[14px] border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground hover:underline"
       >
         <PlaySquare className="h-4 w-4 flex-none" aria-hidden />
-        <span className="truncate">{media.name ?? t("message.audioAttachment", { defaultValue: "Audio attachment" })}</span>
+        <span>{t("message.audioAttachment", { defaultValue: "Audio attachment" })}</span>
       </a>
     );
   }
@@ -617,11 +627,6 @@ function AudioCell({
         className="audio-attachment-player w-full"
         aria-label={media.name ? `${t("message.audioAttachment", { defaultValue: "Audio attachment" })}: ${media.name}` : t("message.audioAttachment", { defaultValue: "Audio attachment" })}
       />
-      {media.name ? (
-        <figcaption className="truncate px-1 pt-1 text-[11.5px] text-muted-foreground">
-          {media.name}
-        </figcaption>
-      ) : null}
     </figure>
   );
 }
