@@ -360,8 +360,12 @@ function absorbCompleteAssistantMessage(
 }
 
 function fileEditKey(edit: Pick<UIFileEdit, "call_id" | "tool" | "path">): string {
-  if (edit.call_id) return `${edit.call_id}|${edit.tool}`;
+  if (edit.call_id) return `${edit.call_id}|${edit.tool}|${edit.path}`;
   return `${edit.tool}|${edit.path}`;
+}
+
+function fileEditToolKey(edit: Pick<UIFileEdit, "call_id" | "tool">): string {
+  return `${edit.call_id}|${edit.tool}`;
 }
 
 function normalizeFileEdit(edit: UIFileEdit): UIFileEdit | null {
@@ -385,22 +389,36 @@ function normalizeFileEdit(edit: UIFileEdit): UIFileEdit | null {
   return normalized;
 }
 
-function mergeFileEdits(existing: UIFileEdit[] | undefined, incoming: UIFileEdit[]): UIFileEdit[] {
+export function mergeFileEdits(
+  existing: UIFileEdit[] | undefined,
+  incoming: UIFileEdit[],
+): UIFileEdit[] {
   const next = [...(existing ?? [])];
   const indexByKey = new Map(next.map((edit, index) => [fileEditKey(edit), index]));
   for (const raw of incoming) {
     const edit = normalizeFileEdit(raw);
     if (!edit) continue;
     const key = fileEditKey(edit);
-    const existingIndex = indexByKey.get(key);
+    let existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined && edit.path) {
+      const pendingIndex = next.findIndex(
+        (candidate) => !candidate.path
+          && !!candidate.pending
+          && fileEditToolKey(candidate) === fileEditToolKey(edit),
+      );
+      if (pendingIndex >= 0) existingIndex = pendingIndex;
+    }
     if (existingIndex === undefined) {
       indexByKey.set(key, next.length);
       next.push(edit);
       continue;
     }
+    const previousKey = fileEditKey(next[existingIndex]);
     const merged = { ...next[existingIndex], ...edit };
     if (edit.path && !edit.pending) delete merged.pending;
     next[existingIndex] = merged;
+    if (previousKey !== key) indexByKey.delete(previousKey);
+    indexByKey.set(key, existingIndex);
   }
   return next;
 }
@@ -411,13 +429,17 @@ function findFileEditTraceIndex(
   incoming: UIFileEdit[],
 ): number | null {
   const incomingKeys = new Set(incoming.map(fileEditKey));
+  const incomingToolKeys = new Set(incoming.map(fileEditToolKey));
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const candidate = prev[i];
     if (candidate.role === "user") break;
     if (candidate.kind !== "trace" || !candidate.fileEdits?.length) continue;
     if (segmentId && candidate.activitySegmentId === segmentId) return i;
     for (const existing of candidate.fileEdits) {
-      if (incomingKeys.has(fileEditKey(existing))) return i;
+      if (
+        incomingKeys.has(fileEditKey(existing))
+        || incomingToolKeys.has(fileEditToolKey(existing))
+      ) return i;
     }
   }
   return null;

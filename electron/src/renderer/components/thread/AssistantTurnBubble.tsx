@@ -39,6 +39,7 @@ interface AssistantTurnBubbleProps {
   showCopyAction?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
+  startedAtMs?: number;
 }
 
 /** 一轮 assistant 回复：单 SAP 气泡内按时间序交错 activity / 正文段。 */
@@ -48,6 +49,7 @@ export function AssistantTurnBubble({
   showCopyAction = true,
   cliApps = [],
   mcpPresets = [],
+  startedAtMs,
 }: AssistantTurnBubbleProps) {
   const { t } = useTranslation();
   const { botName, botIcon, botAvatarUrl } = useBotIdentity();
@@ -191,6 +193,7 @@ export function AssistantTurnBubble({
                     isTurnStreaming={isTurnStreaming}
                     hasBodyBelow={hasBodyBelow}
                     turnLatencyMs={segment.turnLatencyMs}
+                    startedAtMs={startedAtMs}
                     cliApps={cliApps}
                     mcpPresets={mcpPresets}
                   />
@@ -230,7 +233,7 @@ export function AssistantTurnBubble({
           </div>
         </div>
         {showAssistantFooterRow ? (
-          <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+          <div className="assistant-message-footer mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
             {showCopyButton ? (
               <button
                 type="button"
@@ -312,7 +315,7 @@ export function AssistantTurnBubble({
             ) : null}
             {showLatencyFooter ? (
               <span
-                className="text-[11px] leading-none text-muted-foreground/70 tabular-nums"
+                className="assistant-message-footer-metric text-[11px] leading-none text-muted-foreground/70 tabular-nums"
                 title={t("message.turnLatencyTitle")}
               >
                 {formatTurnLatency(latencyMs!)}
@@ -354,7 +357,7 @@ function MessageTimestamp({ ts }: { ts: string | number }) {
   const formatted = formatMessageTimestamp(ts);
   if (!formatted) return null;
   return (
-    <span className="text-[11px] leading-none text-muted-foreground/50 tabular-nums" title={String(ts)}>
+    <span className="assistant-message-footer-metric text-[11px] leading-none text-muted-foreground/50 tabular-nums" title={String(ts)}>
       {formatted}
     </span>
   );
@@ -384,7 +387,7 @@ function TokenUsageFooter({ usage }: { usage: NonNullable<UIMessage["usage"]> })
 
   return (
     <span
-      className="text-[11px] leading-none text-muted-foreground/60 tabular-nums"
+      className="assistant-message-footer-metric text-[11px] leading-none text-muted-foreground/60 tabular-nums"
       title={buildTokenUsageTitle(usage, t)}
     >
       {parts.join(" ")}

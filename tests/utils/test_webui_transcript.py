@@ -461,6 +461,62 @@ def test_replay_file_edit_progress_merges_after_interleaved_activity(tmp_path, m
     ]
 
 
+def test_replay_file_edit_keeps_multiple_files_from_one_tool_call(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    key = "websocket:t-multi-file"
+    append_transcript_object(key, {"event": "user", "chat_id": "t-multi-file", "text": "edit"})
+    append_transcript_object(
+        key,
+        {
+            "event": "file_edit",
+            "chat_id": "t-multi-file",
+            "edits": [
+                {
+                    "call_id": "call-patch",
+                    "tool": "apply_patch",
+                    "path": "",
+                    "pending": True,
+                    "status": "editing",
+                },
+            ],
+        },
+    )
+    append_transcript_object(
+        key,
+        {
+            "event": "file_edit",
+            "chat_id": "t-multi-file",
+            "edits": [
+                {
+                    "call_id": "call-patch",
+                    "tool": "apply_patch",
+                    "path": "src/a.py",
+                    "added": 1,
+                    "deleted": 0,
+                    "status": "done",
+                },
+                {
+                    "call_id": "call-patch",
+                    "tool": "apply_patch",
+                    "path": "src/b.py",
+                    "added": 2,
+                    "deleted": 0,
+                    "status": "done",
+                },
+            ],
+        },
+    )
+
+    messages = replay_transcript_to_ui_messages(read_transcript_lines(key))
+    edits = [edit for message in messages for edit in message.get("fileEdits", [])]
+
+    assert [(edit["path"], edit["added"]) for edit in edits] == [
+        ("src/a.py", 1),
+        ("src/b.py", 2),
+    ]
+    assert all(not edit.get("pending") for edit in edits)
+
+
 def test_replay_file_edit_pending_placeholder_upgrades_to_path(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
     key = "websocket:t-file-pending"

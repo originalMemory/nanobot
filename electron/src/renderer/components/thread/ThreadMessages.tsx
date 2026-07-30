@@ -28,7 +28,7 @@ type RawDisplayUnit =
 
 export type DisplayUnit =
   | { type: "single"; message: UIMessage }
-  | { type: "assistant-turn"; segments: TurnSegment[]; isStreaming: boolean };
+  | { type: "assistant-turn"; segments: TurnSegment[]; isStreaming: boolean; startedAtMs?: number };
 
 export function buildDisplayUnits(messages: UIMessage[]): RawDisplayUnit[] {
   const out: RawDisplayUnit[] = [];
@@ -85,11 +85,15 @@ export function coalesceAssistantTurnUnits(
 ): DisplayUnit[] {
   const out: DisplayUnit[] = [];
   let i = 0;
+  let lastUserStartedAt: number | undefined;
   while (i < rawUnits.length) {
     const unit = rawUnits[i];
     if (!isAssistantTurnRawUnit(unit)) {
       if (unit.type === "single") {
         out.push(unit);
+        if (unit.message.role === "user" && Number.isFinite(unit.message.createdAt)) {
+          lastUserStartedAt = unit.message.createdAt;
+        }
       }
       i += 1;
       continue;
@@ -119,7 +123,9 @@ export function coalesceAssistantTurnUnits(
       type: "assistant-turn",
       segments: enrichedSegments,
       isStreaming: assistantTurnHasStreamingSegment(enrichedSegments),
+      startedAtMs: lastUserStartedAt,
     });
+    lastUserStartedAt = undefined;
   }
 
   if (!globalStreaming) {
@@ -135,6 +141,7 @@ export function coalesceAssistantTurnUnits(
         type: "assistant-turn",
         segments: unit.segments,
         isStreaming: true,
+        startedAtMs: unit.startedAtMs,
       };
       break;
     }
@@ -389,6 +396,7 @@ export function ThreadMessages({
                 showCopyAction={copyFlags[index]}
                 cliApps={cliApps}
                 mcpPresets={mcpPresets}
+                startedAtMs={unit.startedAtMs}
               />
             ) : (
               <MessageBubble

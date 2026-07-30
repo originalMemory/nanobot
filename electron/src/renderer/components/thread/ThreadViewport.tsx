@@ -34,6 +34,10 @@ const SCROLL_BUTTON_COMPOSER_GAP_PX = 16;
 export const INITIAL_HISTORY_WINDOW = 160;
 export const HISTORY_WINDOW_INCREMENT = 120;
 
+export function isNearThreadBottom(distance: number): boolean {
+  return Number.isFinite(distance) && distance < NEAR_BOTTOM_PX;
+}
+
 export function windowMessages(messages: UIMessage[], visibleCount: number): UIMessage[] {
   if (messages.length <= visibleCount) return messages;
   let start = Math.max(0, messages.length - visibleCount);
@@ -70,6 +74,8 @@ export function ThreadViewport({
     useRef<{ height: number; top: number } | null>(null);
   /** User scrolled away from the bottom; do not auto-yank until they return or we reset (new chat / send). */
   const userReadingHistoryRef = useRef(false);
+  /** Resize 前是否贴底；Activity 折叠后不能依赖已经被浏览器钳制的 scrollTop 重算。 */
+  const stickToBottomRef = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
   const [composerDockHeight, setComposerDockHeight] = useState(0);
   const [visibleMessageCount, setVisibleMessageCount] =
@@ -132,6 +138,7 @@ export function ThreadViewport({
       };
     }
     userReadingHistoryRef.current = true;
+    stickToBottomRef.current = false;
     setAtBottom(false);
     setVisibleMessageCount((count) =>
       Math.min(messages.length, count + HISTORY_WINDOW_INCREMENT),
@@ -157,6 +164,7 @@ export function ThreadViewport({
   useEffect(() => {
     if (scrollToBottomSignal <= 0) return;
     userReadingHistoryRef.current = false;
+    stickToBottomRef.current = true;
     scrollToBottom(false, 8);
   }, [scrollToBottomSignal, scrollToBottom]);
 
@@ -165,6 +173,7 @@ export function ThreadViewport({
     lastConversationKeyRef.current = conversationKey;
     pendingConversationScrollRef.current = true;
     userReadingHistoryRef.current = false;
+    stickToBottomRef.current = true;
     setAtBottom(true);
     setVisibleMessageCount(INITIAL_HISTORY_WINDOW);
   }, [conversationKey]);
@@ -201,7 +210,7 @@ export function ThreadViewport({
     const target = contentRef.current;
     if (!target || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (userReadingHistoryRef.current) return;
+      if (!stickToBottomRef.current || userReadingHistoryRef.current) return;
       scrollToBottom(false, 4);
     });
     observer.observe(target);
@@ -222,9 +231,10 @@ export function ThreadViewport({
 
     const onScroll = () => {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      const near = distance < NEAR_BOTTOM_PX;
+      const near = isNearThreadBottom(distance);
       setAtBottom(near);
       userReadingHistoryRef.current = !near;
+      stickToBottomRef.current = near;
     };
 
     onScroll();

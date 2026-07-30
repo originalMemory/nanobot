@@ -8,6 +8,7 @@ import {
   buildFinalDisplayUnits,
   ThreadMessages,
 } from "@/components/thread/ThreadMessages";
+import { isNearThreadBottom } from "@/components/thread/ThreadViewport";
 import type { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider } from "@/providers/ClientProvider";
 import type { UIMessage } from "@/lib/types";
@@ -29,6 +30,10 @@ afterEach(() => {
 });
 
 describe("ThreadMessages turn coalescing", () => {
+  it("only treats the viewport as sticky near the bottom", () => {
+    expect(isNearThreadBottom(12)).toBe(true);
+    expect(isNearThreadBottom(120)).toBe(false);
+  });
   it("merges interleaved activity and text into one assistant-turn unit", () => {
     const messages: UIMessage[] = [
       {
@@ -108,6 +113,9 @@ describe("ThreadMessages turn coalescing", () => {
     expect(units).toHaveLength(2);
     expect(units[0].type).toBe("single");
     expect(units[1].type).toBe("assistant-turn");
+    if (units[1].type === "assistant-turn") {
+      expect(units[1].startedAtMs).toBe(1);
+    }
   });
 
   it("marks only the last assistant-turn as streaming", () => {
@@ -248,7 +256,7 @@ describe("ThreadMessages turn coalescing", () => {
     ]);
   });
 
-  it("shows multiple thought headers that become duration labels after completion", () => {
+  it("distinguishes completed thinking from tool work", () => {
     const messages: UIMessage[] = [
       {
         id: "r1",
@@ -291,7 +299,8 @@ describe("ThreadMessages turn coalescing", () => {
 
     renderThread(messages, false);
 
-    expect(screen.getAllByText(/Thought for|思考了/i)).toHaveLength(2);
+    expect(screen.getByText(/Thought for|思考了/i)).toBeInTheDocument();
+    expect(screen.getByText(/Worked for|处理了/i)).toBeInTheDocument();
     expect(screen.getByText("第一段正文。")).toBeInTheDocument();
     expect(screen.getByText("最终总结。")).toBeInTheDocument();
   });

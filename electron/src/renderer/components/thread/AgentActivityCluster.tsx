@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertCircle,
-  Check,
   CheckCircle2,
   ChevronRight,
-  CircleDashed,
   Layers,
   Search,
   Server,
@@ -16,8 +14,12 @@ import { useTranslation } from "react-i18next";
 
 import { cliAppInitials, mcpPresetInitials } from "@/components/CliAppMentionText";
 import { FileReferenceChip } from "@/components/FileReferenceChip";
-import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import { StreamingLabelSheen } from "@/components/MessageBubble";
+import {
+  FileEditGroup as StructuredFileEditGroup,
+  type FileEditSummary,
+} from "@/components/thread/activity/FileEditRow";
+import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
 import { faviconUrls, logoFallbackUrls } from "@/lib/provider-brand";
 import { formatToolCallTrace } from "@/lib/tool-traces";
 import { cn } from "@/lib/utils";
@@ -56,19 +58,6 @@ interface ActivityCounts {
   primaryMcpName?: string;
   primaryMcpDisplayName?: string;
   primaryMcpStatus?: McpRunStatus;
-}
-
-interface FileEditSummary {
-  key: string;
-  path: string;
-  absolute_path?: string;
-  added: number;
-  deleted: number;
-  approximate: boolean;
-  binary: boolean;
-  status: UIFileEdit["status"];
-  pending: boolean;
-  error?: string;
 }
 
 interface CliRunSummary {
@@ -176,6 +165,8 @@ interface AgentActivityClusterProps {
   hasBodyBelow: boolean;
   /** Persisted end-to-end turn latency from the assistant answer, used for history replay. */
   turnLatencyMs?: number;
+  /** User turn start timestamp, including time before the first activity row. */
+  startedAtMs?: number;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
 }
@@ -189,6 +180,7 @@ export function AgentActivityCluster({
   isTurnStreaming,
   hasBodyBelow,
   turnLatencyMs,
+  startedAtMs,
   cliApps = [],
   mcpPresets = [],
 }: AgentActivityClusterProps) {
@@ -226,6 +218,7 @@ export function AgentActivityCluster({
     primaryMcpStatus,
   } = countActivity(messages, fileEdits, cliRuns, mcpRuns);
   const hasPendingFileEdit = fileEdits.some((edit) => edit.pending);
+  const hasNonReasoningActivity = toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
 
   const [userToggledOuter, setUserToggledOuter] = useState(false);
   const [outerOpenLocal, setOuterOpenLocal] = useState(false);
@@ -246,19 +239,25 @@ export function AgentActivityCluster({
   const singleFilePath = fileCount === 1 ? primaryFilePath : undefined;
   const singleFileTooltipPath = fileCount === 1 ? primaryFileTooltipPath : undefined;
   const hasVisibleActivity = reasoningSteps > 0 || toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
-  const durationMs = activityDurationMs(messages, isTurnStreaming, now, turnLatencyMs);
+  const durationMs = activityDurationMs(
+    messages,
+    isTurnStreaming,
+    now,
+    turnLatencyMs,
+    startedAtMs,
+  );
   const activityDuration = formatActivityDuration(durationMs);
-  const thoughtLabel = isTurnStreaming
-    ? t("message.activityThinkingFor", {
-        duration: activityDuration,
-        defaultValue: "Thinking for {{duration}}",
-      })
-    : durationMs <= 0
-      ? t("message.activityThought", { defaultValue: "Thought" })
-    : t("message.activityThoughtFor", {
-        duration: activityDuration,
-        defaultValue: "Thought for {{duration}}",
-      });
+  const thoughtLabel = hasNonReasoningActivity
+    ? isTurnStreaming
+      ? t("message.activityWorkingFor", { duration: activityDuration })
+      : durationMs <= 0
+        ? t("message.activityWorked")
+        : t("message.activityWorkedFor", { duration: activityDuration })
+    : isTurnStreaming
+      ? t("message.activityThinkingFor", { duration: activityDuration })
+      : durationMs <= 0
+        ? t("message.activityThought")
+        : t("message.activityThoughtFor", { duration: activityDuration });
 
   const fileActivitySummary = fileCount > 0
     ? hasPendingFileEdit && !singleFilePath
@@ -428,9 +427,9 @@ export function AgentActivityCluster({
       >
         <StreamingLabelSheen
           active={isTurnStreaming}
-          className="min-w-0"
+          className="activity-summary-label min-w-0"
         >
-          {singleFilePath ? fileActivityVerb(hasLiveEditingFiles, hasFailedFiles) : thoughtLabel}
+          {thoughtLabel}
         </StreamingLabelSheen>
         {singleFilePath ? (
           <FileReferenceChip
@@ -461,7 +460,7 @@ export function AgentActivityCluster({
       {outerExpanded && (
         <div
           className={cn(
-            "ml-2 mt-1 overflow-hidden border-l border-muted-foreground/14 pl-4",
+            "activity-detail-content ml-2 mt-1 overflow-hidden border-l border-muted-foreground/14 pl-4",
           )}
         >
           <div
@@ -477,7 +476,7 @@ export function AgentActivityCluster({
               {messages.map((m) => {
                 if (isReasoningOnlyAssistant(m)) {
                   return (
-                    <ActivityReasoningRow
+                    <ReasoningRow
                       key={m.id}
                       text={m.reasoning ?? ""}
                       streaming={isTurnStreaming && !!m.reasoningStreaming}
@@ -497,7 +496,7 @@ export function AgentActivityCluster({
                 }
                 return null;
               })}
-              {fileEdits.length ? <FileEditGroup edits={fileEdits} /> : null}
+              {fileEdits.length ? <StructuredFileEditGroup edits={fileEdits} /> : null}
             </div>
           </div>
         </div>
@@ -515,6 +514,7 @@ function activityDurationMs(
   active: boolean,
   now: number,
   completedLatencyMs?: number,
+  activeStartedAtMs?: number,
 ): number {
   if (!active && Number.isFinite(completedLatencyMs) && completedLatencyMs! >= 0) {
     return Math.round(completedLatencyMs!);
@@ -523,7 +523,12 @@ function activityDurationMs(
     .map((message) => message.createdAt)
     .filter((value) => Number.isFinite(value));
   if (!timestamps.length) return 0;
-  const first = Math.min(...timestamps);
+  const firstActivity = Math.min(...timestamps);
+  const first = active
+    && Number.isFinite(activeStartedAtMs)
+    && activeStartedAtMs! > 1_000_000_000_000
+      ? Math.min(firstActivity, activeStartedAtMs!)
+      : firstActivity;
   const last = active && first > 1_000_000_000_000
     ? now
     : Math.max(...timestamps);
@@ -541,95 +546,6 @@ function formatActivityDuration(ms: number): string {
 function traceLines(message: UIMessage): string[] {
   if (message.traces?.length) return message.traces;
   return message.content.trim() ? [message.content] : [];
-}
-
-function ActivityReasoningRow({
-  text,
-  streaming,
-}: {
-  text: string;
-  streaming: boolean;
-}) {
-  const { t } = useTranslation();
-  useEffect(() => {
-    if (text.length > 0) preloadMarkdownText();
-  }, [text.length]);
-  return (
-    <div className="min-w-0 py-0.5">
-      <div className="flex min-w-0 items-center gap-2 text-[13px] leading-5 text-muted-foreground/78">
-        <ReasoningMarker streaming={streaming} />
-        <StreamingLabelSheen active={streaming} className="min-w-0 font-medium">
-          {streaming
-            ? t("message.reasoningStreaming", { defaultValue: "Thinking…" })
-            : t("message.reasoning", { defaultValue: "Thinking" })}
-        </StreamingLabelSheen>
-      </div>
-      {text.trim() ? (
-        <MarkdownText
-          streaming={streaming}
-          className={cn(
-            "mt-1 min-w-0 pl-5 text-[12.5px] italic text-muted-foreground/78",
-            "prose-p:my-1 prose-li:my-0.5",
-            "prose-headings:mt-2 prose-headings:mb-1 prose-headings:font-medium",
-            "prose-headings:text-muted-foreground/88 prose-strong:text-muted-foreground",
-            "prose-h1:text-[15px] prose-h2:text-[13.5px] prose-h3:text-[12.5px] prose-h4:text-[12px]",
-            "prose-a:text-muted-foreground/95 prose-a:underline hover:prose-a:opacity-90",
-            "prose-code:text-[0.92em]",
-          )}
-        >
-          {text}
-        </MarkdownText>
-      ) : null}
-    </div>
-  );
-}
-
-function ReasoningMarker({ streaming }: { streaming: boolean }) {
-  const wasStreamingRef = useRef(streaming);
-  const [justCompleted, setJustCompleted] = useState(false);
-
-  useEffect(() => {
-    if (wasStreamingRef.current && !streaming) {
-      setJustCompleted(true);
-      const timeout = window.setTimeout(() => setJustCompleted(false), 650);
-      wasStreamingRef.current = streaming;
-      return () => window.clearTimeout(timeout);
-    }
-    wasStreamingRef.current = streaming;
-    return undefined;
-  }, [streaming]);
-
-  if (streaming) {
-    return (
-      <CircleDashed
-        data-testid="activity-reasoning-marker"
-        data-state="thinking"
-        className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground/55"
-        strokeWidth={1.8}
-        aria-hidden
-      />
-    );
-  }
-  return (
-    <span
-      data-testid="activity-reasoning-marker"
-      data-state="done"
-      className={cn(
-        "grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full border border-emerald-500/28 text-emerald-500/78",
-        "bg-emerald-500/[0.035] transition-[border-color,background-color,box-shadow,transform] duration-300 ease-out",
-        justCompleted
-          && "animate-in fade-in-0 zoom-in-75 shadow-[0_0_0_3px_rgba(16,185,129,0.10)] motion-reduce:animate-none",
-      )}
-      aria-hidden
-    >
-      <Check
-        className={cn(
-          "h-2.5 w-2.5 stroke-[2.4]",
-          justCompleted && "animate-in fade-in-0 zoom-in-50 duration-300 motion-reduce:animate-none",
-        )}
-      />
-    </span>
-  );
 }
 
 function ActivityTraceList({
@@ -1385,7 +1301,7 @@ function fileActivityManySummaryKey(editing: boolean, failed: boolean): string {
 }
 
 function fileEditCallKey(edit: UIFileEdit): string {
-  if (edit.call_id) return `${edit.call_id}|${edit.tool}`;
+  if (edit.call_id) return `${edit.call_id}|${edit.tool}|${edit.path}`;
   return `${edit.tool}|${edit.path}`;
 }
 
@@ -1410,7 +1326,10 @@ function latestFileEditEvents(edits: UIFileEdit[]): UIFileEdit[] {
   return order.map((key) => byKey.get(key)).filter(Boolean) as UIFileEdit[];
 }
 
-function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSummary[] {
+export function summarizeFileEdits(
+  edits: UIFileEdit[],
+  active: boolean,
+): FileEditSummary[] {
   interface MutableSummary {
     key: string;
     path: string;
@@ -1424,13 +1343,15 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
     hasActiveEditing: boolean;
     hasFailed: boolean;
     error?: string;
+    operation?: UIFileEdit["operation"];
+    diff?: UIFileEdit["diff"];
   }
 
   const order: string[] = [];
-  const byPath = new Map<string, MutableSummary>();
+  const byCallAndPath = new Map<string, MutableSummary>();
   for (const edit of latestFileEditEvents(edits)) {
-    const key = edit.path || edit.call_id || edit.tool;
-    let summary = byPath.get(key);
+    const key = fileEditCallKey(edit);
+    let summary = byCallAndPath.get(key);
     if (!summary) {
       summary = {
         key,
@@ -1444,8 +1365,10 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
         hasSuccessfulChange: false,
         hasActiveEditing: false,
         hasFailed: false,
+        operation: edit.operation,
+        diff: edit.diff,
       };
-      byPath.set(key, summary);
+      byCallAndPath.set(key, summary);
       order.push(key);
     }
 
@@ -1455,6 +1378,8 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
     if (edit.absolute_path) {
       summary.absolute_path = edit.absolute_path;
     }
+    if (edit.operation) summary.operation = edit.operation;
+    if (edit.diff) summary.diff = edit.diff;
     summary.pending = summary.pending || !!edit.pending || !edit.path;
     if (!edit.path && edit.pending) {
       if (active && edit.status === "editing") {
@@ -1494,7 +1419,7 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
   }
 
   return order.flatMap((key) => {
-    const summary = byPath.get(key)!;
+    const summary = byCallAndPath.get(key)!;
     if (
       !summary.path
       && !summary.hasActiveEditing
@@ -1521,6 +1446,8 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
       status,
       pending: summary.pending && !summary.path,
       error: summary.error,
+      operation: summary.operation,
+      diff: summary.diff,
     }];
   });
 }
@@ -1744,70 +1671,6 @@ function alphaColor(color: string, percent: number): string {
     return `${color}${alpha}`;
   }
   return `color-mix(in srgb, ${color} ${percent}%, transparent)`;
-}
-
-function FileEditGroup({ edits }: { edits: FileEditSummary[] }) {
-  if (edits.length === 0) return null;
-  return (
-    <ul className="space-y-1">
-      {edits.map((edit) => (
-        <FileEditRow key={edit.key} edit={edit} />
-      ))}
-    </ul>
-  );
-}
-
-function FileEditRow({ edit }: { edit: FileEditSummary }) {
-  const { t } = useTranslation();
-  const editing = edit.status === "editing";
-  const failed = edit.status === "error";
-  const hasCountedDiff = !failed && !edit.binary && hasVisibleDiffStats(edit);
-  return (
-    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-0.5 text-xs">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="grid h-5 w-5 shrink-0 place-items-center text-muted-foreground/50">
-          {failed ? (
-            <AlertCircle className="h-3.5 w-3.5 text-destructive/75" aria-hidden />
-          ) : editing ? (
-            <CircleDashed className="h-3.5 w-3.5 animate-spin" aria-hidden />
-          ) : (
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500/75" aria-hidden />
-          )}
-        </span>
-        {edit.pending && !edit.path ? (
-          <StreamingLabelSheen
-            active={editing}
-            className="min-w-0 text-[12px] font-medium text-muted-foreground"
-          >
-            {t("message.fileEditPreparing", { defaultValue: "Preparing file edit…" })}
-          </StreamingLabelSheen>
-        ) : (
-          <FileReferenceChip
-            path={edit.path}
-            tooltipPath={edit.absolute_path}
-            display="path"
-            active={editing}
-            className="min-w-0"
-            textClassName="text-[12px]"
-            testId="activity-file-reference"
-          />
-        )}
-        {failed ? (
-          <span className="inline-flex shrink-0 items-center gap-1 text-[10.5px] font-medium text-destructive/75">
-            {t("message.fileEditFailed", { defaultValue: "Failed" })}
-          </span>
-        ) : null}
-        {edit.approximate && !failed ? (
-          <span className="shrink-0 text-[10.5px] font-medium text-muted-foreground/55">
-            {t("message.fileEditApproximate", { defaultValue: "estimated" })}
-          </span>
-        ) : null}
-      </div>
-      {hasCountedDiff ? (
-        <DiffPair added={edit.added} deleted={edit.deleted} />
-      ) : null}
-    </li>
-  );
 }
 
 function DiffPair({ added, deleted }: { added: number; deleted: number }) {

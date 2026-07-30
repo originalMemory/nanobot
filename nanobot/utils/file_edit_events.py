@@ -11,6 +11,9 @@ from typing import Any, Awaitable, Callable
 
 TRACKED_FILE_EDIT_TOOLS = frozenset({"write_file", "edit_file", "apply_patch"})
 _MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
+_MAX_DIFF_LINES = 500
+_MAX_DIFF_LINE_CHARS = 1200
+_DIFF_CONTEXT_LINES = 3
 _LIVE_EMIT_INTERVAL_S = 0.18
 _LIVE_EMIT_LINE_STEP = 24
 
@@ -120,6 +123,130 @@ def line_diff_stats(before: str | None, after: str | None) -> tuple[int, int]:
         if tag in ("replace", "insert"):
             added += j2 - j1
     return added, deleted
+
+
+def build_unified_diff_payload(
+    before: str | None,
+    after: str | None,
+    *,
+    fromfile: str = "before",
+    tofile: str = "after",
+    context_lines: int = _DIFF_CONTEXT_LINES,
+    max_lines: int = _MAX_DIFF_LINES,
+    max_line_chars: int = _MAX_DIFF_LINE_CHARS,
+) -> dict[str, Any] | None:
+    """生成供前端展示的受限 unified diff。"""
+    if before is None or after is None:
+        return None
+    diff_lines = list(difflib.unified_diff(
+        before.replace("\r\n", "\n").splitlines(),
+        after.replace("\r\n", "\n").splitlines(),
+        fromfile=fromfile,
+        tofile=tofile,
+        n=max(0, int(context_lines)),
+        lineterm="",
+    ))
+    if not diff_lines:
+        return None
+
+    limited, truncated, emitted = _limit_unified_diff_lines(
+        diff_lines,
+        max_lines=max_lines,
+        max_line_chars=max_line_chars,
+    )
+    if emitted == 0:
+        return None
+    return {
+        "format": "unified",
+        "context": context_lines,
+        "truncated": truncated,
+        "text": "\n".join(limited),
+    }
+
+
+def _limit_unified_diff_lines(
+    diff_lines: list[str],
+    *,
+    max_lines: int,
+    max_line_chars: int,
+) -> tuple[list[str], bool, int]:
+    body_limit = max(0, int(max_lines))
+    limited: list[str] = []
+    emitted = 0
+    truncated = False
+    index = 0
+    while index < len(diff_lines):
+        line = diff_lines[index]
+        if not line.startswith("@@ "):
+            limited.append(line)
+            index += 1
+            continue
+        header = line
+        body: list[str] = []
+        index += 1
+        while index < len(diff_lines) and not diff_lines[index].startswith("@@ "):
+            body.append(diff_lines[index])
+            index += 1
+        remaining = body_limit - emitted
+        if remaining <= 0:
+            truncated = True
+            break
+        selected = body[:remaining]
+        truncated = truncated or len(selected) < len(body)
+        selected, line_truncated = _limit_unified_diff_line_chars(
+            selected,
+            max_line_chars=max_line_chars,
+        )
+        truncated = truncated or line_truncated
+        limited.append(
+            header if len(selected) == len(body) else _rewrite_hunk_header_for_body(header, selected)
+        )
+        limited.extend(selected)
+        emitted += len(selected)
+        if truncated and emitted >= body_limit:
+            break
+    return limited, truncated, emitted
+
+
+def _limit_unified_diff_line_chars(
+    lines: list[str],
+    *,
+    max_line_chars: int,
+) -> tuple[list[str], bool]:
+    if max_line_chars <= 0:
+        return lines, False
+    limited: list[str] = []
+    truncated = False
+    for line in lines:
+        if line and line[0] in (" ", "+", "-") and len(line) - 1 > max_line_chars:
+            limited.append(line[: max_line_chars + 1])
+            truncated = True
+        else:
+            limited.append(line)
+    return limited, truncated
+
+
+_HUNK_HEADER_RE = re.compile(
+    r"^@@ -(?P<old_start>\d+)(?:,(?P<old_lines>\d+))? "
+    r"\+(?P<new_start>\d+)(?:,(?P<new_lines>\d+))? @@(?P<section>.*)$"
+)
+
+
+def _rewrite_hunk_header_for_body(header: str, body: list[str]) -> str:
+    match = _HUNK_HEADER_RE.match(header)
+    if match is None:
+        return header
+    old_lines = sum(1 for line in body if line and line[0] in (" ", "-"))
+    new_lines = sum(1 for line in body if line and line[0] in (" ", "+"))
+    return (
+        f"@@ -{_format_hunk_range(int(match.group('old_start')), old_lines)} "
+        f"+{_format_hunk_range(int(match.group('new_start')), new_lines)} "
+        f"@@{match.group('section')}"
+    )
+
+
+def _format_hunk_range(start: int, line_count: int) -> str:
+    return str(start) if line_count == 1 else f"{start},{line_count}"
 
 
 def _text_line_count(text: str) -> int:
@@ -281,9 +408,16 @@ def build_file_edit_end_event(
 ) -> dict[str, Any]:
     after = read_file_snapshot(tracker.path)
     counted = False
+    diff_payload: dict[str, Any] | None = None
     if tracker.before.countable and after.countable:
         added, deleted = line_diff_stats(tracker.before.text, after.text)
         counted = True
+        diff_payload = build_unified_diff_payload(
+            tracker.before.text,
+            after.text,
+            fromfile=tracker.display_path,
+            tofile=tracker.display_path,
+        )
     else:
         predicted_after = _predict_after_text(tracker.tool, params or {}, tracker.before)
         if tracker.before.countable and predicted_after is not None:
@@ -291,7 +425,7 @@ def build_file_edit_end_event(
             counted = True
         else:
             added, deleted = 0, 0
-    return _event_payload(
+    payload = _event_payload(
         tracker,
         phase="end",
         status="done",
@@ -301,6 +435,9 @@ def build_file_edit_end_event(
         binary=(after.binary or after.oversized or after.unreadable) and not counted,
         operation="delete" if tracker.before.exists and not after.exists else None,
     )
+    if diff_payload is not None:
+        payload["diff"] = diff_payload
+    return payload
 
 
 def build_file_edit_error_event(

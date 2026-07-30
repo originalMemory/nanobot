@@ -299,8 +299,12 @@ def _file_edit_key(edit: dict[str, Any]) -> str:
     call_id = str(edit.get("call_id") or "")
     tool = str(edit.get("tool") or "")
     if call_id:
-        return f"{call_id}|{tool}"
+        return f"{call_id}|{tool}|{edit.get('path') or ''}"
     return f"{tool}|{edit.get('path') or ''}"
+
+
+def _file_edit_tool_key(edit: dict[str, Any]) -> str:
+    return f"{edit.get('call_id') or ''}|{edit.get('tool') or ''}"
 
 
 def _message_has_file_edit_for_tool_event(
@@ -313,7 +317,7 @@ def _message_has_file_edit_for_tool_event(
     edits = message.get("fileEdits")
     if not isinstance(edits, list):
         return False
-    return any(isinstance(edit, dict) and _file_edit_key(edit) == key for edit in edits)
+    return any(isinstance(edit, dict) and _file_edit_tool_key(edit) == key for edit in edits)
 
 
 def _filter_covered_file_edit_tool_events(
@@ -334,7 +338,7 @@ def _strip_covered_file_edit_tool_hints(
     edits: list[dict[str, Any]],
 ) -> dict[str, Any]:
     incoming_keys = {
-        _file_edit_key(edit)
+        _file_edit_tool_key(edit)
         for edit in edits
         if isinstance(edit, dict)
     }
@@ -655,6 +659,9 @@ def replay_transcript_to_ui_messages(
         edits: list[dict[str, Any]],
     ) -> int | None:
         incoming_keys = {_file_edit_key(edit) for edit in edits if isinstance(edit, dict)}
+        incoming_tool_keys = {
+            _file_edit_tool_key(edit) for edit in edits if isinstance(edit, dict)
+        }
         for i in range(len(messages) - 1, -1, -1):
             candidate = messages[i]
             if candidate.get("role") == "user":
@@ -674,7 +681,7 @@ def replay_transcript_to_ui_messages(
                     if not isinstance(event, dict):
                         continue
                     key = _tool_event_file_edit_key(event)
-                    if key and key in incoming_keys:
+                    if key and key in incoming_tool_keys:
                         return i
         return None
 
@@ -724,12 +731,29 @@ def replay_transcript_to_ui_messages(
             if not isinstance(edit, dict):
                 continue
             key = _file_edit_key(edit)
-            if key in index_by_key:
-                pos = index_by_key[key]
+            pos = index_by_key.get(key)
+            if pos is None and edit.get("path"):
+                incoming_tool_key = _file_edit_tool_key(edit)
+                pos = next(
+                    (
+                        candidate_pos
+                        for candidate_pos, candidate in enumerate(existing)
+                        if isinstance(candidate, dict)
+                        and not candidate.get("path")
+                        and candidate.get("pending")
+                        and _file_edit_tool_key(candidate) == incoming_tool_key
+                    ),
+                    None,
+                )
+            if pos is not None:
+                previous_key = _file_edit_key(existing[pos])
                 merged = {**existing[pos], **edit}
                 if edit.get("path") and not edit.get("pending"):
                     merged.pop("pending", None)
                 existing[pos] = merged
+                if previous_key != key:
+                    index_by_key.pop(previous_key, None)
+                index_by_key[key] = pos
             else:
                 index_by_key[key] = len(existing)
                 existing.append(dict(edit))
