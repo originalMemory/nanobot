@@ -1379,7 +1379,7 @@ export const ThreadComposer = forwardRef<ThreadComposerHandle, ThreadComposerPro
           disabled && "opacity-60",
           isDragging && "ring-2 ring-primary/40 motion-reduce:ring-0 motion-reduce:border-primary",
           goalState?.active &&
-            "goal-shell-glow ring-1 ring-sky-400/35 motion-reduce:ring-sky-400/25 dark:ring-sky-400/45",
+            "goal-shell-glow ring-1 ring-sky-400/45 motion-reduce:ring-sky-400/35 dark:ring-sky-400/55",
         )}
       >
         {images.length > 0 ? (

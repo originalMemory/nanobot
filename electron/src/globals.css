@@ -599,26 +599,26 @@
   @keyframes goal-shell-glow-breathe {
     0%,
     100% {
-      filter: drop-shadow(0 0 10px hsl(204 72% 52% / 0.22))
-        drop-shadow(0 0 24px hsl(199 80% 58% / 0.14));
+      filter: drop-shadow(0 0 14px hsl(204 76% 50% / 0.3))
+        drop-shadow(0 0 34px hsl(199 82% 56% / 0.2));
     }
     50% {
-      filter: drop-shadow(0 0 17px hsl(204 78% 48% / 0.32))
-        drop-shadow(0 0 38px hsl(199 85% 55% / 0.2));
+      filter: drop-shadow(0 0 26px hsl(204 82% 47% / 0.5))
+        drop-shadow(0 0 60px hsl(199 88% 54% / 0.32));
     }
   }
   .goal-shell-glow {
-    animation: goal-shell-glow-breathe 4.8s ease-in-out infinite;
+    animation: goal-shell-glow-breathe 3.6s ease-in-out infinite;
   }
   @keyframes goal-shell-glow-breathe-dark {
     0%,
     100% {
-      filter: drop-shadow(0 0 12px hsl(198 90% 72% / 0.28))
-        drop-shadow(0 0 28px hsl(195 95% 65% / 0.16));
+      filter: drop-shadow(0 0 16px hsl(198 92% 72% / 0.36))
+        drop-shadow(0 0 38px hsl(195 96% 65% / 0.22));
     }
     50% {
-      filter: drop-shadow(0 0 20px hsl(198 95% 78% / 0.42))
-        drop-shadow(0 0 42px hsl(195 100% 70% / 0.24));
+      filter: drop-shadow(0 0 30px hsl(198 96% 78% / 0.58))
+        drop-shadow(0 0 68px hsl(195 100% 70% / 0.36));
     }
   }
   .dark .goal-shell-glow {
@@ -627,10 +627,10 @@
   @media (prefers-reduced-motion: reduce) {
     .goal-shell-glow {
       animation: none;
-      filter: drop-shadow(0 0 14px hsl(204 70% 50% / 0.24));
+      filter: drop-shadow(0 0 22px hsl(204 76% 49% / 0.36));
     }
     .dark .goal-shell-glow {
-      filter: drop-shadow(0 0 14px hsl(198 88% 70% / 0.32));
+      filter: drop-shadow(0 0 24px hsl(198 92% 72% / 0.44));
     }
   }
 
