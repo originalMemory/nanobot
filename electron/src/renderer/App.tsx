@@ -229,6 +229,27 @@ function Shell({
   }, []);
 
   useEffect(() => {
+    const platform = window.electronAPI?.platform;
+    if (!platform?.isMac && !platform?.isWindows) return;
+    const toggleSettings = (event: KeyboardEvent) => {
+      const platformModifier = platform.isMac
+        ? event.metaKey && !event.ctrlKey
+        : event.ctrlKey && !event.metaKey;
+      if (
+        platformModifier
+        && !event.altKey
+        && !event.shiftKey
+        && event.code === "Comma"
+      ) {
+        event.preventDefault();
+        setView((current) => current === "settings" ? "chat" : "settings");
+      }
+    };
+    window.addEventListener("keydown", toggleSettings);
+    return () => window.removeEventListener("keydown", toggleSettings);
+  }, []);
+
+  useEffect(() => {
     return client.onRuntimeModelUpdate((modelName, _modelPreset) => {
       if (!modelName) return;
       fetchSettings(token, gatewayUrl)

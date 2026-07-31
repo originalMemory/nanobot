@@ -1,4 +1,4 @@
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
@@ -32,7 +32,7 @@ vi.mock("@/components/InboxSidebar", () => ({
 }));
 
 vi.mock("@/components/InboxView", () => ({
-  InboxView: (): null => null,
+  InboxView: () => <div data-testid="inbox-view" />,
 }));
 
 vi.mock("@/components/ScreenshotPreviewModal", () => ({
@@ -40,7 +40,7 @@ vi.mock("@/components/ScreenshotPreviewModal", () => ({
 }));
 
 vi.mock("@/components/settings/SettingsView", () => ({
-  SettingsView: (): null => null,
+  SettingsView: () => <div data-testid="settings-view" />,
 }));
 
 vi.mock("@/components/WindowTitleBar", () => ({
@@ -216,5 +216,49 @@ describe("Electron App token refresh", () => {
     expect(clientInstances[0]?.updateUrl).toHaveBeenCalledWith(
       "ws://test?token=tok-2",
     );
+  });
+
+  it("toggles settings with the fixed macOS Cmd+, shortcut", async () => {
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        platform: { isMac: true, isWindows: false },
+      },
+    });
+    fetchBootstrapMock.mockResolvedValueOnce(bootstrap("tok-1", 300));
+
+    render(<App />);
+    await settleInitialBoot();
+
+    expect(screen.getByTestId("inbox-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { code: "Comma", key: ",", metaKey: true });
+    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { code: "Comma", key: ",", metaKey: true });
+    expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument();
+  });
+
+  it("toggles settings with the fixed Windows Ctrl+, shortcut", async () => {
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        platform: { isMac: false, isWindows: true },
+      },
+    });
+    fetchBootstrapMock.mockResolvedValueOnce(bootstrap("tok-1", 300));
+
+    render(<App />);
+    await settleInitialBoot();
+
+    fireEvent.keyDown(window, { code: "Comma", key: ",", metaKey: true });
+    expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { code: "Comma", key: ",", ctrlKey: true });
+    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { code: "Comma", key: ",", ctrlKey: true });
+    expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument();
   });
 });
