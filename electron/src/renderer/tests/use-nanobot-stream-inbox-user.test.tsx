@@ -135,7 +135,10 @@ describe("useNanobotStream inbox user events", () => {
       sourceChannel: "telegram",
     });
     expect(result.current.isStreaming).toBe(false);
-    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledOnce();
+    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledWith({
+      kind: "user",
+      text: "hi from telegram",
+    });
   });
 
   it("shows the actual fallback model only for the active turn", () => {
@@ -430,7 +433,10 @@ describe("useNanobotStream inbox user events", () => {
       });
     });
 
-    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledOnce();
+    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledWith({
+      kind: "user",
+      text: "question",
+    });
     vi.mocked(window.electronAPI.tray.notifyIncoming).mockClear();
 
     act(() => {
@@ -450,7 +456,104 @@ describe("useNanobotStream inbox user events", () => {
       });
     });
 
+    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledWith({
+      kind: "assistant",
+      text: "answer chunk",
+    });
+  });
+
+  it("多段流式回复只通知最后一段正文", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+
+    renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        text: "I will inspect first.",
+      });
+      handle({
+        event: "stream_end",
+        chat_id: "inbox:unified",
+      });
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        text: "Final answer.",
+      });
+      handle({
+        event: "stream_end",
+        chat_id: "inbox:unified",
+      });
+      handle({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+      });
+    });
+
     expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledOnce();
+    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledWith({
+      kind: "assistant",
+      text: "Final answer.",
+    });
+  });
+
+  it("流式回合的完整 message 延迟到 turn_end 通知", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+
+    renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        text: "intermediate",
+      });
+      handle({
+        event: "stream_end",
+        chat_id: "inbox:unified",
+      });
+      handle({
+        event: "message",
+        chat_id: "inbox:unified",
+        text: "final complete message",
+      });
+    });
+
+    expect(window.electronAPI.tray.notifyIncoming).not.toHaveBeenCalled();
+
+    act(() => {
+      handle({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+      });
+    });
+
+    expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledWith({
+      kind: "assistant",
+      text: "final complete message",
+    });
   });
 
   it("频道过滤时流式 turn_end 不匹配 source_channel 不触发", () => {

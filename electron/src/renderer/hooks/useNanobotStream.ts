@@ -37,6 +37,7 @@ import {
   requestTrayBlinkForInboxEvent,
   requestTrayBlinkForStreamTurnEnd,
 } from "@/lib/tray-notify";
+import { appendNotificationPreview } from "../../notification-text";
 
 interface StreamBuffer {
   /** ID of the assistant message currently receiving deltas (cleared on ``stream_end``). */
@@ -48,6 +49,12 @@ interface ActiveAssistantCursor {
   id: string;
   index: number;
   turnId: string;
+}
+
+interface TurnNotificationPreview {
+  text: string;
+  segmentEnded: boolean;
+  hasMedia?: boolean;
 }
 
 type UIMessageTurnFields = Required<Pick<UIMessage, "turnId" | "turnPhase">>
@@ -638,6 +645,8 @@ export function useNanobotStream(
   const streamedTurnIdsRef = useRef<Set<string>>(new Set());
   /** 各 turn 关联的 source_channel（delta 常不带该字段，从 user/message 继承）。 */
   const turnSourceChannelsRef = useRef<Map<string, string>>(new Map());
+  /** 各 turn 最后一段 assistant 正文摘要，供 turn_end 系统通知。 */
+  const turnNotificationTextRef = useRef<Map<string, TurnNotificationPreview>>(new Map());
   const onTurnEndRef = useRef(onTurnEnd);
   onTurnEndRef.current = onTurnEnd;
   const trayNotifyOptions = useRef({ activeChannel: inboxActiveChannel });
@@ -986,6 +995,7 @@ export function useNanobotStream(
     activeTurnIdsRef.current.clear();
     streamedTurnIdsRef.current.clear();
     turnSourceChannelsRef.current.clear();
+    turnNotificationTextRef.current.clear();
     clearActivitySegment();
     clearPendingStreamWork();
     suppressedTurnIdsRef.current.clear();
@@ -1017,6 +1027,7 @@ export function useNanobotStream(
     activeTurnIdsRef.current.clear();
     streamedTurnIdsRef.current.clear();
     turnSourceChannelsRef.current.clear();
+    turnNotificationTextRef.current.clear();
     clearActivitySegment();
     clearPendingStreamWork();
     suppressedTurnIdsRef.current.clear();
@@ -1053,6 +1064,14 @@ export function useNanobotStream(
         streamedTurnIdsRef.current.add(turn.turnId);
         const deltaSource = getInboundSourceChannel(ev);
         if (deltaSource) turnSourceChannelsRef.current.set(turn.turnId, deltaSource);
+        const currentNotificationText = turnNotificationTextRef.current.get(turn.turnId);
+        turnNotificationTextRef.current.set(turn.turnId, {
+          text: appendNotificationPreview(
+            currentNotificationText?.segmentEnded ? "" : currentNotificationText?.text ?? "",
+            chunk,
+          ),
+          segmentEnded: false,
+        });
         clearActivitySegment(turn.turnId);
         activeTurnIdsRef.current.add(turn.turnId);
         setIsStreaming(true);
@@ -1114,6 +1133,15 @@ export function useNanobotStream(
           ...(typeof ev.text === "string" ? { finalAnswerText: ev.text } : {}),
         });
         if (suppressedTurnIdsRef.current.has(turn.turnId)) return;
+        const currentNotificationText = turnNotificationTextRef.current.get(turn.turnId);
+        const eventText = typeof ev.text === "string" ? ev.text : "";
+        turnNotificationTextRef.current.set(turn.turnId, {
+          text: currentNotificationText && !currentNotificationText.segmentEnded
+            ? currentNotificationText.text
+            : appendNotificationPreview("", eventText),
+          segmentEnded: true,
+          ...(currentNotificationText?.hasMedia ? { hasMedia: true } : {}),
+        });
         // stream_end only means the text segment finished — the model may
         // still be executing tools.  Do NOT reset isStreaming here; the
         // definitive "turn is complete" signal is ``turn_end``.
@@ -1224,9 +1252,12 @@ export function useNanobotStream(
           streamedTurnIdsRef.current.has(turn.turnId),
           turnSourceChannelsRef.current.get(turn.turnId),
           trayNotifyOptions.current,
+          turnNotificationTextRef.current.get(turn.turnId)?.text,
+          turnNotificationTextRef.current.get(turn.turnId)?.hasMedia,
         );
         streamedTurnIdsRef.current.delete(turn.turnId);
         turnSourceChannelsRef.current.delete(turn.turnId);
+        turnNotificationTextRef.current.delete(turn.turnId);
         onTurnEndRef.current?.();
         return;
       }
@@ -1362,6 +1393,7 @@ export function useNanobotStream(
           ? ev.media_urls.map((m) => toMediaAttachment(m))
           : ev.media?.map((url) => toMediaAttachment({ url }));
         const hasMedia = !!media && media.length > 0;
+        const content = ev.text;
 
         // A complete (non-streamed) assistant message. If a stream was in
         // flight, drop the placeholder so we don't render the text twice.
@@ -1377,7 +1409,6 @@ export function useNanobotStream(
             activeAssistantRef.current = null;
           }
           const filtered = activeId ? prev.filter((m) => m.id !== activeId) : prev;
-          const content = ev.text;
           const lat =
             typeof ev.latency_ms === "number" && ev.latency_ms >= 0
               ? Math.round(ev.latency_ms)
@@ -1407,8 +1438,19 @@ export function useNanobotStream(
         }
         const messageSource = getInboundSourceChannel(ev);
         if (messageSource) turnSourceChannelsRef.current.set(turn.turnId, messageSource);
-        streamedTurnIdsRef.current.delete(turn.turnId);
-        requestTrayBlinkForInboxEvent(chatId, ev, trayNotifyOptions.current);
+        if (streamedTurnIdsRef.current.has(turn.turnId)) {
+          const currentNotificationText = turnNotificationTextRef.current.get(turn.turnId);
+          turnNotificationTextRef.current.set(turn.turnId, {
+            text: content.trim()
+              ? appendNotificationPreview("", content)
+              : currentNotificationText?.text ?? "",
+            segmentEnded: true,
+            ...(hasMedia ? { hasMedia: true } : {}),
+          });
+        } else {
+          turnNotificationTextRef.current.delete(turn.turnId);
+          requestTrayBlinkForInboxEvent(chatId, ev, trayNotifyOptions.current);
+        }
         return;
       }
       if (ev.event === "file_edit") {
@@ -1484,6 +1526,7 @@ export function useNanobotStream(
       activeTurnIdsRef.current.clear();
       streamedTurnIdsRef.current.clear();
       turnSourceChannelsRef.current.clear();
+      turnNotificationTextRef.current.clear();
       clearActivitySegment();
       clearPendingStreamWork();
       if (streamEndTimerRef.current !== null) {

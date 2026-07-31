@@ -106,7 +106,50 @@ describe('requestTrayBlinkForInboxEvent', () => {
       source_channel: 'telegram',
     });
 
-    expect(notifyIncoming).toHaveBeenCalledOnce();
+    expect(notifyIncoming).toHaveBeenCalledWith({
+      kind: 'user',
+      text: 'hi',
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('媒体消息传递媒体标记', () => {
+    const notifyIncoming = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('window', {
+      electronAPI: { tray: { notifyIncoming } },
+    });
+
+    requestTrayBlinkForInboxEvent('inbox:unified', {
+      event: 'message',
+      chat_id: 'inbox:unified',
+      text: '',
+      media_urls: [{ url: 'https://example.com/image.png' }],
+    });
+
+    expect(notifyIncoming).toHaveBeenCalledWith({
+      kind: 'assistant',
+      hasMedia: true,
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('无文字的外部用户媒体消息不会报错', () => {
+    const notifyIncoming = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('window', {
+      electronAPI: { tray: { notifyIncoming } },
+    });
+
+    requestTrayBlinkForInboxEvent('inbox:unified', {
+      event: 'user',
+      chat_id: 'inbox:unified',
+      source_channel: 'telegram',
+      media_urls: [{ url: 'https://example.com/image.png' }],
+    });
+
+    expect(notifyIncoming).toHaveBeenCalledWith({
+      kind: 'user',
+      hasMedia: true,
+    });
     vi.unstubAllGlobals();
   });
 
@@ -156,9 +199,18 @@ describe('requestTrayBlinkForStreamTurnEnd', () => {
       electronAPI: { tray: { notifyIncoming } },
     });
 
-    requestTrayBlinkForStreamTurnEnd('inbox:unified', true, undefined);
+    requestTrayBlinkForStreamTurnEnd(
+      'inbox:unified',
+      true,
+      undefined,
+      undefined,
+      'reply finished',
+    );
 
-    expect(notifyIncoming).toHaveBeenCalledOnce();
+    expect(notifyIncoming).toHaveBeenCalledWith({
+      kind: 'assistant',
+      text: 'reply finished',
+    });
     vi.unstubAllGlobals();
   });
 

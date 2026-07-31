@@ -6,6 +6,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  Notification,
   powerMonitor,
   screen,
   Tray,
@@ -24,6 +25,10 @@ import { cleanupPsbOnQuit, registerPsbIpcHandlers } from './main/psb-manager';
 import Store from 'electron-store';
 import { APP_ID } from '../app.meta';
 import { initTrayBlink, notifyTrayIncoming, stopTrayBlink } from './tray-blink';
+import {
+  notificationBody,
+  type NativeNotificationPayload,
+} from './notification-text';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -341,11 +346,34 @@ async function captureScreen(): Promise<string | null> {
 
 ipcMain.handle('screenshot:capture', () => captureScreen());
 
-ipcMain.handle('tray:notify-incoming', () => {
-  notifyTrayIncoming(() => {
-    if (!mainWindow || mainWindow.isDestroyed()) return false;
-    return mainWindow.isFocused();
+function showNativeNotification(payload: Partial<NativeNotificationPayload>): void {
+  if ((process.platform !== 'darwin' && process.platform !== 'win32')
+      || !Notification.isSupported()) {
+    return;
+  }
+  const configuredLanguage = store.get('appearance.language');
+  const locale = typeof configuredLanguage === 'string' && configuredLanguage
+    ? configuredLanguage
+    : app.getLocale();
+  const notification = new Notification({
+    title: 'Nanobot',
+    body: notificationBody(payload, locale),
   });
+  notification.on('click', showMainWindow);
+  notification.on('failed', (_event, error) => {
+    console.error('[notification] native notification failed:', error);
+  });
+  notification.show();
+}
+
+ipcMain.handle('tray:notify-incoming', (
+  _event,
+  payload: Partial<NativeNotificationPayload> = {},
+) => {
+  const isFocused = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused());
+  if (isFocused) return;
+  notifyTrayIncoming(() => false);
+  showNativeNotification(payload);
 });
 
 // ---------------------------------------------------------------------------

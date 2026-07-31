@@ -108,8 +108,12 @@ interface ElectronAPI {
     onRaiseInbox(cb: (payload: { toggle: boolean }) => void): () => void;
   };
   tray: {
-    /** Windows：主窗口无焦点时收到实时 inbox 消息后托盘闪烁。 */
-    notifyIncoming(): Promise<void>;
+    /** 后台收到实时 inbox 消息时发送系统通知；Windows 同时闪烁托盘。 */
+    notifyIncoming(payload: {
+      kind: "user" | "assistant";
+      text?: string;
+      hasMedia?: boolean;
+    }): Promise<void>;
   };
 }
 

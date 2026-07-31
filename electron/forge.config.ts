@@ -14,6 +14,17 @@ const config: ForgeConfig = {
     asar: true,
     appBundleId: APP_ID,
     executableName: APP_EXECUTABLE,
+    // Electron 42 的 macOS UNNotification 要求有效签名。个人本地构建固定使用
+    // ad-hoc identity，避免 Forge 自动选中钥匙串里的单位证书。
+  osxSign: {
+    identity: '-',
+    identityValidation: false,
+    // @electron/osx-sign 只从逐文件配置读取 hardenedRuntime。
+    // ad-hoc 签名没有 Team ID，启用 Hardened Runtime 会导致 Electron Framework 加载失败。
+    optionsForFile: () => ({
+      hardenedRuntime: false,
+    }),
+  },
     // 不带后缀：Forge 按平台自动选 .icns(macOS) / .ico(Windows) / .png(Linux)
     // 对应文件需预先放在 assets/ 目录下
     icon: path.resolve(__dirname, 'assets', 'icon'),

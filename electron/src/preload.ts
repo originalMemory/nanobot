@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { NativeNotificationPayload } from './notification-text';
 
 /**
  * IPC bridge exposed to the renderer via window.electronAPI.
@@ -210,6 +211,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   tray: {
-    notifyIncoming: (): Promise<void> => ipcRenderer.invoke('tray:notify-incoming'),
+    notifyIncoming: (payload: NativeNotificationPayload): Promise<void> =>
+      ipcRenderer.invoke('tray:notify-incoming', payload),
   },
 });

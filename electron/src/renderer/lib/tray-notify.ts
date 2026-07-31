@@ -1,4 +1,5 @@
 import type { InboundEvent } from '@/lib/types';
+import type { NativeNotificationPayload } from '../../notification-text';
 
 const INBOX_UNIFIED_CHAT_ID = 'inbox:unified';
 
@@ -41,8 +42,8 @@ export function isTrayNotifyInboundEvent(ev: InboundEvent): boolean {
   return false;
 }
 
-function invokeTrayNotify(): void {
-  void window.electronAPI?.tray?.notifyIncoming?.();
+function invokeTrayNotify(payload: NativeNotificationPayload): void {
+  void window.electronAPI?.tray?.notifyIncoming?.(payload);
 }
 
 /** 统一收件箱实时 WS 事件到达时请求主进程托盘闪烁。 */
@@ -54,7 +55,22 @@ export function requestTrayBlinkForInboxEvent(
   if (chatId !== INBOX_UNIFIED_CHAT_ID) return;
   if (!isTrayNotifyInboundEvent(ev)) return;
   if (!matchesTrayNotifyChannel(options?.activeChannel, getInboundSourceChannel(ev))) return;
-  invokeTrayNotify();
+  if (ev.event === 'user') {
+    const text = typeof ev.text === 'string' ? ev.text : '';
+    invokeTrayNotify({
+      kind: 'user',
+      ...(text.trim() ? { text } : {}),
+      ...(ev.media_urls?.length ? { hasMedia: true } : {}),
+    });
+    return;
+  }
+  if (ev.event === 'message') {
+    invokeTrayNotify({
+      kind: 'assistant',
+      ...(ev.text.trim() ? { text: ev.text } : {}),
+      ...((ev.media_urls?.length || ev.media?.length) ? { hasMedia: true } : {}),
+    });
+  }
 }
 
 /** 流式回合在 turn_end 完成且本轮有 assistant delta 时请求托盘闪烁。 */
@@ -63,9 +79,15 @@ export function requestTrayBlinkForStreamTurnEnd(
   hadAssistantDelta: boolean,
   sourceChannel: string | undefined,
   options?: TrayNotifyOptions,
+  text?: string,
+  hasMedia?: boolean,
 ): void {
   if (chatId !== INBOX_UNIFIED_CHAT_ID) return;
   if (!hadAssistantDelta) return;
   if (!matchesTrayNotifyChannel(options?.activeChannel, sourceChannel)) return;
-  invokeTrayNotify();
+  invokeTrayNotify({
+    kind: 'assistant',
+    ...(text?.trim() ? { text } : {}),
+    ...(hasMedia ? { hasMedia: true } : {}),
+  });
 }
