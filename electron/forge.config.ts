@@ -6,25 +6,46 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { APP_EXECUTABLE, APP_ID, APP_NAME } from './app.meta';
+
+const LOCAL_MAC_SIGN_IDENTITY = 'Nanobot Local Code Signing';
+
+function macSignIdentity(): string {
+  const configured = process.env.NANOBOT_MAC_SIGN_IDENTITY?.trim();
+  if (configured) return configured;
+  if (process.platform !== 'darwin') return '-';
+  try {
+    const identities = execFileSync(
+      '/usr/bin/security',
+      ['find-identity', '-v', '-p', 'codesigning'],
+      { encoding: 'utf8' },
+    );
+    if (identities.includes(`"${LOCAL_MAC_SIGN_IDENTITY}"`)) {
+      return LOCAL_MAC_SIGN_IDENTITY;
+    }
+  } catch {
+    // 钥匙串不可用时保留原有 ad-hoc 打包能力。
+  }
+  return '-';
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     appBundleId: APP_ID,
     executableName: APP_EXECUTABLE,
-    // Electron 42 的 macOS UNNotification 要求有效签名。个人本地构建固定使用
-    // ad-hoc identity，避免 Forge 自动选中钥匙串里的单位证书。
-  osxSign: {
-    identity: '-',
-    identityValidation: false,
-    // @electron/osx-sign 只从逐文件配置读取 hardenedRuntime。
-    // ad-hoc 签名没有 Team ID，启用 Hardened Runtime 会导致 Electron Framework 加载失败。
-    optionsForFile: () => ({
-      hardenedRuntime: false,
-    }),
-  },
+    // 优先使用独立的本地证书，保持钥匙串访问身份跨构建稳定；
+    // 其他机器找不到证书时回退 ad-hoc，避免阻断开发打包。
+    osxSign: {
+      identity: macSignIdentity(),
+      identityValidation: false,
+      optionsForFile: () => ({
+        hardenedRuntime: false,
+        timestamp: 'none',
+      }),
+    },
     // 不带后缀：Forge 按平台自动选 .icns(macOS) / .ico(Windows) / .png(Linux)
     // 对应文件需预先放在 assets/ 目录下
     icon: path.resolve(__dirname, 'assets', 'icon'),
