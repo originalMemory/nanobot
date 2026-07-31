@@ -121,6 +121,9 @@ interface ThreadComposerProps {
   modelProvider?: string | null;
   modelProviderLabel?: string | null;
   modelSettings?: SettingsPayload | null;
+  /** 当前 turn 实际启用的 fallback 模型。 */
+  turnModelName?: string | null;
+  turnModelProvider?: string | null;
   modelSelectionPending?: boolean;
   modelSelectionError?: string | null;
   onDismissModelSelectionError?: () => void;
@@ -560,6 +563,8 @@ export const ThreadComposer = forwardRef<ThreadComposerHandle, ThreadComposerPro
       modelProvider = null,
       modelProviderLabel = null,
       modelSettings = null,
+      turnModelName = null,
+      turnModelProvider = null,
       modelSelectionPending = false,
       modelSelectionError = null,
       onDismissModelSelectionError,
@@ -1601,6 +1606,8 @@ export const ThreadComposer = forwardRef<ThreadComposerHandle, ThreadComposerPro
               <div className="flex min-w-0 items-center gap-2">
                 <ComposerModelPicker
                   settings={modelSettings}
+                  turnModelName={turnModelName}
+                  turnModelProvider={turnModelProvider}
                   isHero={isHero}
                   selecting={modelSelectionPending}
                   error={modelSelectionError}
@@ -1795,6 +1802,8 @@ function ComposerReasoningPicker({
 
 function ComposerModelPicker({
   settings,
+  turnModelName,
+  turnModelProvider,
   isHero,
   selecting,
   error = null,
@@ -1802,6 +1811,8 @@ function ComposerModelPicker({
   onSelect,
 }: {
   settings: SettingsPayload;
+  turnModelName?: string | null;
+  turnModelProvider?: string | null;
   isHero: boolean;
   selecting: boolean;
   error?: string | null;
@@ -1811,8 +1822,11 @@ function ComposerModelPicker({
   const { t } = useTranslation();
   const activePresetName = settings.agent.model_preset || "default";
   const activePreset = settings.model_presets.find((preset) => preset.name === activePresetName);
-  const activeDisplayLabel = activePreset?.label || settings.agent.model;
-  const activeProvider = settings.agent.resolved_provider || settings.agent.provider;
+  const activeDisplayLabel = turnModelName || activePreset?.label || settings.agent.model;
+  const activeModelName = turnModelName || settings.agent.model;
+  const activeProvider = turnModelName
+    ? turnModelProvider || inferProviderFromModelName(turnModelName)
+    : settings.agent.resolved_provider || settings.agent.provider;
   const activeProviderLabel = composerProviderLabel(settings, activeProvider);
   const errorId = error ? "composer-model-picker-error" : undefined;
 
@@ -1824,7 +1838,13 @@ function ComposerModelPicker({
             type="button"
             variant="ghost"
             disabled={!onSelect || selecting}
-            title={activeProviderLabel ? `${settings.agent.model} · ${activeProviderLabel}` : settings.agent.model}
+            title={[
+              activeModelName,
+              activeProviderLabel,
+              turnModelName
+                ? t("thread.composer.fallbackModel", { defaultValue: "Fallback model" })
+                : null,
+            ].filter(Boolean).join(" · ")}
             aria-label={t("thread.composer.modelPickerAria", { defaultValue: "Choose model" })}
             aria-invalid={error ? true : undefined}
             aria-describedby={errorId}
@@ -1837,8 +1857,13 @@ function ComposerModelPicker({
               isHero ? "h-9 w-full gap-2 px-2.5 text-[12px]" : "h-9 w-full gap-2 px-2.5 text-[12px]",
             )}
           >
-            <ComposerModelLogo provider={activeProvider} label={settings.agent.model} isHero={isHero} />
+            <ComposerModelLogo provider={activeProvider} label={activeModelName} isHero={isHero} />
             <span className="truncate">{activeDisplayLabel}</span>
+            {turnModelName ? (
+              <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-300">
+                {t("thread.composer.fallback", { defaultValue: "Fallback" })}
+              </span>
+            ) : null}
             <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
@@ -1846,7 +1871,9 @@ function ComposerModelPicker({
           align="start"
           className="max-h-[18rem] w-[360px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[18px] border-border/65 bg-popover p-1.5 text-popover-foreground shadow-[0_18px_55px_rgba(15,23,42,0.18)] dark:border-white/10 dark:shadow-[0_22px_55px_rgba(0,0,0,0.45)]"
         >
-          {settings.model_presets.map((preset) => {
+          {settings.model_presets
+            .filter((preset) => !settings.model_call_order_editable || !preset.is_default)
+            .map((preset) => {
             const selected = preset.name === activePresetName;
             const provider = composerPresetProvider(settings, preset);
             const providerLabel = composerProviderLabel(settings, provider);

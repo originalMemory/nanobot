@@ -54,19 +54,21 @@ describe("updateSettings", () => {
     expect(url).toContain("model_preset=fast");
   });
 
-  it("sends vision_model and vision_provider", async () => {
+  it("sends global vision config and preset switch", async () => {
     const fetch = mockFetch({ agent: {}, requires_restart: false });
     await updateSettings(
       TOKEN,
       {
         visionModel: "gemini-2.5-flash",
         visionProvider: "",
+        visionEnabled: false,
       },
       BASE,
     ).catch(() => {});
     const url = String(fetch.mock.calls[0][0]);
     expect(url).toContain("vision_model=gemini-2.5-flash");
     expect(url).toContain("vision_provider=");
+    expect(url).toContain("vision_enabled=false");
   });
 
   it("sends empty string to clear vision_model", async () => {

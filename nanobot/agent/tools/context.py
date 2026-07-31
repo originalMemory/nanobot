@@ -27,7 +27,7 @@ class ContextAware(Protocol):
         ...
 
 
-def bind_request_context(ctx: RequestContext) -> Token[RequestContext | None]:
+def bind_request_context(ctx: RequestContext | None) -> Token[RequestContext | None]:
     return _CURRENT_REQUEST_CONTEXT.set(ctx)
 
 

@@ -6,6 +6,7 @@ settings payload shape and the allowlisted config mutations exposed to WebUI.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -18,7 +19,6 @@ import httpx
 from nanobot.config.loader import get_config_path, load_config, save_config
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import AgentDefaults, Config, ModelPresetConfig
-from nanobot.providers.factory import resolve_vision_config
 from nanobot.providers.image_generation import (
     get_image_gen_provider,
     image_gen_provider_names,
@@ -568,6 +568,36 @@ def _model_configuration_slug(label: str) -> str:
     return normalized
 
 
+def _unique_model_configuration_name(config: Config, label: str) -> str:
+    try:
+        base = _model_configuration_slug(label)
+    except WebUISettingsError:
+        base = "model"
+    candidate = base
+    suffix = 2
+    while candidate in config.model_presets:
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _model_configuration_label(model: str) -> str:
+    return model.rsplit("/", 1)[-1] or model
+
+
+def _model_call_order_state(config: Config) -> tuple[list[str], bool]:
+    defaults = config.agents.defaults
+    primary = defaults.model_preset
+    if not primary or primary == "default" or primary not in config.model_presets:
+        return [], False
+    order = [primary]
+    for fallback in defaults.fallback_models:
+        if not isinstance(fallback, str):
+            return [], False
+        order.append(fallback)
+    return order, True
+
+
 GenerationTarget = AgentDefaults | ModelPresetConfig
 
 
@@ -707,6 +737,7 @@ def settings_payload(
             "reasoning_effort": defaults.reasoning_effort,
             "vision_model": defaults.vision_model,
             "vision_provider": defaults.vision_provider,
+            "vision_enabled": defaults.vision_enabled,
         }
     ]
     for name, preset in config.model_presets.items():
@@ -722,13 +753,15 @@ def settings_payload(
                 "context_window_tokens": preset.context_window_tokens,
                 "temperature": preset.temperature,
                 "reasoning_effort": preset.reasoning_effort,
-                "vision_model": preset.vision_model,
-                "vision_provider": preset.vision_provider,
+                "vision_model": defaults.vision_model,
+                "vision_provider": defaults.vision_provider,
+                "vision_enabled": preset.vision_enabled,
             }
         )
 
+    model_call_order, model_call_order_editable = _model_call_order_state(config)
     exec_config = config.tools.exec
-    vision_model, vision_provider = resolve_vision_config(config)
+    vision_model, vision_provider = defaults.vision_model, defaults.vision_provider
     sandbox_status = workspace_sandbox_status(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         workspace=config.workspace_path,
@@ -751,9 +784,12 @@ def settings_payload(
             "tool_hint_max_length": defaults.tool_hint_max_length,
             "vision_model": vision_model,
             "vision_provider": vision_provider,
+            "vision_enabled": effective_preset.vision_enabled,
             "max_messages": defaults.max_messages,
         },
         "model_presets": model_presets,
+        "model_call_order": model_call_order,
+        "model_call_order_editable": model_call_order_editable,
         "providers": providers,
         "web_search": {
             "provider": search_provider,
@@ -848,6 +884,13 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
         if preset_value is not None and preset_value not in config.model_presets:
             raise WebUISettingsError("unknown model preset")
         if defaults.model_preset != preset_value:
+            current_order, editable = _model_call_order_state(config)
+            if editable and preset_value is not None:
+                reordered = [
+                    preset_value,
+                    *(name for name in current_order if name != preset_value),
+                ]
+                defaults.fallback_models = reordered[1:]
             defaults.model_preset = preset_value
             changed = True
 
@@ -924,15 +967,22 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
     vision_model = _query_first_alias(query, "vision_model", "visionModel")
     if vision_model is not None:
         vision_model_value = vision_model.strip() or None
-        if generation_target.vision_model != vision_model_value:
-            generation_target.vision_model = vision_model_value
+        if defaults.vision_model != vision_model_value:
+            defaults.vision_model = vision_model_value
             changed = True
 
     vision_provider = _query_first_alias(query, "vision_provider", "visionProvider")
     if vision_provider is not None:
         vision_provider_value = vision_provider.strip() or None
-        if generation_target.vision_provider != vision_provider_value:
-            generation_target.vision_provider = vision_provider_value
+        if defaults.vision_provider != vision_provider_value:
+            defaults.vision_provider = vision_provider_value
+            changed = True
+
+    vision_enabled = _query_first_alias(query, "vision_enabled", "visionEnabled")
+    if vision_enabled is not None:
+        vision_enabled_value = _parse_bool(vision_enabled, "vision_enabled")
+        if generation_target.vision_enabled != vision_enabled_value:
+            generation_target.vision_enabled = vision_enabled_value
             changed = True
 
     max_tokens_raw = _query_first_alias(query, "max_tokens", "maxTokens")
@@ -996,6 +1046,7 @@ def create_model_configuration(query: QueryParams) -> dict[str, Any]:
     if name in config.model_presets:
         raise WebUISettingsError("configuration already exists", status=409)
     _validate_configured_provider(config, provider)
+    current_order, call_order_editable = _model_call_order_state(config)
 
     base = config.resolve_default_preset()
     reasoning_effort = base.reasoning_effort
@@ -1011,6 +1062,8 @@ def create_model_configuration(query: QueryParams) -> dict[str, Any]:
         temperature=base.temperature,
         reasoning_effort=reasoning_effort,
     )
+    if call_order_editable:
+        config.agents.defaults.fallback_models = current_order
     config.agents.defaults.model_preset = name
     save_config(config)
     return settings_payload()
@@ -1066,9 +1119,113 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
         changed = True
 
     if config.agents.defaults.model_preset != name:
+        current_order, editable = _model_call_order_state(config)
+        if editable:
+            reordered = [name, *(item for item in current_order if item != name)]
+            config.agents.defaults.fallback_models = reordered[1:]
         config.agents.defaults.model_preset = name
         changed = True
 
+    if changed:
+        save_config(config)
+    return settings_payload()
+
+
+def update_model_call_order(query: QueryParams) -> dict[str, Any]:
+    raw_order = _query_first_alias(query, "order", "presetNames")
+    if raw_order is None:
+        raise WebUISettingsError("model call order is required")
+    try:
+        order = json.loads(raw_order)
+    except json.JSONDecodeError:
+        raise WebUISettingsError("model call order must be a JSON array") from None
+    if (
+        not isinstance(order, list)
+        or not order
+        or any(not isinstance(name, str) or not name.strip() for name in order)
+    ):
+        raise WebUISettingsError("model call order must contain at least one preset")
+
+    normalized_order = [name.strip() for name in order]
+    if len(set(normalized_order)) != len(normalized_order):
+        raise WebUISettingsError("model call order must not contain duplicates")
+
+    config = load_config()
+    _, editable = _model_call_order_state(config)
+    if not editable:
+        raise WebUISettingsError(
+            "convert the existing model configuration to presets first",
+            status=409,
+        )
+    unknown = [name for name in normalized_order if name not in config.model_presets]
+    if unknown:
+        raise WebUISettingsError(f"unknown model preset: {unknown[0]}")
+    for name in normalized_order:
+        _validate_configured_provider(config, config.model_presets[name].provider)
+
+    defaults = config.agents.defaults
+    fallback_models = normalized_order[1:]
+    if (
+        defaults.model_preset != normalized_order[0]
+        or defaults.fallback_models != fallback_models
+    ):
+        defaults.model_preset = normalized_order[0]
+        defaults.fallback_models = fallback_models
+        save_config(config)
+    return settings_payload()
+
+
+def migrate_model_configurations(_query: QueryParams | None = None) -> dict[str, Any]:
+    """将旧式主模型与内联 fallback 转成可排序的具名 preset。"""
+    config = load_config()
+    defaults = config.agents.defaults
+    primary = config.resolve_preset()
+    changed = False
+
+    if not defaults.model_preset or defaults.model_preset == "default":
+        label = _model_configuration_label(primary.model)
+        name = _unique_model_configuration_name(config, label)
+        config.model_presets[name] = ModelPresetConfig(
+            label=label,
+            model=primary.model,
+            provider=primary.provider,
+            max_tokens=primary.max_tokens,
+            context_window_tokens=primary.context_window_tokens,
+            temperature=primary.temperature,
+            reasoning_effort=primary.reasoning_effort,
+            vision_enabled=primary.vision_enabled,
+        )
+        defaults.model_preset = name
+        changed = True
+
+    fallback_models: list[str] = []
+    for fallback in defaults.fallback_models:
+        if isinstance(fallback, str):
+            fallback_models.append(fallback)
+            continue
+        label = _model_configuration_label(fallback.model)
+        name = _unique_model_configuration_name(config, label)
+        config.model_presets[name] = ModelPresetConfig(
+            label=label,
+            model=fallback.model,
+            provider=fallback.provider,
+            max_tokens=fallback.max_tokens or primary.max_tokens,
+            context_window_tokens=(
+                fallback.context_window_tokens or primary.context_window_tokens
+            ),
+            temperature=(
+                fallback.temperature
+                if fallback.temperature is not None
+                else primary.temperature
+            ),
+            reasoning_effort=fallback.reasoning_effort,
+        )
+        fallback_models.append(name)
+        changed = True
+
+    if defaults.fallback_models != fallback_models:
+        defaults.fallback_models = fallback_models
+        changed = True
     if changed:
         save_config(config)
     return settings_payload()

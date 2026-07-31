@@ -43,6 +43,7 @@ from nanobot.command import CommandContext, CommandRouter, register_builtin_comm
 from nanobot.config.schema import AgentDefaults, ModelPresetConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.providers.factory import ProviderSnapshot
+from nanobot.providers.fallback_provider import FallbackProvider
 from nanobot.security.workspace_access import (
     WorkspaceScopeResolver,
     bind_workspace_scope,
@@ -56,6 +57,7 @@ from nanobot.session.goal_state import (
 )
 from nanobot.session.history_store import SessionHistoryStore
 from nanobot.session.manager import Session, SessionManager
+from nanobot.session.webui_turns import build_webui_fallback_model_observer
 from nanobot.utils.document import extract_documents, reference_non_image_attachments
 from nanobot.utils.helpers import image_placeholder_text
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
@@ -241,6 +243,8 @@ class AgentLoop:
         self._diary_root = diary_root
         self.channels_config = channels_config
         self.provider = provider
+        self._fallback_model_observer = build_webui_fallback_model_observer(bus)
+        self._attach_fallback_model_observer(provider)
         self._provider_snapshot_loader = provider_snapshot_loader
         self._preset_snapshot_loader = preset_snapshot_loader
         self._runtime_model_publisher = runtime_model_publisher
@@ -352,9 +356,13 @@ class AgentLoop:
         self._vision_provider: LLMProvider | None = vision_provider
         self._vision_model: str | None = vision_model
         self._vision_provider_name: str | None = vision_provider_name
+        self._configured_vision_model: str | None = vision_model
+        self._configured_vision_provider_name: str | None = vision_provider_name
         self._vision_provider_factory = vision_provider_factory
         if model_preset:
             self.set_model_preset(model_preset, publish_update=False)
+        elif "default" in self.model_presets:
+            self._refresh_vision_for_preset("default")
         self._register_default_tools()
         self._runtime_vars: dict[str, Any] = {}
         self._current_iteration: int = 0
@@ -375,11 +383,8 @@ class AgentLoop:
         parameters (e.g. ``cron_service``, ``session_manager``).
         """
         from nanobot.providers.factory import (
-            get_vision_model,
             make_provider,
-            make_vision_provider,
             make_vision_provider_for_model,
-            resolve_vision_config,
         )
 
         if bus is None:
@@ -394,9 +399,9 @@ class AgentLoop:
             config,
             provider_snapshot_loader,
         )
-        _vision_provider = extra.pop("vision_provider", None) or make_vision_provider(config)
-        _vision_model = extra.pop("vision_model", None) or get_vision_model(config)
-        _, _vision_provider_name = resolve_vision_config(config)
+        _vision_model = extra.pop("vision_model", None) or defaults.vision_model
+        _vision_provider_name = defaults.vision_provider
+        _vision_provider = extra.pop("vision_provider", None)
         return cls(
             bus=bus,
             provider=provider,
@@ -435,6 +440,11 @@ class AgentLoop:
         """Keep subagent runtime limits aligned with mutable loop settings."""
         self.subagents.max_iterations = self.max_iterations
 
+    def _attach_fallback_model_observer(self, provider: LLMProvider) -> None:
+        """让所有运行入口都能记录 fallback 实际模型。"""
+        if isinstance(provider, FallbackProvider):
+            provider.set_fallback_model_observer(self._fallback_model_observer)
+
     def _apply_provider_snapshot(
         self,
         snapshot: ProviderSnapshot,
@@ -444,6 +454,7 @@ class AgentLoop:
     ) -> None:
         """Swap model/provider for future turns without disturbing an active one."""
         provider = snapshot.provider
+        self._attach_fallback_model_observer(provider)
         model = snapshot.model
         context_window_tokens = snapshot.context_window_tokens
         old_model = self.model
@@ -515,10 +526,12 @@ class AgentLoop:
         self._refresh_vision_for_preset(name)
 
     def _refresh_vision_for_preset(self, preset_name: str | None) -> None:
-        """按 preset 固定配置刷新辅助视觉 provider。"""
-        preset = self.model_presets.get(preset_name) if preset_name else None
-        new_model = preset.vision_model if preset else None
-        new_provider_name = preset.vision_provider if preset else None
+        """按 preset 开关启停统一的辅助视觉 provider。"""
+        effective_name = preset_name or "default"
+        preset = self.model_presets.get(effective_name)
+        enabled = preset.vision_enabled if preset else True
+        new_model = self._configured_vision_model if enabled else None
+        new_provider_name = self._configured_vision_provider_name if enabled else None
         if not new_model:
             self._vision_provider = None
             self._vision_model = None
@@ -544,6 +557,21 @@ class AgentLoop:
         self._vision_provider = new_provider
         self._vision_model = new_model
         self._vision_provider_name = new_provider_name
+
+    def set_vision_assistance_config(
+        self,
+        model: str | None,
+        provider_name: str | None,
+        *,
+        provider_factory: Callable[[str, str | None], LLMProvider] | None = None,
+    ) -> None:
+        """更新全局辅助视觉配置，并按当前 preset 开关立即刷新。"""
+        self._configured_vision_model = model
+        self._configured_vision_provider_name = provider_name
+        if provider_factory is not None:
+            self._vision_provider_factory = provider_factory
+            self._vision_provider = None
+        self._refresh_vision_for_preset(self._active_preset)
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools via plugin loader."""
@@ -887,7 +915,11 @@ class AgentLoop:
             chat_id=chat_id,
             message_id=message_id,
             session_key=active_session_key,
-            metadata=dict(metadata or {}),
+            metadata={
+                **dict(metadata or {}),
+                "_response_model": {"model": self.model},
+                "_fallback_used": bool((metadata or {}).get("_fallback_used")),
+            },
         )
         file_state_token = bind_file_states(self._file_state_store.for_session(active_session_key))
         request_token = bind_request_context(request_ctx)
@@ -934,6 +966,16 @@ class AgentLoop:
                 goal_continue_message=_goal_continue,
             ))
         finally:
+            if metadata is not None:
+                response_model = request_ctx.metadata.get("_response_model")
+                if isinstance(response_model, dict) and response_model.get("model"):
+                    metadata["_response_model"] = dict(response_model)
+                metadata["_fallback_used"] = bool(
+                    request_ctx.metadata.get("_fallback_used"),
+                )
+                fallback_models = request_ctx.metadata.get("_fallback_models")
+                if isinstance(fallback_models, list) and fallback_models:
+                    metadata["_fallback_models"] = list(fallback_models)
             reset_workspace_scope(workspace_token)
             reset_request_context(request_token)
             reset_file_states(file_state_token)
@@ -1300,6 +1342,9 @@ class AgentLoop:
         latency_ms = max(0, int((wall_done - t_wall) * 1000))
         self._save_turn(
             session, all_msgs, 1 + len(history), turn_latency_ms=latency_ms,
+            response_model=msg.metadata.get("_response_model"),
+            fallback_used=msg.metadata.get("_fallback_used"),
+            fallback_models=msg.metadata.get("_fallback_models"),
             **self._source_extras(msg),
         )
         self._runtime_events().record_turn_latency(key, latency_ms)
@@ -1769,6 +1814,9 @@ class AgentLoop:
             ctx.session, ctx.all_messages, ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
             turn_usage=ctx.turn_usage or None,
+            response_model=ctx.msg.metadata.get("_response_model"),
+            fallback_used=ctx.msg.metadata.get("_fallback_used"),
+            fallback_models=ctx.msg.metadata.get("_fallback_models"),
             **self._source_extras(ctx.msg),
         )
         self._runtime_events().record_turn_latency(
@@ -1858,6 +1906,9 @@ class AgentLoop:
         *,
         turn_latency_ms: int | None = None,
         turn_usage: dict[str, int] | None = None,
+        response_model: Any = None,
+        fallback_used: Any = None,
+        fallback_models: Any = None,
         source_channel: str | None = None,
         source_chat_id: str | None = None,
     ) -> None:
@@ -1905,6 +1956,17 @@ class AgentLoop:
                 session.messages[last_assistant_idx]["latency_ms"] = int(turn_latency_ms)
             if turn_usage:
                 session.messages[last_assistant_idx]["usage"] = dict(turn_usage)
+            if isinstance(response_model, dict) and response_model.get("model"):
+                session.messages[last_assistant_idx]["response_model"] = str(
+                    response_model["model"],
+                )
+                provider = response_model.get("provider")
+                if isinstance(provider, str) and provider:
+                    session.messages[last_assistant_idx]["response_provider"] = provider
+            if isinstance(fallback_used, bool):
+                session.messages[last_assistant_idx]["fallback_used"] = fallback_used
+            if isinstance(fallback_models, list) and fallback_models:
+                session.messages[last_assistant_idx]["_fallback_models"] = list(fallback_models)
         session.updated_at = datetime.now(timezone.utc).astimezone()
 
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:
@@ -2054,6 +2116,7 @@ class AgentLoop:
             channel=channel, sender_id="user", chat_id=chat_id,
             content=content, media=media or [],
         )
+        msg = self._with_webui_turn_metadata(msg)
         # Share the dispatch lock so direct calls serialize with bus turns.
         lock = self._session_locks.setdefault(session_key, asyncio.Lock())
         try:
@@ -2067,10 +2130,20 @@ class AgentLoop:
                 }
                 if tools is not None:
                     kwargs["tools"] = tools
-                return await self._process_message(
+                response = await self._process_message(
                     msg,
                     **kwargs,
                 )
+                completed_channel = response.channel if response is not None else msg.channel
+                completed_chat_id = response.chat_id if response is not None else msg.chat_id
+                if not turn_continuation.internal_continuation_pending(msg.metadata):
+                    await self._runtime_events().turn_completed(
+                        channel=completed_channel,
+                        chat_id=completed_chat_id,
+                        session_key=session_key,
+                        metadata=msg.metadata,
+                    )
+                return response
         finally:
             await self._runtime_events().run_status_changed(msg, session_key, "idle")
             self._runtime_events().clear_turn(session_key)

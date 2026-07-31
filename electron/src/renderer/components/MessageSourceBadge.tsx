@@ -73,7 +73,7 @@ function SourceBadgePart({ part }: { part: MessageSourceBadgePart }) {
       <span
         className={cn(
           BADGE_PILL_CLASS,
-          "border-border/60 bg-muted/40 text-muted-foreground/80",
+          "border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300",
         )}
       >
         <BadgeLabel>{part.label}</BadgeLabel>

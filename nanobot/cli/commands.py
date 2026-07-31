@@ -931,6 +931,7 @@ def _run_gateway(
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
     runtime_events = RuntimeEventBus()
+
     try:
         provider_snapshot = build_provider_snapshot(config)
     except ValueError as exc:
@@ -980,6 +981,82 @@ def _run_gateway(
     def _cron_job_delivery_metadata(job: CronJob) -> dict[str, str]:
         return {"_cron_job_id": job.id, "_cron_job_name": job.name}
 
+    def _response_delivery_metadata(
+        response: OutboundMessage | None,
+        *,
+        session_key: str | None = None,
+    ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {}
+        response_metadata = response.metadata if response is not None else {}
+        response_model = response_metadata.get("_response_model")
+        if isinstance(response_model, dict) and response_model.get("model"):
+            metadata["_response_model"] = dict(response_model)
+        fallback_used = response_metadata.get("_fallback_used")
+        if isinstance(fallback_used, bool):
+            metadata["_fallback_used"] = fallback_used
+        fallback_models = response_metadata.get("_fallback_models")
+        if isinstance(fallback_models, list) and fallback_models:
+            metadata["_fallback_models"] = list(fallback_models)
+        response_usage = response_metadata.get("usage")
+        if isinstance(response_usage, dict) and response_usage:
+            metadata["usage"] = dict(response_usage)
+        sessions = getattr(agent, "sessions", None)
+        if session_key and sessions is not None and hasattr(sessions, "get_or_create"):
+            session = sessions.get_or_create(session_key)
+            saved_response = next(
+                (
+                    item
+                    for item in reversed(session.messages)
+                    if item.get("role") == "assistant"
+                ),
+                None,
+            )
+            if saved_response is not None:
+                usage = saved_response.get("usage")
+                if isinstance(usage, dict) and usage:
+                    metadata["usage"] = dict(usage)
+                saved_model = saved_response.get("response_model")
+                if isinstance(saved_model, str) and saved_model:
+                    saved_model_info: dict[str, str] = {"model": saved_model}
+                    saved_provider = saved_response.get("response_provider")
+                    if isinstance(saved_provider, str) and saved_provider:
+                        saved_model_info["provider"] = saved_provider
+                    metadata["_response_model"] = saved_model_info
+                saved_fallback = saved_response.get("fallback_used")
+                if isinstance(saved_fallback, bool):
+                    metadata["_fallback_used"] = saved_fallback
+                saved_fallback_models = saved_response.get("_fallback_models")
+                if isinstance(saved_fallback_models, list) and saved_fallback_models:
+                    metadata["_fallback_models"] = list(saved_fallback_models)
+        return metadata
+
+    recorded_cron_delivery_sessions: dict[str, set[str]] = {}
+
+    def _stamp_recorded_cron_deliveries(job_id: str, metadata: dict[str, Any]) -> None:
+        session_keys = recorded_cron_delivery_sessions.pop(job_id, set())
+        for session_key in session_keys:
+            session = session_manager.get_or_create(session_key)
+            for item in reversed(session.messages):
+                if item.get("role") != "assistant" or item.get("_cron_job_id") != job_id:
+                    continue
+                usage = metadata.get("usage")
+                if isinstance(usage, dict) and usage:
+                    item["usage"] = dict(usage)
+                response_model = metadata.get("_response_model")
+                if isinstance(response_model, dict) and response_model.get("model"):
+                    item["response_model"] = str(response_model["model"])
+                    provider = response_model.get("provider")
+                    if isinstance(provider, str) and provider:
+                        item["response_provider"] = provider
+                fallback_used = metadata.get("_fallback_used")
+                if isinstance(fallback_used, bool):
+                    item["fallback_used"] = fallback_used
+                fallback_models = metadata.get("_fallback_models")
+                if isinstance(fallback_models, list) and fallback_models:
+                    item["_fallback_models"] = list(fallback_models)
+                session_manager.save(session)
+                break
+
     async def _deliver_to_channel(
         msg: OutboundMessage, *, record: bool = False, session_key: str | None = None,
     ) -> None:
@@ -1015,10 +1092,27 @@ def _run_gateway(
                 extra["_cron_job_id"] = cron_job_id
             if isinstance(cron_job_name, str) and cron_job_name:
                 extra["_cron_job_name"] = cron_job_name
+            usage = metadata.get("usage")
+            if isinstance(usage, dict) and usage:
+                extra["usage"] = dict(usage)
+            response_model = metadata.get("_response_model")
+            if isinstance(response_model, dict) and response_model.get("model"):
+                extra["response_model"] = str(response_model["model"])
+                provider = response_model.get("provider")
+                if isinstance(provider, str) and provider:
+                    extra["response_provider"] = provider
+            fallback_used = metadata.get("_fallback_used")
+            if isinstance(fallback_used, bool):
+                extra["fallback_used"] = fallback_used
+            fallback_models = metadata.get("_fallback_models")
+            if isinstance(fallback_models, list) and fallback_models:
+                extra["_fallback_models"] = list(fallback_models)
             if media:
                 extra["media"] = list(media)
             session.add_message("assistant", msg.content, **extra)
             session_manager.save(session)
+            if isinstance(cron_job_id, str) and cron_job_id:
+                recorded_cron_delivery_sessions.setdefault(cron_job_id, set()).add(key)
             metadata["_channel_delivery"] = True
             metadata["source_channel"] = msg.channel
             metadata["source_chat_id"] = msg.chat_id
@@ -1141,6 +1235,10 @@ def _run_gateway(
                 if isinstance(message_tool, MessageTool) and delivery_source_token is not None:
                     message_tool.reset_delivery_source(delivery_source_token)
             response = resp.content if resp else ""
+            response_metadata = _response_delivery_metadata(
+                resp,
+                session_key="heartbeat",
+            )
 
             # Keep a small tail of heartbeat history so the loop stays bounded.
             session = agent.sessions.get_or_create("heartbeat")
@@ -1148,6 +1246,7 @@ def _run_gateway(
             agent.sessions.save(session)
 
             if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
+                _stamp_recorded_cron_deliveries(job.id, response_metadata)
                 return response
 
             if not response:
@@ -1165,10 +1264,14 @@ def _run_gateway(
                         channel=channel,
                         chat_id=chat_id,
                         content=response,
-                        metadata=_cron_job_delivery_metadata(job),
+                        metadata={
+                            **response_metadata,
+                            **_cron_job_delivery_metadata(job),
+                        },
                     ),
                     record=True,
                 )
+                recorded_cron_delivery_sessions.pop(job.id, None)
             else:
                 logger.info("Heartbeat: silenced by post-run evaluation")
             return response
@@ -1212,8 +1315,13 @@ def _run_gateway(
                 message_tool.reset_delivery_source(delivery_source_token)
 
         response = resp.content if resp else ""
+        response_metadata = _response_delivery_metadata(
+            resp,
+            session_key=f"cron:{job.id}",
+        )
 
         if job.payload.deliver and isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
+            _stamp_recorded_cron_deliveries(job.id, response_metadata)
             return response
 
         if job.payload.deliver and job.payload.to and response:
@@ -1227,6 +1335,7 @@ def _run_gateway(
                         chat_id=job.payload.to,
                         content=response,
                         metadata={
+                            **response_metadata,
                             **dict(job.payload.channel_meta),
                             **_cron_job_delivery_metadata(job),
                         },
@@ -1234,6 +1343,7 @@ def _run_gateway(
                     record=True,
                     session_key=job.payload.session_key,
                 )
+                recorded_cron_delivery_sessions.pop(job.id, None)
         return response
 
     cron.on_job = on_cron_job
@@ -1248,9 +1358,19 @@ def _run_gateway(
     def _webui_runtime_model_setter(preset: str | None) -> None:
         from nanobot.agent import model_presets as preset_helpers
         from nanobot.config.loader import load_config, resolve_config_env_vars
+        from nanobot.providers.factory import make_vision_provider_for_model
 
         latest_config = resolve_config_env_vars(load_config())
         agent.model_presets = preset_helpers.configured_model_presets(latest_config)
+        agent.set_vision_assistance_config(
+            latest_config.agents.defaults.vision_model,
+            latest_config.agents.defaults.vision_provider,
+            provider_factory=lambda model, provider: make_vision_provider_for_model(
+                latest_config,
+                model,
+                provider,
+            ),
+        )
         agent.set_model_preset(preset or "default")
 
     # Create channel manager (forwards SessionManager so the WebSocket channel

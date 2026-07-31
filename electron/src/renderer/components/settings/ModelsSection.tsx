@@ -7,6 +7,8 @@ import {
   type SetStateAction,
 } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   Eye,
   EyeOff,
@@ -46,6 +48,7 @@ import {
   SettingsGroup,
   SettingsRow,
   StatusPill,
+  ToggleButton,
 } from "./shared";
 import {
   normalizeReasoningEffort,
@@ -65,6 +68,7 @@ export interface AgentSettingsDraft {
   modelPreset: string;
   visionModel: string;
   visionProvider: string;
+  visionEnabled: boolean;
   maxTokens: string;
   contextWindowTokens: string;
   maxMessages: string;
@@ -155,8 +159,9 @@ function agentDraftForPreset(payload: SettingsPayload, presetName: string): Agen
         ? editableDefaultProvider(payload)
         : (preset?.provider ?? payload.agent.provider),
     modelPreset: presetName,
-    visionModel: preset?.vision_model ?? "",
-    visionProvider: preset?.vision_provider ?? "",
+    visionModel: payload.agent.vision_model ?? "",
+    visionProvider: payload.agent.vision_provider ?? "",
+    visionEnabled: preset?.vision_enabled ?? true,
     maxTokens: String(preset?.max_tokens ?? payload.agent.max_tokens),
     contextWindowTokens: String(preset?.context_window_tokens ?? payload.agent.context_window_tokens),
     maxMessages: String(payload.agent.max_messages ?? 120),
@@ -406,6 +411,8 @@ interface ModelsSectionProps {
   onSaveModel: (draft: AgentSettingsDraft) => Promise<void>;
   onSaveProvider: (providerName: string, form: ProviderForm) => Promise<void>;
   onCreateModelConfiguration: (draft: ModelConfigurationDraft) => Promise<void>;
+  onMigrateModelConfigurations?: () => Promise<void>;
+  onSaveModelCallOrder?: (order: string[]) => Promise<void>;
 }
 
 export function ModelsSection({
@@ -417,6 +424,8 @@ export function ModelsSection({
   onSaveModel,
   onSaveProvider,
   onCreateModelConfiguration,
+  onMigrateModelConfigurations,
+  onSaveModelCallOrder,
 }: ModelsSectionProps) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -434,6 +443,7 @@ export function ModelsSection({
     reasoningEffort: "",
   });
   const [configSaving, setConfigSaving] = useState(false);
+  const [callOrderSaving, setCallOrderSaving] = useState(false);
 
   // Provider state
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
@@ -457,6 +467,7 @@ export function ModelsSection({
             preset.reasoning_effort ?? "",
             preset.vision_model ?? "",
             preset.vision_provider ?? "",
+            preset.vision_enabled,
           ].join("\u0000"),
         )
         .join("\u0001"),
@@ -497,8 +508,9 @@ export function ModelsSection({
     const preset = modelPresetValue(settings);
     const base = defaultPreset(settings);
     const selectedPreset = settings.model_presets.find((p) => p.name === form.modelPreset);
-    const visionModelDirty = form.visionModel !== (selectedPreset?.vision_model ?? "");
-    const visionProviderDirty = form.visionProvider !== (selectedPreset?.vision_provider ?? "");
+    const visionModelDirty = form.visionModel !== (settings.agent.vision_model ?? "");
+    const visionProviderDirty = form.visionProvider !== (settings.agent.vision_provider ?? "");
+    const visionEnabledDirty = form.visionEnabled !== (selectedPreset?.vision_enabled ?? true);
     const maxTokensDirty = Number(form.maxTokens) !== settings.agent.max_tokens;
     const contextWindowTokensDirty = Number(form.contextWindowTokens) !== settings.agent.context_window_tokens;
     const maxMessagesDirty = Number(form.maxMessages) !== (settings.agent.max_messages ?? 120);
@@ -516,6 +528,7 @@ export function ModelsSection({
           form.provider !== editableDefaultProvider(settings))) ||
       visionModelDirty ||
       visionProviderDirty ||
+      visionEnabledDirty ||
       maxTokensDirty ||
       contextWindowTokensDirty ||
       maxMessagesDirty ||
@@ -582,6 +595,31 @@ export function ModelsSection({
       setConfigSaving(false);
     }
   };
+
+  const saveCallOrder = async (order: string[]) => {
+    if (callOrderSaving || order.length === 0 || !onSaveModelCallOrder) return;
+    setCallOrderSaving(true);
+    try {
+      await onSaveModelCallOrder(order);
+    } finally {
+      setCallOrderSaving(false);
+    }
+  };
+
+  const migrateCallOrder = async () => {
+    if (callOrderSaving || !onMigrateModelConfigurations) return;
+    setCallOrderSaving(true);
+    try {
+      await onMigrateModelConfigurations();
+    } finally {
+      setCallOrderSaving(false);
+    }
+  };
+
+  const configuredCallOrder = settings.model_call_order ?? [];
+  const disabledPresets = settings.model_presets.filter(
+    (preset) => !preset.is_default && !configuredCallOrder.includes(preset.name),
+  );
 
   const resetProviderDraft = useCallback(
     (name: string) => {
@@ -819,7 +857,11 @@ export function ModelsSection({
               )}
             >
               <ModelPresetPicker
-                presets={settings.model_presets}
+                presets={
+                  settings.model_call_order_editable
+                    ? settings.model_presets.filter((preset) => !preset.is_default)
+                    : settings.model_presets
+                }
                 value={form.modelPreset}
                 settings={settings}
                 draftModel={form.model}
@@ -828,6 +870,131 @@ export function ModelsSection({
                 onChange={(modelPreset) => setForm(agentDraftForPreset(settings, modelPreset))}
                 onCreateConfiguration={handleOpenConfigDialog}
               />
+            </SettingsRow>
+            <SettingsRow
+              title={tx("settings.rows.modelCallOrder", "Model call order")}
+              description={tx(
+                "settings.help.modelCallOrder",
+                "Try the primary model first, then fallbacks from top to bottom.",
+              )}
+            >
+              <div className="w-[min(360px,72vw)] space-y-2">
+                {!settings.model_call_order_editable ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={callOrderSaving || !onMigrateModelConfigurations}
+                    className="rounded-full"
+                    onClick={() => void migrateCallOrder()}
+                  >
+                    {tx("settings.models.convertCallOrder", "Convert to model presets")}
+                  </Button>
+                ) : (
+                  <>
+                    {configuredCallOrder.map((name, index) => {
+                      const preset = settings.model_presets.find((item) => item.name === name);
+                      if (!preset) return null;
+                      return (
+                        <div
+                          key={name}
+                          className="flex min-h-11 items-center gap-2 rounded-2xl border border-border/55 bg-background/55 px-3 py-2"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13px] font-medium">
+                              {preset.label || preset.model}
+                            </span>
+                            <span className="block text-[11px] text-muted-foreground">
+                              {index === 0
+                                ? tx("settings.models.primary", "Primary")
+                                : tx("settings.models.fallback", "Fallback")}
+                            </span>
+                          </span>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 rounded-full"
+                            disabled={callOrderSaving || !onSaveModelCallOrder || index === 0}
+                            aria-label={tx("settings.models.moveUp", "Move up")}
+                            onClick={() => {
+                              const next = [...configuredCallOrder];
+                              [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                              void saveCallOrder(next);
+                            }}
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 rounded-full"
+                            disabled={
+                              callOrderSaving
+                              || !onSaveModelCallOrder
+                              || index === configuredCallOrder.length - 1
+                            }
+                            aria-label={tx("settings.models.moveDown", "Move down")}
+                            onClick={() => {
+                              const next = [...configuredCallOrder];
+                              [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                              void saveCallOrder(next);
+                            }}
+                          >
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="rounded-full text-[12px]"
+                            disabled={
+                              callOrderSaving
+                              || !onSaveModelCallOrder
+                              || configuredCallOrder.length === 1
+                            }
+                            onClick={() => void saveCallOrder(
+                              configuredCallOrder.filter((item) => item !== name),
+                            )}
+                          >
+                            {tx("settings.models.disable", "Disable")}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                    {disabledPresets.length > 0 ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={callOrderSaving || !onSaveModelCallOrder}
+                            className="rounded-full"
+                          >
+                            {tx("settings.models.addFallback", "Add fallback")}
+                            <ChevronDown className="ml-1.5 h-3.5 w-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {disabledPresets.map((preset) => (
+                            <DropdownMenuItem
+                              key={preset.name}
+                              onSelect={() => void saveCallOrder([
+                                ...configuredCallOrder,
+                                preset.name,
+                              ])}
+                            >
+                              {preset.label || preset.model}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
+                  </>
+                )}
+              </div>
             </SettingsRow>
             {form.modelPreset === "default" ? (
               <>
@@ -867,6 +1034,21 @@ export function ModelsSection({
                 onChange={(reasoningEffort) => setForm((prev) => ({ ...prev, reasoningEffort }))}
               />
             </SettingsRow>
+            <SettingsRow
+              title={tx("settings.rows.visionEnabled", "Vision assistance")}
+              description={tx(
+                "settings.help.visionEnabled",
+                "Enable the global auxiliary vision model for this preset.",
+              )}
+            >
+              <ToggleButton
+                checked={form.visionEnabled}
+                onChange={(visionEnabled) => setForm((prev) => ({ ...prev, visionEnabled }))}
+                label={tx("settings.rows.visionEnabled", "Vision assistance")}
+              />
+            </SettingsRow>
+          </SettingsGroup>
+          <SettingsGroup>
             <SettingsRow
               title={t("settings.rows.visionModel")}
               description={t("settings.help.visionModel")}

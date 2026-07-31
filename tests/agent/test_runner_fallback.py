@@ -284,6 +284,25 @@ class TestFallbackOnPrimaryError:
         assert primary.chat_calls[0]["model"] == "primary-model"
         assert fallback.chat_calls[0]["model"] == "fallback-a"
 
+    @pytest.mark.asyncio
+    async def test_notifies_actual_fallback_before_request(self) -> None:
+        primary = _FakeProvider("primary", _error_response())
+        fallback = _FakeProvider("fallback", _make_response("fallback ok"))
+        observed: list[str] = []
+        async def observe(model: str, _provider: str | None, is_fallback: bool) -> None:
+            observed.append(f"{model}:{is_fallback}")
+
+        fb = FallbackProvider(
+            primary=primary,
+            fallback_presets=[_fallback("fallback-a")],
+            provider_factory=MagicMock(return_value=fallback),
+        )
+        fb.set_fallback_model_observer(observe)
+
+        await fb.chat(messages=[{"role": "user", "content": "hi"}])
+
+        assert observed == ["primary/model:False", "fallback-a:True"]
+
 
 class TestNoFallbackWhenContentStreamed:
     @pytest.mark.asyncio

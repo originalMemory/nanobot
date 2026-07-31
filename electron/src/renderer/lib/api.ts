@@ -293,6 +293,9 @@ export async function updateSettings(
   if (update.visionProvider !== undefined) {
     query.set("vision_provider", update.visionProvider ?? "");
   }
+  if (update.visionEnabled !== undefined) {
+    query.set("vision_enabled", String(update.visionEnabled));
+  }
   if (update.maxTokens !== undefined) {
     query.set("max_tokens", String(update.maxTokens));
   }
@@ -323,6 +326,29 @@ export async function createModelConfiguration(
   }
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/create?${query}`,
+    token,
+  );
+}
+
+export async function migrateModelConfigurations(
+  token: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<SettingsPayload> {
+  return request<SettingsPayload>(
+    `${base}/api/settings/model-configurations/migrate`,
+    token,
+  );
+}
+
+export async function updateModelCallOrder(
+  token: string,
+  order: string[],
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  query.set("order", JSON.stringify(order));
+  return request<SettingsPayload>(
+    `${base}/api/settings/model-call-order/update?${query}`,
     token,
   );
 }

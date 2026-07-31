@@ -1309,6 +1309,18 @@ def replay_transcript_to_ui_messages(
             cjn = rec.get("cron_job_name")
             if isinstance(cjn, str) and cjn:
                 extra["cronJobName"] = cjn
+            fallback_models = rec.get("fallback_models")
+            if isinstance(fallback_models, list) and fallback_models:
+                extra["fallbackModels"] = fallback_models
+            response_model = rec.get("response_model")
+            if isinstance(response_model, str) and response_model:
+                extra["responseModel"] = response_model
+            response_provider = rec.get("response_provider")
+            if isinstance(response_provider, str) and response_provider:
+                extra["responseProvider"] = response_provider
+            fallback_used = rec.get("fallback_used")
+            if isinstance(fallback_used, bool):
+                extra["fallbackUsed"] = fallback_used
             extra.update(_turn_fields(rec, "answer"))
             absorb_complete(extra, idx)
             if media and not rec.get("channel_delivery"):
@@ -1325,6 +1337,30 @@ def replay_transcript_to_ui_messages(
                     messages[i] = {**m, "isStreaming": False}
             prune_reasoning_only(turn_id)
             lat = rec.get("latency_ms")
+            response_model = rec.get("response_model")
+            response_provider = rec.get("response_provider")
+            fallback_used = rec.get("fallback_used")
+            fallback_models = rec.get("fallback_models")
+            for i in range(len(messages) - 1, -1, -1):
+                candidate = messages[i]
+                if (
+                    candidate.get("role") != "assistant"
+                    or candidate.get("kind") == "trace"
+                    or candidate.get("turnId") != turn_id
+                ):
+                    continue
+                model_fields: dict[str, Any] = {}
+                if isinstance(response_model, str) and response_model:
+                    model_fields["responseModel"] = response_model
+                if isinstance(response_provider, str) and response_provider:
+                    model_fields["responseProvider"] = response_provider
+                if isinstance(fallback_used, bool):
+                    model_fields["fallbackUsed"] = fallback_used
+                if isinstance(fallback_models, list) and fallback_models:
+                    model_fields["fallbackModels"] = fallback_models
+                if model_fields:
+                    messages[i] = {**candidate, **model_fields}
+                break
             if isinstance(lat, (int, float)) and lat >= 0:
                 stamp_latency(int(lat), turn_id)
             usg = rec.get("usage")
@@ -1498,6 +1534,18 @@ def session_messages_to_wire_events(
                     ev["usage"] = usg
                 if isinstance(ts, str):
                     ev["ts"] = ts
+                fallback_models = msg.get("_fallback_models")
+                if isinstance(fallback_models, list) and fallback_models:
+                    ev["fallback_models"] = fallback_models
+                response_model = msg.get("response_model")
+                if isinstance(response_model, str) and response_model:
+                    ev["response_model"] = response_model
+                response_provider = msg.get("response_provider")
+                if isinstance(response_provider, str) and response_provider:
+                    ev["response_provider"] = response_provider
+                fallback_used = msg.get("fallback_used")
+                if isinstance(fallback_used, bool):
+                    ev["fallback_used"] = fallback_used
                 if msg.get("_channel_delivery"):
                     ev["channel_delivery"] = True
                 if msg.get("_user_initiated_channel_delivery"):

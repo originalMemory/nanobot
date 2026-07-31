@@ -7,12 +7,12 @@ from typing import Any, Awaitable, Callable
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.context import ContextAware, RequestContext
+from nanobot.agent.tools.context import ContextAware, RequestContext, current_request_context
 from nanobot.agent.tools.path_utils import resolve_workspace_path
 from nanobot.agent.tools.schema import ArraySchema, StringSchema, tool_parameters_schema
-from nanobot.security.workspace_access import current_tool_workspace
 from nanobot.bus.events import OutboundMessage
 from nanobot.config.paths import get_workspace_path
+from nanobot.security.workspace_access import current_tool_workspace
 
 
 @tool_parameters(
@@ -253,6 +253,17 @@ class MessageTool(Tool, ContextAware):
                 return f"Error: media path is not allowed: {str(e)}"
 
         metadata = dict(self._default_metadata.get()) if same_target else {}
+        request_context = current_request_context()
+        if same_target and request_context is not None:
+            response_model = request_context.metadata.get("_response_model")
+            if isinstance(response_model, dict) and response_model.get("model"):
+                metadata["_response_model"] = dict(response_model)
+            fallback_used = request_context.metadata.get("_fallback_used")
+            if isinstance(fallback_used, bool):
+                metadata["_fallback_used"] = fallback_used
+            fallback_models = request_context.metadata.get("_fallback_models")
+            if isinstance(fallback_models, list) and fallback_models:
+                metadata["_fallback_models"] = list(fallback_models)
         if message_id:
             metadata["message_id"] = message_id
         if self._record_channel_delivery_var.get() or media:

@@ -38,6 +38,7 @@ from websockets.http11 import Response
 
 from nanobot.agent.tools.mcp import request_mcp_reload
 from nanobot.command.builtin import builtin_command_palette
+from nanobot.config.loader import load_config, save_config
 from nanobot.config.paths import get_media_dir, get_workspace_path
 from nanobot.session import UNIFIED_SESSION_KEY
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
@@ -87,12 +88,14 @@ from nanobot.webui.psb_api import (
 from nanobot.webui.settings_api import (
     WebUISettingsError,
     create_model_configuration,
+    migrate_model_configurations,
     runtime_capabilities,
     settings_payload,
     update_agent_settings,
     update_desk_pet_psb_settings,
     update_desk_pet_tha_settings,
     update_image_generation_settings,
+    update_model_call_order,
     update_model_configuration,
     update_network_safety_settings,
     update_provider_settings,
@@ -411,6 +414,10 @@ class ForkGatewayHTTPHandler:
             return self._handle_settings_model_configuration_create(request)
         if got == "/api/settings/model-configurations/update":
             return self._handle_settings_model_configuration_update(request)
+        if got == "/api/settings/model-configurations/migrate":
+            return self._handle_settings_model_configurations_migrate(request)
+        if got == "/api/settings/model-call-order/update":
+            return self._handle_settings_model_call_order_update(request)
         if got == "/api/settings/provider/update":
             return self._handle_settings_provider_update(request)
         if got == "/api/settings/web-search/update":
@@ -704,6 +711,7 @@ class ForkGatewayHTTPHandler:
             "model_preset", "modelPreset", "model", "provider",
             "max_tokens", "maxTokens", "context_window_tokens", "contextWindowTokens",
             "vision_model", "visionModel", "vision_provider", "visionProvider",
+            "vision_enabled", "visionEnabled",
             "reasoning_effort", "reasoningEffort",
         }
         if self._runtime_model_setter is not None and any(key in query for key in model_keys):
@@ -744,6 +752,52 @@ class ForkGatewayHTTPHandler:
             except (KeyError, ValueError) as e:
                 return _http_error(400, str(e))
         return _http_json_response(self._with_settings_restart_state(payload))
+
+    def _handle_settings_model_configurations_migrate(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        previous_config = load_config()
+        try:
+            payload = migrate_model_configurations(_parse_query(request.path))
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        if self._runtime_model_setter is not None:
+            try:
+                self._runtime_model_setter(payload.get("agent", {}).get("model_preset"))
+            except Exception as e:
+                self._rollback_runtime_model_config(previous_config)
+                return _http_error(400, str(e))
+        return _http_json_response(self._with_settings_restart_state(payload))
+
+    def _handle_settings_model_call_order_update(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        previous_config = load_config()
+        try:
+            payload = update_model_call_order(_parse_query(request.path))
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        if self._runtime_model_setter is not None:
+            try:
+                self._runtime_model_setter(payload.get("agent", {}).get("model_preset"))
+            except Exception as e:
+                self._rollback_runtime_model_config(previous_config)
+                return _http_error(400, str(e))
+        return _http_json_response(self._with_settings_restart_state(payload))
+
+    def _rollback_runtime_model_config(self, previous_config: Any) -> None:
+        """运行时模型刷新失败时恢复磁盘配置与当前 provider。"""
+        try:
+            save_config(previous_config)
+        except Exception:
+            self._log.exception("Failed to roll back model configuration")
+            return
+        if self._runtime_model_setter is None:
+            return
+        try:
+            self._runtime_model_setter(previous_config.agents.defaults.model_preset)
+        except Exception:
+            self._log.exception("Failed to restore runtime model after config rollback")
 
     def _handle_settings_provider_update(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):

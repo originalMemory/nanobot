@@ -381,6 +381,36 @@ function stampLastAssistantUsage(
   return prev;
 }
 
+function stampLastAssistantResponseModel(
+  prev: UIMessage[],
+  event: {
+    response_model?: string;
+    response_provider?: string;
+    fallback_used?: boolean;
+    fallback_models?: UIMessage["fallbackModels"];
+  },
+  turnId: string,
+): UIMessage[] {
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    const message = prev[i];
+    if (isAssistantAnswerMessage(message) && message.turnId === turnId) {
+      const merged: UIMessage = {
+        ...message,
+        ...(event.response_model ? { responseModel: event.response_model } : {}),
+        ...(event.response_provider ? { responseProvider: event.response_provider } : {}),
+        ...(typeof event.fallback_used === "boolean"
+          ? { fallbackUsed: event.fallback_used }
+          : {}),
+        ...(event.fallback_models?.length
+          ? { fallbackModels: event.fallback_models }
+          : {}),
+      };
+      return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
+    }
+  }
+  return prev;
+}
+
 function findLatestAssistantAnswerIndex(
   prev: UIMessage[],
   turn: Pick<UIMessageTurnFields, "turnId">,
@@ -551,6 +581,9 @@ export function useNanobotStream(
   runStartedAt: number | null;
   /** Latest sustained goal for this ``chatId`` (``goal_state`` WS events). */
   goalState: GoalStateWsPayload | undefined;
+  /** 当前 turn 实际启用的 fallback 模型；turn 完成后清空。 */
+  turnModelName: string | null;
+  turnModelProvider: string | null;
   send: (content: string, images?: SendImage[], options?: SendOptions) => void;
   stop: () => void;
   setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>;
@@ -574,6 +607,8 @@ export function useNanobotStream(
   /** Unix epoch seconds when the current user turn started; cleared on ``idle``. */
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [goalState, setGoalState] = useState<GoalStateWsPayload | undefined>(undefined);
+  const [turnModelName, setTurnModelName] = useState<string | null>(null);
+  const [turnModelProvider, setTurnModelProvider] = useState<string | null>(null);
   const [streamError, setStreamError] = useState<StreamError | null>(null);
   const buffer = useRef<StreamBuffer | null>(null);
   const activeAssistantRef = useRef<ActiveAssistantCursor | null>(null);
@@ -954,6 +989,8 @@ export function useNanobotStream(
     clearActivitySegment();
     clearPendingStreamWork();
     suppressedTurnIdsRef.current.clear();
+    setTurnModelName(null);
+    setTurnModelProvider(null);
     stopAssistantPlayback();
     if (streamEndTimerRef.current !== null) {
       clearTimeout(streamEndTimerRef.current);
@@ -1114,6 +1151,17 @@ export function useNanobotStream(
         return;
       }
 
+      if (ev.event === "turn_model_updated") {
+        if (ev.is_fallback === false) {
+          setTurnModelName(null);
+          setTurnModelProvider(null);
+        } else {
+          setTurnModelName(ev.model_name);
+          setTurnModelProvider(ev.provider ?? null);
+        }
+        return;
+      }
+
       if (ev.event === "turn_end") {
         const turn = turnFieldsFromEvent(ev, "complete");
         if (!turn) return;
@@ -1136,6 +1184,8 @@ export function useNanobotStream(
         activeTurnIdsRef.current.delete(turn.turnId);
         setIsStreaming(activeTurnIdsRef.current.size > 0);
         setRunStartedAt(null);
+        setTurnModelName(null);
+        setTurnModelProvider(null);
         setMessages((prev) => {
           let finalized = pendingCaptionEvents.length > 0
             ? mergePendingCaptionEvents(prev, pendingCaptionEvents)
@@ -1157,6 +1207,7 @@ export function useNanobotStream(
           if (ev.usage && typeof ev.usage === "object") {
             finalized = stampLastAssistantUsage(finalized, ev.usage, turn.turnId);
           }
+          finalized = stampLastAssistantResponseModel(finalized, ev, turn.turnId);
           finalized = stampLastAssistantTs(finalized, Date.now(), turn.turnId);
           if (buffer.current?.turnId === turn.turnId) buffer.current = null;
           if (activeAssistantRef.current?.turnId === turn.turnId) {
@@ -1337,11 +1388,18 @@ export function useNanobotStream(
             ...(hasMedia ? { media } : {}),
             ...(ev.tha_played ? { thaPlayed: true } : {}),
             ...(lat !== undefined ? { latencyMs: lat } : {}),
+            ...(ev.usage ? { usage: ev.usage } : {}),
             ...(ev.source_channel ? { sourceChannel: ev.source_channel } : {}),
             ...(ev.channel_delivery ? { channelDelivery: true } : {}),
             ...(ev.user_initiated_delivery ? { userInitiatedDelivery: true } : {}),
             ...(ev.cron_job_id ? { cronJobId: ev.cron_job_id } : {}),
             ...(ev.cron_job_name ? { cronJobName: ev.cron_job_name } : {}),
+            ...(ev.response_model ? { responseModel: ev.response_model } : {}),
+            ...(ev.response_provider ? { responseProvider: ev.response_provider } : {}),
+            ...(typeof ev.fallback_used === "boolean"
+              ? { fallbackUsed: ev.fallback_used }
+              : {}),
+            ...(ev.fallback_models?.length ? { fallbackModels: ev.fallback_models } : {}),
           });
         });
         if (hasMedia) {
@@ -1458,6 +1516,8 @@ export function useNanobotStream(
 
       flushPendingStreamEvents();
       flushPendingCaptionEvents();
+      setTurnModelName(null);
+      setTurnModelProvider(null);
       captionPartsRef.current = new Map();
       captionImageCountRef.current = hasImages ? images!.length : 0;
       const turnId = crypto.randomUUID();
@@ -1500,6 +1560,8 @@ export function useNanobotStream(
     if (!chatId) return;
     flushPendingStreamEvents();
     setIsStreaming(false);
+    setTurnModelName(null);
+    setTurnModelProvider(null);
     setMessages((prev) => {
       buffer.current = null;
       activeAssistantRef.current = null;
@@ -1518,6 +1580,8 @@ export function useNanobotStream(
     isStreaming,
     runStartedAt,
     goalState,
+    turnModelName,
+    turnModelProvider,
     send,
     stop,
     setMessages,

@@ -78,6 +78,8 @@ export function InboxView({
     isStreaming,
     runStartedAt,
     goalState,
+    turnModelName,
+    turnModelProvider,
     send,
     stop,
     replaceMessagesFromSnapshot,
@@ -269,6 +271,8 @@ export function InboxView({
               cliApps={cliApps}
               mcpPresets={mcpPresets}
               modelSettings={modelSettings}
+              turnModelName={turnModelName}
+              turnModelProvider={turnModelProvider}
               modelSelectionPending={modelSelectionPending}
               modelSelectionError={modelSelectionError}
               onDismissModelSelectionError={onDismissModelSelectionError}

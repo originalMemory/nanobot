@@ -8,6 +8,7 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import GenerationSettings, LLMResponse
 from nanobot.session.webui_turns import WebuiTurnCoordinator
+from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 
 
 def _make_loop(tmp_path):
@@ -38,6 +39,12 @@ def _make_loop(tmp_path):
 @pytest.mark.asyncio
 async def test_process_direct_websocket_clears_run_status(tmp_path) -> None:
     loop = _make_loop(tmp_path)
+    llm_response = LLMResponse(
+        content="done",
+        tool_calls=[],
+        usage={"prompt_tokens": 1200, "completion_tokens": 80},
+    )
+    loop.provider.chat_with_retry = AsyncMock(return_value=llm_response)
 
     response = await loop.process_direct(
         "deliver reminder",
@@ -48,6 +55,8 @@ async def test_process_direct_websocket_clears_run_status(tmp_path) -> None:
 
     assert response is not None
     assert response.content == "done"
+    turn_id = response.metadata.get(WEBUI_TURN_METADATA_KEY)
+    assert isinstance(turn_id, str) and turn_id
 
     events = []
     while loop.bus.outbound_size:
@@ -61,6 +70,10 @@ async def test_process_direct_websocket_clears_run_status(tmp_path) -> None:
     assert [status["goal_status"] for status in statuses] == ["running", "idle"]
     assert isinstance(statuses[0].get("started_at"), float)
     assert "started_at" not in statuses[1]
+    turn_end = next(event for event in events if event.metadata.get("_turn_end"))
+    assert turn_end.metadata[WEBUI_TURN_METADATA_KEY] == turn_id
+    assert turn_end.metadata["usage"]["turn_prompt_tokens"] == 1200
+    assert turn_end.metadata["usage"]["turn_completion_tokens"] == 80
 
 
 @pytest.mark.asyncio

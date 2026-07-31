@@ -54,6 +54,8 @@ _FALLBACK_ERROR_TOKENS = (
     "out of credits",
 )
 
+FallbackModelObserver = Callable[[str, str | None, bool], Awaitable[None]]
+
 
 class FallbackProvider(LLMProvider):
     """Wrap a primary provider and transparently failover to fallback models.
@@ -83,6 +85,27 @@ class FallbackProvider(LLMProvider):
         self._has_fallbacks = bool(fallback_presets)
         self._primary_failures = 0
         self._primary_tripped_at: float | None = None
+        self._fallback_model_observer: FallbackModelObserver | None = None
+
+    def set_fallback_model_observer(
+        self,
+        observer: FallbackModelObserver | None,
+    ) -> None:
+        self._fallback_model_observer = observer
+
+    async def _notify_model(
+        self,
+        model: str,
+        provider: str | None,
+        *,
+        is_fallback: bool,
+    ) -> None:
+        if self._fallback_model_observer is None:
+            return
+        try:
+            await self._fallback_model_observer(model, provider, is_fallback)
+        except Exception:
+            logger.debug("Model observer failed for '{}'", model, exc_info=True)
 
     @property
     def generation(self):
@@ -142,6 +165,7 @@ class FallbackProvider(LLMProvider):
         primary_model = kwargs.get("model") or self._primary.get_default_model()
 
         if self._primary_available():
+            await self._notify_model(primary_model, None, is_fallback=False)
             response = await call(self._primary, kwargs)
             if response.finish_reason != "error":
                 self._primary_failures = 0
@@ -201,6 +225,12 @@ class FallbackProvider(LLMProvider):
                 )
                 continue
 
+            fallback_provider_name = getattr(fallback, "provider", None)
+            await self._notify_model(
+                fallback_model,
+                fallback_provider_name if fallback_provider_name != "auto" else None,
+                is_fallback=True,
+            )
             original_values = {
                 name: kwargs.get(name, _MISSING)
                 for name in ("model", "max_tokens", "temperature", "reasoning_effort")

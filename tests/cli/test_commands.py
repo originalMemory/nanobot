@@ -1294,6 +1294,17 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
                 channel="telegram",
                 chat_id="user-1",
                 content="Time to stretch.",
+                metadata={
+                    "usage": {
+                        "last_prompt_tokens": 1200,
+                        "turn_completion_tokens": 80,
+                    },
+                    "_response_model": {
+                        "model": "openai/gpt-4.1-mini",
+                        "provider": "openai",
+                    },
+                    "_fallback_used": True,
+                },
             )
 
         async def close_mcp(self) -> None:
@@ -1378,6 +1389,15 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
         "source_chat_id": "user-1",
         "_cron_job_id": "cron-1",
         "_cron_job_name": "stretch",
+        "usage": {
+            "last_prompt_tokens": 1200,
+            "turn_completion_tokens": 80,
+        },
+        "_response_model": {
+            "model": "openai/gpt-4.1-mini",
+            "provider": "openai",
+        },
+        "_fallback_used": True,
     }
     assert seen["session_key"] == "telegram:user-1"
     saved_session = seen["saved_session"]
@@ -1391,6 +1411,13 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
             "source_chat_id": "user-1",
             "_cron_job_id": "cron-1",
             "_cron_job_name": "stretch",
+            "usage": {
+                "last_prompt_tokens": 1200,
+                "turn_completion_tokens": 80,
+            },
+            "response_model": "openai/gpt-4.1-mini",
+            "response_provider": "openai",
+            "fallback_used": True,
         }
     ]
 

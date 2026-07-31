@@ -72,6 +72,49 @@ describe("ThreadMessages turn timeline", () => {
     expect(container.querySelector(".chat-ai-bubble")).toBeNull();
   });
 
+  it("always shows the reply model and marks fallback separately", () => {
+    const { rerender } = renderThread([
+      turnMessage({
+        id: "a1",
+        role: "assistant",
+        content: "primary reply",
+        responseModel: "openai/gpt-4.1",
+        fallbackUsed: false,
+        createdAt: 1,
+      }),
+    ]);
+
+    expect(screen.getByTestId("response-model-summary")).toHaveTextContent(
+      /openai\/gpt-4\.1/,
+    );
+    expect(screen.queryByText(/已降级|Fallback used/)).not.toBeInTheDocument();
+
+    rerender(
+      <ClientProvider
+        client={{} as NanobotClient}
+        token=""
+        apiBase="http://127.0.0.1:8765"
+      >
+        <ThreadMessages
+          messages={[
+            turnMessage({
+              id: "a2",
+              role: "assistant",
+              content: "fallback reply",
+              responseModel: "openai/gpt-4.1-mini",
+              fallbackUsed: true,
+              createdAt: 2,
+            }),
+          ]}
+        />
+      </ClientProvider>,
+    );
+    expect(screen.getByTestId("response-model-summary")).toHaveTextContent(
+      /openai\/gpt-4\.1-mini/,
+    );
+    expect(screen.getByText(/已降级|Fallback used/)).toBeInTheDocument();
+  });
+
   it("keeps interleaved activity and assistant replies as separate units", () => {
     const messages: UIMessage[] = [
       turnMessage({

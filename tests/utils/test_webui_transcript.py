@@ -860,6 +860,53 @@ def test_session_messages_to_wire_events_includes_cron_job_source() -> None:
     assert message["cron_job_name"] == "喝水提醒"
 
 
+def test_response_model_and_fallback_survive_session_replay() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {
+            "role": "assistant",
+            "content": "reply",
+            "response_model": "openai/gpt-4.1-mini",
+            "response_provider": "openai",
+            "fallback_used": True,
+            "_fallback_models": [
+                {"model": "openai/gpt-4.1-mini", "provider": "openai"},
+            ],
+        },
+    ])
+    message = next(event for event in events if event.get("event") == "message")
+    assert message["response_model"] == "openai/gpt-4.1-mini"
+    assert message["response_provider"] == "openai"
+    assert message["fallback_used"] is True
+
+    replayed = replay_transcript_to_ui_messages(events)
+    assert replayed[0]["responseModel"] == "openai/gpt-4.1-mini"
+    assert replayed[0]["responseProvider"] == "openai"
+    assert replayed[0]["fallbackUsed"] is True
+    assert replayed[0]["fallbackModels"] == [
+        {"model": "openai/gpt-4.1-mini", "provider": "openai"},
+    ]
+
+    streamed = replay_transcript_to_ui_messages([
+        {
+            "event": "delta",
+            "chat_id": "x",
+            "text": "streamed reply",
+            "turn_id": "turn-1",
+        },
+        {
+            "event": "turn_end",
+            "chat_id": "x",
+            "turn_id": "turn-1",
+            "response_model": "openai/gpt-4.1-mini",
+            "fallback_used": True,
+        },
+    ])
+    assert streamed[0]["responseModel"] == "openai/gpt-4.1-mini"
+    assert streamed[0]["fallbackUsed"] is True
+
+
 def test_replay_channel_delivery_preserves_cron_job_source() -> None:
     msgs = replay_transcript_to_ui_messages([
         {

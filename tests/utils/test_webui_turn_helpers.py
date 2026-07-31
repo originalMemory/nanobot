@@ -4,6 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from nanobot.agent.tools.context import (
+    RequestContext,
+    bind_request_context,
+    reset_request_context,
+)
 from nanobot.bus.events import InboundMessage
 from nanobot.session import webui_turns as wth
 
@@ -66,3 +71,48 @@ async def test_publish_turn_run_status_non_websocket_noop_registry() -> None:
     await wth.publish_turn_run_status(bus, msg, "running")
 
     assert wth._WEBSOCKET_TURN_WALL_STARTED_AT == {}
+
+
+@pytest.mark.asyncio
+async def test_fallback_model_observer_only_publishes_for_frontend_turns() -> None:
+    bus = MagicMock()
+    bus.publish_outbound = AsyncMock()
+    observer = wth.build_webui_fallback_model_observer(bus)
+    frontend_context = RequestContext(
+        channel="websocket",
+        chat_id="inbox:unified",
+        metadata={"webui": True, "webui_turn_id": "turn-1"},
+    )
+    token = bind_request_context(frontend_context)
+    try:
+        await observer("openai/gpt-4.1-mini", "openai", True)
+    finally:
+        reset_request_context(token)
+
+    message = bus.publish_outbound.await_args.args[0]
+    assert message.metadata["model"] == "openai/gpt-4.1-mini"
+    assert message.metadata["provider"] == "openai"
+    assert message.metadata["is_fallback"] is True
+    assert frontend_context.metadata["_response_model"] == {
+        "model": "openai/gpt-4.1-mini",
+        "provider": "openai",
+    }
+    assert frontend_context.metadata["_fallback_used"] is True
+    assert frontend_context.metadata["_fallback_models"] == [
+        {"model": "openai/gpt-4.1-mini", "provider": "openai"},
+    ]
+
+    bus.publish_outbound.reset_mock()
+    background_context = RequestContext(
+        channel="websocket",
+        chat_id="inbox:unified",
+    )
+    token = bind_request_context(background_context)
+    try:
+        await observer("openai/gpt-4.1-mini", "openai", True)
+    finally:
+        reset_request_context(token)
+
+    bus.publish_outbound.assert_not_awaited()
+    assert background_context.metadata["_response_model"]["model"] == "openai/gpt-4.1-mini"
+    assert background_context.metadata["_fallback_used"] is True

@@ -12,20 +12,24 @@ from loguru import logger
 
 from nanobot.agent.hook import AgentHook, AgentHookContext
 from nanobot.agent.runner import AgentRunner, AgentRunSpec
-from nanobot.agent.tools.context import ToolContext
+from nanobot.agent.tools.context import (
+    ToolContext,
+    bind_request_context,
+    reset_request_context,
+)
 from nanobot.agent.tools.file_state import FileStates
 from nanobot.agent.tools.loader import ToolLoader
 from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.bus.events import InboundMessage
+from nanobot.bus.queue import MessageBus
+from nanobot.config.schema import AgentDefaults, ToolsConfig
+from nanobot.providers.base import LLMProvider
 from nanobot.security.workspace_access import (
     WorkspaceScope,
     bind_workspace_scope,
     reset_workspace_scope,
     workspace_sandbox_status,
 )
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import AgentDefaults, ToolsConfig
-from nanobot.providers.base import LLMProvider
 from nanobot.utils.prompt_templates import render_template
 
 
@@ -238,6 +242,7 @@ class SubagentManager:
                 else None
             )
             token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
+            request_token = bind_request_context(None)
             try:
                 result = await self.runner.run(AgentRunSpec(
                     initial_messages=messages,
@@ -256,6 +261,7 @@ class SubagentManager:
                     llm_timeout_s=llm_timeout,
                 ))
             finally:
+                reset_request_context(request_token)
                 if token is not None:
                     reset_workspace_scope(token)
             status.phase = "done"

@@ -164,12 +164,12 @@ def make_provider(
 
 
 def resolve_vision_config(config: Config) -> tuple[str | None, str | None]:
-    """解析辅助视觉模型配置，返回 (vision_model, vision_provider)。
-
-    每个 preset 固定使用自己的视觉配置；未选 preset 时使用 agents.defaults。
-    """
+    """返回当前 preset 是否启用的全局辅助视觉配置。"""
     preset = config.resolve_preset()
-    return preset.vision_model, preset.vision_provider
+    if not preset.vision_enabled:
+        return None, None
+    defaults = config.agents.defaults
+    return defaults.vision_model, defaults.vision_provider
 
 
 def get_vision_model(config: Config) -> str | None:

@@ -138,6 +138,119 @@ describe("useNanobotStream inbox user events", () => {
     expect(window.electronAPI.tray.notifyIncoming).toHaveBeenCalledOnce();
   });
 
+  it("shows the actual fallback model only for the active turn", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "turn_model_updated",
+        chat_id: "inbox:unified",
+        model_name: "openai/gpt-4.1-mini",
+        provider: "openai",
+        is_fallback: true,
+      });
+    });
+    expect(result.current.turnModelName).toBe("openai/gpt-4.1-mini");
+    expect(result.current.turnModelProvider).toBe("openai");
+
+    act(() => {
+      handle({
+        event: "turn_model_updated",
+        chat_id: "inbox:unified",
+        model_name: "openai/gpt-4.1",
+        is_fallback: false,
+      });
+    });
+    expect(result.current.turnModelName).toBeNull();
+    expect(result.current.turnModelProvider).toBeNull();
+
+    act(() => {
+      handle({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+      });
+    });
+    expect(result.current.turnModelName).toBeNull();
+  });
+
+  it("keeps the reply model and fallback marker on the completed message", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+
+    act(() => {
+      chatHandlers.get("inbox:unified")!({
+        event: "message",
+        chat_id: "inbox:unified",
+        text: "fallback reply",
+        response_model: "openai/gpt-4.1-mini",
+        response_provider: "openai",
+        fallback_used: true,
+        fallback_models: [
+          { model: "openai/gpt-4.1-mini", provider: "openai" },
+        ],
+        usage: {
+          last_prompt_tokens: 1200,
+          turn_completion_tokens: 80,
+        },
+      });
+    });
+
+    expect(result.current.messages[0]).toMatchObject({
+      role: "assistant",
+      responseModel: "openai/gpt-4.1-mini",
+      responseProvider: "openai",
+      fallbackUsed: true,
+      fallbackModels: [
+        { model: "openai/gpt-4.1-mini", provider: "openai" },
+      ],
+      usage: {
+        last_prompt_tokens: 1200,
+        turn_completion_tokens: 80,
+      },
+    });
+
+    act(() => {
+      chatHandlers.get("inbox:unified")!({
+        event: "delta",
+        chat_id: "inbox:unified",
+        text: "streamed",
+        turn_id: "turn-streamed",
+      });
+      chatHandlers.get("inbox:unified")!({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+        turn_id: "turn-streamed",
+        response_model: "anthropic/claude-sonnet",
+        fallback_used: false,
+      });
+    });
+
+    expect(result.current.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "streamed",
+      responseModel: "anthropic/claude-sonnet",
+      fallbackUsed: false,
+    });
+  });
+
   it("保留后端已交给 THA 播放的消息标记", () => {
     const { client, chatHandlers } = createMockClient();
     const wrapper = ({ children }: { children: ReactNode }) => (

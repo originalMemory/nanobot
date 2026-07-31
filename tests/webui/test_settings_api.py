@@ -12,13 +12,90 @@ from nanobot.webui.settings_api import (
     WebUISettingsError,
     _oauth_provider_status,
     create_model_configuration,
+    migrate_model_configurations,
     provider_models_payload,
     settings_payload,
     update_agent_settings,
+    update_model_call_order,
     update_model_configuration,
     update_network_safety_settings,
     update_tha_settings,
 )
+
+
+def test_model_call_order_migrates_and_updates_named_presets(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.agents.defaults.model = "openai/gpt-4o"
+    config.agents.defaults.provider = "openai"
+    config.providers.openai.api_key = "sk-test"
+    config.model_presets["fast"] = ModelPresetConfig(
+        label="Fast",
+        model="openai/gpt-4.1-mini",
+        provider="openai",
+    )
+    config.agents.defaults.fallback_models = ["fast"]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    before = settings_payload()
+    assert before["model_call_order"] == []
+    assert before["model_call_order_editable"] is False
+
+    migrated = migrate_model_configurations()
+    primary = migrated["model_call_order"][0]
+    assert migrated["model_call_order"] == [primary, "fast"]
+    assert migrated["model_call_order_editable"] is True
+
+    payload = update_model_call_order({"order": [json.dumps(["fast", primary])]})
+    assert payload["model_call_order"] == ["fast", primary]
+    saved = load_config(config_path)
+    assert saved.agents.defaults.model_preset == "fast"
+    assert saved.agents.defaults.fallback_models == [primary]
+
+    switched = update_agent_settings({"model_preset": [primary]})
+    assert switched["model_call_order"] == [primary, "fast"]
+    saved = load_config(config_path)
+    assert saved.agents.defaults.fallback_models == ["fast"]
+
+    edited = update_model_configuration({"name": ["fast"], "label": ["Fast edited"]})
+    assert edited["model_call_order"] == ["fast", primary]
+    saved = load_config(config_path)
+    assert saved.agents.defaults.fallback_models == [primary]
+
+
+def test_model_call_order_rejects_unconfigured_inactive_provider(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.providers.openai.api_key = "sk-test"
+    config.model_presets = {
+        "primary": ModelPresetConfig(
+            model="openai/gpt-4o",
+            provider="openai",
+        ),
+        "inactive": ModelPresetConfig(
+            model="anthropic/claude-sonnet-4",
+            provider="anthropic",
+        ),
+    }
+    config.agents.defaults.model_preset = "primary"
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    with pytest.raises(WebUISettingsError, match="provider is not configured"):
+        update_model_call_order(
+            {"order": [json.dumps(["primary", "inactive"])]}
+        )
+
+    saved = load_config(config_path)
+    assert saved.agents.defaults.model_preset == "primary"
+    assert saved.agents.defaults.fallback_models == []
 
 
 def test_create_model_configuration_writes_label_and_selects(
@@ -51,6 +128,7 @@ def test_create_model_configuration_writes_label_and_selects(
     assert saved.model_presets["fast-writing"].label == "Fast writing"
     assert saved.model_presets["fast-writing"].model == "openai/gpt-4.1-mini"
     assert saved.model_presets["fast-writing"].provider == "openai"
+    assert saved.model_presets["fast-writing"].vision_enabled is False
 
     with pytest.raises(WebUISettingsError) as duplicate:
         create_model_configuration(
@@ -468,7 +546,7 @@ def test_update_agent_settings_writes_reasoning_effort_to_active_preset(
     assert saved.model_presets["think"].reasoning_effort == "high"
 
 
-def test_settings_payload_exposes_fixed_preset_vision(
+def test_settings_payload_exposes_global_vision_with_preset_switch(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -480,6 +558,7 @@ def test_settings_payload_exposes_fixed_preset_vision(
         model="openai/gpt-4.1",
         provider="openai",
         vision_model="gemini-2.5-pro",
+        vision_enabled=True,
     )
     config.model_presets["direct"] = ModelPresetConfig(
         model="openai/gpt-4.1",
@@ -492,15 +571,18 @@ def test_settings_payload_exposes_fixed_preset_vision(
     payload = settings_payload()
     rows = {row["name"]: row for row in payload["model_presets"]}
 
-    assert payload["agent"]["vision_model"] == "gemini-2.5-pro"
-    assert payload["agent"]["vision_provider"] is None
+    assert payload["agent"]["vision_model"] == "gemini-2.5-flash"
+    assert payload["agent"]["vision_provider"] == "gemini"
+    assert payload["agent"]["vision_enabled"] is True
     assert rows["default"]["vision_model"] == "gemini-2.5-flash"
-    assert rows["vision"]["vision_model"] == "gemini-2.5-pro"
-    assert rows["vision"]["vision_provider"] is None
-    assert rows["direct"]["vision_model"] is None
+    assert rows["vision"]["vision_model"] == "gemini-2.5-flash"
+    assert rows["vision"]["vision_provider"] == "gemini"
+    assert rows["vision"]["vision_enabled"] is True
+    assert rows["direct"]["vision_model"] == "gemini-2.5-flash"
+    assert rows["direct"]["vision_enabled"] is False
 
 
-def test_update_agent_settings_writes_and_clears_fixed_preset_vision(
+def test_update_agent_settings_writes_global_vision_and_preset_switch(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -511,6 +593,7 @@ def test_update_agent_settings_writes_and_clears_fixed_preset_vision(
     config.model_presets["vision"] = ModelPresetConfig(
         model="openai/gpt-4.1",
         provider="openai",
+        vision_enabled=True,
     )
     config.agents.defaults.model_preset = "vision"
     save_config(config, config_path)
@@ -526,12 +609,38 @@ def test_update_agent_settings_writes_and_clears_fixed_preset_vision(
     auxiliary = update_agent_settings({
         "vision_model": ["gemini-2.5-pro"],
         "vision_provider": [""],
+        "vision_enabled": ["false"],
     })
     assert auxiliary["agent"]["vision_model"] == "gemini-2.5-pro"
     assert auxiliary["agent"]["vision_provider"] is None
-    saved = load_config(config_path).model_presets["vision"]
-    assert saved.vision_model == "gemini-2.5-pro"
-    assert saved.vision_provider is None
+    assert auxiliary["agent"]["vision_enabled"] is False
+    saved = load_config(config_path)
+    assert saved.agents.defaults.vision_model == "gemini-2.5-pro"
+    assert saved.agents.defaults.vision_provider is None
+    assert saved.model_presets["vision"].vision_enabled is False
+    assert saved.model_presets["vision"].vision_model is None
+
+
+def test_legacy_preset_vision_is_promoted_to_global_config() -> None:
+    config = Config.model_validate({
+        "agents": {"defaults": {"modelPreset": "vision"}},
+        "modelPresets": {
+            "vision": {
+                "model": "openai/gpt-4.1",
+                "visionModel": "gemini-2.5-pro",
+                "visionProvider": "gemini",
+            },
+            "direct": {"model": "openai/gpt-4.1"},
+        },
+    })
+
+    assert config.agents.defaults.vision_model == "gemini-2.5-pro"
+    assert config.agents.defaults.vision_provider == "gemini"
+    assert config.model_presets["vision"].vision_enabled is True
+    assert config.model_presets["direct"].vision_enabled is False
+    dumped = config.model_dump(by_alias=True)
+    assert "visionModel" not in dumped["model_presets"]["vision"]
+    assert "visionProvider" not in dumped["model_presets"]["vision"]
 
 
 def test_provider_models_payload_fetches_openai_compatible_models(

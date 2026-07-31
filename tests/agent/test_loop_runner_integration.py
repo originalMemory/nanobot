@@ -9,6 +9,8 @@ import pytest
 
 from nanobot.config.schema import AgentDefaults
 from nanobot.providers.base import LLMResponse, ToolCallRequest
+from nanobot.providers.factory import ProviderSnapshot
+from nanobot.providers.fallback_provider import FallbackProvider
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -27,6 +29,59 @@ def _make_loop(tmp_path):
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
     return loop
+
+
+def test_loop_attaches_fallback_observer_on_init_and_provider_refresh(tmp_path):
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.bus.queue import MessageBus
+
+    primary = MagicMock()
+    primary.get_default_model.return_value = "primary/model"
+    initial = FallbackProvider(primary, [], MagicMock())
+    refreshed = FallbackProvider(primary, [], MagicMock())
+
+    with patch("nanobot.agent.loop.ContextBuilder"), \
+         patch("nanobot.agent.loop.SessionManager"), \
+         patch("nanobot.agent.loop.SubagentManager"):
+        loop = AgentLoop(
+            bus=MessageBus(),
+            provider=initial,
+            workspace=tmp_path,
+            model="primary/model",
+        )
+
+    assert initial._fallback_model_observer is not None
+
+    loop._apply_provider_snapshot(
+        ProviderSnapshot(
+            provider=refreshed,
+            model="refreshed/model",
+            context_window_tokens=100_000,
+            signature=("refreshed",),
+        ),
+        publish_update=False,
+    )
+
+    assert refreshed._fallback_model_observer is not None
+
+
+@pytest.mark.asyncio
+async def test_loop_preserves_fallback_state_across_continuation_slice(tmp_path):
+    loop = _make_loop(tmp_path)
+    loop.provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(content="done", tool_calls=[], usage={})
+    )
+    metadata = {
+        "_fallback_used": True,
+        "_fallback_models": [{"model": "fallback/model", "provider": "openai"}],
+    }
+
+    await loop._run_agent_loop([], metadata=metadata)
+
+    assert metadata["_fallback_used"] is True
+    assert metadata["_fallback_models"] == [
+        {"model": "fallback/model", "provider": "openai"}
+    ]
 
 @pytest.mark.asyncio
 async def test_loop_max_iterations_message_stays_stable(tmp_path):

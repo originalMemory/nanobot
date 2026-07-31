@@ -297,7 +297,7 @@ def test_vision_model_preset_defaults_to_none() -> None:
     assert preset.vision_provider is None
 
 
-def test_named_preset_vision_config_is_fixed_and_does_not_inherit_defaults() -> None:
+def test_named_preset_vision_switch_uses_global_config() -> None:
     config = Config.model_validate({
         "agents": {
             "defaults": {
@@ -317,10 +317,27 @@ def test_named_preset_vision_config_is_fixed_and_does_not_inherit_defaults() -> 
     assert resolve_vision_config(config) == (None, None)
 
     config.agents.defaults.model_preset = "auxiliary"
-    assert resolve_vision_config(config) == ("gemini-2.5-pro", None)
+    assert resolve_vision_config(config) == ("gemini-2.5-flash", "gemini")
 
     config.agents.defaults.model_preset = None
     assert resolve_vision_config(config) == ("gemini-2.5-flash", "gemini")
+
+
+def test_explicit_vision_switch_wins_over_legacy_preset_fields() -> None:
+    config = Config.model_validate({
+        "agents": {"defaults": {"modelPreset": "disabled"}},
+        "modelPresets": {
+            "disabled": {
+                "model": "openai/gpt-4.1",
+                "visionModel": "gemini-2.5-pro",
+                "visionEnabled": False,
+            },
+        },
+    })
+
+    assert config.agents.defaults.vision_model == "gemini-2.5-pro"
+    assert config.model_presets["disabled"].vision_enabled is False
+    assert resolve_vision_config(config) == (None, None)
 
 
 def test_match_provider_routes_forced_novita_model_api_models() -> None:

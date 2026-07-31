@@ -353,6 +353,31 @@ def test_save_turn_usage_not_written_when_empty() -> None:
     assert "usage" not in session.messages[-1]
 
 
+def test_save_turn_stamps_response_model_and_fallback_on_last_assistant() -> None:
+    loop = _mk_loop()
+    session = Session(key="test:model")
+
+    loop._save_turn(
+        session,
+        [
+            {"role": "assistant", "content": "tool preface", "tool_calls": [{"id": "c1"}]},
+            {"role": "assistant", "content": "final answer"},
+        ],
+        skip=0,
+        response_model={"model": "openai/gpt-4.1-mini", "provider": "openai"},
+        fallback_used=True,
+        fallback_models=[{"model": "openai/gpt-4.1-mini", "provider": "openai"}],
+    )
+
+    assert "response_model" not in session.messages[0]
+    assert session.messages[-1]["response_model"] == "openai/gpt-4.1-mini"
+    assert session.messages[-1]["response_provider"] == "openai"
+    assert session.messages[-1]["fallback_used"] is True
+    assert session.messages[-1]["_fallback_models"] == [
+        {"model": "openai/gpt-4.1-mini", "provider": "openai"},
+    ]
+
+
 def test_restore_runtime_checkpoint_rehydrates_completed_and_pending_tools() -> None:
     loop = _mk_loop()
     session = Session(

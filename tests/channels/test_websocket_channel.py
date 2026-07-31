@@ -14,9 +14,9 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 from websockets.frames import Close
 
+from nanobot.agent.playback_segments import AssistantPlaybackSegment, SegmentAudio
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.agent.playback_segments import AssistantPlaybackSegment, SegmentAudio
 from nanobot.channels.websocket import (
     WebSocketChannel,
     WebSocketConfig,
@@ -605,6 +605,20 @@ async def test_send_delivers_json_message_with_media_and_reply() -> None:
         reply_to="m1",
         media=["/tmp/a.png"],
         buttons=[["Yes", "No"]],
+        metadata={
+            "_response_model": {
+                "model": "openai/gpt-4.1-mini",
+                "provider": "openai",
+            },
+            "_fallback_used": True,
+            "_fallback_models": [
+                {"model": "openai/gpt-4.1-mini", "provider": "openai"},
+            ],
+            "usage": {
+                "last_prompt_tokens": 1200,
+                "turn_completion_tokens": 80,
+            },
+        },
     )
     await channel.send(msg)
 
@@ -615,6 +629,16 @@ async def test_send_delivers_json_message_with_media_and_reply() -> None:
     assert payload["text"] == "hello"
     assert payload["reply_to"] == "m1"
     assert payload["media"] == ["/tmp/a.png"]
+    assert payload["response_model"] == "openai/gpt-4.1-mini"
+    assert payload["response_provider"] == "openai"
+    assert payload["fallback_used"] is True
+    assert payload["fallback_models"] == [
+        {"model": "openai/gpt-4.1-mini", "provider": "openai"},
+    ]
+    assert payload["usage"] == {
+        "last_prompt_tokens": 1200,
+        "turn_completion_tokens": 80,
+    }
 
 
 @pytest.mark.asyncio
@@ -631,6 +655,48 @@ async def test_send_broadcasts_runtime_model_updates() -> None:
     assert payload["event"] == "runtime_model_updated"
     assert payload["model_name"] == "openai/gpt-4.1"
     assert payload["model_preset"] == "fast"
+
+
+@pytest.mark.asyncio
+async def test_send_turn_model_update_is_scoped_to_chat() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus),
+    )
+    target = AsyncMock()
+    other = AsyncMock()
+    channel._attach(target, "chat-1")
+    channel._attach(other, "chat-2")
+
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            metadata={
+                "_turn_model_updated": True,
+                "model": "openai/gpt-4.1-mini",
+                "provider": "openai",
+                "is_fallback": True,
+                "webui_turn_id": "turn-1",
+            },
+        )
+    )
+
+    payload = json.loads(target.send.await_args.args[0])
+    assert payload == {
+        "event": "turn_model_updated",
+        "chat_id": "chat-1",
+        "model_name": "openai/gpt-4.1-mini",
+        "provider": "openai",
+        "is_fallback": True,
+        "turn_id": "turn-1",
+        "turn_phase": "activity",
+        "turn_seq": 0,
+    }
+    other.send.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1610,6 +1676,39 @@ async def test_send_turn_end_includes_usage_when_present() -> None:
         "latency_ms": 1500,
         "usage": usage,
     }
+
+
+@pytest.mark.asyncio
+async def test_send_turn_end_includes_response_model_and_fallback() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="",
+        metadata={
+            "_turn_end": True,
+            "_response_model": {
+                "model": "openai/gpt-4.1-mini",
+                "provider": "openai",
+            },
+            "_fallback_used": True,
+            "_fallback_models": [
+                {"model": "openai/gpt-4.1-mini", "provider": "openai"},
+            ],
+        },
+    ))
+
+    body = json.loads(mock_ws.send.await_args.args[0])
+    assert body["response_model"] == "openai/gpt-4.1-mini"
+    assert body["response_provider"] == "openai"
+    assert body["fallback_used"] is True
+    assert body["fallback_models"] == [
+        {"model": "openai/gpt-4.1-mini", "provider": "openai"},
+    ]
 
 
 @pytest.mark.asyncio

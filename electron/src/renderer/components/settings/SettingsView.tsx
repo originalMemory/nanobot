@@ -15,6 +15,8 @@ import {
   updateThaSettings,
   updateDeskPetPsbSettings,
   createModelConfiguration,
+  migrateModelConfigurations,
+  updateModelCallOrder,
 } from "@/lib/api";
 import type {
   CliAppsPayload,
@@ -197,6 +199,7 @@ export function SettingsView({
     }
     update.visionModel = draft.visionModel.trim();
     update.visionProvider = draft.visionProvider.trim();
+    update.visionEnabled = draft.visionEnabled;
     const maxTokens = Number(draft.maxTokens);
     if (!Number.isNaN(maxTokens) && maxTokens >= 1) update.maxTokens = maxTokens;
     const contextWindowTokens = Number(draft.contextWindowTokens);
@@ -226,6 +229,16 @@ export function SettingsView({
 
   const handleCreateModelConfiguration = useCallback(async (draft: ModelConfigurationDraft) => {
     const payload = await createModelConfiguration(token, draft, apiBase);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate]);
+
+  const handleMigrateModelConfigurations = useCallback(async () => {
+    const payload = await migrateModelConfigurations(token, apiBase);
+    handleSettingsUpdate(payload);
+  }, [token, apiBase, handleSettingsUpdate]);
+
+  const handleSaveModelCallOrder = useCallback(async (order: string[]) => {
+    const payload = await updateModelCallOrder(token, order, apiBase);
     handleSettingsUpdate(payload);
   }, [token, apiBase, handleSettingsUpdate]);
 
@@ -364,6 +377,8 @@ export function SettingsView({
             onSaveModel={handleSaveModel}
             onSaveProvider={handleSaveProvider}
             onCreateModelConfiguration={handleCreateModelConfiguration}
+            onMigrateModelConfigurations={handleMigrateModelConfigurations}
+            onSaveModelCallOrder={handleSaveModelCallOrder}
           />
         );
       case "image":

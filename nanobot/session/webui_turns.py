@@ -10,6 +10,7 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.agent.tools.context import current_request_context
 from nanobot.bus import progress as bus_progress
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
@@ -23,6 +24,7 @@ from nanobot.bus.runtime_events import (
     TurnRunStatusChanged,
 )
 from nanobot.providers.base import LLMProvider
+from nanobot.providers.fallback_provider import FallbackModelObserver
 from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.helpers import strip_think, truncate_text
@@ -38,6 +40,45 @@ TITLE_GENERATION_REASONING_EFFORT = "none"
 # Wall-clock turn start per ``chat_id`` (websocket only). Survives browser refresh while the
 # gateway process stays up; cleared on idle/stop and implicitly dropped on restart.
 _WEBSOCKET_TURN_WALL_STARTED_AT: dict[str, float] = {}
+
+
+def build_webui_fallback_model_observer(bus: MessageBus) -> FallbackModelObserver:
+    """记录当前调用模型，并为 WebSocket turn 推送实时模型状态。"""
+
+    async def publish(model: str, provider: str | None, is_fallback: bool) -> None:
+        context = current_request_context()
+        if context is None:
+            return
+        response_model: dict[str, str] = {"model": model}
+        if provider:
+            response_model["provider"] = provider
+        context.metadata["_response_model"] = response_model
+        if is_fallback:
+            context.metadata["_fallback_used"] = True
+            fallback_models = context.metadata.setdefault("_fallback_models", [])
+            if isinstance(fallback_models, list):
+                if response_model not in fallback_models:
+                    fallback_models.append(response_model)
+        if context.channel != "websocket" or context.metadata.get("webui") is not True:
+            return
+        event_metadata = {
+            **context.metadata,
+            "_turn_model_updated": True,
+            "model": model,
+            "is_fallback": is_fallback,
+        }
+        if provider:
+            event_metadata["provider"] = provider
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel=context.channel,
+                chat_id=context.chat_id,
+                content="",
+                metadata=event_metadata,
+            )
+        )
+
+    return publish
 
 
 def mark_webui_session(session: Session, metadata: dict[str, Any]) -> bool:

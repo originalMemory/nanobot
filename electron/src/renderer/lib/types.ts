@@ -32,6 +32,11 @@ export interface UIMediaAttachment {
   name?: string;
 }
 
+export interface UIFallbackModel {
+  model: string;
+  provider?: string;
+}
+
 export type UITurnPhase = "user" | "reasoning" | "activity" | "answer" | "complete";
 
 export interface UIMessage {
@@ -84,6 +89,13 @@ export interface UIMessage {
   latencyMs?: number;
   /** Token usage for this assistant turn (from ``turn_end`` / persisted ``usage`` field). */
   usage?: TurnUsageStats;
+  /** 实际生成本轮最终回复的模型。 */
+  responseModel?: string;
+  responseProvider?: string;
+  /** 本轮是否曾从主模型降级。 */
+  fallbackUsed?: boolean;
+  /** 本轮依次尝试过的 fallback 模型，仅作详情展示。 */
+  fallbackModels?: UIFallbackModel[];
   /** Wall-clock timestamp of the assistant message (ISO local-time string from backend, or ms epoch for live turns). */
   messageTs?: string | number;
   /** Assistant message-bound TTS playback segments, persisted in WebUI transcript. */
@@ -244,6 +256,7 @@ export interface SettingsPayload {
     tool_hint_max_length: number;
     vision_model?: string | null;
     vision_provider?: string | null;
+    vision_enabled?: boolean;
     max_messages?: number;
   };
   model_presets: Array<{
@@ -259,7 +272,10 @@ export interface SettingsPayload {
     reasoning_effort: string | null;
     vision_model: string | null;
     vision_provider: string | null;
+    vision_enabled: boolean;
   }>;
+  model_call_order: string[];
+  model_call_order_editable: boolean;
   providers: Array<{
     name: string;
     label: string;
@@ -537,6 +553,7 @@ export interface SettingsUpdate {
   toolHintMaxLength?: number;
   visionModel?: string | null;
   visionProvider?: string | null;
+  visionEnabled?: boolean;
   maxTokens?: number;
   contextWindowTokens?: number;
   maxMessages?: number;
@@ -694,6 +711,8 @@ type InboundEventPayload =
       kind?: "tool_hint" | "progress" | "reasoning";
       /** Server-measured turn wall time when this frame finishes an assistant reply. */
       latency_ms?: number;
+      /** Full-turn model usage for completed proactive deliveries. */
+      usage?: TurnUsageStats;
       /** Optional structured payload on progress frames (channel-specific). */
       agent_ui?: AgentUIBlob;
       /** Electron inbox only: originating channel for inbox:unified fan-out. */
@@ -707,6 +726,11 @@ type InboundEventPayload =
       cron_job_id?: string;
       /** cron / heartbeat 主动投递来源任务名。 */
       cron_job_name?: string;
+      /** 实际生成本轮最终回复的模型。 */
+      response_model?: string;
+      response_provider?: string;
+      fallback_used?: boolean;
+      fallback_models?: UIFallbackModel[];
     }
   | {
       event: "user";
@@ -783,12 +807,23 @@ type InboundEventPayload =
       model_preset?: string | null;
     }
   | {
+      event: "turn_model_updated";
+      chat_id: string;
+      model_name: string;
+      provider?: string;
+      is_fallback?: boolean;
+    }
+  | {
       event: "turn_end";
       chat_id: string;
       latency_ms?: number;
       /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
       goal_state?: GoalStateWsPayload;
       usage?: TurnUsageStats;
+      response_model?: string;
+      response_provider?: string;
+      fallback_used?: boolean;
+      fallback_models?: UIFallbackModel[];
       source_channel?: string;
       source_chat_id?: string;
     }

@@ -1598,6 +1598,18 @@ class WebSocketChannel(BaseChannel):
             cron_job_name = msg.metadata.get("_cron_job_name")
             if isinstance(cron_job_name, str) and cron_job_name:
                 payload["cron_job_name"] = cron_job_name
+            fallback_models = msg.metadata.get("_fallback_models")
+            if isinstance(fallback_models, list) and fallback_models:
+                payload["fallback_models"] = fallback_models
+            response_model = msg.metadata.get("_response_model")
+            if isinstance(response_model, dict) and response_model.get("model"):
+                payload["response_model"] = str(response_model["model"])
+                response_provider = response_model.get("provider")
+                if isinstance(response_provider, str) and response_provider:
+                    payload["response_provider"] = response_provider
+            fallback_used = msg.metadata.get("_fallback_used")
+            if isinstance(fallback_used, bool):
+                payload["fallback_used"] = fallback_used
             if msg.media:
                 urls: list[dict[str, str]] = []
                 audio_urls: list[dict[str, str]] = []
@@ -1678,6 +1690,7 @@ class WebSocketChannel(BaseChannel):
             if (
                 msg.metadata.get("_progress")
                 or msg.metadata.get("_file_edit_events")
+                or msg.metadata.get("_turn_model_updated")
                 or msg.metadata.get("_turn_end")
                 or msg.metadata.get("_session_updated")
                 or msg.metadata.get("_goal_status")
@@ -1686,6 +1699,15 @@ class WebSocketChannel(BaseChannel):
                 self.logger.debug("no active subscribers for chat_id={}", msg.chat_id)
             else:
                 self.logger.warning("no active subscribers for chat_id={}", msg.chat_id)
+            return
+        if msg.metadata.get("_turn_model_updated"):
+            await self.send_turn_model_updated(
+                msg.chat_id,
+                model_name=msg.metadata.get("model"),
+                provider_name=msg.metadata.get("provider"),
+                is_fallback=msg.metadata.get("is_fallback"),
+                metadata=msg.metadata,
+            )
             return
         if msg.metadata.get("_goal_state_sync"):
             blob = msg.metadata.get("goal_state")
@@ -1775,6 +1797,9 @@ class WebSocketChannel(BaseChannel):
         lat = msg.metadata.get("latency_ms")
         if isinstance(lat, (int, float)):
             payload["latency_ms"] = int(lat)
+        usage = msg.metadata.get("usage")
+        if isinstance(usage, dict) and usage:
+            payload["usage"] = usage
         if msg.metadata.get("_tool_events"):
             payload["tool_events"] = msg.metadata["_tool_events"]
         agent_ui = msg.metadata.get(OUTBOUND_META_AGENT_UI)
@@ -1803,6 +1828,18 @@ class WebSocketChannel(BaseChannel):
         cron_job_name = msg.metadata.get("_cron_job_name")
         if isinstance(cron_job_name, str) and cron_job_name:
             payload["cron_job_name"] = cron_job_name
+        fallback_models = msg.metadata.get("_fallback_models")
+        if isinstance(fallback_models, list) and fallback_models:
+            payload["fallback_models"] = fallback_models
+        response_model = msg.metadata.get("_response_model")
+        if isinstance(response_model, dict) and response_model.get("model"):
+            payload["response_model"] = str(response_model["model"])
+            response_provider = response_model.get("provider")
+            if isinstance(response_provider, str) and response_provider:
+                payload["response_provider"] = response_provider
+        fallback_used = msg.metadata.get("_fallback_used")
+        if isinstance(fallback_used, bool):
+            payload["fallback_used"] = fallback_used
         phase = "activity" if payload.get("kind") in {"tool_hint", "progress"} else "answer"
         self._transcripts.prepare_and_append(
             msg.chat_id,
@@ -2084,6 +2121,18 @@ class WebSocketChannel(BaseChannel):
             body["goal_state"] = goal_state
         if usage:
             body["usage"] = usage
+        response_model = (metadata or {}).get("_response_model")
+        if isinstance(response_model, dict) and response_model.get("model"):
+            body["response_model"] = str(response_model["model"])
+            response_provider = response_model.get("provider")
+            if isinstance(response_provider, str) and response_provider:
+                body["response_provider"] = response_provider
+        fallback_used = (metadata or {}).get("_fallback_used")
+        if isinstance(fallback_used, bool):
+            body["fallback_used"] = fallback_used
+        fallback_models = (metadata or {}).get("_fallback_models")
+        if isinstance(fallback_models, list) and fallback_models:
+            body["fallback_models"] = fallback_models
         self._transcripts.prepare_and_append(
             chat_id,
             body,
@@ -2226,3 +2275,33 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" runtime_model_updated ")
+
+    async def send_turn_model_updated(
+        self,
+        chat_id: str,
+        *,
+        model_name: Any,
+        provider_name: Any = None,
+        is_fallback: Any = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """向当前会话订阅者发送本轮实际使用的 fallback 模型。"""
+        if not isinstance(model_name, str) or not model_name.strip():
+            return
+        body: dict[str, Any] = {
+            "event": "turn_model_updated",
+            "chat_id": chat_id,
+            "model_name": model_name.strip(),
+            "is_fallback": is_fallback is not False,
+        }
+        if isinstance(provider_name, str) and provider_name.strip():
+            body["provider"] = provider_name.strip()
+        self._transcripts.prepare_event(
+            chat_id,
+            body,
+            metadata=metadata,
+            phase="activity",
+        )
+        raw = json.dumps(body, ensure_ascii=False)
+        for connection in list(self._subs.get(chat_id, ())):
+            await self._safe_send_to(connection, raw, label=" turn_model_updated ")

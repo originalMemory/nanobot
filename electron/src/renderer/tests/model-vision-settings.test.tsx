@@ -14,6 +14,7 @@ const MODEL = "openai-codex/gpt-5.6-terra";
 function makeSettings(
   visionModel: string | null = null,
   visionProvider: string | null = null,
+  visionEnabled = true,
 ): SettingsPayload {
   return {
     agent: {
@@ -33,6 +34,7 @@ function makeSettings(
       tool_hint_max_length: 40,
       vision_model: visionModel,
       vision_provider: visionProvider,
+      vision_enabled: visionEnabled,
       max_messages: 120,
     },
     model_presets: [
@@ -49,6 +51,7 @@ function makeSettings(
         reasoning_effort: null,
         vision_model: null,
         vision_provider: null,
+        vision_enabled: true,
       },
       {
         name: "codex-terra",
@@ -63,6 +66,7 @@ function makeSettings(
         reasoning_effort: null,
         vision_model: visionModel,
         vision_provider: visionProvider,
+        vision_enabled: visionEnabled,
       },
     ],
     providers: [
@@ -97,22 +101,16 @@ function renderModels(
   );
 }
 
-describe("preset vision and Codex reasoning settings", () => {
-  it("shows empty vision fields for direct image handling", () => {
-    renderModels(makeSettings());
+describe("global vision assistance and Codex reasoning settings", () => {
+  it("shows the shared vision settings and current preset switch", () => {
+    renderModels(makeSettings("gemini-2.5-pro", "gemini", false));
 
-    expect(screen.getByPlaceholderText("e.g. gemini-2.5-flash")).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Auto" })).toBeInTheDocument();
-  });
-
-  it("shows the active preset's fixed vision settings", () => {
-    renderModels(makeSettings("gemini-2.5-pro", "gemini"));
-
+    expect(screen.getByRole("switch", { name: "Vision assistance" })).not.toBeChecked();
     expect(screen.getByDisplayValue("gemini-2.5-pro")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Gemini" })).toBeInTheDocument();
   });
 
-  it("saves an auxiliary model with automatic provider", async () => {
+  it("saves the global auxiliary model and preset switch", async () => {
     const user = userEvent.setup();
     const onSaveModel = vi.fn(async () => {});
     renderModels(makeSettings(), onSaveModel);
@@ -124,6 +122,7 @@ describe("preset vision and Codex reasoning settings", () => {
       modelPreset: "codex-terra",
       visionModel: "gemini-2.5-pro",
       visionProvider: "",
+      visionEnabled: true,
     }));
   });
 
