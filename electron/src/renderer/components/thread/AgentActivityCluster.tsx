@@ -1015,7 +1015,7 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
       absolute_path: edit.absolute_path,
       added: binary ? 0 : edit.added,
       deleted: binary ? 0 : edit.deleted,
-      approximate: active && !!edit.approximate,
+      approximate: !!edit.approximate,
       binary,
       status,
       operation: edit.operation,

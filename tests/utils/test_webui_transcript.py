@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
@@ -1085,6 +1086,148 @@ def test_replay_new_user_clears_assistant_media_suppression() -> None:
     assert traces[0]["traces"] == ['read_file({"path": "notes.md"})']
     assert assistants[-1]["content"] == "done"
     assert assistants[-1]["reasoning"] == "need inspect"
+
+
+def test_session_messages_replay_persisted_file_edit_activity() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-edit",
+                    "function": {
+                        "name": "edit_file",
+                        "arguments": '{"path":"notes.md","old_text":"old","new_text":"new"}',
+                    },
+                },
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-edit",
+            "name": "edit_file",
+            "content": "ok",
+            "_file_edit_events": [
+                {
+                    "version": 1,
+                    "call_id": "call-edit",
+                    "tool": "edit_file",
+                    "path": "notes.md",
+                    "phase": "end",
+                    "added": 1,
+                    "deleted": 1,
+                    "approximate": False,
+                    "status": "done",
+                    "diff": {
+                        "format": "unified",
+                        "context": 3,
+                        "truncated": False,
+                        "text": "--- notes.md\n+++ notes.md\n@@ -1 +1 @@\n-old\n+new",
+                    },
+                },
+            ],
+        },
+        {"role": "assistant", "content": "done"},
+    ])
+
+    msgs = replay_transcript_to_ui_messages(events)
+    file_activity = next(message for message in msgs if message.get("fileEdits"))
+    assert file_activity["traces"] == []
+    assert file_activity["fileEdits"][0]["path"] == "notes.md"
+    assert file_activity["fileEdits"][0]["diff"]["text"].endswith("-old\n+new")
+    assert not any(
+        "edit_file(" in trace
+        for message in msgs
+        for trace in message.get("traces", [])
+    )
+
+
+def test_session_messages_reconstruct_legacy_apply_patch_activity() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-patch",
+                    "function": {
+                        "name": "apply_patch",
+                        "arguments": json.dumps({
+                            "edits": [
+                                {
+                                    "path": "src/app.ts",
+                                    "action": "replace",
+                                    "old_text": "const oldValue = 1;\n",
+                                    "new_text": "const newValue = 2;\n",
+                                },
+                            ],
+                        }),
+                    },
+                },
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-patch",
+            "name": "apply_patch",
+            "content": "Patch applied",
+        },
+        {"role": "assistant", "content": "done"},
+    ])
+
+    msgs = replay_transcript_to_ui_messages(events)
+    file_activity = next(message for message in msgs if message.get("fileEdits"))
+    edit = file_activity["fileEdits"][0]
+    assert edit["path"] == "src/app.ts"
+    assert edit["added"] == 1
+    assert edit["deleted"] == 1
+    assert "-const oldValue = 1;" in edit["diff"]["text"]
+    assert "+const newValue = 2;" in edit["diff"]["text"]
+    assert file_activity["traces"] == []
+
+
+def test_session_messages_reconstruct_legacy_file_edit_failure() -> None:
+    from nanobot.webui.transcript import session_messages_to_wire_events
+
+    events = session_messages_to_wire_events([
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-edit",
+                    "function": {
+                        "name": "edit_file",
+                        "arguments": json.dumps({
+                            "path": "src/app.ts",
+                            "old_text": "old",
+                            "new_text": "new",
+                        }),
+                    },
+                },
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-edit",
+            "name": "edit_file",
+            "content": "Error: permission denied",
+        },
+    ])
+
+    msgs = replay_transcript_to_ui_messages(events)
+    edit = next(message for message in msgs if message.get("fileEdits"))["fileEdits"][0]
+    assert edit["status"] == "error"
+    assert edit["phase"] == "error"
+    assert edit["error"] == "Error: permission denied"
+    assert edit["added"] == 0
+    assert edit["deleted"] == 0
+    assert "diff" not in edit
 
 
 def test_replay_channel_delivery_media_keeps_same_turn_tool_trace() -> None:

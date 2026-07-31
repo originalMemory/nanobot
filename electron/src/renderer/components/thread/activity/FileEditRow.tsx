@@ -116,6 +116,15 @@ function FileEditRow({
                 textClassName="truncate text-[12px]"
                 testId="activity-file-reference"
               />
+              {edit.approximate && hasCountedDiff ? (
+                <span
+                  aria-label={t("message.fileEditEstimated", { defaultValue: "estimated" })}
+                  title={t("message.fileEditEstimated", { defaultValue: "estimated" })}
+                  className="text-[11px] text-muted-foreground/65"
+                >
+                  ≈
+                </span>
+              ) : null}
               {hasCountedDiff ? <DiffPair added={edit.added} deleted={edit.deleted} /> : null}
               {canExpand ? (
                 <button

@@ -4,11 +4,39 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from nanobot.agent.runner import AgentRunner, AgentRunSpec
+from nanobot.agent.runner import (
+    AgentRunner,
+    AgentRunSpec,
+    _limit_persisted_file_edit_diffs,
+)
 from nanobot.config.schema import AgentDefaults
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
+
+
+def test_persisted_file_edit_diff_limit_keeps_metadata() -> None:
+    events = [
+        {
+            "path": "a.txt",
+            "added": 1,
+            "deleted": 0,
+            "diff": {"format": "unified", "text": "a" * 8},
+        },
+        {
+            "path": "b.txt",
+            "added": 2,
+            "deleted": 1,
+            "diff": {"format": "unified", "text": "b" * 8},
+        },
+    ]
+
+    limited = _limit_persisted_file_edit_diffs(events, max_bytes=8)
+
+    assert limited[0]["diff"]["text"] == "a" * 8
+    assert "diff" not in limited[1]
+    assert limited[1] == {"path": "b.txt", "added": 2, "deleted": 1}
+    assert events[1]["diff"]["text"] == "b" * 8
 
 
 @pytest.mark.asyncio
@@ -127,6 +155,7 @@ async def test_runner_streams_live_write_file_activity_from_tool_argument_deltas
                 ],
                 usage={},
             )
+        assert all("_file_edit_events" not in message for message in kwargs["messages"])
         return LLMResponse(content="done", tool_calls=[], usage={})
 
     provider.chat_stream_with_retry = chat_stream_with_retry
@@ -149,6 +178,32 @@ async def test_runner_streams_live_write_file_activity_from_tool_argument_deltas
         not event["approximate"] and event["phase"] == "end" and event["added"] == 24
         for event in progress_events
     )
+    tool_message = next(message for message in result.messages if message.get("role") == "tool")
+    assert tool_message["_file_edit_events"] == [
+        {
+            "version": 1,
+            "call_id": "call-write",
+            "tool": "write_file",
+            "path": "big.txt",
+            "absolute_path": (tmp_path / "big.txt").as_posix(),
+            "phase": "end",
+            "added": 24,
+            "deleted": 0,
+            "approximate": False,
+            "status": "done",
+            "diff": {
+                "format": "unified",
+                "context": 3,
+                "truncated": False,
+                "text": (
+                    "--- big.txt\n"
+                    "+++ big.txt\n"
+                    "@@ -0,0 +1,24 @@\n"
+                    + "\n".join(["+line"] * 24)
+                ),
+            },
+        },
+    ]
     provider.chat_with_retry.assert_not_awaited()
 
 

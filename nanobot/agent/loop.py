@@ -2015,6 +2015,7 @@ class AgentLoop:
             message.get("content"),
             message.get("tool_call_id"),
             message.get("name"),
+            message.get("_file_edit_events"),
             message.get("tool_calls"),
             message.get("reasoning_content"),
             message.get("thinking_blocks"),

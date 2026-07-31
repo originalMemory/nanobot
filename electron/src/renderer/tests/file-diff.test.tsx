@@ -128,6 +128,26 @@ describe("file diff activity", () => {
 
     expect(screen.getByLabelText("Could not edit src/demo.ts")).toBeInTheDocument();
   });
+
+  it("marks reconstructed history statistics as estimated", () => {
+    render(
+      <FileEditGroup
+        edits={[{
+          key: "estimated",
+          path: "src/legacy.ts",
+          added: 2,
+          deleted: 1,
+          approximate: true,
+          binary: false,
+          status: "done",
+          pending: false,
+          diff,
+        }]}
+      />,
+    );
+
+    expect(screen.getByLabelText("estimated")).toHaveTextContent("≈");
+  });
 });
 
 function fileEdit(overrides: Partial<UIFileEdit>): UIFileEdit {

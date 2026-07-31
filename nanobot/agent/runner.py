@@ -63,6 +63,7 @@ _MAX_EMPTY_RETRIES = 2
 _MAX_LENGTH_RECOVERIES = 3
 _MAX_INJECTIONS_PER_TURN = 3
 _MAX_INJECTION_CYCLES = 5
+_MAX_PERSISTED_FILE_EDIT_DIFF_BYTES = 512 * 1024
 _SNIP_SAFETY_BUFFER = 1024
 _MICROCOMPACT_KEEP_RECENT = 10
 _MICROCOMPACT_MIN_CHARS = 500
@@ -77,6 +78,29 @@ _BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
 # Backward-compatible module attribute for tests/extensions that monkeypatch
 # the former single-file tracker hook. Runtime uses prepare_file_edit_trackers.
 prepare_file_edit_tracker = _prepare_file_edit_tracker
+
+
+def _limit_persisted_file_edit_diffs(
+    events: list[dict[str, Any]],
+    *,
+    max_bytes: int = _MAX_PERSISTED_FILE_EDIT_DIFF_BYTES,
+) -> list[dict[str, Any]]:
+    """限制写入 Session 的 diff 总量，保留文件名和统计。"""
+    remaining = max(0, int(max_bytes))
+    limited: list[dict[str, Any]] = []
+    for event in events:
+        item = dict(event)
+        diff = item.get("diff")
+        text = diff.get("text") if isinstance(diff, dict) else None
+        if isinstance(text, str):
+            size = len(text.encode("utf-8"))
+            if size <= remaining:
+                item["diff"] = dict(diff)
+                remaining -= size
+            else:
+                item.pop("diff", None)
+        limited.append(item)
+    return limited
 
 
 @dataclass(slots=True)
@@ -331,6 +355,7 @@ class AgentRunner:
         error: str | None = None
         stop_reason = "completed"
         tool_events: list[dict[str, str]] = []
+        persisted_file_edits: dict[int, list[dict[str, Any]]] = {}
         external_lookup_counts: dict[str, int] = {}
         # Per-turn throttle for repeated attempts against the same outside target.
         workspace_violation_counts: dict[str, int] = {}
@@ -412,7 +437,7 @@ class AgentRunner:
 
                 await hook.before_execute_tools(context)
 
-                results, new_events, fatal_error = await self._execute_tools(
+                results, new_events, file_edit_events, fatal_error = await self._execute_tools(
                     spec,
                     response.tool_calls,
                     external_lookup_counts,
@@ -422,7 +447,12 @@ class AgentRunner:
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
                 completed_tool_results: list[dict[str, Any]] = []
-                for tool_call, result in zip(response.tool_calls, results):
+                for tool_call, result, edits in zip(
+                    response.tool_calls,
+                    results,
+                    file_edit_events,
+                    strict=True,
+                ):
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
@@ -435,7 +465,15 @@ class AgentRunner:
                         ),
                     }
                     messages.append(tool_message)
-                    completed_tool_results.append(tool_message)
+                    checkpoint_tool_message = tool_message
+                    if edits:
+                        edits = _limit_persisted_file_edit_diffs(edits)
+                        persisted_file_edits[id(tool_message)] = edits
+                        checkpoint_tool_message = {
+                            **tool_message,
+                            "_file_edit_events": edits,
+                        }
+                    completed_tool_results.append(checkpoint_tool_message)
                 if fatal_error is not None:
                     error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
                     final_content = error
@@ -649,9 +687,18 @@ class AgentRunner:
             if drained_after_max_iterations:
                 had_injections = True
 
+        persisted_messages = [
+            {
+                **message,
+                "_file_edit_events": persisted_file_edits[id(message)],
+            }
+            if id(message) in persisted_file_edits
+            else message
+            for message in messages
+        ]
         return AgentRunResult(
             final_content=final_content,
-            messages=messages,
+            messages=persisted_messages,
             tools_used=tools_used,
             usage=self._package_turn_usage(usage, last_usage),
             stop_reason=stop_reason,
@@ -877,9 +924,16 @@ class AgentRunner:
         tool_calls: list[ToolCallRequest],
         external_lookup_counts: dict[str, int],
         workspace_violation_counts: dict[str, int],
-    ) -> tuple[list[Any], list[dict[str, str]], BaseException | None]:
+    ) -> tuple[
+        list[Any],
+        list[dict[str, str]],
+        list[list[dict[str, Any]]],
+        BaseException | None,
+    ]:
         batches = self._partition_tool_batches(spec, tool_calls)
-        tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
+        tool_results: list[
+            tuple[Any, dict[str, str], BaseException | None, list[dict[str, Any]]]
+        ] = []
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
                 batch_results = await asyncio.gather(*(
@@ -900,13 +954,15 @@ class AgentRunner:
 
         results: list[Any] = []
         events: list[dict[str, str]] = []
+        file_edit_events: list[list[dict[str, Any]]] = []
         fatal_error: BaseException | None = None
-        for result, event, error in tool_results:
+        for result, event, error, edits in tool_results:
             results.append(result)
             events.append(event)
+            file_edit_events.append(edits)
             if error is not None and fatal_error is None:
                 fatal_error = error
-        return results, events, fatal_error
+        return results, events, file_edit_events, fatal_error
 
     async def _run_tool(
         self,
@@ -914,7 +970,7 @@ class AgentRunner:
         tool_call: ToolCallRequest,
         external_lookup_counts: dict[str, int],
         workspace_violation_counts: dict[str, int],
-    ) -> tuple[Any, dict[str, str], BaseException | None]:
+    ) -> tuple[Any, dict[str, str], BaseException | None, list[dict[str, Any]]]:
         hint = "\n\n[Analyze the error above and try a different approach.]"
         lookup_error = repeated_external_lookup_error(
             tool_call.name,
@@ -928,8 +984,8 @@ class AgentRunner:
                 "detail": "repeated external lookup blocked",
             }
             if spec.fail_on_tool_error:
-                return lookup_error + hint, event, RuntimeError(lookup_error)
-            return lookup_error + hint, event, None
+                return lookup_error + hint, event, RuntimeError(lookup_error), []
+            return lookup_error + hint, event, None, []
         prepare_call = getattr(spec.tools, "prepare_call", None)
         tool, params, prep_error = None, tool_call.arguments, None
         if callable(prepare_call):
@@ -951,9 +1007,12 @@ class AgentRunner:
                 workspace_violation_counts=workspace_violation_counts,
             )
             if handled is not None:
-                return handled
-            return prep_error + hint, event, (
-                RuntimeError(prep_error) if spec.fail_on_tool_error else None
+                return handled[0], handled[1], handled[2], []
+            return (
+                prep_error + hint,
+                event,
+                RuntimeError(prep_error) if spec.fail_on_tool_error else None,
+                [],
             )
         emit_file_edit_events = (
             spec.progress_callback is not None
@@ -968,8 +1027,6 @@ class AgentRunner:
                 workspace=spec.workspace,
                 params=params if isinstance(params, dict) else None,
             )
-            if progress_callback is not None
-            else None
         )
         if file_edit_trackers and progress_callback is not None:
             await invoke_file_edit_progress(
@@ -987,13 +1044,14 @@ class AgentRunner:
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
+            file_edit_events = [
+                build_file_edit_error_event(file_edit_tracker, str(exc))
+                for file_edit_tracker in file_edit_trackers
+            ]
             if file_edit_trackers and progress_callback is not None:
                 await invoke_file_edit_progress(
                     progress_callback,
-                    [
-                        build_file_edit_error_event(file_edit_tracker, str(exc))
-                        for file_edit_tracker in file_edit_trackers
-                    ],
+                    file_edit_events,
                 )
             event = {
                 "name": tool_call.name,
@@ -1010,19 +1068,20 @@ class AgentRunner:
                 workspace_violation_counts=workspace_violation_counts,
             )
             if handled is not None:
-                return handled
+                return handled[0], handled[1], handled[2], file_edit_events
             if spec.fail_on_tool_error:
-                return payload, event, exc
-            return payload, event, None
+                return payload, event, exc, file_edit_events
+            return payload, event, None, file_edit_events
 
         if isinstance(result, str) and result.startswith("Error"):
+            file_edit_events = [
+                build_file_edit_error_event(file_edit_tracker, result)
+                for file_edit_tracker in file_edit_trackers
+            ]
             if file_edit_trackers and progress_callback is not None:
                 await invoke_file_edit_progress(
                     progress_callback,
-                    [
-                        build_file_edit_error_event(file_edit_tracker, result)
-                        for file_edit_tracker in file_edit_trackers
-                    ],
+                    file_edit_events,
                 )
             event = {
                 "name": tool_call.name,
@@ -1037,18 +1096,22 @@ class AgentRunner:
                 workspace_violation_counts=workspace_violation_counts,
             )
             if handled is not None:
-                return handled
+                return handled[0], handled[1], handled[2], file_edit_events
             if spec.fail_on_tool_error:
-                return result + hint, event, RuntimeError(result)
-            return result + hint, event, None
+                return result + hint, event, RuntimeError(result), file_edit_events
+            return result + hint, event, None, file_edit_events
 
+        file_edit_events = [
+            build_file_edit_end_event(
+                file_edit_tracker,
+                params if isinstance(params, dict) else None,
+            )
+            for file_edit_tracker in file_edit_trackers
+        ]
         if file_edit_trackers and progress_callback is not None:
             await invoke_file_edit_progress(
                 progress_callback,
-                [build_file_edit_end_event(
-                    file_edit_tracker,
-                    params if isinstance(params, dict) else None,
-                ) for file_edit_tracker in file_edit_trackers],
+                file_edit_events,
             )
 
         detail = "" if result is None else str(result)
@@ -1057,7 +1120,12 @@ class AgentRunner:
             detail = "(empty)"
         elif len(detail) > 120:
             detail = detail[:120] + "..."
-        return result, {"name": tool_call.name, "status": "ok", "detail": detail}, None
+        return (
+            result,
+            {"name": tool_call.name, "status": "ok", "detail": detail},
+            None,
+            file_edit_events,
+        )
 
     # SSRF is a hard security block at the tool boundary, but the agent turn
     # should recover conversationally instead of aborting the runtime.

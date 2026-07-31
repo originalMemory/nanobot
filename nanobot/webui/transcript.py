@@ -14,6 +14,7 @@ from loguru import logger
 
 from nanobot.config.paths import get_webui_dir
 from nanobot.session.manager import Session, SessionManager
+from nanobot.utils.file_edit_events import build_unified_diff_payload, line_diff_stats
 from nanobot.utils.media_staging import is_remote_media_url
 from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 
@@ -1572,6 +1573,18 @@ def session_messages_to_wire_events(
             call_id = msg.get("tool_call_id", "")
             pending = pending_tool_calls.pop(call_id, {})
             name = pending.get("name") or msg.get("name", "")
+            arguments = pending.get("arguments")
+            raw_file_edits = msg.get("_file_edit_events")
+            if isinstance(raw_file_edits, list):
+                file_edits = [dict(edit) for edit in raw_file_edits if isinstance(edit, dict)]
+            else:
+                file_edits = _legacy_file_edit_events(call_id, name, arguments, content)
+            if file_edits:
+                events.append({
+                    **base,
+                    "event": "file_edit",
+                    "edits": file_edits,
+                })
             tool_ev: dict[str, Any] = {
                 "version": 1,
                 "phase": "end",
@@ -1581,8 +1594,8 @@ def session_messages_to_wire_events(
             }
             # 带上 arguments，使 _format_tool_call_trace 在 start/end 两阶段
             # 生成相同文本，避免 UI 出现重复 trace 行。
-            if pending.get("arguments") is not None:
-                tool_ev["arguments"] = pending["arguments"]
+            if arguments is not None:
+                tool_ev["arguments"] = arguments
             events.append({
                 **base,
                 "event": "message",
@@ -1598,6 +1611,85 @@ def session_messages_to_wire_events(
         events.append({"event": "turn_end", "chat_id": chat_id})
 
     return events
+
+
+def _legacy_file_edit_events(
+    call_id: Any,
+    tool_name: Any,
+    arguments: Any,
+    result: Any,
+) -> list[dict[str, Any]]:
+    """从旧 Session 的工具参数尽力恢复文件 activity。"""
+    if not isinstance(tool_name, str) or tool_name not in _FILE_EDIT_TOOL_NAMES:
+        return []
+    if not isinstance(arguments, dict):
+        return []
+
+    failed = isinstance(result, str) and result.lstrip().lower().startswith("error")
+    edits_by_path: dict[str, dict[str, Any]] = {}
+
+    def add_edit(path: Any, before: Any = None, after: Any = None) -> None:
+        if not isinstance(path, str) or not path.strip():
+            return
+        display_path = path.strip()
+        entry = edits_by_path.setdefault(
+            display_path,
+            {
+                "version": 1,
+                "call_id": str(call_id or ""),
+                "tool": tool_name,
+                "path": display_path,
+                "phase": "error" if failed else "end",
+                "added": 0,
+                "deleted": 0,
+                "approximate": True,
+                "status": "error" if failed else "done",
+                "_diffs": [],
+            },
+        )
+        if failed:
+            entry["error"] = result.strip()[:240]
+        elif isinstance(before, str) and isinstance(after, str):
+            added, deleted = line_diff_stats(before, after)
+            entry["added"] += added
+            entry["deleted"] += deleted
+            diff = build_unified_diff_payload(
+                before,
+                after,
+                fromfile=display_path,
+                tofile=display_path,
+            )
+            if diff:
+                entry["_diffs"].append(diff)
+
+    if tool_name == "apply_patch":
+        raw_edits = arguments.get("edits")
+        if isinstance(raw_edits, list):
+            for edit in raw_edits:
+                if not isinstance(edit, dict):
+                    continue
+                action = edit.get("action")
+                before = edit.get("old_text") if action == "replace" else ""
+                after = edit.get("new_text")
+                add_edit(edit.get("path"), before, after)
+    elif tool_name == "edit_file":
+        add_edit(arguments.get("path"), arguments.get("old_text"), arguments.get("new_text"))
+    else:
+        # write_file 的旧记录没有写入前快照，只能可靠恢复文件名。
+        add_edit(arguments.get("path"))
+
+    restored: list[dict[str, Any]] = []
+    for entry in edits_by_path.values():
+        diffs = entry.pop("_diffs")
+        if diffs:
+            entry["diff"] = {
+                "format": "unified",
+                "context": diffs[0].get("context", 3),
+                "truncated": any(bool(diff.get("truncated")) for diff in diffs),
+                "text": "\n".join(str(diff["text"]) for diff in diffs if diff.get("text")),
+            }
+        restored.append(entry)
+    return restored
 
 
 def _safe_parse_args(raw: Any) -> Any:

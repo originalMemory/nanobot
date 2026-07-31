@@ -293,6 +293,68 @@ def test_save_turn_keeps_tool_results_under_16k() -> None:
     assert session.messages[0]["content"] == content
 
 
+def test_file_edit_activity_survives_session_save_reload_and_inbox_replay(
+    tmp_path: Path,
+) -> None:
+    from nanobot.webui.transcript import build_inbox_thread_from_session
+
+    loop = _mk_loop()
+    manager = SessionManager(tmp_path)
+    session = manager.get_or_create("unified:default")
+    loop._save_turn(
+        session,
+        [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-edit",
+                    "function": {
+                        "name": "edit_file",
+                        "arguments": '{"path":"notes.md","old_text":"old","new_text":"new"}',
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-edit",
+                "name": "edit_file",
+                "content": "ok",
+                "_file_edit_events": [{
+                    "version": 1,
+                    "call_id": "call-edit",
+                    "tool": "edit_file",
+                    "path": "notes.md",
+                    "phase": "end",
+                    "added": 1,
+                    "deleted": 1,
+                    "approximate": False,
+                    "status": "done",
+                    "diff": {
+                        "format": "unified",
+                        "context": 3,
+                        "truncated": False,
+                        "text": "--- notes.md\n+++ notes.md\n@@ -1 +1 @@\n-old\n+new",
+                    },
+                }],
+            },
+            {"role": "assistant", "content": "done"},
+        ],
+        skip=0,
+    )
+    manager.save(session)
+
+    reloaded = SessionManager(tmp_path).get_or_create("unified:default")
+    payload = build_inbox_thread_from_session(reloaded)
+    edit = next(
+        message for message in payload["messages"] if message.get("fileEdits")
+    )["fileEdits"][0]
+    assert edit["path"] == "notes.md"
+    assert edit["added"] == 1
+    assert edit["deleted"] == 1
+    assert edit["diff"]["text"].endswith("-old\n+new")
+
+
 def test_save_turn_stamps_latency_on_last_assistant() -> None:
     loop = _mk_loop()
     session = Session(key="test:latency")
