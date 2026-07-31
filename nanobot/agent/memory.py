@@ -38,10 +38,32 @@ if TYPE_CHECKING:
 # MemoryStore — pure file I/O layer
 # ---------------------------------------------------------------------------
 
+
+class DreamRunProgress:
+    """记录会让 Dream 不能安全推进游标的工具错误。"""
+
+    def __init__(self) -> None:
+        self.had_tool_errors = False
+
+    async def __call__(
+        self,
+        *_args: Any,
+        tool_events: list[dict[str, Any]] | None = None,
+        **_kwargs: Any,
+    ) -> None:
+        if any(
+            isinstance(event, dict) and event.get("phase") == "error"
+            for event in tool_events or ()
+        ):
+            self.had_tool_errors = True
+
+
 class MemoryStore:
     """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
 
     _DEFAULT_MAX_HISTORY = 1000
+    _DREAM_CONTENT_PATHS = ("SOUL.md", "USER.md", "memory/MEMORY.md")
+    _DREAM_FILE_EMBED_CAP = 8000
     _LEGACY_ENTRY_START_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2}[^\]]*)\]\s*")
     _LEGACY_TIMESTAMP_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\s*")
     _LEGACY_RAW_MESSAGE_RE = re.compile(
@@ -59,7 +81,8 @@ class MemoryStore:
         self.user_file = workspace / "USER.md"
         self._cursor_file = self.memory_dir / ".cursor"
         self._dream_cursor_file = self.memory_dir / ".dream_cursor"
-        self._corruption_logged = False  # rate-limit non-int cursor warning
+        self._corruption_logged = False  # rate-limit invalid cursor warning
+        self._malformed_entry_logged = False  # rate-limit malformed history warning
         self._oversize_logged = False  # rate-limit oversized-entry warning
         self._append_lock = threading.Lock()  # serialize cursor allocation + append
         self._git = GitStore(workspace, tracked_files=[
@@ -280,14 +303,15 @@ class MemoryStore:
 
     @staticmethod
     def _valid_cursor(value: Any) -> int | None:
-        """Int cursors only — reject bool (``isinstance(True, int)`` is True)."""
-        if isinstance(value, bool) or not isinstance(value, int):
+        """只接受非负整数游标；bool 虽是 int 子类也必须拒绝。"""
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             return None
         return value
 
     def _iter_valid_entries(self) -> Iterator[tuple[dict[str, Any], int]]:
-        """Yield ``(entry, cursor)`` for entries with int cursors; warn once on corruption."""
+        """Yield ``(entry, cursor)`` for well-formed entries; warn once."""
         poisoned: Any = None
+        malformed_cursor: int | None = None
         for entry in self._read_entries():
             raw = entry.get("cursor")
             if raw is None:
@@ -296,27 +320,61 @@ class MemoryStore:
             if cursor is None:
                 poisoned = raw
                 continue
+            if not self._valid_history_payload(entry):
+                malformed_cursor = cursor
+                continue
             yield entry, cursor
         if poisoned is not None and not self._corruption_logged:
             self._corruption_logged = True
             logger.warning(
-                "history.jsonl contains a non-int cursor ({!r}); dropping it. "
+                "history.jsonl contains an invalid cursor ({!r}); dropping it. "
                 "Usually caused by an external writer; further occurrences suppressed.",
                 poisoned,
             )
+        if malformed_cursor is not None and not self._malformed_entry_logged:
+            self._malformed_entry_logged = True
+            logger.warning(
+                "history.jsonl contains a malformed entry at cursor {}; dropping it. "
+                "Usually caused by an external writer; further occurrences suppressed.",
+                malformed_cursor,
+            )
+
+    @staticmethod
+    def _valid_history_payload(entry: dict[str, Any]) -> bool:
+        """校验 Dream 构建提示词所依赖的历史字段。"""
+        if not isinstance(entry.get("timestamp"), str):
+            return False
+        if not isinstance(entry.get("content"), str):
+            return False
+        session_key = entry.get("session_key")
+        return session_key is None or isinstance(session_key, str)
+
+    def _read_cursor_counter(self) -> int | None:
+        """读取可用的持久游标计数器。"""
+        if not self._cursor_file.exists():
+            return None
+        with suppress(ValueError, OSError):
+            cursor = int(self._cursor_file.read_text(encoding="utf-8").strip())
+            if cursor >= 0:
+                return cursor
+        return None
 
     def _next_cursor(self) -> int:
-        """Read the current cursor counter and return the next value."""
-        if self._cursor_file.exists():
-            with suppress(ValueError, OSError):
-                return int(self._cursor_file.read_text(encoding="utf-8").strip()) + 1
-        # Fast path: trust the tail when intact.  Otherwise scan the whole
-        # file and take ``max`` — that stays correct even if the monotonic
-        # invariant was broken by external writes.
-        last = self._read_last_entry() or {}
-        cursor = self._valid_cursor(last.get("cursor"))
-        if cursor is not None:
-            return cursor + 1
+        """优先使用计数器和文件尾部，损坏时再扫描历史恢复。"""
+        cursor_counter = self._read_cursor_counter()
+        last = self._read_last_entry()
+        last_cursor = (
+            self._valid_cursor(last.get("cursor"))
+            if isinstance(last, dict)
+            else None
+        )
+        if cursor_counter is not None:
+            if last_cursor is not None:
+                return max(cursor_counter, last_cursor) + 1
+            max_history_cursor = max((c for _, c in self._iter_valid_entries()), default=0)
+            return max(cursor_counter, max_history_cursor) + 1
+        if last_cursor is not None:
+            return last_cursor + 1
         return max((c for _, c in self._iter_valid_entries()), default=0) + 1
 
     def read_unprocessed_history(self, since_cursor: int) -> list[dict[str, Any]]:
@@ -344,7 +402,15 @@ class MemoryStore:
                     line = line.strip()
                     if line:
                         try:
-                            entries.append(json.loads(line))
+                            entry = json.loads(line)
+                            if isinstance(entry, dict):
+                                entries.append(entry)
+                            elif not self._malformed_entry_logged:
+                                self._malformed_entry_logged = True
+                                logger.warning(
+                                    "history.jsonl contains a non-object entry; "
+                                    "dropping it. Further occurrences suppressed."
+                                )
                         except json.JSONDecodeError:
                             continue
 
@@ -398,10 +464,16 @@ class MemoryStore:
     def get_last_dream_cursor(self) -> int:
         if self._dream_cursor_file.exists():
             with suppress(ValueError, OSError):
-                return int(self._dream_cursor_file.read_text(encoding="utf-8").strip())
+                cursor = int(self._dream_cursor_file.read_text(encoding="utf-8").strip())
+                if self._valid_cursor(cursor) is not None:
+                    return cursor
         return 0
 
     def set_last_dream_cursor(self, cursor: int) -> None:
+        if self._valid_cursor(cursor) is None:
+            raise ValueError("Dream cursor must be a non-negative integer")
+        if cursor <= self.get_last_dream_cursor():
+            return
         self._dream_cursor_file.write_text(str(cursor), encoding="utf-8")
 
     def build_dream_prompt(self) -> tuple[str, int] | None:
@@ -424,8 +496,36 @@ class MemoryStore:
         template = render_template(
             "agent/dream.md", strip=True, skill_creator_path=skill_creator_path,
         )
-        prompt = f"{template}\n\n## Conversation History\n{history_text}"
+        files_section = self._render_current_memory_files()
+        prompt = (
+            f"{template}\n\n{files_section}\n\n"
+            f"## Conversation History\n{history_text}"
+        )
         return (prompt, entries[-1]["cursor"])
+
+    def _render_current_memory_files(self) -> str:
+        """将当前持久记忆渲染进 Dream 提示词，并限制异常文件大小。"""
+        files = [
+            ("SOUL.md", self.soul_file),
+            ("USER.md", self.user_file),
+            ("memory/MEMORY.md", self.memory_file),
+        ]
+        blocks: list[str] = []
+        for label, path in files:
+            try:
+                content = path.read_text(encoding="utf-8") if path.exists() else ""
+            except OSError:
+                content = ""
+            if len(content) > self._DREAM_FILE_EMBED_CAP:
+                content = truncate_text(content, self._DREAM_FILE_EMBED_CAP) + "\n...[truncated]"
+            blocks.append(f"### {label}\n{content}" if content.strip() else f"### {label}\n(empty)")
+        return "## Current Memory Files\n" + "\n\n".join(blocks)
+
+    def dream_content_diff(self) -> str:
+        """返回三个持久记忆文件相对 HEAD 的真实工作树差异。"""
+        if not self._git.is_initialized():
+            return ""
+        return self._git.summarize_working_tree(list(self._DREAM_CONTENT_PATHS))
 
     def build_dream_tools(self):
         """Build the restricted tool registry used by Dream runs."""
@@ -470,10 +570,18 @@ class MemoryStore:
         return tools
 
     @staticmethod
-    def dream_run_completed(resp: object | None) -> bool:
-        """Return True only when an ephemeral Dream agent turn completed cleanly."""
+    def dream_run_completed(
+        resp: object | None,
+        *,
+        had_tool_errors: bool = False,
+    ) -> bool:
+        """仅当 Dream 正常结束且没有工具错误时返回 True。"""
         metadata = getattr(resp, "metadata", None)
-        return isinstance(metadata, dict) and metadata.get("_stop_reason") == "completed"
+        return (
+            not had_tool_errors
+            and isinstance(metadata, dict)
+            and metadata.get("_stop_reason") == "completed"
+        )
 
     # -- message formatting utility ------------------------------------------
 
@@ -511,12 +619,10 @@ class MemoryStore:
         return f"dream:{datetime.now():%Y%m%d-%H%M%S}"
 
     @staticmethod
-    def build_dream_commit_message(prefix: str, resp: object | None) -> str:
-        """Build a Dream auto-commit message, appending the LLM summary if present."""
-        msg = prefix
-        if resp is not None and getattr(resp, "content", None):
-            msg = f"{msg}\n\n{resp.content.strip()}"
-        return msg
+    def build_dream_commit_message(prefix: str, diff_body: str | None) -> str:
+        """用真实工作树差异生成 Dream 提交说明。"""
+        body = (diff_body or "").strip()
+        return f"{prefix}\n\n{body}" if body else prefix
 
     @staticmethod
     def prune_dream_sessions(sessions_dir: Path, *, keep: int = 10) -> None:

@@ -1,10 +1,8 @@
 """Tests for GitStore — git-backed version control for memory files."""
 
 import pytest
-from pathlib import Path
 
-from nanobot.utils.gitstore import GitStore, CommitInfo
-
+from nanobot.utils.gitstore import CommitInfo, GitStore, GitStoreError
 
 TRACKED = ["SOUL.md", "USER.md", "memory/MEMORY.md"]
 
@@ -64,7 +62,11 @@ class TestBuildGitignore:
         content = gs._build_gitignore()
         assert "!a.md\n" in content
         assert "!b.md\n" in content
-        dir_lines = [l for l in content.split("\n") if l.startswith("!") and l.endswith("/")]
+        dir_lines = [
+            line
+            for line in content.split("\n")
+            if line.startswith("!") and line.endswith("/")
+        ]
         assert dir_lines == []
 
 
@@ -142,6 +144,49 @@ class TestDiffCommits:
 
     def test_invalid_sha_returns_empty(self, git_ready):
         assert git_ready.diff_commits("deadbeef", "cafebabe") == ""
+
+
+class TestSummarizeWorkingTree:
+    def test_empty_without_changes(self, git_ready):
+        assert git_ready.summarize_working_tree(TRACKED) == ""
+
+    def test_summarizes_only_requested_paths(self, git_ready):
+        workspace = git_ready._workspace
+        (workspace / "SOUL.md").write_text("new soul\n", encoding="utf-8")
+        (workspace / "USER.md").write_text("ignored\n", encoding="utf-8")
+
+        summary = git_ready.summarize_working_tree(["SOUL.md"])
+
+        assert "SOUL.md: +1 -0" in summary
+        assert "new soul" in summary
+        assert "USER.md" not in summary
+
+    @pytest.mark.parametrize(
+        ("before", "after", "changed"),
+        [
+            (b"# Memory\r\n", b"# Memory\n", False),
+            (b"# Memory\n", b"# Memory", True),
+            (b"# Memory\r", b"# Memory\n", True),
+        ],
+    )
+    def test_only_normalizes_crlf(self, git, before, after, changed):
+        target = git._workspace / "memory" / "MEMORY.md"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(before)
+        git.init()
+
+        target.write_bytes(after)
+
+        assert bool(git.summarize_working_tree(["memory/MEMORY.md"])) is changed
+
+    def test_failure_is_not_reported_as_empty_diff(self, git_ready, monkeypatch):
+        def fail(_repo):
+            raise OSError("broken repository")
+
+        monkeypatch.setattr(git_ready, "_head_tree", fail)
+
+        with pytest.raises(GitStoreError, match="working-tree summary failed"):
+            git_ready.summarize_working_tree(TRACKED)
 
 
 class TestFindCommit:

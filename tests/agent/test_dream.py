@@ -2,7 +2,7 @@
 
 import pytest
 
-from nanobot.agent.memory import MemoryStore
+from nanobot.agent.memory import DreamRunProgress, MemoryStore
 from nanobot.providers.base import LLMResponse
 from nanobot.utils.prompt_templates import render_template
 
@@ -55,6 +55,27 @@ class TestBuildDreamPrompt:
         assert result is not None
         prompt, _ = result
         assert "skill-creator" in prompt
+
+    def test_prompt_embeds_current_memory_files(self, store):
+        store.append_history("hello")
+
+        prompt, _ = store.build_dream_prompt()
+
+        assert "## Current Memory Files" in prompt
+        assert "### SOUL.md" in prompt
+        assert "- Helpful" in prompt
+        assert "### USER.md\n(empty)" in prompt
+        assert "### memory/MEMORY.md" in prompt
+        assert "- Project X active" in prompt
+
+    def test_prompt_caps_oversized_memory_file(self, store):
+        store.write_memory("x" * (store._DREAM_FILE_EMBED_CAP + 100))
+        store.append_history("hello")
+
+        prompt, _ = store.build_dream_prompt()
+
+        assert "...[truncated]" in prompt
+        assert "x" * (store._DREAM_FILE_EMBED_CAP + 1) not in prompt
 
     def test_preserves_long_entries(self, store):
         long_content = "x" * 2000
@@ -352,42 +373,21 @@ class TestEphemeralHooks:
 
 
 class TestDreamCommitMessage:
-    async def test_commit_includes_response_summary(self, tmp_path):
-        """Git auto-commit after Dream should include the LLM response in the body."""
+    def test_commit_uses_real_diff_instead_of_model_summary(self, tmp_path):
         import subprocess
-        from unittest.mock import AsyncMock, MagicMock
-
-        from nanobot.agent.memory import MemoryStore
 
         store = MemoryStore(tmp_path)
         store.write_soul("# Soul")
         store.write_memory("# Memory")
-        store.append_history("user discussed project goals")
-
-        provider = MagicMock()
-        provider.get_default_model.return_value = "test-model"
-        provider.supports_tools = True
-        provider.generation = MagicMock(max_tokens=4096)
-        provider.chat_with_retry = AsyncMock(return_value=MagicMock(
-            content="Identified 2 new facts about project goals",
-            finish_reason="stop",
-            tool_calls=[],
-            usage={},
-        ))
-
         store.git.init()
         store.git.auto_commit("initial state")
 
-        # Simulate what the cron handler does: produce a resp with content,
-        # build the commit message via the actual function, then commit.
-        resp_content = "Identified 2 new facts about project goals"
-        resp = MagicMock(content=resp_content)
+        store.write_memory("# Memory\n- Updated by Dream")
+        diff_body = store.dream_content_diff()
         msg = MemoryStore.build_dream_commit_message(
-            "dream: periodic memory consolidation", resp,
+            "dream: periodic memory consolidation", diff_body,
         )
 
-        # Write a change so auto_commit has something to commit
-        store.write_memory("# Memory\n- Updated by Dream")
         sha = store.git.auto_commit(msg)
         assert sha is not None
 
@@ -396,4 +396,61 @@ class TestDreamCommitMessage:
             cwd=str(tmp_path), text=True,
         ).strip()
         assert "dream: periodic memory consolidation" in log
-        assert "Identified 2 new facts" in log
+        assert "Updated by Dream" in log
+        assert "Identified 2 new facts" not in log
+
+    def test_commit_message_is_bare_prefix_without_diff(self):
+        assert MemoryStore.build_dream_commit_message("dream: manual run", "") == (
+            "dream: manual run"
+        )
+
+
+class TestDreamCursor:
+    def test_invalid_cursor_falls_back_to_zero(self, store):
+        store._dream_cursor_file.write_text("-5", encoding="utf-8")
+        assert store.get_last_dream_cursor() == 0
+
+        store._dream_cursor_file.write_text("broken", encoding="utf-8")
+        assert store.get_last_dream_cursor() == 0
+
+    def test_cursor_does_not_move_backwards(self, store):
+        store.set_last_dream_cursor(10)
+        store.set_last_dream_cursor(3)
+        assert store.get_last_dream_cursor() == 10
+
+    def test_rejects_invalid_cursor_write(self, store):
+        with pytest.raises(ValueError):
+            store.set_last_dream_cursor(-1)
+
+
+class TestDreamRunProgress:
+    async def test_tool_error_prevents_completed_run(self):
+        progress = DreamRunProgress()
+        await progress("", tool_events=[{"phase": "error", "name": "edit_file"}])
+        response = type("Response", (), {
+            "metadata": {"_stop_reason": "completed"},
+        })()
+
+        assert progress.had_tool_errors is True
+        assert MemoryStore.dream_run_completed(
+            response,
+            had_tool_errors=progress.had_tool_errors,
+        ) is False
+
+
+class TestDreamContentDiff:
+    def test_empty_without_git_or_changes(self, store):
+        assert store.dream_content_diff() == ""
+        store.git.init()
+        assert store.dream_content_diff() == ""
+
+    def test_reflects_content_change_but_ignores_cursor(self, store):
+        store.git.init()
+        store.set_last_dream_cursor(9)
+        assert store.dream_content_diff() == ""
+
+        store.write_memory("# Memory\n- changed")
+        diff = store.dream_content_diff()
+        assert "memory/MEMORY.md: +1 -1" in diff
+        assert "- changed" in diff
+        assert ".dream_cursor" not in diff

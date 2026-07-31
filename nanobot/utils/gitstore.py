@@ -10,6 +10,12 @@ from pathlib import Path
 
 from loguru import logger
 
+_WORKING_TREE_DIFF_MAX_CHARS = 6000
+
+
+class GitStoreError(RuntimeError):
+    """记忆 Git 仓库无法完成操作。"""
+
 
 @dataclass
 class CommitInfo:
@@ -298,6 +304,106 @@ class GitStore:
         except Exception:
             logger.exception("Git diff_commits failed")
             return ""
+
+    def summarize_working_tree(self, paths: list[str]) -> str:
+        """汇总指定文件相对 HEAD 的真实工作树差异。"""
+        if not self.is_initialized():
+            return ""
+
+        try:
+            import difflib
+
+            from dulwich.repo import Repo
+        except ImportError as exc:
+            raise GitStoreError(
+                "Git working-tree summary dependencies are unavailable"
+            ) from exc
+
+        summary_lines: list[str] = []
+        diff_lines: list[str] = []
+        total_added = 0
+        total_removed = 0
+        changed = 0
+
+        try:
+            with Repo(str(self._workspace)) as repo:
+                head_tree = self._head_tree(repo)
+                for path in paths:
+                    head_text = (
+                        self._read_blob_from_tree(repo, head_tree, path)
+                        if head_tree is not None
+                        else None
+                    ) or ""
+                    target = self._workspace / path
+                    try:
+                        working_text = (
+                            target.read_bytes().decode("utf-8")
+                            if target.exists()
+                            else ""
+                        )
+                    except UnicodeDecodeError:
+                        changed += 1
+                        summary_lines.append(f"{path}: binary or non-UTF-8 file changed")
+                        continue
+                    # CRLF/LF 归一化不算内容变化，但保留“缺少末尾换行”等真实差异。
+                    if head_text.replace("\r\n", "\n") == working_text.replace(
+                        "\r\n", "\n"
+                    ):
+                        continue
+
+                    changed += 1
+                    head_lines = head_text.splitlines()
+                    working_lines = working_text.splitlines()
+                    hunks = list(difflib.unified_diff(
+                        head_lines,
+                        working_lines,
+                        fromfile=path,
+                        tofile=path,
+                        lineterm="",
+                    ))
+                    added = sum(
+                        1 for line in hunks
+                        if line.startswith("+") and not line.startswith("+++")
+                    )
+                    removed = sum(
+                        1 for line in hunks
+                        if line.startswith("-") and not line.startswith("---")
+                    )
+                    total_added += added
+                    total_removed += removed
+                    summary_lines.append(f"{path}: +{added} -{removed}")
+                    diff_lines.extend(hunks)
+        except Exception as exc:
+            raise GitStoreError("Git working-tree summary failed") from exc
+
+        if changed == 0:
+            return ""
+
+        diff_text = "\n".join(diff_lines)
+        if len(diff_text) > _WORKING_TREE_DIFF_MAX_CHARS:
+            diff_text = diff_text[:_WORKING_TREE_DIFF_MAX_CHARS] + "\n...[diff truncated]"
+
+        body = "\n".join(summary_lines)
+        body += (
+            f"\n{changed} file{'s' if changed != 1 else ''} changed, "
+            f"{total_added} insertion{'s' if total_added != 1 else ''}(+), "
+            f"{total_removed} deletion{'s' if total_removed != 1 else ''}(-)"
+        )
+        if diff_lines:
+            body += f"\n\n```diff\n{diff_text}\n```"
+        return body
+
+    @staticmethod
+    def _head_tree(repo) -> object | None:
+        """返回 HEAD 对应的 tree；空仓库返回 None。"""
+        try:
+            head = repo.refs[b"HEAD"]
+        except KeyError:
+            return None
+        commit = repo[head]
+        if commit.type_name != b"commit":
+            return None
+        return repo[commit.tree]
 
     def find_commit(self, short_sha: str, max_entries: int = 20) -> CommitInfo | None:
         """Find a commit by short SHA prefix match."""

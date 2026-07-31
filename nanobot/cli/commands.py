@@ -1148,14 +1148,17 @@ def _run_gateway(
 
         # Dream is an internal job — run directly, not through the agent loop.
         if job.name == "dream":
-            from nanobot.agent.memory import MemoryStore
+            from nanobot.agent.memory import DreamRunProgress, MemoryStore
 
             dream_session_key = MemoryStore.dream_session_key
             build_dream_commit_message = MemoryStore.build_dream_commit_message
             prune_dream_sessions = MemoryStore.prune_dream_sessions
 
             store = agent.context.memory
+            progress = DreamRunProgress()
             resp = None
+            diff_body = ""
+            completed = False
             try:
                 result = store.build_dream_prompt()
                 if result is None:
@@ -1168,11 +1171,25 @@ def _run_gateway(
                     session_key=key,
                     ephemeral=True,
                     tools=store.build_dream_tools(),
-                    on_progress=_silent,
+                    on_progress=progress,
                 )
-                if MemoryStore.dream_run_completed(resp):
+                diff_body = store.dream_content_diff()
+                completed = MemoryStore.dream_run_completed(
+                    resp,
+                    had_tool_errors=progress.had_tool_errors,
+                )
+                if completed:
                     store.set_last_dream_cursor(last_cursor)
-                    logger.info("Dream cron job completed, cursor advanced to {}", last_cursor)
+                    if diff_body:
+                        logger.info(
+                            "Dream cron job completed, cursor advanced to {}", last_cursor
+                        )
+                    else:
+                        logger.info(
+                            "Dream cron job completed with no memory changes; "
+                            "cursor advanced to {}",
+                            last_cursor,
+                        )
                 else:
                     logger.warning(
                         "Dream cron job did not complete; cursor remains at {}",
@@ -1181,9 +1198,9 @@ def _run_gateway(
             except Exception:
                 logger.exception("Dream cron job failed")
             finally:
-                if store.git.is_initialized():
+                if completed and store.git.is_initialized() and diff_body:
                     msg = build_dream_commit_message(
-                        "dream: periodic memory consolidation", resp,
+                        "dream: periodic memory consolidation", diff_body,
                     )
                     sha = store.git.auto_commit(msg)
                     if sha:

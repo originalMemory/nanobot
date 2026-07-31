@@ -10,10 +10,9 @@ from typer.testing import CliRunner
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.cli.commands import app
-from nanobot.providers.factory import make_provider
 from nanobot.config.schema import Config
 from nanobot.cron.types import CronJob, CronPayload
-from nanobot.providers.factory import ProviderSnapshot
+from nanobot.providers.factory import ProviderSnapshot, make_provider
 from nanobot.providers.openai_codex_provider import _strip_model_prefix
 from nanobot.providers.registry import find_by_name
 
@@ -542,8 +541,8 @@ def test_openai_compat_provider_passes_model_through():
 
 
 def test_make_provider_uses_github_copilot_backend():
-    from nanobot.providers.factory import make_provider
     from nanobot.config.schema import Config
+    from nanobot.providers.factory import make_provider
 
     config = Config.model_validate(
         {
@@ -1523,6 +1522,134 @@ def test_gateway_cron_job_suppresses_intermediate_progress(
     asyncio.run(seen["on_progress"]("tool_hint", "🔧 $ echo test"))
     # Nothing published to bus since evaluator rejected
     bus.publish_outbound.assert_not_awaited()
+
+
+def test_gateway_dream_tool_error_keeps_cursor_and_skips_commit(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config_file = tmp_path / "instance" / "config.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text("{}")
+
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "config-workspace")
+    bus = MagicMock()
+    bus.publish_outbound = AsyncMock()
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.providers.factory.make_provider", lambda _config: _fake_provider())
+    monkeypatch.setattr(
+        "nanobot.providers.factory.build_provider_snapshot",
+        lambda _config: _test_provider_snapshot(object(), _config),
+    )
+    monkeypatch.setattr(
+        "nanobot.providers.factory.load_provider_snapshot",
+        lambda _config_path=None: _test_provider_snapshot(object(), config),
+    )
+    monkeypatch.setattr("nanobot.bus.queue.MessageBus", lambda: bus)
+    monkeypatch.setattr("nanobot.session.manager.SessionManager", lambda _workspace: object())
+
+    class _FakeGit:
+        def __init__(self) -> None:
+            self.commits: list[str] = []
+
+        def is_initialized(self) -> bool:
+            return True
+
+        def auto_commit(self, message: str) -> str:
+            self.commits.append(message)
+            return "abcd1234"
+
+    class _FakeMemory:
+        def __init__(self) -> None:
+            self.cursor = 5
+            self.git = _FakeGit()
+
+        def build_dream_prompt(self):
+            return "dream prompt", 42
+
+        def build_dream_tools(self):
+            return object()
+
+        def dream_content_diff(self) -> str:
+            return "SOUL.md: +1 -0"
+
+        def get_last_dream_cursor(self) -> int:
+            return self.cursor
+
+        def set_last_dream_cursor(self, cursor: int) -> None:
+            self.cursor = cursor
+
+        def compact_history(self) -> None:
+            return None
+
+    class _FakeCron:
+        def __init__(self, _store_path: Path) -> None:
+            self.on_job = None
+            seen["cron"] = self
+
+    class _FakeAgentLoop:
+        @classmethod
+        def from_config(cls, config, bus=None, **extra):
+            return cls(**extra)
+
+        def __init__(self, *args, **kwargs) -> None:
+            self.model = "test-model"
+            self.provider = object()
+            self.tools = {}
+            self.memory = _FakeMemory()
+            self.context = MagicMock(memory=self.memory)
+            sessions_dir = tmp_path / "sessions"
+            sessions_dir.mkdir()
+            self.sessions = MagicMock(sessions_dir=sessions_dir)
+            seen["agent"] = self
+
+        async def process_direct(self, *_args, on_progress=None, **_kwargs):
+            await on_progress(
+                "",
+                tool_events=[{"phase": "error", "name": "edit_file"}],
+            )
+            return OutboundMessage(
+                channel="cli",
+                chat_id="dream",
+                content="done",
+                metadata={"_stop_reason": "completed"},
+            )
+
+        async def close_mcp(self) -> None:
+            return None
+
+        async def run(self) -> None:
+            return None
+
+        def stop(self) -> None:
+            return None
+
+    class _StopAfterCronSetup:
+        def __init__(self, *_args, **_kwargs) -> None:
+            raise _StopGatewayError("stop")
+
+    monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCron)
+    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _StopAfterCronSetup)
+
+    result = runner.invoke(app, ["gateway", "--config", str(config_file)])
+    assert isinstance(result.exception, _StopGatewayError)
+
+    cron = seen["cron"]
+    job = CronJob(
+        id="dream",
+        name="dream",
+        payload=CronPayload(message="dream", deliver=False),
+    )
+    assert asyncio.run(cron.on_job(job)) is None
+
+    agent = seen["agent"]
+    assert agent.memory.cursor == 5
+    assert agent.memory.git.commits == []
 
 
 def test_gateway_workspace_override_does_not_migrate_legacy_cron(

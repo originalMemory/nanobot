@@ -316,15 +316,18 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
     msg = ctx.msg
 
     async def _run_dream():
-        from nanobot.agent.memory import MemoryStore
+        from nanobot.agent.memory import DreamRunProgress, MemoryStore
 
         dream_session_key = MemoryStore.dream_session_key
         build_dream_commit_message = MemoryStore.build_dream_commit_message
         prune_dream_sessions = MemoryStore.prune_dream_sessions
 
         store = loop.context.memory
+        progress = DreamRunProgress()
         content = ""
         resp = None
+        diff_body = ""
+        completed = False
         t0 = time.monotonic()
         try:
             result = store.build_dream_prompt()
@@ -341,11 +344,20 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
                 session_key=key,
                 ephemeral=True,
                 tools=store.build_dream_tools(),
+                on_progress=progress,
             )
             elapsed = time.monotonic() - t0
-            if MemoryStore.dream_run_completed(resp):
+            diff_body = store.dream_content_diff()
+            completed = MemoryStore.dream_run_completed(
+                resp,
+                had_tool_errors=progress.had_tool_errors,
+            )
+            if completed:
                 store.set_last_dream_cursor(last_cursor)
-                content = f"Dream completed in {elapsed:.1f}s."
+                if diff_body:
+                    content = f"Dream completed in {elapsed:.1f}s."
+                else:
+                    content = f"Dream completed in {elapsed:.1f}s; no memory changes."
             else:
                 content = (
                     f"Dream did not complete after {elapsed:.1f}s; "
@@ -355,8 +367,8 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
             elapsed = time.monotonic() - t0
             content = f"Dream failed after {elapsed:.1f}s: {e}"
         finally:
-            if store.git.is_initialized():
-                commit_msg = build_dream_commit_message("dream: manual run", resp)
+            if completed and store.git.is_initialized() and diff_body:
+                commit_msg = build_dream_commit_message("dream: manual run", diff_body)
                 sha = store.git.auto_commit(commit_msg)
                 if sha:
                     content += f" (commit {sha})"
