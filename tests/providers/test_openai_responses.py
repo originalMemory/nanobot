@@ -511,6 +511,35 @@ class TestConsumeSse:
         assert reasoning == "cached summary"
 
     @pytest.mark.asyncio
+    async def test_completed_response_usage_extracted(self):
+        response = _SseResponse([
+            {
+                "type": "response.completed",
+                "response": {
+                    "status": "completed",
+                    "usage": {
+                        "input_tokens": 1234,
+                        "output_tokens": 56,
+                        "total_tokens": 1290,
+                        "input_tokens_details": {"cached_tokens": 1000},
+                    },
+                },
+            },
+        ])
+
+        _, _, _, _, usage = await consume_sse_with_reasoning(
+            response,
+            include_usage=True,
+        )
+
+        assert usage == {
+            "prompt_tokens": 1234,
+            "completion_tokens": 56,
+            "total_tokens": 1290,
+            "cached_tokens": 1000,
+        }
+
+    @pytest.mark.asyncio
     async def test_reasoning_summary_from_done_item(self):
         response = _SseResponse([
             {

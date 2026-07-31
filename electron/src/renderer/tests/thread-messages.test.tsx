@@ -87,6 +87,12 @@ describe("ThreadMessages turn timeline", () => {
     expect(screen.getByTestId("response-model-summary")).toHaveTextContent(
       /openai\/gpt-4\.1/,
     );
+    expect(screen.getByTestId("response-model-summary")).toHaveClass(
+      "text-muted-foreground/50",
+    );
+    expect(screen.getByTestId("response-model-summary").closest(
+      ".assistant-message-footer",
+    )).not.toBeNull();
     expect(screen.queryByText(/已降级|Fallback used/)).not.toBeInTheDocument();
 
     rerender(

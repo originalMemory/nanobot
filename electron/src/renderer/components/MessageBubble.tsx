@@ -222,7 +222,16 @@ export function MessageBubble({
   const showLatencyFooter = showAssistantFooter && footerCondition && latencyMs != null;
   const showUsageFooter = showAssistantFooter && footerCondition && usage != null;
   const showTimestampFooter = showAssistantFooter && footerCondition && messageTs != null;
-  const showAssistantFooterRow = showCopyButton || showPsbTagsButton || showPlaybackButton || showLatencyFooter || showUsageFooter || showTimestampFooter;
+  const showResponseModelFooter =
+    showAssistantFooter && footerCondition && !!message.responseModel;
+  const showAssistantFooterRow =
+    showCopyButton
+    || showPsbTagsButton
+    || showPlaybackButton
+    || showLatencyFooter
+    || showUsageFooter
+    || showTimestampFooter
+    || showResponseModelFooter;
 
   const isTypingOnly = empty && message.isStreaming && !hasReasoning;
   const { botName, botIcon, botAvatarUrl } = useBotIdentity();
@@ -407,6 +416,26 @@ export function MessageBubble({
               >
                 {formatTurnLatency(latencyMs)}
               </span>
+            ) : null}
+            {showResponseModelFooter ? (
+              <>
+                <span
+                  data-testid="response-model-summary"
+                  className="assistant-message-footer-metric text-[11px] leading-none text-muted-foreground/50"
+                  title={
+                    message.responseProvider
+                      ? `${message.responseProvider}/${message.responseModel}`
+                      : message.responseModel
+                  }
+                >
+                  {t("thread.composer.responseModel", { model: message.responseModel })}
+                </span>
+                {message.fallbackUsed ? (
+                  <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-amber-700/90 dark:text-amber-300/90">
+                    {t("thread.composer.fallbackUsed")}
+                  </span>
+                ) : null}
+              </>
             ) : null}
           </div>
         ) : null}

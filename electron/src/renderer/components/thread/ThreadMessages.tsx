@@ -161,46 +161,17 @@ export function ThreadMessages({
                 mcpPresets={mcpPresets}
               />
             ) : (
-              <>
-                <MessageBubble
-                  message={unit.message}
-                  showAssistantIdentity={false}
-                  showAssistantFooter={footerFlags[index]}
-                  cliApps={cliApps}
-                  mcpPresets={mcpPresets}
-                />
-                {unit.message.role === "assistant"
-                  && footerFlags[index]
-                  && unit.message.responseModel ? (
-                    <ResponseModelSummary message={unit.message} />
-                  ) : null}
-              </>
+              <MessageBubble
+                message={unit.message}
+                showAssistantIdentity={false}
+                showAssistantFooter={footerFlags[index]}
+                cliApps={cliApps}
+                mcpPresets={mcpPresets}
+              />
             )}
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function ResponseModelSummary({ message }: { message: UIMessage }) {
-  const { t } = useTranslation();
-  const model = message.responseModel ?? "";
-  const title = message.responseProvider
-    ? `${message.responseProvider}/${model}`
-    : model;
-  return (
-    <div
-      data-testid="response-model-summary"
-      className="mt-1 flex min-h-5 items-center gap-1.5 text-[11px] text-muted-foreground/65"
-      title={title}
-    >
-      <span>{t("thread.composer.responseModel", { model })}</span>
-      {message.fallbackUsed ? (
-        <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-1.5 py-0.5 font-medium leading-none text-amber-700/90 dark:text-amber-300/90">
-          {t("thread.composer.fallbackUsed")}
-        </span>
-      ) : null}
     </div>
   );
 }

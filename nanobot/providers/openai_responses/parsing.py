@@ -78,7 +78,12 @@ async def consume_sse_with_reasoning(
     on_content_delta: Callable[[str], Awaitable[None]] | None = None,
     on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
-) -> tuple[str, list[ToolCallRequest], str, str | None]:
+    *,
+    include_usage: bool = False,
+) -> (
+    tuple[str, list[ToolCallRequest], str, str | None]
+    | tuple[str, list[ToolCallRequest], str, str | None, dict[str, int]]
+):
     """Consume a Responses API SSE stream, including visible reasoning summaries."""
     content = ""
     tool_calls: list[ToolCallRequest] = []
@@ -86,6 +91,7 @@ async def consume_sse_with_reasoning(
     tool_call_args_emitted: set[str] = set()
     finish_reason = "stop"
     reasoning_content: str | None = None
+    usage: dict[str, int] = {}
     streamed_reasoning = False
 
     async for event in iter_sse(response):
@@ -198,6 +204,18 @@ async def consume_sse_with_reasoning(
             response_obj = event.get("response") or {}
             status = response_obj.get("status")
             finish_reason = map_finish_reason(status)
+            usage_obj = response_obj.get("usage") or {}
+            if isinstance(usage_obj, dict) and usage_obj:
+                usage = {
+                    "prompt_tokens": int(usage_obj.get("input_tokens") or 0),
+                    "completion_tokens": int(usage_obj.get("output_tokens") or 0),
+                    "total_tokens": int(usage_obj.get("total_tokens") or 0),
+                }
+                input_details = usage_obj.get("input_tokens_details") or {}
+                if isinstance(input_details, dict):
+                    cached_tokens = int(input_details.get("cached_tokens") or 0)
+                    if cached_tokens:
+                        usage["cached_tokens"] = cached_tokens
             if not reasoning_content:
                 summary = _extract_reasoning_summary_from_output(response_obj.get("output") or [])
                 if summary:
@@ -208,7 +226,10 @@ async def consume_sse_with_reasoning(
             detail = event.get("error") or event.get("message") or event
             raise RuntimeError(f"Response failed: {str(detail)[:500]}")
 
-    return content, tool_calls, finish_reason, reasoning_content
+    result = (content, tool_calls, finish_reason, reasoning_content)
+    if include_usage:
+        return (*result, usage)
+    return result
 
 
 def _extract_reasoning_summary_from_output(output: Any) -> str | None:

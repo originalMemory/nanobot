@@ -80,7 +80,7 @@ class OpenAICodexProvider(LLMProvider):
 
         try:
             try:
-                content, tool_calls, finish_reason, reasoning_content = await _request_codex(
+                content, tool_calls, finish_reason, reasoning_content, usage = await _request_codex(
                     DEFAULT_CODEX_URL, headers, body, verify=True,
                     on_content_delta=on_content_delta,
                     on_thinking_delta=on_thinking_delta,
@@ -90,7 +90,7 @@ class OpenAICodexProvider(LLMProvider):
                 if "CERTIFICATE_VERIFY_FAILED" not in str(e):
                     raise
                 logger.warning("SSL verification failed for Codex API; retrying with verify=False")
-                content, tool_calls, finish_reason, reasoning_content = await _request_codex(
+                content, tool_calls, finish_reason, reasoning_content, usage = await _request_codex(
                     DEFAULT_CODEX_URL, headers, body, verify=False,
                     on_content_delta=on_content_delta,
                     on_thinking_delta=on_thinking_delta,
@@ -100,6 +100,7 @@ class OpenAICodexProvider(LLMProvider):
                 content=content,
                 tool_calls=tool_calls,
                 finish_reason=finish_reason,
+                usage=usage,
                 reasoning_content=reasoning_content,
             )
         except Exception as e:
@@ -206,7 +207,7 @@ async def _request_codex(
     on_content_delta: Callable[[str], Awaitable[None]] | None = None,
     on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
     on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
-) -> tuple[str, list[ToolCallRequest], str, str | None]:
+) -> tuple[str, list[ToolCallRequest], str, str | None, dict[str, int]]:
     idle_timeout_s = int(os.environ.get("NANOBOT_STREAM_IDLE_TIMEOUT_S", "90"))
     async with httpx.AsyncClient(timeout=idle_timeout_s, verify=verify) as client:
         async with client.stream("POST", url, headers=headers, json=body) as response:
@@ -228,6 +229,7 @@ async def _request_codex(
                 on_content_delta=on_content_delta,
                 on_tool_call_delta=on_tool_call_delta,
                 on_reasoning_delta=on_thinking_delta,
+                include_usage=True,
             )
 
 

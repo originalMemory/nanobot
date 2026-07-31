@@ -135,7 +135,7 @@ async def test_codex_prompt_cache_key_uses_stable_conversation_prefix(monkeypatc
     ):
         _ = on_thinking_delta, on_tool_call_delta
         bodies.append(body)
-        return "ok", [], "stop", None
+        return "ok", [], "stop", None, {}
 
     monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
 
@@ -183,7 +183,7 @@ async def test_codex_request_prepends_chinese_visible_output_instruction(monkeyp
     ):
         _ = url, headers, verify, on_content_delta, on_thinking_delta, on_tool_call_delta
         bodies.append(body)
-        return "ok", [], "stop", None
+        return "ok", [], "stop", None, {}
 
     monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
 
@@ -291,7 +291,7 @@ async def test_codex_retry_uses_structured_timeout_metadata(monkeypatch) -> None
         calls += 1
         if calls == 1:
             raise httpx.ReadTimeout("")
-        return "ok", [], "stop", None
+        return "ok", [], "stop", None, {}
 
     async def fake_sleep(delay: float) -> None:
         delays.append(delay)
@@ -334,7 +334,7 @@ async def test_codex_retry_uses_sse_server_error_metadata(monkeypatch) -> None:
             raise RuntimeError(
                 "Response failed: {'type': 'server_error', 'code': 'server_error'}"
             )
-        return "ok", [], "stop", None
+        return "ok", [], "stop", None, {}
 
     async def fake_sleep(delay: float) -> None:
         delays.append(delay)
@@ -504,7 +504,7 @@ async def test_codex_stream_surfaces_reasoning_summary(monkeypatch) -> None:
             await on_content_delta("answer")
         if on_thinking_delta:
             await on_thinking_delta("summary")
-        return "answer", [], "stop", "summary"
+        return "answer", [], "stop", "summary", {}
 
     monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
 
