@@ -65,6 +65,7 @@ from nanobot.webui.websocket_logging import websockets_server_logger
 from nanobot.webui.workspaces import WebUIWorkspaceController
 
 if TYPE_CHECKING:
+    from nanobot.cron.service import CronService
     from nanobot.session.manager import SessionManager
     from nanobot.webui.gateway_services import GatewayServices
 
@@ -440,6 +441,7 @@ class WebSocketChannel(BaseChannel):
         *,
         gateway: "GatewayServices | None" = None,
         session_manager: "SessionManager | None" = None,
+        cron_service: "CronService | None" = None,
         static_dist_path: Path | None = None,
         workspace_path: Path | None = None,
         runtime_model_name: Callable[[], str | None] | None = None,
@@ -522,6 +524,7 @@ class WebSocketChannel(BaseChannel):
         self._http_router = ForkGatewayHTTPHandler(
             config=config,
             session_manager=session_manager,
+            cron_service=cron_service,
             static_dist_path=static_dist_path,
             workspace_path=workspace_path,
             runtime_model_name=runtime_model_name,

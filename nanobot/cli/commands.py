@@ -1379,6 +1379,7 @@ def _run_gateway(
         config,
         bus,
         session_manager=session_manager,
+        cron_service=cron,
         webui_runtime_model_name=_webui_runtime_model_name,
         webui_runtime_model_setter=_webui_runtime_model_setter,
         webui_static_dist=webui_static_dist,

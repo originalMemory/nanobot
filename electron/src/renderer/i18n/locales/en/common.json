@@ -896,6 +896,51 @@
       "http": "Request failed (HTTP {{status}})"
     }
   },
+  "automations": {
+    "title": "Automations",
+    "subtitle": "View and control nanobot background jobs",
+    "back": "Back to inbox",
+    "refresh": "Refresh automations",
+    "enabled": "Active",
+    "running": "Running",
+    "paused": "Paused",
+    "system": "System",
+    "protectedHint": "System automations are managed by nanobot",
+    "never": "Never",
+    "nextRun": "Next run",
+    "lastRun": "Last run",
+    "schedule": {
+      "at": "Once at {{time}}",
+      "every": "Every {{interval}}",
+      "invalid": "Invalid schedule"
+    },
+    "deliveryTarget": {
+      "label": "Delivery target",
+      "system": "nanobot system",
+      "internal": "Background job"
+    },
+    "actions": {
+      "pause": "Pause",
+      "resume": "Resume",
+      "run": "Run now",
+      "delete": "Delete"
+    },
+    "empty": {
+      "title": "No automations",
+      "description": "Ask nanobot to create one from the Unified Inbox."
+    },
+    "delete": {
+      "title": "Delete automation?",
+      "description": "“{{name}}” will be permanently deleted.",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    },
+    "errors": {
+      "load": "Failed to load automations",
+      "action": "Automation action failed",
+      "http": "Request failed (HTTP {{status}})"
+    }
+  },
   "inbox": {
     "unified": "Unified Inbox",
     "refreshHistory": "Refresh message history",

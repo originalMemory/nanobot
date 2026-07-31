@@ -125,6 +125,7 @@ from nanobot.webui.workspace_files import (
 
 if TYPE_CHECKING:
     from nanobot.bus.queue import MessageBus
+    from nanobot.cron.service import CronService
     from nanobot.session.manager import SessionManager
     from nanobot.webui.workspaces import WebUIWorkspaceController
 
@@ -255,6 +256,7 @@ class ForkGatewayHTTPHandler:
         *,
         config: Any,
         session_manager: SessionManager | None,
+        cron_service: CronService | None,
         static_dist_path: Path | None,
         workspace_path: Path | None,
         runtime_model_name: Callable[[], str | None] | None,
@@ -269,6 +271,7 @@ class ForkGatewayHTTPHandler:
     ) -> None:
         self.config = config
         self._session_manager = session_manager
+        self._cron_service = cron_service
         self._static_dist_path = (
             static_dist_path.resolve() if static_dist_path is not None else None
         )
@@ -463,6 +466,16 @@ class ForkGatewayHTTPHandler:
             return self._handle_webui_sidebar_state(request)
         if got == "/api/webui/sidebar-state/update":
             return self._handle_webui_sidebar_state_update(request)
+        if got == "/api/webui/automations":
+            return self._handle_automations_list(request)
+        if got == "/api/webui/automations/enable":
+            return self._handle_automations_toggle(request, enabled=True)
+        if got == "/api/webui/automations/disable":
+            return self._handle_automations_toggle(request, enabled=False)
+        if got == "/api/webui/automations/delete":
+            return self._handle_automations_delete(request)
+        if got == "/api/webui/automations/run":
+            return self._handle_automations_run(request)
         if got == "/api/workspace/list":
             return self._handle_workspace_list(request)
         if got == "/api/workspace/read":
@@ -588,6 +601,98 @@ class ForkGatewayHTTPHandler:
                 row["workspace_scope"] = scope.payload()
             cleaned.append(row)
         return _http_json_response({"sessions": cleaned})
+
+    def _automations_payload(self) -> dict[str, Any]:
+        if self._cron_service is None:
+            return {"automations": []}
+        jobs = self._cron_service.list_jobs(include_disabled=True)
+        return {
+            "automations": [
+                {
+                    "id": job.id,
+                    "name": job.name,
+                    "enabled": job.enabled,
+                    "running": self._cron_service.is_job_running(job.id),
+                    "protected": job.payload.kind == "system_event",
+                    "schedule": {
+                        "kind": job.schedule.kind,
+                        "at_ms": job.schedule.at_ms,
+                        "every_ms": job.schedule.every_ms,
+                        "expr": job.schedule.expr,
+                        "tz": job.schedule.tz,
+                    },
+                    "source": {
+                        "kind": job.payload.kind,
+                        "channel": job.payload.channel,
+                        "to": job.payload.to,
+                        "session_key": job.payload.session_key,
+                        "deliver": job.payload.deliver,
+                    },
+                    "state": {
+                        "next_run_at_ms": job.state.next_run_at_ms,
+                        "last_run_at_ms": job.state.last_run_at_ms,
+                        "last_status": job.state.last_status,
+                        "last_error": job.state.last_error,
+                    },
+                }
+                for job in jobs
+            ]
+        }
+
+    def _automation_request_job(self, request: WsRequest) -> tuple[Any | None, Response | None]:
+        if not self.check_api_token(request):
+            return None, _http_error(401, "Unauthorized")
+        if self._cron_service is None:
+            return None, _http_error(503, "cron service unavailable")
+        job_id = _query_first(_parse_query(request.path), "id")
+        if not job_id:
+            return None, _http_error(400, "missing automation id")
+        job = self._cron_service.get_job(job_id)
+        if job is None:
+            return None, _http_error(404, "automation not found")
+        return job, None
+
+    def _handle_automations_list(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self._cron_service is None:
+            return _http_error(503, "cron service unavailable")
+        return _http_json_response(self._automations_payload())
+
+    def _handle_automations_toggle(self, request: WsRequest, *, enabled: bool) -> Response:
+        job, error = self._automation_request_job(request)
+        if error is not None:
+            return error
+        if job.payload.kind == "system_event":
+            return _http_error(409, "system automation is protected")
+        if self._cron_service.is_job_running(job.id):
+            return _http_error(409, "automation is running")
+        self._cron_service.enable_job(job.id, enabled=enabled)
+        return _http_json_response(self._automations_payload())
+
+    def _handle_automations_delete(self, request: WsRequest) -> Response:
+        job, error = self._automation_request_job(request)
+        if error is not None:
+            return error
+        if job.payload.kind == "system_event":
+            return _http_error(409, "system automation is protected")
+        if self._cron_service.is_job_running(job.id):
+            return _http_error(409, "automation is running")
+        self._cron_service.remove_job(job.id)
+        return _http_json_response(self._automations_payload())
+
+    def _handle_automations_run(self, request: WsRequest) -> Response:
+        job, error = self._automation_request_job(request)
+        if error is not None:
+            return error
+        if job.payload.kind == "system_event":
+            return _http_error(409, "system automation is protected")
+        result = self._cron_service.start_job(job.id, force=True)
+        if result == "not_found":
+            return _http_error(404, "automation not found")
+        payload = self._automations_payload()
+        payload["run_result"] = result
+        return _http_json_response(payload, status=202 if result == "started" else 200)
 
     def _handle_session_messages(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):

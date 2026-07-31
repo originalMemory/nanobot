@@ -1,4 +1,5 @@
 import type {
+  AutomationsPayload,
   ChatSummary,
   CliAppsPayload,
   ImageGenerationSettingsUpdate,
@@ -255,6 +256,26 @@ export async function fetchSidebarState(
   base: string = DEFAULT_GATEWAY_HTTP,
 ): Promise<SidebarStatePayload> {
   return request<SidebarStatePayload>(`${base}/api/webui/sidebar-state`, token);
+}
+
+export async function fetchAutomations(
+  token: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<AutomationsPayload> {
+  return request<AutomationsPayload>(`${base}/api/webui/automations`, token);
+}
+
+export async function runAutomationAction(
+  token: string,
+  action: "enable" | "disable" | "run" | "delete",
+  id: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+): Promise<AutomationsPayload> {
+  const query = new URLSearchParams({ id });
+  return request<AutomationsPayload>(
+    `${base}/api/webui/automations/${action}?${query}`,
+    token,
+  );
 }
 
 export async function updateSidebarState(

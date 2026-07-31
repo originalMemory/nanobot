@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { InboxSidebar } from "@/components/InboxSidebar";
 import { InboxView } from "@/components/InboxView";
+import { AutomationView } from "@/components/automations/AutomationView";
 import { ScreenshotPreviewModal } from "@/components/ScreenshotPreviewModal";
 import { SettingsView } from "@/components/settings/SettingsView";
 import type { SettingsSectionKey } from "@/components/settings/shared";
@@ -185,7 +186,7 @@ function Shell({
   const { theme, setTheme } = useTheme();
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
   const [channels, setChannels] = useState<string[]>([]);
-  const [view, setView] = useState<"chat" | "settings" | "workspace">("chat");
+  const [view, setView] = useState<"chat" | "settings" | "workspace" | "automations">("chat");
   const [botIdentity, setBotIdentity] = useState<BotIdentity>({ botName: "nanobot", botIcon: "", botAvatarUrl: null });
   const [settings, setSettings] = useState<SettingsPayload | null>(null);
   const [modelSelectionPending, setModelSelectionPending] = useState(false);
@@ -360,8 +361,10 @@ function Shell({
             onThemeChange={setTheme}
             onOpenSettings={() => setView("settings")}
             onOpenWorkspace={() => setView("workspace")}
+            onOpenAutomations={() => setView("automations")}
             settingsActive={view === "settings"}
             workspaceActive={view === "workspace"}
+            automationsActive={view === "automations"}
           />
 
           {/* Main area */}
@@ -408,6 +411,14 @@ function Shell({
                   token={token}
                   gatewayUrl={gatewayUrl}
                   workspacePath={settings?.runtime.workspace_path ?? null}
+                  onBack={() => setView("chat")}
+                />
+              </div>
+            ) : view === "automations" ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <AutomationView
+                  token={token}
+                  gatewayUrl={gatewayUrl}
                   onBack={() => setView("chat")}
                 />
               </div>

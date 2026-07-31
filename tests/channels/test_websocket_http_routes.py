@@ -12,6 +12,8 @@ import httpx
 import pytest
 
 from nanobot.channels.websocket import WebSocketChannel, WebSocketConfig
+from nanobot.cron.service import CronService
+from nanobot.cron.types import CronJob, CronPayload, CronSchedule
 from nanobot.session.manager import Session, SessionManager
 from nanobot.webui.gateway_services import GatewayServices, build_gateway_services
 
@@ -48,6 +50,7 @@ def _ch(
     static_dist_path: Path | None = None,
     port: int = _PORT,
     runtime_model_name: Any | None = None,
+    cron_service: CronService | None = None,
     **extra: Any,
 ) -> WebSocketChannel:
     cfg: dict[str, Any] = {
@@ -65,7 +68,7 @@ def _ch(
         static_dist_path=static_dist_path,
         runtime_model_name=runtime_model_name,
     )
-    return WebSocketChannel(cfg, bus, gateway=gateway)
+    return WebSocketChannel(cfg, bus, gateway=gateway, cron_service=cron_service)
 
 
 @pytest.fixture()
@@ -157,6 +160,128 @@ async def test_sessions_routes_require_bearer_token(
         assert body["key"] == "websocket:abc"
         assert [m["role"] for m in body["messages"]] == ["user", "assistant"]
     finally:
+        await channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_automation_routes_manage_jobs_and_protect_system_jobs(
+    bus: MagicMock,
+    tmp_path: Path,
+) -> None:
+    cron = CronService(tmp_path / "cron" / "jobs.json")
+    ordinary = cron.add_job(
+        name="Daily note",
+        schedule=CronSchedule(kind="every", every_ms=60_000),
+        message="write note",
+    )
+    system = CronJob(
+        id="system-heartbeat",
+        name="Heartbeat",
+        schedule=CronSchedule(kind="every", every_ms=60_000),
+        payload=CronPayload(kind="system_event", message="heartbeat"),
+    )
+    cron.register_system_job(system)
+    run_started = asyncio.Event()
+    run_release = asyncio.Event()
+    run_count = 0
+
+    async def on_job(_job: CronJob) -> str:
+        nonlocal run_count
+        run_count += 1
+        run_started.set()
+        await run_release.wait()
+        return "done"
+
+    cron.on_job = on_job
+    await cron.start()
+
+    channel = _ch(
+        bus,
+        session_manager=_seed_session(tmp_path),
+        cron_service=cron,
+        port=29922,
+    )
+    server_task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        deny = await _http_get("http://127.0.0.1:29922/api/webui/automations")
+        assert deny.status_code == 401
+
+        boot = await _http_get("http://127.0.0.1:29922/webui/bootstrap")
+        auth = {"Authorization": f"Bearer {boot.json()['token']}"}
+
+        listing = await _http_get(
+            "http://127.0.0.1:29922/api/webui/automations",
+            headers=auth,
+        )
+        assert listing.status_code == 200
+        rows = {row["id"]: row for row in listing.json()["automations"]}
+        assert rows[ordinary.id]["protected"] is False
+        assert rows[ordinary.id]["running"] is False
+        assert rows[system.id]["protected"] is True
+
+        for action in ("enable", "disable", "run", "delete"):
+            protected = await _http_get(
+                f"http://127.0.0.1:29922/api/webui/automations/{action}?id={system.id}",
+                headers=auth,
+            )
+            assert protected.status_code == 409
+        assert cron.get_job(system.id) is not None
+
+        disabled = await _http_get(
+            f"http://127.0.0.1:29922/api/webui/automations/disable?id={ordinary.id}",
+            headers=auth,
+        )
+        assert disabled.status_code == 200
+        assert cron.get_job(ordinary.id).enabled is False
+
+        ran = await _http_get(
+            f"http://127.0.0.1:29922/api/webui/automations/run?id={ordinary.id}",
+            headers=auth,
+        )
+        assert ran.status_code == 202
+        assert ran.json()["run_result"] == "started"
+        assert next(
+            row for row in ran.json()["automations"] if row["id"] == ordinary.id
+        )["running"] is True
+        await run_started.wait()
+
+        duplicate = await _http_get(
+            f"http://127.0.0.1:29922/api/webui/automations/run?id={ordinary.id}",
+            headers=auth,
+        )
+        assert duplicate.status_code == 200
+        assert duplicate.json()["run_result"] == "running"
+        assert run_count == 1
+
+        while_running = await _http_get(
+            "http://127.0.0.1:29922/api/webui/automations",
+            headers=auth,
+        )
+        assert next(
+            row
+            for row in while_running.json()["automations"]
+            if row["id"] == ordinary.id
+        )["running"] is True
+
+        run_release.set()
+        for _ in range(100):
+            if not cron.is_job_running(ordinary.id):
+                break
+            await asyncio.sleep(0.01)
+        assert cron.is_job_running(ordinary.id) is False
+        assert cron.get_job(ordinary.id).state.last_status == "ok"
+
+        deleted = await _http_get(
+            f"http://127.0.0.1:29922/api/webui/automations/delete?id={ordinary.id}",
+            headers=auth,
+        )
+        assert deleted.status_code == 200
+        assert cron.get_job(ordinary.id) is None
+    finally:
+        run_release.set()
+        cron.stop()
         await channel.stop()
         await server_task
 

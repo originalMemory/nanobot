@@ -18,6 +18,7 @@ from nanobot.config.schema import Config
 from nanobot.utils.restart import consume_restart_notice_from_env, format_restart_completed_message
 
 if TYPE_CHECKING:
+    from nanobot.cron.service import CronService
     from nanobot.session.manager import SessionManager
 
 
@@ -65,6 +66,7 @@ class ChannelManager:
         bus: MessageBus,
         *,
         session_manager: "SessionManager | None" = None,
+        cron_service: "CronService | None" = None,
         webui_runtime_model_name: Callable[[], str | None] | None = None,
         webui_runtime_model_setter: Callable[[str | None], None] | None = None,
         webui_static_dist: bool = True,
@@ -74,6 +76,7 @@ class ChannelManager:
         self.config = config
         self.bus = bus
         self._session_manager = session_manager
+        self._cron_service = cron_service
         self._webui_runtime_model_name = webui_runtime_model_name
         self._webui_runtime_model_setter = webui_runtime_model_setter
         self._webui_static_dist = webui_static_dist
@@ -132,6 +135,7 @@ class ChannelManager:
                         if static_path is not None:
                             kwargs["static_dist_path"] = static_path
                     kwargs["workspace_path"] = self.config.workspace_path
+                    kwargs["cron_service"] = self._cron_service
                     if self._webui_runtime_model_name is not None:
                         kwargs["runtime_model_name"] = self._webui_runtime_model_name
                     if self._webui_runtime_model_setter is not None:

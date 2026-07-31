@@ -209,6 +209,38 @@ export interface ChatSummary {
   runStartedAt?: number | null;
 }
 
+export interface AutomationItem {
+  id: string;
+  name: string;
+  enabled: boolean;
+  running: boolean;
+  protected: boolean;
+  schedule: {
+    kind: "at" | "every" | "cron";
+    at_ms: number | null;
+    every_ms: number | null;
+    expr: string | null;
+    tz: string | null;
+  };
+  source: {
+    kind: "system_event" | "agent_turn";
+    channel: string | null;
+    to: string | null;
+    session_key: string | null;
+    deliver: boolean;
+  };
+  state: {
+    next_run_at_ms: number | null;
+    last_run_at_ms: number | null;
+    last_status: "ok" | "error" | "skipped" | null;
+    last_error: string | null;
+  };
+}
+
+export interface AutomationsPayload {
+  automations: AutomationItem[];
+}
+
 export type SidebarDensity = "comfortable" | "compact";
 export type SidebarSortMode = "updated_desc" | "created_desc" | "title_asc";
 

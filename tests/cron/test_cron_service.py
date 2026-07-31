@@ -228,6 +228,76 @@ async def test_run_job_preserves_running_service_state(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_background_run_keeps_store_and_rejects_duplicate_run(tmp_path) -> None:
+    store_path = tmp_path / "cron" / "jobs.json"
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def on_job(_job) -> None:
+        nonlocal calls
+        calls += 1
+        entered.set()
+        await release.wait()
+
+    service = CronService(store_path, on_job=on_job, max_sleep_ms=3_600_000)
+    job = service.add_job(
+        name="one-shot",
+        schedule=CronSchedule(kind="at", at_ms=int(time.time() * 1000) + 3_600_000),
+        message="hello",
+    )
+    await service.start()
+    try:
+        assert service.start_job(job.id, force=True) == "started"
+        await entered.wait()
+        assert service.start_job(job.id, force=True) == "running"
+
+        # Automation 页面刷新会读取列表；执行中的内存 store 不得被磁盘副本替换。
+        assert service.list_jobs(include_disabled=True)[0].id == job.id
+
+        release.set()
+        await _wait_until(lambda: not service.is_job_running(job.id))
+
+        loaded = service.get_job(job.id)
+        assert loaded is not None
+        assert loaded.enabled is False
+        assert loaded.state.last_status == "ok"
+        assert len(loaded.state.run_history) == 1
+        assert calls == 1
+    finally:
+        release.set()
+        service.stop()
+
+
+@pytest.mark.asyncio
+async def test_awaited_manual_run_survives_concurrent_list(tmp_path) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def on_job(_job) -> None:
+        entered.set()
+        await release.wait()
+
+    service = CronService(tmp_path / "cron" / "jobs.json", on_job=on_job)
+    job = service.add_job(
+        name="manual",
+        schedule=CronSchedule(kind="every", every_ms=60_000),
+        message="hello",
+    )
+
+    task = asyncio.create_task(service.run_job(job.id, force=True))
+    await entered.wait()
+    service.list_jobs(include_disabled=True)
+    release.set()
+
+    assert await task is True
+    loaded = service.get_job(job.id)
+    assert loaded is not None
+    assert loaded.state.last_status == "ok"
+    assert len(loaded.state.run_history) == 1
+
+
+@pytest.mark.asyncio
 async def test_running_service_honors_external_disable(tmp_path) -> None:
     store_path = tmp_path / "cron" / "jobs.json"
     called: list[str] = []

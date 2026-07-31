@@ -164,3 +164,73 @@ def test_full_round_trip_survives_repeated_save_load(tmp_path: Path) -> None:
     s2._load_store()
     assert s2._store is not None
     assert [j.name for j in s2._store.jobs] == ["Daily Loving Message"]
+
+
+def test_load_jobs_accepts_snake_case_and_empty_run_history(tmp_path: Path) -> None:
+    store_path = tmp_path / "cron" / "jobs.json"
+    store_path.parent.mkdir(parents=True)
+    store_path.write_text(
+        json.dumps({
+            "version": 1,
+            "jobs": [{
+                "id": "legacy",
+                "name": "Legacy job",
+                "schedule": {"kind": "every", "every_ms": 60_000},
+                "payload": {
+                    "kind": "agent_turn",
+                    "message": "hello",
+                    "session_key": "unified:default",
+                    "context_messages": 12,
+                },
+                "state": {"next_run_at_ms": 123, "run_history": None},
+                "created_at_ms": 1,
+                "updated_at_ms": 2,
+                "delete_after_run": True,
+            }],
+        }),
+        encoding="utf-8",
+    )
+
+    loaded = CronService(store_path)._load_jobs()
+
+    assert loaded is not None
+    jobs, _ = loaded
+    assert jobs[0].schedule.every_ms == 60_000
+    assert jobs[0].payload.session_key == "unified:default"
+    assert jobs[0].payload.context_messages == 12
+    assert jobs[0].state.run_history == []
+    assert jobs[0].delete_after_run is True
+
+
+def test_load_jobs_skips_only_invalid_run_history_records(tmp_path: Path) -> None:
+    store_path = tmp_path / "cron" / "jobs.json"
+    store_path.parent.mkdir(parents=True)
+    store_path.write_text(
+        json.dumps({
+            "version": 1,
+            "jobs": [{
+                "id": "daily",
+                "name": "Daily job",
+                "schedule": {"kind": "cron", "expr": "0 9 * * *"},
+                "payload": {"kind": "agent_turn", "message": "hello"},
+                "state": {
+                    "runHistory": [
+                        {"runAtMs": 100, "status": "ok", "durationMs": 20},
+                        {"status": "error"},
+                        "broken",
+                        {"run_at_ms": 200, "status": "error", "duration_ms": 30},
+                    ],
+                },
+            }],
+        }),
+        encoding="utf-8",
+    )
+
+    loaded = CronService(store_path)._load_jobs()
+
+    assert loaded is not None
+    jobs, _ = loaded
+    assert [(r.run_at_ms, r.status) for r in jobs[0].state.run_history] == [
+        (100, "ok"),
+        (200, "error"),
+    ]
