@@ -9,10 +9,11 @@ import {
   Notification,
   powerMonitor,
   screen,
+  shell,
   Tray,
 } from 'electron';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import started from 'electron-squirrel-startup';
 
 const SCREENSHOT_ACCELERATOR = 'CmdOrCtrl+Shift+S';
@@ -20,6 +21,7 @@ const DEFAULT_RAISE_INBOX_ACCELERATOR = 'CmdOrCtrl+Shift+E';
 const DEFAULT_WALLPAPER_URL =
   'https://nas.xuanniao.fun:49150/api/moneyAccounting/random-image?type=1,2,3&level=5,6,7,8&orientation=2&maxResolutionLevel=2';
 const MIN_WALLPAPER_INTERVAL_MINUTES = 1;
+const WINDOWS_TOAST_ACTIVATOR_CLSID = '{D405C197-DC97-4A6C-ACD8-3D10BCBD5365}';
 import { DEFAULT_PSB_LOCAL_PREFS, type DeskPetLocalPrefs } from './psb/types';
 import { cleanupPsbOnQuit, registerPsbIpcHandlers } from './main/psb-manager';
 import Store from 'electron-store';
@@ -29,6 +31,10 @@ import {
   notificationBody,
   type NativeNotificationPayload,
 } from './notification-text';
+
+if (process.platform === 'win32') {
+  app.setToastActivatorCLSID(WINDOWS_TOAST_ACTIVATOR_CLSID);
+}
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -316,6 +322,35 @@ ipcMain.handle('app:open-settings', (_event, section?: string) => {
   return { ok: true };
 });
 
+type OpenAtLoginState = {
+  available: boolean;
+  enabled: boolean;
+  status: 'not-registered' | 'enabled' | 'requires-approval' | 'not-found' | null;
+};
+
+function getOpenAtLoginState(): OpenAtLoginState {
+  const available =
+    app.isPackaged && (process.platform === 'darwin' || process.platform === 'win32');
+  if (!available) return { available: false, enabled: false, status: null };
+  const settings = app.getLoginItemSettings();
+  return {
+    available: true,
+    enabled: settings.openAtLogin,
+    status: process.platform === 'darwin' ? settings.status : null,
+  };
+}
+
+ipcMain.handle('app:get-open-at-login', (): OpenAtLoginState => {
+  return getOpenAtLoginState();
+});
+
+ipcMain.handle('app:set-open-at-login', (_event, enabled: boolean): OpenAtLoginState => {
+  const current = getOpenAtLoginState();
+  if (!current.available) return current;
+  app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
+  return getOpenAtLoginState();
+});
+
 // ---------------------------------------------------------------------------
 // Screenshot (8.1)
 // ---------------------------------------------------------------------------
@@ -364,6 +399,35 @@ function showNativeNotification(payload: Partial<NativeNotificationPayload>): vo
     console.error('[notification] native notification failed:', error);
   });
   notification.show();
+}
+
+function ensureWindowsNotificationShortcut(): void {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  const programsDir = path.join(
+    app.getPath('appData'),
+    'Microsoft',
+    'Windows',
+    'Start Menu',
+    'Programs',
+  );
+  const shortcutPath = path.join(programsDir, `${APP_NAME}.lnk`);
+  try {
+    mkdirSync(programsDir, { recursive: true });
+    const written = shell.writeShortcutLink(shortcutPath, 'create', {
+      target: process.execPath,
+      cwd: path.dirname(process.execPath),
+      description: APP_NAME,
+      icon: process.execPath,
+      iconIndex: 0,
+      appUserModelId: APP_ID,
+      toastActivatorClsid: WINDOWS_TOAST_ACTIVATOR_CLSID,
+    });
+    if (!written) {
+      console.error('[notification] failed to create Windows Start Menu shortcut');
+    }
+  } catch (error) {
+    console.error('[notification] failed to create Windows Start Menu shortcut:', error);
+  }
 }
 
 ipcMain.handle('tray:notify-incoming', (
@@ -828,6 +892,7 @@ if (gotSingleInstanceLock) {
   app.whenReady().then(() => {
     if (process.platform === 'win32') {
       app.setAppUserModelId(APP_ID);
+      ensureWindowsNotificationShortcut();
     }
 
     // BrowserWindow 的 webSecurity: false 已关闭 renderer 的 CORS 检查，

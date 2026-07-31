@@ -153,6 +153,7 @@
       "activityMode": "Activity detail",
       "codeWrap": "Code wrapping",
       "brandLogos": "Brand logos",
+      "openAtLogin": "Open at login",
       "raiseInboxShortcut": "Raise inbox shortcut",
       "wallpaper": "Dynamic wallpaper",
       "wallpaperInterval": "Update every (minutes)",
@@ -219,6 +220,7 @@
       "activityMode": "Choose how much agent activity chrome to show by default.",
       "codeWrap": "Keep long code lines readable on smaller screens.",
       "brandLogos": "Show third-party provider and CLI logos in Settings.",
+      "openAtLogin": "Automatically start Nanobot after you sign in. Available in the installed app.",
       "raiseInboxShortcut": "Global shortcut to show the main window, open the unified inbox, and focus the composer. Click the key area, press a combination, then Save.",
       "wallpaper": "Fetch a background image from a URL on a schedule while the window is visible. Leave URL empty to disable.",
       "maxResults": "Results returned by each web_search call.",
@@ -367,7 +369,8 @@
       "savedRestart": "Saved. Restart nanobot to apply.",
       "restartAfterSaving": "Save changes, then restart when ready.",
       "savedRestartApply": "Saved. Restart when ready.",
-      "imageProviderRestart": "Image provider changes saved. Restart when ready."
+      "imageProviderRestart": "Image provider changes saved. Restart when ready.",
+      "openAtLoginRequiresApproval": "Allow Nanobot in macOS System Settings → General → Login Items."
     },
     "shortcut": {
       "recording": "Press a shortcut…"
@@ -376,6 +379,7 @@
       "wallpaperUrl": "Image URL"
     },
     "errors": {
+      "openAtLoginUpdateFailed": "Could not update the login startup setting. Please try again.",
       "raiseInboxShortcutEmpty": "Shortcut cannot be empty.",
       "raiseInboxShortcutRegisterFailed": "Could not register this shortcut. It may be in use or invalid — try another combination.",
       "wallpaperSaveFailed": "Could not save wallpaper settings. Please try again."

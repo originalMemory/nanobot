@@ -33,6 +33,11 @@ type PsbRuntimeAction = {
   type: string;
   payload?: Record<string, unknown>;
 };
+type OpenAtLoginState = {
+  available: boolean;
+  enabled: boolean;
+  status: "not-registered" | "enabled" | "requires-approval" | "not-found" | null;
+};
 
 interface ElectronAPI {
   platform: {
@@ -51,6 +56,8 @@ interface ElectronAPI {
     quit(): Promise<void>;
     openSettings(section?: string): Promise<{ ok: boolean }>;
     onOpenSettings(cb: (section: string) => void): () => void;
+    getOpenAtLogin(): Promise<OpenAtLoginState>;
+    setOpenAtLogin(enabled: boolean): Promise<OpenAtLoginState>;
   };
   tha: {
     open(config: ThaWindowConfig): Promise<{ ok: true; id: number } | { ok: false; error: string }>;

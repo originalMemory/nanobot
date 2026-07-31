@@ -153,6 +153,7 @@
       "activityMode": "活动细节",
       "codeWrap": "代码换行",
       "brandLogos": "品牌 Logo",
+      "openAtLogin": "开机自启动",
       "raiseInboxShortcut": "唤起收件箱快捷键",
       "wallpaper": "动态壁纸",
       "wallpaperInterval": "更新间隔（分钟）",
@@ -219,6 +220,7 @@
       "activityMode": "选择默认显示多少 agent 活动细节。",
       "codeWrap": "让较小屏幕上的长代码行更易读。",
       "brandLogos": "在设置页显示第三方服务商和 CLI 的 Logo。",
+      "openAtLogin": "登录系统后自动启动 Nanobot。仅已安装的打包应用可用。",
       "raiseInboxShortcut": "全局快捷键：显示主窗口、切换到统一收件箱并聚焦输入框。点击按键区域后按下组合键，再点保存。",
       "wallpaper": "从 URL 定时拉取背景图，仅在窗口可见时更换。留空 URL 可关闭壁纸。",
       "maxResults": "每次 web_search 返回的结果数量。",
@@ -367,7 +369,8 @@
       "savedRestart": "已保存。重启 nanobot 后生效。",
       "restartAfterSaving": "保存后，可在合适时重启。",
       "savedRestartApply": "已保存，可稍后重启。",
-      "imageProviderRestart": "图片服务商改动已保存，可稍后重启。"
+      "imageProviderRestart": "图片服务商改动已保存，可稍后重启。",
+      "openAtLoginRequiresApproval": "请在 macOS“系统设置 → 通用 → 登录项”中允许 Nanobot。"
     },
     "shortcut": {
       "recording": "请按下快捷键…"
@@ -376,6 +379,7 @@
       "wallpaperUrl": "图片 URL"
     },
     "errors": {
+      "openAtLoginUpdateFailed": "无法更新开机自启动设置，请稍后重试。",
       "raiseInboxShortcutEmpty": "快捷键不能为空。",
       "raiseInboxShortcutRegisterFailed": "无法注册该快捷键，可能已被占用或格式无效，请换一个组合。",
       "wallpaperSaveFailed": "壁纸设置保存失败，请稍后重试。"

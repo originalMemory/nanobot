@@ -44,6 +44,11 @@ type PsbRuntimeAction = {
   type: string;
   payload?: Record<string, unknown>;
 };
+type OpenAtLoginState = {
+  available: boolean;
+  enabled: boolean;
+  status: 'not-registered' | 'enabled' | 'requires-approval' | 'not-found' | null;
+};
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: {
@@ -86,6 +91,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('app:open-settings', handler);
       return () => ipcRenderer.removeListener('app:open-settings', handler);
     },
+    getOpenAtLogin: (): Promise<OpenAtLoginState> =>
+      ipcRenderer.invoke('app:get-open-at-login'),
+    setOpenAtLogin: (enabled: boolean): Promise<OpenAtLoginState> =>
+      ipcRenderer.invoke('app:set-open-at-login', enabled),
   },
 
   tha: {

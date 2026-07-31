@@ -198,11 +198,13 @@ export function ToggleButton({
   onChange,
   ariaLabel,
   label,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   ariaLabel?: string;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -210,10 +212,12 @@ export function ToggleButton({
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel ?? label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
         "relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full p-[2px]",
         "transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        disabled && "cursor-not-allowed opacity-45",
         checked
           ? "bg-[#2997FF] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.035)]"
           : "bg-muted shadow-[inset_0_0_0_1px_rgba(0,0,0,0.035)] hover:bg-muted/80",

@@ -30,6 +30,12 @@ interface AppearanceSectionProps {
   onLocalPrefsChange: (prefs: LocalPreferences) => void;
 }
 
+type OpenAtLoginState = {
+  available: boolean;
+  enabled: boolean;
+  status: "not-registered" | "enabled" | "requires-approval" | "not-found" | null;
+};
+
 // 预览色取自 globals.css 中各 [data-theme] 块的 HSL → hex 转换，修改主题色时需同步更新
 const THEME_COLORS: Record<Theme, { bg: string; primary: string; fg: string }> = {
   light:       { bg: "#fdfdfc", primary: "#2a7a8c", fg: "#2c2c2a" },
@@ -153,6 +159,11 @@ export function AppearanceSection({
             />
           </SettingsRow>
 
+          {isElectron &&
+          (window.electronAPI.platform.isMac || window.electronAPI.platform.isWindows) ? (
+            <OpenAtLoginRow tx={tx} />
+          ) : null}
+
           {isElectron ? <RaiseInboxShortcutRow tx={tx} /> : null}
         </SettingsGroup>
       </section>
@@ -168,6 +179,87 @@ export function AppearanceSection({
         </section>
       ) : null}
     </div>
+  );
+}
+
+function OpenAtLoginRow({
+  tx,
+}: {
+  tx: (key: string, fallback: string) => string;
+}) {
+  const { t } = useTranslation();
+  const [state, setState] = useState<OpenAtLoginState>({
+    available: false,
+    enabled: false,
+    status: null,
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.electronAPI.app.getOpenAtLogin()
+      .then((next) => {
+        if (!cancelled) setState(next);
+      })
+      .catch(() => {
+        if (!cancelled) setError(t("settings.errors.openAtLoginUpdateFailed"));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
+
+  const handleChange = useCallback(async (enabled: boolean) => {
+    setSaving(true);
+    setError(null);
+    try {
+      setState(await window.electronAPI.app.setOpenAtLogin(enabled));
+    } catch {
+      setError(t("settings.errors.openAtLoginUpdateFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }, [t]);
+
+  const label = !state.available && !loading
+    ? t("settings.values.notAvailable")
+    : state.enabled
+      ? t("settings.values.on")
+      : t("settings.values.off");
+
+  return (
+    <SettingsRow
+      title={tx("settings.rows.openAtLogin", "Open at login")}
+      description={tx(
+        "settings.help.openAtLogin",
+        "Automatically start Nanobot after you sign in. Available in the installed app.",
+      )}
+    >
+      <div className="flex flex-col items-end gap-1.5">
+        <ToggleButton
+          checked={state.enabled}
+          onChange={(enabled) => void handleChange(enabled)}
+          disabled={loading || saving || !state.available}
+          ariaLabel={tx("settings.rows.openAtLogin", "Open at login")}
+          label={label}
+        />
+        {error ? (
+          <p className="text-xs text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {!error && state.status === "requires-approval" ? (
+          <p className="max-w-72 text-right text-xs leading-5 text-amber-600 dark:text-amber-400">
+            {t("settings.status.openAtLoginRequiresApproval")}
+          </p>
+        ) : null}
+      </div>
+    </SettingsRow>
   );
 }
 
