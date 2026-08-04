@@ -25,8 +25,15 @@ const WINDOWS_TOAST_ACTIVATOR_CLSID = '{D405C197-DC97-4A6C-ACD8-3D10BCBD5365}';
 import { DEFAULT_PSB_LOCAL_PREFS, type DeskPetLocalPrefs } from './psb/types';
 import { cleanupPsbOnQuit, registerPsbIpcHandlers } from './main/psb-manager';
 import Store from 'electron-store';
-import { APP_ID } from '../app.meta';
-import { initTrayBlink, notifyTrayIncoming, stopTrayBlink } from './tray-blink';
+import { APP_ID, APP_NAME } from '../app.meta';
+import {
+  clearTrayUnread,
+  disposeTrayStatus,
+  initTrayStatus,
+  notifyTrayIncoming,
+  setTrayStreaming,
+  type TrayStatusIcons,
+} from './tray-status';
 import {
   notificationBody,
   type NativeNotificationPayload,
@@ -436,8 +443,12 @@ ipcMain.handle('tray:notify-incoming', (
 ) => {
   const isFocused = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused());
   if (isFocused) return;
-  notifyTrayIncoming(() => false);
+  notifyTrayIncoming();
   showNativeNotification(payload);
+});
+
+ipcMain.handle('tray:set-streaming', (_event, active: unknown) => {
+  setTrayStreaming(active === true);
 });
 
 // ---------------------------------------------------------------------------
@@ -481,11 +492,6 @@ function loadTrayIcon(): Electron.NativeImage {
   if (process.platform === 'darwin') {
     // macOS 菜单栏：Template Image，系统随深浅模式自动反色
     icon.setTemplateImage(true);
-    const { width, height } = icon.getSize();
-    if (width !== 36 || height !== 36) {
-      icon = icon.resize({ width: 36, height: 36, quality: 'best' });
-      icon.setTemplateImage(true);
-    }
   } else if (process.platform === 'win32') {
     // Windows 托盘建议使用 16×16，过大或路径异常时可能显示空白
     const { width, height } = icon.getSize();
@@ -494,6 +500,48 @@ function loadTrayIcon(): Electron.NativeImage {
     }
   }
   return icon;
+}
+
+function loadTrayStatusIcon(
+  assetName: string,
+  fallback: Electron.NativeImage,
+  template = false,
+): Electron.NativeImage {
+  let icon = nativeImage.createFromPath(resolveAsset(assetName));
+  if (icon.isEmpty()) return fallback;
+  if (template) {
+    icon.setTemplateImage(true);
+  } else if (process.platform === 'win32') {
+    const { width, height } = icon.getSize();
+    if (width !== 16 || height !== 16) {
+      icon = icon.resize({ width: 16, height: 16, quality: 'best' });
+    }
+  }
+  return icon;
+}
+
+function loadTrayStatusIcons(idle: Electron.NativeImage): TrayStatusIcons {
+  const isMac = process.platform === 'darwin';
+  const emptyOverlay = nativeImage.createEmpty();
+  return {
+    idle,
+    streaming: loadTrayStatusIcon(
+      isMac ? 'trayStreamingTemplate.png' : 'trayStreaming.png',
+      idle,
+      isMac,
+    ),
+    streamingAlt: loadTrayStatusIcon(
+      isMac ? 'trayStreamingAltTemplate.png' : 'trayStreamingAlt.png',
+      idle,
+      isMac,
+    ),
+    unread: loadTrayStatusIcon(
+      isMac ? 'trayUnreadTemplate.png' : 'trayUnread.png',
+      idle,
+      isMac,
+    ),
+    unreadOverlay: loadTrayStatusIcon('trayUnreadOverlay.png', emptyOverlay),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -672,7 +720,7 @@ function registerRaiseInboxShortcut(accelerator?: string): boolean {
 }
 
 function showMainWindow(): void {
-  stopTrayBlink();
+  clearTrayUnread();
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) {
       mainWindow.restore();
@@ -771,7 +819,8 @@ function createWindow(): void {
   });
 
   mainWindow.on('closed', () => {
-    stopTrayBlink();
+    setTrayStreaming(false);
+    clearTrayUnread();
     stopWallpaperScheduler();
     mainWindow = null;
   });
@@ -795,7 +844,7 @@ function createWindow(): void {
   };
 
   mainWindow.on('focus', () => {
-    stopTrayBlink();
+    clearTrayUnread();
     globalShortcut.register(SCREENSHOT_ACCELERATOR, screenshotHandler);
     sendPresence({ focused: true });
   });
@@ -856,7 +905,7 @@ function createTray(): void {
 
   tray = new Tray(icon);
   tray.setToolTip('Nanobot');
-  initTrayBlink(tray, icon);
+  initTrayStatus(tray, loadTrayStatusIcons(icon), () => mainWindow);
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -924,7 +973,7 @@ if (gotSingleInstanceLock) {
 
   app.on('before-quit', () => {
     app.isQuitting = true;
-    stopTrayBlink();
+    disposeTrayStatus();
     stopWallpaperScheduler();
     unregisterRaiseInboxShortcut();
     cleanupPsbOnQuit();

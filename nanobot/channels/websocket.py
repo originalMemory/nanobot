@@ -1085,8 +1085,16 @@ class WebSocketChannel(BaseChannel):
             if not _is_valid_chat_id(cid):
                 await self._send_event(connection, "error", detail="invalid chat_id")
                 return
+            raw_turn_id = envelope.get("turn_id")
+            turn_id = raw_turn_id if isinstance(raw_turn_id, str) and raw_turn_id else None
+            error_context = {
+                "chat_id": cid,
+                **({"turn_id": turn_id} if turn_id else {}),
+            }
             if not isinstance(content, str):
-                await self._send_event(connection, "error", detail="missing content")
+                await self._send_event(
+                    connection, "error", detail="missing content", **error_context,
+                )
                 return
 
             raw_media = envelope.get("media")
@@ -1095,20 +1103,22 @@ class WebSocketChannel(BaseChannel):
                 if not isinstance(raw_media, list):
                     await self._send_event(
                         connection, "error",
-                        detail="image_rejected", reason="malformed",
+                        detail="image_rejected", reason="malformed", **error_context,
                     )
                     return
                 media_paths, reason = self._save_envelope_media(raw_media)
                 if reason is not None:
                     await self._send_event(
                         connection, "error",
-                        detail="image_rejected", reason=reason,
+                        detail="image_rejected", reason=reason, **error_context,
                     )
                     return
 
             # Allow image-only turns (content may be empty when media is attached).
             if not content.strip() and not media_paths:
-                await self._send_event(connection, "error", detail="missing content")
+                await self._send_event(
+                    connection, "error", detail="missing content", **error_context,
+                )
                 return
             scope = await self._workspace_scope_or_error(
                 connection,
@@ -1119,6 +1129,7 @@ class WebSocketChannel(BaseChannel):
                     controls_available=_is_localhost(connection),
                 ),
                 chat_id=cid,
+                turn_id=turn_id,
             )
             if scope is None:
                 return
@@ -1231,6 +1242,7 @@ class WebSocketChannel(BaseChannel):
         resolver: Callable[[], Any],
         *,
         chat_id: str | None = None,
+        turn_id: str | None = None,
     ) -> Any | None:
         try:
             return resolver()
@@ -1241,6 +1253,7 @@ class WebSocketChannel(BaseChannel):
                 detail="workspace_scope_rejected",
                 reason=exc.message,
                 **({"chat_id": chat_id} if chat_id else {}),
+                **({"turn_id": turn_id} if turn_id else {}),
             )
             return None
 

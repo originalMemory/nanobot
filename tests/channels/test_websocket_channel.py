@@ -476,6 +476,7 @@ async def test_webui_scope_rejects_running_scope_change(bus: MagicMock, tmp_path
                 "type": "message",
                 "chat_id": "chat-running",
                 "content": "hello",
+                "turn_id": "turn-running",
                 "webui": True,
                 "workspace_scope": {
                     "project_path": str(other),
@@ -491,6 +492,7 @@ async def test_webui_scope_rejects_running_scope_change(bus: MagicMock, tmp_path
     assert payload["detail"] == "workspace_scope_rejected"
     assert payload["reason"] == "chat_running"
     assert payload["chat_id"] == "chat-running"
+    assert payload["turn_id"] == "turn-running"
     bus.publish_inbound.assert_not_awaited()
 
 
@@ -2914,9 +2916,16 @@ async def test_multiplex_invalid_frames_return_error(bus: MagicMock) -> None:
             assert err1["event"] == "error"
 
             # message with missing content
-            await client.send(json.dumps({"type": "message", "chat_id": "abc", "content": ""}))
+            await client.send(json.dumps({
+                "type": "message",
+                "chat_id": "abc",
+                "content": "",
+                "turn_id": "turn-invalid",
+            }))
             err2 = json.loads(await client.recv())
             assert err2["event"] == "error"
+            assert err2["chat_id"] == "abc"
+            assert err2["turn_id"] == "turn-invalid"
 
             # unknown type
             await client.send(json.dumps({"type": "nope"}))

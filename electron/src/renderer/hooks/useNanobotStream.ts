@@ -1055,6 +1055,35 @@ export function useNanobotStream(
         streamEndTimerRef.current = null;
       }
 
+      if (ev.event === "error") {
+        const failedTurnId = typeof ev.turn_id === "string" && ev.turn_id
+          ? ev.turn_id
+          : null;
+        if (!failedTurnId) return;
+        activeTurnIdsRef.current.delete(failedTurnId);
+        const hasActiveTurns = activeTurnIdsRef.current.size > 0;
+        setIsStreaming(hasActiveTurns);
+        if (!hasActiveTurns) {
+          setRunStartedAt(null);
+          setTurnModelName(null);
+          setTurnModelProvider(null);
+        }
+        setMessages((prev) => prev.map((message) => (
+          message.isStreaming && message.turnId === failedTurnId
+            ? { ...message, isStreaming: false }
+            : message
+        )));
+        if (buffer.current?.turnId === failedTurnId) buffer.current = null;
+        if (activeAssistantRef.current?.turnId === failedTurnId) {
+          activeAssistantRef.current = null;
+        }
+        streamedTurnIdsRef.current.delete(failedTurnId);
+        turnSourceChannelsRef.current.delete(failedTurnId);
+        turnNotificationTextRef.current.delete(failedTurnId);
+        clearActivitySegment(failedTurnId);
+        return;
+      }
+
       if (ev.event === "delta") {
         const turn = turnFieldsFromEvent(ev, "answer");
         if (!turn) return;

@@ -44,7 +44,10 @@ function createMockClient() {
 function setupElectronTrayMock() {
   window.electronAPI = {
     ...window.electronAPI,
-    tray: { notifyIncoming: vi.fn().mockResolvedValue(undefined) },
+    tray: {
+      notifyIncoming: vi.fn().mockResolvedValue(undefined),
+      setStreaming: vi.fn().mockResolvedValue(undefined),
+    },
   } as Window["electronAPI"];
 }
 
@@ -734,6 +737,66 @@ describe("useNanobotStream inbox user events", () => {
       expect.objectContaining({ turnId: "turn-b", content: "B", isStreaming: true }),
     ]));
     expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("an error only finalizes its matching turn", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        text: "failed partial",
+        turn_id: "turn-failed",
+      });
+      handle({
+        event: "delta",
+        chat_id: "inbox:unified",
+        text: "active partial",
+        turn_id: "turn-active",
+      });
+      handle({
+        event: "error",
+        chat_id: "inbox:unified",
+        detail: "failed",
+        turn_id: "turn-failed",
+      });
+    });
+
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        content: "failed partial",
+        turnId: "turn-failed",
+        isStreaming: false,
+      }),
+      expect.objectContaining({
+        content: "active partial",
+        turnId: "turn-active",
+        isStreaming: true,
+      }),
+    ]));
+
+    act(() => {
+      handle({
+        event: "error",
+        chat_id: "inbox:unified",
+        detail: "failed",
+        turn_id: "turn-active",
+      });
+    });
+
+    expect(result.current.isStreaming).toBe(false);
   });
 
   it("keeps streamed reasoning when answer delta adopts a stream id", () => {

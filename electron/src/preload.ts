@@ -222,5 +222,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   tray: {
     notifyIncoming: (payload: NativeNotificationPayload): Promise<void> =>
       ipcRenderer.invoke('tray:notify-incoming', payload),
+    /** 同步统一收件箱是否仍有 active turn。 */
+    setStreaming: (active: boolean): Promise<void> =>
+      ipcRenderer.invoke('tray:set-streaming', active),
   },
 });

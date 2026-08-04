@@ -121,6 +121,8 @@ interface ElectronAPI {
       text?: string;
       hasMedia?: boolean;
     }): Promise<void>;
+    /** 同步统一收件箱是否仍有 active turn。 */
+    setStreaming(active: boolean): Promise<void>;
   };
 }
 

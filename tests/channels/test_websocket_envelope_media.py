@@ -493,6 +493,7 @@ async def test_rejects_empty_text_without_media() -> None:
         "type": "message",
         "chat_id": "abc123",
         "content": "   ",
+        "turn_id": "turn-empty",
     }
 
     await channel._dispatch_envelope(mock_conn, "client-1", envelope)
@@ -500,6 +501,8 @@ async def test_rejects_empty_text_without_media() -> None:
     channel._handle_message.assert_not_awaited()
     err = json.loads(mock_conn.send.call_args[0][0])
     assert err["detail"] == "missing content"
+    assert err["chat_id"] == "abc123"
+    assert err["turn_id"] == "turn-empty"
 
 
 @pytest.mark.asyncio
@@ -510,6 +513,7 @@ async def test_non_string_content_still_rejected() -> None:
         "type": "message",
         "chat_id": "abc123",
         "content": 42,
+        "turn_id": "turn-non-string",
     }
 
     await channel._dispatch_envelope(mock_conn, "client-1", envelope)
@@ -517,3 +521,5 @@ async def test_non_string_content_still_rejected() -> None:
     channel._handle_message.assert_not_awaited()
     err = json.loads(mock_conn.send.call_args[0][0])
     assert err["detail"] == "missing content"
+    assert err["chat_id"] == "abc123"
+    assert err["turn_id"] == "turn-non-string"

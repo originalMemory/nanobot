@@ -62,7 +62,7 @@ export function InboxView({
 }: InboxViewProps) {
   const { t } = useTranslation();
   const composerRef = useRef<ThreadComposerHandle>(null);
-  const { token, apiBase } = useClient();
+  const { client, token, apiBase } = useClient();
   const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
@@ -93,6 +93,26 @@ export function InboxView({
     activeChannel,
   );
   usePsbTagEffects(messages, modelSettings, psbTurnEndRef, psbSkipHistoryRef, isStreaming);
+  const trayStreamingRef = useRef(isStreaming);
+
+  useEffect(() => {
+    trayStreamingRef.current = isStreaming;
+    void window.electronAPI?.tray?.setStreaming?.(
+      isStreaming && client.status === "open",
+    );
+  }, [client, isStreaming]);
+
+  useEffect(() => {
+    const unsubscribe = client.onStatus((status) => {
+      void window.electronAPI?.tray?.setStreaming?.(
+        status === "open" && trayStreamingRef.current,
+      );
+    });
+    return () => {
+      unsubscribe();
+      void window.electronAPI?.tray?.setStreaming?.(false);
+    };
+  }, [client]);
 
   const showToast = useCallback((message: string) => {
     if (toastTimerRef.current !== null) {
