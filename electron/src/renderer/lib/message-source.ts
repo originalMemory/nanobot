@@ -22,7 +22,8 @@ export type MessageSourceFields = Pick<
 
 /**
  * 解析 assistant 消息的来源徽章；无来源信息时返回 null。
- * 展示规则：可见通道名 + 任务名；无任务名的旧 channelDelivery 数据兜底「主动推送」。
+ * 展示规则：可见通道名 + 任务名；无任务名且非交互轮次附件的 channelDelivery
+ * 兜底「主动推送」。
  */
 export function resolveMessageSourceBadge(
   message: MessageSourceFields,
@@ -45,7 +46,7 @@ export function resolveMessageSourceBadge(
       ? labels.heartbeat
       : cronJobName;
     parts.push({ kind: "cron_job", label });
-  } else if (message.channelDelivery) {
+  } else if (message.channelDelivery && !message.userInitiatedDelivery) {
     parts.push({ kind: "proactive", label: labels.proactive });
   }
 

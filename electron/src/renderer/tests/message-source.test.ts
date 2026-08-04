@@ -45,7 +45,7 @@ describe("resolveMessageSourceBadge", () => {
     ]);
   });
 
-  it("shows channel and proactive for user-initiated cross-channel delivery", () => {
+  it("shows only the channel for user-initiated cross-channel delivery", () => {
     const badge = resolveMessageSourceBadge(
       {
         sourceChannel: "qq",
@@ -56,8 +56,19 @@ describe("resolveMessageSourceBadge", () => {
     );
     expect(badge?.parts).toEqual([
       { kind: "channel", channel: "qq", label: "QQ" },
-      { kind: "proactive", label: "主动推送" },
     ]);
+  });
+
+  it("hides proactive for user-initiated media in the current websocket chat", () => {
+    const badge = resolveMessageSourceBadge(
+      {
+        sourceChannel: "websocket",
+        channelDelivery: true,
+        userInitiatedDelivery: true,
+      },
+      labels,
+    );
+    expect(badge).toBeNull();
   });
 
   it("supports proactive-only messages", () => {
