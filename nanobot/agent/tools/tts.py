@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import re
-import time
-from typing import TYPE_CHECKING, Any
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field
 
 from nanobot.agent.psb_tags import strip_psb_tags
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
-from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import TtsConfig
 
 if TYPE_CHECKING:
-    from nanobot.agent.tools.context import ToolContext
+    from nanobot.agent.speech import SpeechRuntime
+    from nanobot.agent.tools.context import RequestContext, ToolContext
 
 _THA_TAG_RE = re.compile(r"<[^>]+>")
 
@@ -49,6 +49,19 @@ class TtsToolConfig(TtsConfig):
         "GLM 系统音色示例：tongtong / chuichui；"
         "自定义克隆音色填写 UUID。",
     )
+    mode: Literal["off", "agent", "always"] | None = Field(
+        default=None,
+        description="TTS 模式：关闭、由 AI 决定、每轮完整回复自动朗读。",
+    )
+
+    @property
+    def effective_mode(self) -> Literal["off", "agent", "always"]:
+        """读取新 mode；旧配置按原开关无损映射。"""
+        if self.mode is not None:
+            return self.mode
+        if self.message_playback_enabled:
+            return "always"
+        return "agent" if self.enabled else "off"
 
 
 @tool_parameters(
@@ -66,7 +79,7 @@ class TtsToolConfig(TtsConfig):
     )
 )
 class TtsTool(Tool):
-    """将文本合成为语音，返回本地音频文件路径。"""
+    """将文本合成为语音，并绑定到当前 assistant turn。"""
 
     config_key = "tts"
 
@@ -76,21 +89,34 @@ class TtsTool(Tool):
 
     @classmethod
     def enabled(cls, ctx: ToolContext) -> bool:
-        return ctx.config.tts.enabled
+        return ctx.config.tts.effective_mode == "agent"
 
     @classmethod
     def create(cls, ctx: ToolContext) -> TtsTool:
         cfg = ctx.config.tts
-        return cls(tts_config=cfg, default_voice=cfg.default_voice)
+        return cls(
+            tts_config=cfg,
+            default_voice=cfg.default_voice,
+            speech_runtime=getattr(ctx, "speech_runtime", None),
+        )
 
     def __init__(
         self,
         *,
         tts_config: Any,
         default_voice: str = "tongtong",
+        speech_runtime: SpeechRuntime | None = None,
     ) -> None:
         self._tts_config = tts_config
         self._default_voice = default_voice
+        self._speech_runtime = speech_runtime
+        self._request_context: ContextVar[RequestContext | None] = ContextVar(
+            "tts_request_context",
+            default=None,
+        )
+
+    def set_context(self, ctx: RequestContext) -> None:
+        self._request_context.set(ctx)
 
     @property
     def name(self) -> str:
@@ -99,16 +125,13 @@ class TtsTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "使用已配置的 TTS provider 将文本合成为语音。"
-            "返回本地音频文件路径，可传入 message 工具的 media 字段发送给频道。"
+            "将本轮要说的话合成为语音并直接播放。每轮最多调用一次。"
+            "语音会自动附着到当前 assistant 回复；不要再调用 message 工具发送音频。"
             'PSB 标签（如 <psb:timeline name="待机" />）与 THA 表情/动作标签（如 <happy><nod>）'
             "会在合成前自动剥离；标签应保留在 message 的 content 里以驱动桌宠。"
         )
 
     async def execute(self, text: str, voice: str | None = None, **_: Any) -> str:
-        from nanobot.providers.tts import build_tts_provider
-
-        provider = build_tts_provider(self._tts_config)
         resolved_voice = voice or self._default_voice
         if not resolved_voice:
             return "Error: 未配置 TTS 音色，请在 config.json 中设置 tools.tts.defaultVoice"
@@ -117,11 +140,15 @@ class TtsTool(Tool):
         if not spoken_text:
             return "Error: TTS 文本在剥离桌宠标签后为空"
 
-        ts = int(time.time() * 1000)
-        ext = self._tts_config.response_format
-        out = get_media_dir() / "tts" / f"tts_{ts}.{ext}"
-
-        ok = await provider.synthesize(spoken_text, voice=resolved_voice, output_path=out)
-        if not ok:
-            return f"Error: TTS 合成失败，provider='{self._tts_config.provider}'"
-        return str(out)
+        context = self._request_context.get()
+        if self._speech_runtime is None or context is None:
+            return "Error: TTS runtime 未配置"
+        result, error = await self._speech_runtime.synthesize(
+            config=self._tts_config,
+            context=context,
+            text=text,
+            voice=resolved_voice,
+        )
+        if result is None:
+            return f"Error: {error or 'TTS 合成失败'}"
+        return "语音已生成并附着到本轮回复。"

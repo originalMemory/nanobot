@@ -100,6 +100,8 @@ export interface UIMessage {
   messageTs?: string | number;
   /** Assistant message-bound TTS playback segments, persisted in WebUI transcript. */
   playbackSegments?: AssistantPlaybackSegment[];
+  /** One complete assistant utterance produced by the shared TTS runtime. */
+  speech?: AssistantSpeech;
   /** Stable protocol metadata for grouping all output emitted by one turn. */
   turnId?: string;
   turnPhase?: UITurnPhase;
@@ -384,6 +386,7 @@ export interface SettingsPayload {
   tts: {
     enabled: boolean;
     message_playback_enabled: boolean;
+    mode: "off" | "agent" | "always";
     default_voice: string;
     provider: string;
     model: string;
@@ -720,6 +723,36 @@ export interface AssistantPlaybackSegment {
   };
 }
 
+export interface AssistantSpeech {
+  audioId: string;
+  text?: string;
+  url?: string;
+  name?: string;
+  mimeType?: string;
+  sampleRate: number;
+  durationMs?: number;
+  provider?: string;
+  model?: string;
+  voice?: string;
+  controls?: Array<{ kind?: string; type: string; payload?: Record<string, unknown> }>;
+}
+
+export interface AssistantAudioStart {
+  audioId: string;
+  sampleRate: number;
+  channels: number;
+  encoding: "pcm_s16le" | string;
+  text?: string;
+  owner?: "tha";
+  controls?: AssistantSpeech["controls"];
+}
+
+export interface AssistantAudioChunk {
+  audioId: string;
+  sequence: number;
+  data: string;
+}
+
 export interface InboundTurnMetadata {
   turn_id?: string;
   turn_phase?: UITurnPhase;
@@ -798,6 +831,26 @@ type InboundEventPayload =
       event: "assistant_playback_segment";
       chat_id: string;
       segment: AssistantPlaybackSegment;
+    }
+  | {
+      event: "assistant_audio_start";
+      chat_id: string;
+      audio: AssistantAudioStart;
+    }
+  | {
+      event: "assistant_audio_chunk";
+      chat_id: string;
+      audio: AssistantAudioChunk;
+    }
+  | {
+      event: "assistant_audio_end";
+      chat_id: string;
+      audio: AssistantSpeech;
+    }
+  | {
+      event: "assistant_audio_error";
+      chat_id: string;
+      audio: { audioId: string; error?: string };
     }
   | {
       event: "reasoning_delta";

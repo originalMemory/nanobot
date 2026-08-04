@@ -23,6 +23,7 @@ from nanobot.agent.hook import AgentHook, CompositeHook
 from nanobot.agent.memory import Consolidator
 from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
+from nanobot.agent.speech import SpeechRuntime
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
 from nanobot.agent.tools.diary_search import DiarySearchTool
@@ -238,6 +239,7 @@ class AgentLoop:
         _tc = tools_config or ToolsConfig()
         defaults = AgentDefaults()
         self.bus = bus
+        self.speech_runtime = SpeechRuntime(bus)
         self.runtime_events = runtime_events or RuntimeEventBus()
         self.runtime_event_publisher = RuntimeEventPublisher(self.runtime_events)
         self._diary_root = diary_root
@@ -591,6 +593,7 @@ class AgentLoop:
             diary_root=self._diary_root,
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
+            speech_runtime=self.speech_runtime,
         )
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)
@@ -1809,7 +1812,29 @@ class AgentLoop:
             and ctx.visible_run_started_at is not None
             else ctx.turn_wall_started_at
         )
+        webui_turn_id = str(ctx.msg.metadata.get(WEBUI_TURN_METADATA_KEY) or "")
+        speech_context = RequestContext(
+            channel=ctx.msg.channel,
+            chat_id=ctx.msg.chat_id,
+            message_id=ctx.msg.metadata.get("message_id"),
+            session_key=ctx.session_key,
+            metadata=dict(ctx.msg.metadata or {}),
+        )
+        tts_config = self.tools_config.tts
+        if (
+            tts_config.effective_mode == "always"
+            and ctx.final_content
+            and not ctx.suppress_response
+            and not self.speech_runtime.has_speech(speech_context)
+        ):
+            await self.speech_runtime.synthesize(
+                config=tts_config,
+                context=speech_context,
+                text=ctx.final_content,
+                voice=tts_config.default_voice,
+            )
         ctx.turn_latency_ms = max(0, int((time.time() - latency_started_at) * 1000))
+        speech = self.speech_runtime.speech_for(ctx.session_key, webui_turn_id)
         self._save_turn(
             ctx.session, ctx.all_messages, ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
@@ -1817,6 +1842,7 @@ class AgentLoop:
             response_model=ctx.msg.metadata.get("_response_model"),
             fallback_used=ctx.msg.metadata.get("_fallback_used"),
             fallback_models=ctx.msg.metadata.get("_fallback_models"),
+            speech=speech.to_dict() if speech is not None else None,
             **self._source_extras(ctx.msg),
         )
         self._runtime_events().record_turn_latency(
@@ -1838,6 +1864,8 @@ class AgentLoop:
         self._clear_pending_user_turn(ctx.session)
         self._clear_runtime_checkpoint(ctx.session)
         self.sessions.save(ctx.session)
+        if speech is not None:
+            self.speech_runtime.clear_speech(ctx.session_key, webui_turn_id)
         return "ok"
 
     async def _state_respond(self, ctx: TurnContext) -> str:
@@ -1909,6 +1937,7 @@ class AgentLoop:
         response_model: Any = None,
         fallback_used: Any = None,
         fallback_models: Any = None,
+        speech: dict[str, Any] | None = None,
         source_channel: str | None = None,
         source_chat_id: str | None = None,
     ) -> None:
@@ -1967,6 +1996,8 @@ class AgentLoop:
                 session.messages[last_assistant_idx]["fallback_used"] = fallback_used
             if isinstance(fallback_models, list) and fallback_models:
                 session.messages[last_assistant_idx]["_fallback_models"] = list(fallback_models)
+            if speech:
+                session.messages[last_assistant_idx]["speech"] = dict(speech)
         session.updated_at = datetime.now(timezone.utc).astimezone()
 
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:

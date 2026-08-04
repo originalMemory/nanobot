@@ -38,6 +38,7 @@ class _MockChannel(BaseChannel):
         self._delta_mock = AsyncMock()
         self._end_mock = AsyncMock()
         self._file_edit_mock = AsyncMock()
+        self._assistant_audio_mock = AsyncMock()
 
     async def start(self):  # pragma: no cover - not exercised
         pass
@@ -56,6 +57,9 @@ class _MockChannel(BaseChannel):
 
     async def send_file_edit_events(self, chat_id, edits, metadata=None):
         return await self._file_edit_mock(chat_id, edits, metadata)
+
+    async def send_assistant_audio(self, chat_id, audio, metadata=None):
+        return await self._assistant_audio_mock(chat_id, audio, metadata)
 
 
 @pytest.fixture
@@ -241,6 +245,21 @@ async def test_file_edit_events_route_to_channel_capability(manager):
     channel._file_edit_mock.assert_awaited_once_with(
         "c1", edits, {"_progress": True, "_file_edit_events": edits}
     )
+    channel._send_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_assistant_audio_routes_to_channel_capability(manager):
+    channel = manager.channels["mock"]
+    audio = {"phase": "chunk", "audioId": "a1", "sequence": 0, "data": "AAA="}
+    metadata = {"_assistant_audio": audio}
+
+    await manager._send_once(
+        channel,
+        OutboundMessage(channel="mock", chat_id="c1", content="", metadata=metadata),
+    )
+
+    channel._assistant_audio_mock.assert_awaited_once_with("c1", audio, metadata)
     channel._send_mock.assert_not_awaited()
 
 

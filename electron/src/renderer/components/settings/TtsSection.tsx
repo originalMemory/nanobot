@@ -6,7 +6,6 @@ import {
   SettingsGroup,
   SettingsRow,
   SettingsSectionTitle,
-  ToggleButton,
 } from "./shared";
 
 interface TtsSectionProps {
@@ -20,8 +19,7 @@ export function TtsSection({ settings, token, apiBase, onSaved }: TtsSectionProp
   const { t } = useTranslation();
   const tts = settings.tts;
 
-  const [enabled, setEnabled] = useState(tts.enabled);
-  const [messagePlayback, setMessagePlayback] = useState(tts.message_playback_enabled);
+  const [mode, setMode] = useState(tts.mode);
   const [defaultVoice, setDefaultVoice] = useState(tts.default_voice);
   const [saving, setSaving] = useState(false);
 
@@ -42,31 +40,23 @@ export function TtsSection({ settings, token, apiBase, onSaved }: TtsSectionProp
       </SettingsSectionTitle>
       <SettingsGroup>
         <SettingsRow
-          title={t("settings.tts.enabled", "启用 TTS")}
-          description={t("settings.tts.enabledDesc", "允许 AI 主动合成语音")}
+          title={t("settings.tts.mode", "语音模式")}
+          description={t("settings.tts.modeDesc", "关闭、由 AI 决定，或每轮完整回复自动朗读")}
         >
-          <ToggleButton
-            checked={enabled}
+          <select
+            value={mode}
             disabled={saving}
-            onChange={(v) => {
-              setEnabled(v);
-              void handleSave({ enabled: v });
+            className="w-48 rounded-md border border-border bg-input px-3 py-1.5 text-sm"
+            onChange={(event) => {
+              const value = event.target.value as typeof mode;
+              setMode(value);
+              void handleSave({ mode: value });
             }}
-          />
-        </SettingsRow>
-
-        <SettingsRow
-          title={t("settings.tts.messagePlayback", "自动语音播放")}
-          description={t("settings.tts.messagePlaybackDesc", "每条回复自动按句合成并播放 TTS")}
-        >
-          <ToggleButton
-            checked={messagePlayback}
-            disabled={saving}
-            onChange={(v) => {
-              setMessagePlayback(v);
-              void handleSave({ message_playback_enabled: v });
-            }}
-          />
+          >
+            <option value="off">{t("settings.tts.modeOff", "关闭")}</option>
+            <option value="agent">{t("settings.tts.modeAgent", "由 AI 决定")}</option>
+            <option value="always">{t("settings.tts.modeAlways", "始终朗读")}</option>
+          </select>
         </SettingsRow>
 
         <SettingsRow

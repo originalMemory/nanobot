@@ -460,6 +460,15 @@ class ChannelManager:
 
         meta = msg.metadata or {}
 
+        assistant_audio = meta.get("_assistant_audio")
+        if isinstance(assistant_audio, dict):
+            shadow = self._build_unified_inbox_shadow(msg, content="")
+            await self._send_once(ws_channel, shadow)
+            return
+
+        if meta.get("_assistant_audio_file_delivery"):
+            return
+
         if meta.get("_turn_end"):
             await self._fan_out_unified_inbox_turn_end(ws_channel, msg)
             return
@@ -642,6 +651,12 @@ class ChannelManager:
             await channel.send_file_edit_events(
                 msg.chat_id,
                 edits if isinstance(edits, list) else [],
+                msg.metadata,
+            )
+        elif isinstance(msg.metadata.get("_assistant_audio"), dict):
+            await channel.send_assistant_audio(
+                msg.chat_id,
+                msg.metadata["_assistant_audio"],
                 msg.metadata,
             )
         elif msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end"):

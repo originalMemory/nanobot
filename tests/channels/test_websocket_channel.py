@@ -14,7 +14,6 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 from websockets.frames import Close
 
-from nanobot.agent.playback_segments import AssistantPlaybackSegment, SegmentAudio
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.websocket import (
@@ -1074,199 +1073,110 @@ async def test_send_message_fans_out_without_source_chat_subscriber() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_delta_emits_message_bound_playback_segment(monkeypatch, tmp_path) -> None:
+async def test_send_delta_does_not_split_or_synthesize_tts() -> None:
     bus = MagicMock()
-    sessions = SessionManager(tmp_path / "sessions")
-    session = sessions.get_or_create("websocket:chat-1")
-    session.messages.append({"id": "sid", "role": "assistant", "content": "你好。"})
-    sessions.save(session)
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"], "streaming": True},
         bus,
-        gateway=_basic_handler(bus, session_manager=sessions),
+        gateway=_basic_handler(bus),
     )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
-
-    cfg = MagicMock()
-    cfg.message_playback_enabled = True
-    cfg.default_voice = "tongtong"
-    cfg.response_format = "wav"
-    monkeypatch.setattr("nanobot.channels.websocket.load_config", lambda: MagicMock(tools=MagicMock(tts=cfg)))
-    monkeypatch.setattr("nanobot.channels.websocket.get_media_dir", lambda: tmp_path)
-
-    async def synthesize(text: str, voice: str, output_path: Path) -> bool:
-        assert text == "你好。"
-        assert voice == "tongtong"
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"wav")
-        return True
-
-    provider = MagicMock()
-    provider.synthesize = AsyncMock(side_effect=synthesize)
-    monkeypatch.setattr("nanobot.providers.tts.build_tts_provider", lambda _: provider)
-    monkeypatch.setattr("nanobot.webui.fork_http.get_media_dir", lambda channel=None: tmp_path / (channel or ""))
-    monkeypatch.setattr("nanobot.utils.media_staging.get_media_dir", lambda channel=None: tmp_path / (channel or ""))
-
-    await channel.send_delta(
-        "chat-1",
-        '<psb:timeline name="待機" />你好。',
-        {"_stream_delta": True, "_stream_id": "sid"},
-    )
-    await asyncio.gather(*list(channel._playback_tasks))
-
-    events = [json.loads(call.args[0]) for call in mock_ws.send.await_args_list]
-    playback = [ev for ev in events if ev["event"] == "assistant_playback_segment"]
-    assert len(playback) == 1
-    segment = playback[0]["segment"]
-    assert segment["messageId"] == "sid"
-    assert segment["segmentIndex"] == 0
-    assert "displayText" not in segment
-    assert "speechText" not in segment
-    assert segment["audio"]["status"] == "ready"
-    assert segment["audio"]["url"].startswith("/api/media/")
-    assert "path" not in segment["audio"]
-    assert segment["controls"] == [
-        {"kind": "psb", "type": "timeline", "payload": {"name": "待機"}}
-    ]
-    persisted = sessions.get_or_create("websocket:chat-1").messages[0]["playbackSegments"][0]
-    assert persisted["audio"]["status"] == "ready"
-    assert persisted["audio"]["path"].endswith(".wav")
-    assert "url" not in persisted["audio"]
-
-
-def test_session_playback_segment_waits_for_matching_assistant_message(tmp_path) -> None:
-    bus = MagicMock()
-    sessions = SessionManager(tmp_path / "sessions")
-    session = sessions.get_or_create("websocket:chat-1")
-    session.messages.append({"id": "old", "role": "assistant", "content": "old answer"})
-    sessions.save(session)
-    channel = WebSocketChannel(
-        {"enabled": True, "allowFrom": ["*"], "streaming": True},
-        bus,
-        gateway=_basic_handler(bus, session_manager=sessions),
-    )
-    segment = AssistantPlaybackSegment(
-        chat_id="chat-1",
-        message_id="new",
-        segment_index=0,
-        raw_text="new answer.",
-        audio=SegmentAudio(status="ready", path=str(tmp_path / "tts.wav")),
-    )
-
-    channel._try_append_session_playback_segment(segment)
-
-    refreshed = sessions.get_or_create("websocket:chat-1")
-    assert "playbackSegments" not in refreshed.messages[0]
-    assert ("websocket:chat-1", "new") in channel._pending_session_playback_segments
-
-
-@pytest.mark.asyncio
-async def test_send_delta_playback_segment_reports_tts_failure(monkeypatch) -> None:
-    bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
-    mock_ws = AsyncMock()
-    channel._attach(mock_ws, "chat-1")
-
-    cfg = MagicMock()
-    cfg.message_playback_enabled = True
-    cfg.default_voice = "tongtong"
-    cfg.response_format = "wav"
-    monkeypatch.setattr("nanobot.channels.websocket.load_config", lambda: MagicMock(tools=MagicMock(tts=cfg)))
-    provider = MagicMock()
-    provider.synthesize = AsyncMock(return_value=False)
-    monkeypatch.setattr("nanobot.providers.tts.build_tts_provider", lambda _: provider)
-
-    await channel.send_delta("chat-1", "失败。", {"_stream_delta": True, "_stream_id": "sid"})
-    await asyncio.gather(*list(channel._playback_tasks))
-
-    events = [json.loads(call.args[0]) for call in mock_ws.send.await_args_list]
-    segment = [ev for ev in events if ev["event"] == "assistant_playback_segment"][0]["segment"]
-    assert segment["audio"] == {"status": "failed", "error": "tts_synthesis_failed"}
-
-
-@pytest.mark.asyncio
-async def test_send_delta_synthesizes_playback_segments_serially(monkeypatch, tmp_path) -> None:
-    bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
-    mock_ws = AsyncMock()
-    channel._attach(mock_ws, "chat-1")
-
-    cfg = MagicMock()
-    cfg.message_playback_enabled = True
-    cfg.default_voice = "tongtong"
-    cfg.response_format = "wav"
-    monkeypatch.setattr("nanobot.channels.websocket.load_config", lambda: MagicMock(tools=MagicMock(tts=cfg)))
-    monkeypatch.setattr("nanobot.channels.websocket.get_media_dir", lambda: tmp_path)
-
-    active = 0
-    max_active = 0
-    synthesized: list[str] = []
-
-    async def synthesize(text: str, voice: str, output_path: Path) -> bool:
-        nonlocal active, max_active
-        active += 1
-        max_active = max(max_active, active)
-        synthesized.append(text)
-        await asyncio.sleep(0)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"wav")
-        active -= 1
-        return True
-
-    provider = MagicMock()
-    provider.synthesize = AsyncMock(side_effect=synthesize)
-    monkeypatch.setattr("nanobot.providers.tts.build_tts_provider", lambda _: provider)
-    monkeypatch.setattr("nanobot.webui.fork_http.get_media_dir", lambda channel=None: tmp_path / (channel or ""))
-    monkeypatch.setattr("nanobot.utils.media_staging.get_media_dir", lambda channel=None: tmp_path / (channel or ""))
 
     await channel.send_delta(
         "chat-1",
         "第一句。第二句。第三句。",
         {"_stream_delta": True, "_stream_id": "sid"},
     )
-    await asyncio.gather(*list(channel._playback_tasks))
 
-    assert synthesized == ["第一句。", "第二句。", "第三句。"]
-    assert max_active == 1
+    events = [json.loads(call.args[0]) for call in mock_ws.send.await_args_list]
+    assert [event["event"] for event in events] == ["delta"]
 
 
 @pytest.mark.asyncio
-async def test_cancel_playback_for_chat_drops_pending_tts(monkeypatch, tmp_path) -> None:
+async def test_send_assistant_audio_stream_and_signed_end(monkeypatch, tmp_path) -> None:
     bus = MagicMock()
-    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True},
+        bus,
+        gateway=_basic_handler(bus),
+    )
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
+    audio_path = tmp_path / "speech.wav"
+    audio_path.write_bytes(b"wav")
+    monkeypatch.setattr(
+        channel._http_router,
+        "sign_or_stage_media_path",
+        lambda _: {"url": "/api/media/signed/speech", "name": "speech.wav"},
+    )
+    channel._transcripts.prepare_and_append = MagicMock()
+    metadata = {"webui_turn_id": "turn-1"}
 
-    cfg = MagicMock()
-    cfg.message_playback_enabled = True
-    cfg.default_voice = "tongtong"
-    cfg.response_format = "wav"
-    monkeypatch.setattr("nanobot.channels.websocket.load_config", lambda: MagicMock(tools=MagicMock(tts=cfg)))
-    monkeypatch.setattr("nanobot.channels.websocket.get_media_dir", lambda: tmp_path)
+    await channel.send_assistant_audio(
+        "chat-1",
+        {"phase": "start", "audioId": "a1", "sampleRate": 24000},
+        metadata,
+    )
+    await channel.send_assistant_audio(
+        "chat-1",
+        {"phase": "chunk", "audioId": "a1", "sequence": 0, "data": "AAA="},
+        metadata,
+    )
+    await channel.send_assistant_audio(
+        "chat-1",
+        {"phase": "end", "audioId": "a1", "path": str(audio_path), "sampleRate": 24000},
+        metadata,
+    )
 
-    started = asyncio.Event()
-
-    async def synthesize(text: str, voice: str, output_path: Path) -> bool:
-        started.set()
-        await asyncio.sleep(60)
-        return True
-
-    provider = MagicMock()
-    provider.synthesize = AsyncMock(side_effect=synthesize)
-    monkeypatch.setattr("nanobot.providers.tts.build_tts_provider", lambda _: provider)
-
-    await channel.send_delta("chat-1", "要停止。", {"_stream_delta": True, "_stream_id": "sid"})
-    await asyncio.wait_for(started.wait(), timeout=1)
-
-    pending_tasks = list(channel._playback_tasks)
-    channel._cancel_playback_for_chat("chat-1")
-    results = await asyncio.gather(*pending_tasks, return_exceptions=True)
-
-    assert len(results) == 1
-    assert isinstance(results[0], asyncio.CancelledError)
     events = [json.loads(call.args[0]) for call in mock_ws.send.await_args_list]
-    assert [ev["event"] for ev in events] == ["delta"]
+    assert [event["event"] for event in events] == [
+        "assistant_audio_start",
+        "assistant_audio_chunk",
+        "assistant_audio_end",
+    ]
+    assert events[-1]["audio"]["url"] == "/api/media/signed/speech"
+    assert "path" not in events[-1]["audio"]
+    persisted = channel._transcripts.prepare_and_append.call_args.args[1]
+    assert persisted["audio"]["path"] == str(audio_path)
+    assert "url" not in persisted["audio"]
+
+
+@pytest.mark.asyncio
+async def test_tha_owns_whole_assistant_audio_stream_when_present_at_start() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True},
+        bus,
+        gateway=_basic_handler(bus),
+    )
+    chat_ws = AsyncMock()
+    tha_ws = AsyncMock()
+    late_tha_ws = AsyncMock()
+    channel._attach(chat_ws, "chat-1")
+    channel._tha_event_subs.add(tha_ws)
+
+    await channel.send_assistant_audio(
+        "chat-1", {"phase": "start", "audioId": "a1", "sampleRate": 24000}
+    )
+    channel._tha_event_subs.add(late_tha_ws)
+    await channel.send_assistant_audio(
+        "chat-1", {"phase": "chunk", "audioId": "a1", "sequence": 0, "data": "AAA="}
+    )
+    await channel.send_assistant_audio(
+        "chat-1", {"phase": "end", "audioId": "a1", "sampleRate": 24000}
+    )
+
+    chat_events = [json.loads(call.args[0]) for call in chat_ws.send.await_args_list]
+    tha_events = [json.loads(call.args[0]) for call in tha_ws.send.await_args_list]
+    assert chat_events[0]["audio"]["owner"] == "tha"
+    assert [event["type"] for event in tha_events] == [
+        "assistant_audio_start",
+        "assistant_audio_chunk",
+        "assistant_audio_end",
+    ]
+    late_tha_ws.send.assert_not_awaited()
+    assert "a1" not in channel._tha_audio_streams
 
 
 @pytest.mark.asyncio

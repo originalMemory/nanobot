@@ -439,6 +439,16 @@
         "saveHint": "改动会应用到新的网页搜索请求。"
       }
     },
+    "tts": {
+      "title": "TTS 语音合成",
+      "mode": "语音模式",
+      "modeDesc": "关闭、由 AI 决定，或每轮完整回复自动朗读。",
+      "modeOff": "关闭",
+      "modeAgent": "由 AI 决定",
+      "modeAlways": "始终朗读",
+      "defaultVoice": "默认音色",
+      "defaultVoiceDesc": "音色名称或 voice_id（如：坎蒂丝 / tongtong）。"
+    },
     "deskPet": {
       "tabs": {
         "psb": "PSB",

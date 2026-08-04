@@ -121,6 +121,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('psb:save-window-state', patch),
     sendAction: (action: PsbRuntimeAction): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('psb:send-action', action),
+    setRuntimeAudioReady: (ready: boolean): void =>
+      ipcRenderer.send('psb:runtime-audio-ready', ready),
     setIgnoreMouseEvents: (
       ignore: boolean,
       options?: { forward?: boolean },

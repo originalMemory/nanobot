@@ -1,27 +1,10 @@
 from __future__ import annotations
 
 from nanobot.agent.playback_segments import (
-    AssistantPlaybackSegmenter,
     parse_segment_controls,
     to_display_text,
     to_speech_text,
 )
-
-
-def test_segmenter_flushes_japanese_sentence_and_cross_delta_boundary() -> None:
-    segmenter = AssistantPlaybackSegmenter(chat_id="chat", message_id="m1")
-
-    assert segmenter.feed('<psb:timeline name="うん') == []
-    segments = segmenter.feed('うん" />嗯嗯。下一句')
-    segments += segmenter.finish("来了")
-
-    assert [s.segment_index for s in segments] == [0, 1]
-    assert segments[0].message_id == "m1"
-    assert segments[0].controls == [
-        {"kind": "psb", "type": "timeline", "payload": {"name": "うんうん"}}
-    ]
-    assert segments[0].display_text == "嗯嗯。"
-    assert segments[1].display_text == "下一句来了"
 
 
 def test_segmenter_parses_consecutive_leading_tags() -> None:
@@ -58,31 +41,3 @@ def test_empty_speech_text_after_controls() -> None:
 
     assert to_display_text(raw) == ""
     assert to_speech_text(raw) == ""
-
-
-def test_newline_flushes_segment() -> None:
-    segmenter = AssistantPlaybackSegmenter(chat_id="chat", message_id="m2")
-
-    segments = segmenter.feed('<psb:face var="face_mouth" value="0.8" />第一行\n第二')
-    segments += segmenter.finish("行")
-
-    assert len(segments) == 2
-    assert segments[0].controls[0]["type"] == "face"
-    assert segments[0].speech_text == "第一行"
-    assert segments[1].speech_text == "第二行"
-
-
-def test_segmenter_does_not_split_decimal_psb_attribute() -> None:
-    segmenter = AssistantPlaybackSegmenter(chat_id="chat", message_id="m3")
-
-    segments = segmenter.feed('<psb:face var="face_mouth" value="0.8" />hello\nnext')
-    segments += segmenter.finish(" line")
-
-    assert [segment.raw_text for segment in segments] == [
-        '<psb:face var="face_mouth" value="0.8" />hello\n',
-        "next line",
-    ]
-    assert segments[0].controls == [
-        {"kind": "psb", "type": "face", "payload": {"var": "face_mouth", "value": "0.8"}}
-    ]
-    assert segments[0].speech_text == "hello"

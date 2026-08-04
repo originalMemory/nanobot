@@ -59,3 +59,4 @@ class ToolContext:
     diary_root: str = ""
     workspace_sandbox: Any | None = None
     runtime_events: Any | None = None
+    speech_runtime: Any | None = None

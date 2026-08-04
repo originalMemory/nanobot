@@ -77,6 +77,7 @@ interface ElectronAPI {
       patch: PsbWindowStatePatch,
     ): Promise<{ ok: boolean; state?: PsbWindowStatePatch; error?: string }>;
     sendAction(action: PsbRuntimeAction): Promise<{ ok: boolean }>;
+    setRuntimeAudioReady(ready: boolean): void;
     setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): Promise<void>;
     onAction(cb: (action: PsbRuntimeAction) => void): () => void;
     onConfig(cb: (config: { scale?: number; opacity?: number; followMouse?: boolean }) => void): () => void;

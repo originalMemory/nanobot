@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -86,6 +88,107 @@ async def test_empty_text_short_circuits(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Successful synthesis → file written
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_synthesize_stream_decodes_ordered_pcm_chunks() -> None:
+    pcm = b"\x00\x00\x01\x00"
+    lines = [
+        "data: " + json.dumps({
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "return_sample_rate": 24000,
+                    "content": base64.b64encode(pcm).decode("ascii"),
+                },
+            }],
+        }),
+        'data: {"choices":[{"index":1,"finish_reason":"stop"}]}',
+    ]
+
+    class FakeResponse:
+        status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            for line in lines:
+                yield line
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def stream(self, *_, **__):
+            return FakeResponse()
+
+    provider = OpenAICompatTTSProvider(api_key="sk-test")
+    chunks = []
+    async def collect(chunk):
+        chunks.append(chunk)
+    with patch("nanobot.providers.tts.httpx.AsyncClient", return_value=FakeClient()):
+        result = await provider.synthesize_stream("你好", "voice", collect)
+
+    assert result is not None
+    assert result.sample_rate == 24000
+    assert result.pcm_bytes == len(pcm)
+    assert chunks[0].sequence == 0
+    assert chunks[0].pcm == pcm
+
+
+@pytest.mark.asyncio
+async def test_synthesize_stream_rejects_out_of_order_chunks() -> None:
+    encoded = base64.b64encode(b"\x00\x00").decode("ascii")
+    lines = [
+        "data: " + json.dumps({
+            "choices": [{
+                "index": 1,
+                "delta": {"return_sample_rate": 24000, "content": encoded},
+            }],
+        }),
+    ]
+
+    class FakeResponse:
+        status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            for line in lines:
+                yield line
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def stream(self, *_, **__):
+            return FakeResponse()
+
+    provider = OpenAICompatTTSProvider(api_key="sk-test")
+    with patch("nanobot.providers.tts.httpx.AsyncClient", return_value=FakeClient()):
+        result = await provider.synthesize_stream("你好", "voice", AsyncMock())
+
+    assert result is None
 
 
 @pytest.mark.asyncio

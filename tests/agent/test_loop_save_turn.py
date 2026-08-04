@@ -401,6 +401,30 @@ def test_save_turn_stamps_usage_on_last_assistant() -> None:
     assert session.messages[-1]["usage"] == usage
 
 
+def test_save_turn_attaches_speech_only_to_last_assistant() -> None:
+    loop = _mk_loop()
+    session = Session(key="test:speech")
+    speech = {
+        "audioId": "speech-1",
+        "path": "/media/speech-1.wav",
+        "mimeType": "audio/wav",
+        "sampleRate": 24000,
+    }
+
+    loop._save_turn(
+        session,
+        [
+            {"role": "assistant", "content": "tool preface", "tool_calls": [{"id": "c1"}]},
+            {"role": "assistant", "content": "final answer"},
+        ],
+        skip=0,
+        speech=speech,
+    )
+
+    assert "speech" not in session.messages[0]
+    assert session.messages[-1]["speech"] == speech
+
+
 def test_save_turn_usage_not_written_when_empty() -> None:
     loop = _mk_loop()
     session = Session(key="test:usage-empty")

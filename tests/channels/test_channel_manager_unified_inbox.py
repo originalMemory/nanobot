@@ -1,4 +1,5 @@
 """ChannelManager 统一收件箱 fan-out 测试。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -9,6 +10,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+from ws_test_client import WsTestClient
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
@@ -16,7 +18,6 @@ from nanobot.channels.base import BaseChannel
 from nanobot.channels.manager import ChannelManager
 from nanobot.channels.websocket import WebSocketChannel
 from nanobot.config.schema import Config
-from ws_test_client import WsTestClient
 
 
 def _get_free_port() -> int:
@@ -57,6 +58,7 @@ class CaptureWsChannel(BaseChannel):
         self.sent: list[OutboundMessage] = []
         self.stream_events: list[tuple[str, str, str]] = []
         self.stream_payloads: list[dict] = []
+        self.assistant_audio: list[tuple[str, dict]] = []
 
     async def start(self) -> None:
         pass
@@ -66,6 +68,9 @@ class CaptureWsChannel(BaseChannel):
 
     async def send(self, msg: OutboundMessage) -> None:
         self.sent.append(msg)
+
+    async def send_assistant_audio(self, chat_id: str, audio: dict, metadata=None) -> None:
+        self.assistant_audio.append((chat_id, audio))
 
     async def fan_out_unified_inbox_event(
         self,
@@ -154,6 +159,32 @@ async def test_non_streamed_telegram_reply_fan_out_to_inbox(
     assert shadow.metadata["_unified_inbox_write"] is True
     assert shadow.metadata["source_channel"] == "telegram"
     assert shadow.metadata.get("_streamed") is None
+
+
+@pytest.mark.asyncio
+async def test_assistant_audio_lifecycle_fans_out_without_media_shadow(
+    manager: ChannelManager,
+) -> None:
+    ws = manager.channels["websocket"]
+    assert isinstance(ws, CaptureWsChannel)
+    audio = {"phase": "chunk", "audioId": "a1", "sequence": 0, "data": "AAA="}
+
+    await manager._maybe_fan_out_unified_inbox(OutboundMessage(
+        channel="telegram",
+        chat_id="123",
+        content="",
+        metadata={"_assistant_audio": audio},
+    ))
+    await manager._maybe_fan_out_unified_inbox(OutboundMessage(
+        channel="telegram",
+        chat_id="123",
+        content="",
+        media=["/tmp/speech.wav"],
+        metadata={"_assistant_audio_file_delivery": True},
+    ))
+
+    assert ws.assistant_audio == [("inbox:unified", audio)]
+    assert ws.sent == []
 
 
 @pytest.mark.asyncio

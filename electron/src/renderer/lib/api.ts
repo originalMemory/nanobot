@@ -472,6 +472,7 @@ export async function fetchPsbModelDetail(
 export interface TtsSettingsUpdate {
   enabled?: boolean;
   message_playback_enabled?: boolean;
+  mode?: "off" | "agent" | "always";
   default_voice?: string;
 }
 

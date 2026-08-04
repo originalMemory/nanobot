@@ -7,19 +7,23 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Check, ChevronRight, Code2, Copy, FileIcon, ImageIcon, PlaySquare, Sparkles, StopCircle, Wrench } from "lucide-react";
+import { Check, ChevronRight, CirclePlay, CircleStop, Code2, Copy, FileIcon, ImageIcon, Sparkles, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AssistantNameRow } from "@/components/AssistantNameRow";
 import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { playThaAudio } from "@/lib/api";
 import { isLiveArrival } from "@/lib/media";
 import {
   getAssistantPlaybackVersion,
+  getAssistantSpeechProgress,
   isAssistantPlaybackActive,
+  isAssistantSpeechActive,
   replayAssistantPlaybackSegments,
+  replayAssistantSpeech,
   stopAssistantPlayback,
   subscribeAssistantPlayback,
 } from "@/lib/playback-queue";
@@ -58,6 +62,11 @@ export function resolveMediaUrl(url: string | undefined, apiBase: string): strin
   return `${base}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
+function formatAudioTime(durationMs: number): string {
+  const seconds = Math.max(0, Math.floor(durationMs / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 interface MessageBubbleProps {
   message: UIMessage;
   /** 同一 turn 只有首条 assistant 消息展示头像和名称。 */
@@ -85,8 +94,10 @@ export function MessageBubble({
   mcpPresets = [],
 }: MessageBubbleProps) {
   const { t } = useTranslation();
+  const { apiBase } = useClient();
   const [copied, setCopied] = useState(false);
   const [replayingAudio, setReplayingAudio] = useState(false);
+  const [, setPlaybackClock] = useState(0);
   const [showPsbTags, setShowPsbTags] = useState(false);
   const copyResetRef = useRef<number | null>(null);
   const baseAnim = "animate-in fade-in-0 slide-in-from-bottom-1 duration-300";
@@ -127,17 +138,42 @@ export function MessageBubble({
     ),
     [message.playbackSegments],
   );
+  const playableSpeech = useMemo(() => {
+    const resolvedUrl = resolveMediaUrl(message.speech?.url, apiBase);
+    return message.speech && resolvedUrl
+      ? { ...message.speech, url: resolvedUrl }
+      : null;
+  }, [apiBase, message.speech]);
   useSyncExternalStore(
     subscribeAssistantPlayback,
     getAssistantPlaybackVersion,
     getAssistantPlaybackVersion,
   );
-  const isPlaybackActive = isAssistantPlaybackActive(message.id);
+  const isPlaybackActive = playableSpeech
+    ? isAssistantSpeechActive(playableSpeech.audioId)
+    : isAssistantPlaybackActive(message.id);
+  const speechDurationMs = playableSpeech?.durationMs ?? 0;
+  const speechProgress = playableSpeech
+    ? getAssistantSpeechProgress(playableSpeech.audioId, speechDurationMs)
+    : null;
+
+  useEffect(() => {
+    if (!isPlaybackActive || !playableSpeech) return;
+    const timer = window.setInterval(() => setPlaybackClock(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [isPlaybackActive, playableSpeech]);
 
   const onReplayAssistantAudio = useCallback(() => {
     if (isPlaybackActive) {
-      stopAssistantPlayback(message.id);
+      stopAssistantPlayback(playableSpeech?.audioId ?? message.id);
       setReplayingAudio(false);
+      return;
+    }
+    if (playableSpeech) {
+      setReplayingAudio(true);
+      void replayAssistantSpeech(playableSpeech).finally(() => {
+        window.setTimeout(() => setReplayingAudio(false), 500);
+      });
       return;
     }
     if (playablePlaybackSegments.length === 0) return;
@@ -145,7 +181,7 @@ export function MessageBubble({
     void replayAssistantPlaybackSegments(playablePlaybackSegments).finally(() => {
       window.setTimeout(() => setReplayingAudio(false), 500);
     });
-  }, [message.id, playablePlaybackSegments, isPlaybackActive]);
+  }, [message.id, playablePlaybackSegments, playableSpeech, isPlaybackActive]);
 
   if (message.kind === "trace") {
     return <TraceGroup message={message} animClass={baseAnim} />;
@@ -214,7 +250,9 @@ export function MessageBubble({
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   const showCopyButton = showAssistantFooter && showAssistantActions;
   const showPsbTagsButton = showAssistantFooter && showAssistantActions && hasResponseTags;
-  const showPlaybackButton = showAssistantFooter && showAssistantActions && playablePlaybackSegments.length > 0;
+  const showPlaybackButton = showAssistantFooter
+    && showAssistantActions
+    && (playableSpeech !== null || playablePlaybackSegments.length > 0);
   const latencyMs = message.latencyMs;
   const usage = message.role === "assistant" ? message.usage : undefined;
   const messageTs = message.role === "assistant" ? message.messageTs : undefined;
@@ -235,7 +273,6 @@ export function MessageBubble({
 
   const isTypingOnly = empty && message.isStreaming && !hasReasoning;
   const { botName, botIcon, botAvatarUrl } = useBotIdentity();
-  const { apiBase } = useClient();
 
   if (isTypingOnly) {
     return (
@@ -350,34 +387,48 @@ export function MessageBubble({
               </button>
             ) : null}
             {showPlaybackButton ? (
-              <button
-                type="button"
-                onClick={onReplayAssistantAudio}
-                aria-label={
-                  isPlaybackActive
-                    ? t("message.stopReplyAudio")
-                    : t("message.playReplyAudio")
-                }
-                title={
-                  isPlaybackActive
-                    ? t("message.stopReplyAudio")
-                    : t("message.playReplyAudio")
-                }
-                className={cn(
-                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                  "transition-colors hover:bg-muted/55 hover:text-foreground",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                )}
-              >
-                {isPlaybackActive ? (
-                  <StopCircle className="h-4 w-4" aria-hidden />
-                ) : (
-                  <PlaySquare
-                    className={cn("h-4 w-4", replayingAudio && "text-foreground")}
-                    aria-hidden
-                  />
-                )}
-              </button>
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={onReplayAssistantAudio}
+                      aria-label={
+                        isPlaybackActive
+                          ? t("message.stopReplyAudio")
+                          : t("message.playReplyAudio")
+                      }
+                      className={cn(
+                        "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                        "transition-colors hover:bg-muted/55 hover:text-foreground",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      )}
+                    >
+                      {isPlaybackActive ? (
+                        <CircleStop
+                          className="h-4 w-4 motion-safe:animate-pulse"
+                          aria-hidden
+                        />
+                      ) : (
+                        <CirclePlay
+                          className={cn(
+                            "h-4 w-4",
+                            replayingAudio && "text-foreground",
+                          )}
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {isPlaybackActive && speechProgress
+                      ? `${t("message.stopReplyAudio")} · ${formatAudioTime(speechProgress.currentMs)} / ${formatAudioTime(speechProgress.totalMs)}`
+                      : speechDurationMs > 0
+                        ? `${t("message.playReplyAudio")} · ${formatAudioTime(speechDurationMs)}`
+                        : t("message.playReplyAudio")}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             ) : null}
             {showPsbTagsButton ? (
               <button

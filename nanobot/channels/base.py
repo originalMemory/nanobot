@@ -127,6 +127,15 @@ class BaseChannel(ABC):
         """
         pass
 
+    async def send_assistant_audio(
+        self,
+        chat_id: str,
+        audio: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Deliver one assistant PCM stream lifecycle event to rich clients."""
+        return
+
     async def send_reasoning_delta(
         self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
     ) -> None:

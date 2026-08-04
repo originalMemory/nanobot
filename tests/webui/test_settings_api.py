@@ -20,6 +20,7 @@ from nanobot.webui.settings_api import (
     update_model_configuration,
     update_network_safety_settings,
     update_tha_settings,
+    update_tts_settings,
 )
 
 
@@ -244,6 +245,23 @@ def test_update_tha_settings_writes_desk_pet_config_and_reports_fixed_model(
     assert tha["model"]["path"] == str(model_dir / "model.onnx")
     saved = load_config(config_path)
     assert saved.desk_pet.tha.audio_delay_ms == 260
+
+
+def test_update_tts_settings_writes_mode_and_legacy_flags(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = update_tts_settings({"mode": ["always"]})
+
+    assert payload["tts"]["mode"] == "always"
+    saved = load_config(config_path)
+    assert saved.tools.tts.mode == "always"
+    assert saved.tools.tts.enabled is False
+    assert saved.tools.tts.message_playback_enabled is True
 
 
 def test_update_model_configuration_edits_named_preset_and_selects(

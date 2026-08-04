@@ -10,11 +10,16 @@ import {
 } from "@/lib/tool-traces";
 import type { StreamError } from "@/lib/nanobot-client";
 import {
+  appendAssistantAudioChunk,
   enqueueAssistantPlaybackSegment,
+  failAssistantAudioStream,
+  finishAssistantAudioStream,
+  startAssistantAudioStream,
   stopAssistantPlayback,
 } from "@/lib/playback-queue";
 import type {
   AssistantPlaybackSegment,
+  AssistantSpeech,
   InboundEvent,
   OutboundCliAppMention,
   OutboundImageGeneration,
@@ -90,6 +95,19 @@ function turnFieldsFromEvent(
 
 function matchesTurn(message: UIMessage, turn: Pick<UIMessageTurnFields, "turnId">): boolean {
   return message.turnId === turn.turnId;
+}
+
+function findSpeechTargetIndex(messages: UIMessage[], turnId: string): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (
+      message.role === "assistant"
+      && message.kind !== "trace"
+      && message.turnId === turnId
+      && !!message.content.trim()
+    ) return index;
+  }
+  return -1;
 }
 
 /**
@@ -629,6 +647,7 @@ export function useNanobotStream(
   const pendingStreamEventsRef = useRef<PendingStreamEvent[]>([]);
   const streamFrameRef = useRef<number | null>(null);
   const pendingCaptionEventsRef = useRef<PendingCaptionEvent[]>([]);
+  const pendingSpeechRef = useRef<Map<string, AssistantSpeech>>(new Map());
   const captionFrameRef = useRef<number | null>(null);
   const suppressedTurnIdsRef = useRef<Set<string>>(new Set());
   /** Timer that defers ``isStreaming = false`` after ``stream_end``.
@@ -996,6 +1015,7 @@ export function useNanobotStream(
     streamedTurnIdsRef.current.clear();
     turnSourceChannelsRef.current.clear();
     turnNotificationTextRef.current.clear();
+    pendingSpeechRef.current.clear();
     clearActivitySegment();
     clearPendingStreamWork();
     suppressedTurnIdsRef.current.clear();
@@ -1028,6 +1048,7 @@ export function useNanobotStream(
     streamedTurnIdsRef.current.clear();
     turnSourceChannelsRef.current.clear();
     turnNotificationTextRef.current.clear();
+    pendingSpeechRef.current.clear();
     clearActivitySegment();
     clearPendingStreamWork();
     suppressedTurnIdsRef.current.clear();
@@ -1184,6 +1205,31 @@ export function useNanobotStream(
         return;
       }
 
+      if (ev.event === "assistant_audio_start") {
+        flushPendingStreamEvents();
+        startAssistantAudioStream(ev.audio);
+        return;
+      }
+
+      if (ev.event === "assistant_audio_chunk") {
+        appendAssistantAudioChunk(ev.audio);
+        return;
+      }
+
+      if (ev.event === "assistant_audio_end") {
+        flushPendingStreamEvents();
+        void finishAssistantAudioStream(ev.audio);
+        const turn = turnFieldsFromEvent(ev, "answer");
+        if (!turn) return;
+        pendingSpeechRef.current.set(turn.turnId, ev.audio);
+        return;
+      }
+
+      if (ev.event === "assistant_audio_error") {
+        failAssistantAudioStream(ev.audio.audioId);
+        return;
+      }
+
       flushPendingStreamEvents();
 
       if (ev.event === "reasoning_end") {
@@ -1266,6 +1312,17 @@ export function useNanobotStream(
           }
           finalized = stampLastAssistantResponseModel(finalized, ev, turn.turnId);
           finalized = stampLastAssistantTs(finalized, Date.now(), turn.turnId);
+          const pendingSpeech = pendingSpeechRef.current.get(turn.turnId);
+          if (pendingSpeech) {
+            const targetIndex = findSpeechTargetIndex(finalized, turn.turnId);
+            if (targetIndex >= 0) {
+              finalized = replaceMessageAt(finalized, targetIndex, {
+                ...finalized[targetIndex],
+                speech: pendingSpeech,
+              });
+              pendingSpeechRef.current.delete(turn.turnId);
+            }
+          }
           if (buffer.current?.turnId === turn.turnId) buffer.current = null;
           if (activeAssistantRef.current?.turnId === turn.turnId) {
             activeAssistantRef.current = null;
@@ -1643,6 +1700,7 @@ export function useNanobotStream(
       return prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
     });
     suppressedTurnIdsRef.current.clear();
+    pendingSpeechRef.current.clear();
     stopAssistantPlayback();
     client.sendMessage(chatId, "/stop");
   }, [chatId, clearActivitySegment, client, flushPendingStreamEvents]);

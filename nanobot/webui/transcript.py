@@ -565,6 +565,7 @@ def replay_transcript_to_ui_messages(
     lines = _normalize_transcript_turns(lines)
     messages: list[dict[str, Any]] = []
     stream_buffers: dict[tuple[str, str], tuple[str, list[str]]] = {}
+    pending_speech_by_turn: dict[str, dict[str, Any]] = {}
     suppressed_turn_ids: set[str] = set()
     active_activity_segment_id: str | None = None
     active_file_edit_segment_id: str | None = None
@@ -1006,6 +1007,28 @@ def replay_transcript_to_ui_messages(
         next_segments.sort(key=lambda item: item.get("segmentIndex") if isinstance(item.get("segmentIndex"), int) else 0)
         messages[target_index] = {**target, "playbackSegments": next_segments}
 
+    def attach_speech(audio: dict[str, Any], turn_fields: dict[str, Any]) -> None:
+        speech = dict(audio)
+        path = speech.get("path")
+        if isinstance(path, str) and path and augment_media_paths is not None:
+            signed = augment_media_paths([path])
+            if signed:
+                speech["url"] = signed[0].get("url")
+                speech.setdefault("name", signed[0].get("name"))
+        speech.pop("path", None)
+        for i in range(len(messages) - 1, -1, -1):
+            candidate = messages[i]
+            if candidate.get("role") != "assistant" or candidate.get("kind") == "trace":
+                continue
+            if not _same_turn(candidate, turn_fields):
+                continue
+            messages[i] = {**candidate, "speech": speech}
+            pending_speech_by_turn.pop(str(turn_fields.get("turnId") or ""), None)
+            return
+        turn_id = str(turn_fields.get("turnId") or "")
+        if turn_id:
+            pending_speech_by_turn[turn_id] = speech
+
     for idx, rec in enumerate(lines):
         ev = rec.get("event")
         if ev == "user":
@@ -1157,6 +1180,12 @@ def replay_transcript_to_ui_messages(
             segment = rec.get("segment")
             if isinstance(segment, dict):
                 attach_playback_segment(segment)
+            continue
+
+        if ev == "assistant_audio_end":
+            audio = rec.get("audio")
+            if isinstance(audio, dict):
+                pending_speech_by_turn[str(rec["turn_id"])] = dict(audio)
             continue
 
         if ev == "reasoning_delta":
@@ -1367,8 +1396,15 @@ def replay_transcript_to_ui_messages(
             usg = rec.get("usage")
             if isinstance(usg, dict) and usg:
                 stamp_usage(usg, turn_id)
+            pending_speech = pending_speech_by_turn.get(turn_id)
+            if pending_speech is not None:
+                attach_speech(pending_speech, _turn_fields(rec, "answer"))
             _clear_turn_streams(turn_id)
             continue
+
+    # 兼容早期 transcript：旧记录可能没有 turn_end，仍将音频绑定到该轮最后一条正文。
+    for turn_id, pending_speech in list(pending_speech_by_turn.items()):
+        attach_speech(pending_speech, {"turnId": turn_id, "turnPhase": "answer"})
 
     for i, m in enumerate(messages):
         if (
@@ -1568,6 +1604,13 @@ def session_messages_to_wire_events(
                                 "event": "assistant_playback_segment",
                                 "segment": segment,
                             })
+                speech = msg.get("speech")
+                if isinstance(speech, dict):
+                    events.append({
+                        **base,
+                        "event": "assistant_audio_end",
+                        "audio": dict(speech),
+                    })
 
         elif role == "tool":
             call_id = msg.get("tool_call_id", "")

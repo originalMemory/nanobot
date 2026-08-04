@@ -34,6 +34,8 @@
   let mouthTimer = null;
   let audioDelayMs = 150;
   let isPlayingAudio = false;
+  let currentAudioSource = null;
+  let pcmStream = null;
   const audioQueue = [];
   const motionTags = new Set(["nod", "shakeHead", "tiltHead", "bow", "sway", "lookAround"]);
 
@@ -294,6 +296,10 @@ void main(void) {
       try {
         const payload = JSON.parse(event.data);
         if (payload.type === "audio") enqueueAudioEvent(payload);
+        else if (payload.type === "assistant_audio_start") startPcmStream(payload.audio || {});
+        else if (payload.type === "assistant_audio_chunk") appendPcmChunk(payload.audio || {});
+        else if (payload.type === "assistant_audio_end") endPcmStream(payload.audio || {});
+        else if (payload.type === "assistant_audio_error") failPcmStream(payload.audio || {});
       } catch (error) {
         console.error("[THA] event parse failed:", error);
       }
@@ -553,13 +559,114 @@ void main(void) {
   function haltCurrentAudio() {
     audioQueue.length = 0;
     isPlayingAudio = false;
-    if (audioCtx) {
-      void audioCtx.suspend().then(() => {
-        void audioCtx.close();
-        audioCtx = null;
+    if (currentAudioSource) {
+      try { currentAudioSource.stop(); } catch (_) { /* 已结束 */ }
+      currentAudioSource = null;
+    }
+    if (pcmStream) {
+      pcmStream.sources.forEach((source) => {
+        try { source.stop(); } catch (_) { /* 已结束 */ }
       });
+      pcmStream = null;
+    }
+    const context = audioCtx;
+    audioCtx = null;
+    if (context) {
+      void context.close();
     }
     stopMouthTracking();
+    resetEmotionToNeutral();
+    clearSubtitle();
+  }
+
+  function decodeBase64Pcm(data) {
+    const raw = window.atob(String(data || ""));
+    const bytes = new Uint8Array(raw.length);
+    for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
+    return bytes;
+  }
+
+  function pcmToAudioBuffer(context, pcm, sampleRate) {
+    const samples = Math.floor(pcm.byteLength / 2);
+    const buffer = context.createBuffer(1, samples, sampleRate);
+    const output = buffer.getChannelData(0);
+    const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+    for (let index = 0; index < samples; index += 1) {
+      output[index] = view.getInt16(index * 2, true) / 32768;
+    }
+    return buffer;
+  }
+
+  function finishPcmPlayback(stream) {
+    if (pcmStream !== stream || !stream.ended || stream.pending > 0) return;
+    pcmStream = null;
+    stopMouthTracking();
+    resetEmotionToNeutral();
+    clearSubtitle();
+  }
+
+  function startPcmStream(audio) {
+    const audioId = String(audio.audioId || "");
+    const sampleRate = Number(audio.sampleRate || 24000);
+    if (!audioId || !Number.isFinite(sampleRate) || sampleRate <= 0) return;
+    haltCurrentAudio();
+    const context = getAudioCtx();
+    pcmStream = {
+      audioId,
+      sampleRate,
+      expectedSequence: 0,
+      nextStartTime: context.currentTime + Math.max(0, Math.min(audioDelayMs, 2000)) / 1000 + 0.03,
+      sources: [],
+      pending: 0,
+      ended: false,
+    };
+    const parsed = parseExpressions(audio.text || "");
+    applyExpressions(parsed.expressions);
+    if (parsed.clean) renderSubtitle(parsed.clean);
+  }
+
+  function appendPcmChunk(audio) {
+    const stream = pcmStream;
+    if (!stream || String(audio.audioId || "") !== stream.audioId) return;
+    if (Number(audio.sequence) !== stream.expectedSequence) {
+      haltCurrentAudio();
+      return;
+    }
+    stream.expectedSequence += 1;
+    try {
+      const context = getAudioCtx();
+      const pcm = decodeBase64Pcm(audio.data);
+      const source = context.createBufferSource();
+      source.buffer = pcmToAudioBuffer(context, pcm, stream.sampleRate);
+      source.connect(context.destination);
+      if (!audioAnalyser) startMouthTracking(source);
+      else source.connect(audioAnalyser);
+      const startsAt = Math.max(context.currentTime + 0.03, stream.nextStartTime);
+      stream.nextStartTime = startsAt + source.buffer.duration;
+      stream.sources.push(source);
+      stream.pending += 1;
+      source.onended = () => {
+        stream.pending = Math.max(0, stream.pending - 1);
+        stream.sources = stream.sources.filter((item) => item !== source);
+        finishPcmPlayback(stream);
+      };
+      source.start(startsAt);
+    } catch (error) {
+      console.error("[THA] PCM playback failed:", error);
+      haltCurrentAudio();
+    }
+  }
+
+  function endPcmStream(audio) {
+    const stream = pcmStream;
+    if (!stream || String(audio.audioId || "") !== stream.audioId) return;
+    stream.ended = true;
+    finishPcmPlayback(stream);
+  }
+
+  function failPcmStream(audio) {
+    if (!pcmStream || String(audio.audioId || "") !== pcmStream.audioId) return;
+    haltCurrentAudio();
   }
 
   async function playQueuedAudio(item) {
@@ -567,6 +674,7 @@ void main(void) {
     const data = await fetchAudioArrayBuffer(item.url);
     const buffer = await context.decodeAudioData(data.slice(0));
     const source = context.createBufferSource();
+    currentAudioSource = source;
     const delay = context.createDelay(2.5);
     delay.delayTime.value = Math.max(0, Math.min(audioDelayMs, 2000)) / 1000;
     source.buffer = buffer;
@@ -576,7 +684,10 @@ void main(void) {
     if (item.text) renderSubtitle(item.text);
     startMouthTracking(source);
     await new Promise((resolve) => {
-      source.onended = resolve;
+      source.onended = () => {
+        if (currentAudioSource === source) currentAudioSource = null;
+        resolve();
+      };
       source.start();
     });
     stopMouthTracking();

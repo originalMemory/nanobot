@@ -12,13 +12,17 @@
   var state = {
     audioCtx: null,
     source: null,
+    sources: [],
     analyser: null,
     rafId: null,
     smoothAmp: 0,
     player: null,
     playing: false,
     lastSendTime: 0,
-    onUpdate: null
+    onUpdate: null,
+    streamEnded: false,
+    streamPending: 0,
+    nextStartTime: 0
   };
 
   function getAudioCtx() {
@@ -73,6 +77,14 @@
       try { state.source.disconnect(); } catch (e) { /* ignore */ }
       state.source = null;
     }
+    state.sources.forEach(function (source) {
+      try { source.onended = null; source.stop(0); } catch (e) { /* ignore */ }
+      try { source.disconnect(); } catch (e) { /* ignore */ }
+    });
+    state.sources = [];
+    state.streamEnded = false;
+    state.streamPending = 0;
+    state.nextStartTime = 0;
     stopTracking(true);
     state.player = null;
   }
@@ -164,9 +176,69 @@
     });
   }
 
+  function startPcmStream(sampleRate, player, onUpdate) {
+    if (!player || !player.initialized) return false;
+    if (!hasFaceTalk(player)) return false;
+    stop();
+    state.player = player;
+    state.onUpdate = onUpdate || null;
+    state.playing = true;
+    state.streamEnded = false;
+    var ctx = getAudioCtx();
+    state.analyser = ctx.createAnalyser();
+    state.analyser.fftSize = 512;
+    state.analyser.smoothingTimeConstant = 0;
+    state.analyser.connect(ctx.destination);
+    state.nextStartTime = ctx.currentTime + 0.03;
+    state.lastSendTime = 0;
+    state.rafId = requestAnimationFrame(trackLoop);
+    return Number(sampleRate) > 0;
+  }
+
+  function decodeBase64Pcm(data) {
+    var raw = atob(String(data || ''));
+    var bytes = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+    return bytes;
+  }
+
+  function appendPcmChunk(data, sampleRate) {
+    if (!state.playing || !state.analyser) return false;
+    var bytes = decodeBase64Pcm(data);
+    var samples = Math.floor(bytes.byteLength / 2);
+    if (!samples) return false;
+    var ctx = getAudioCtx();
+    var buffer = ctx.createBuffer(1, samples, Number(sampleRate) || 24000);
+    var output = buffer.getChannelData(0);
+    var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    for (var i = 0; i < samples; i += 1) output[i] = view.getInt16(i * 2, true) / 32768;
+    var source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(state.analyser);
+    var startsAt = Math.max(ctx.currentTime + 0.03, state.nextStartTime);
+    state.nextStartTime = startsAt + buffer.duration;
+    state.sources.push(source);
+    state.streamPending += 1;
+    source.onended = function () {
+      state.streamPending = Math.max(0, state.streamPending - 1);
+      state.sources = state.sources.filter(function (item) { return item !== source; });
+      if (state.streamEnded && state.streamPending === 0) stop();
+    };
+    source.start(startsAt);
+    return true;
+  }
+
+  function endPcmStream() {
+    state.streamEnded = true;
+    if (state.streamPending === 0) stop();
+  }
+
   global.EmoteTalkSync = {
     playArrayBuffer: playArrayBuffer,
     playFile: playFile,
+    startPcmStream: startPcmStream,
+    appendPcmChunk: appendPcmChunk,
+    endPcmStream: endPcmStream,
     stop: stop,
     isPlaying: function () { return state.playing; },
     hasFaceTalk: hasFaceTalk,

@@ -409,6 +409,37 @@
       return;
     }
 
+    if (
+      (type === 'audio-stream-start' || type === 'audio-stream-chunk' || type === 'audio-stream-end')
+      && (!player || !player.initialized)
+    ) {
+      pendingRuntimeActions.push(action);
+      return;
+    }
+
+    if (type === 'audio-stream-start') {
+      if (!window.EmoteTalkSync || !player || !player.initialized) return;
+      EmoteTalkSync.startPcmStream(payload.sampleRate, player);
+      return;
+    }
+
+    if (type === 'audio-stream-chunk') {
+      if (!window.EmoteTalkSync) return;
+      EmoteTalkSync.appendPcmChunk(payload.data, payload.sampleRate || 24000);
+      return;
+    }
+
+    if (type === 'audio-stream-end') {
+      if (window.EmoteTalkSync) EmoteTalkSync.endPcmStream();
+      return;
+    }
+
+    if (type === 'audio-stream-stop') {
+      if (window.EmoteTalkSync) EmoteTalkSync.stop();
+      restoreTransientState();
+      return;
+    }
+
     if (type === 'playback-stop') {
       audioQueue = [];
       if (window.EmoteTalkSync && typeof EmoteTalkSync.stop === 'function') {
@@ -585,6 +616,12 @@
           applyFaceTracking(point.x, point.y);
         }
       });
+    }
+  }
+
+  function reportRuntimeAudioReady(ready) {
+    if (electronApi && typeof electronApi.setRuntimeAudioReady === 'function') {
+      electronApi.setRuntimeAudioReady(ready === true);
     }
   }
 
@@ -915,6 +952,7 @@
   }
 
   function applyLoadedModel(buffer, metadata) {
+    reportRuntimeAudioReady(false);
     modelMetadata = metadata || {};
     savedInitialState = modelMetadata.initialState || null;
     player.mainTimelineLabel = DEFAULT_TIMELINE;
@@ -931,6 +969,9 @@
       setStatus('');
       connectEvents();
       drainPendingRuntimeActions();
+      reportRuntimeAudioReady(
+        !!window.EmoteTalkSync && EmoteTalkSync.hasFaceTalk(player)
+      );
     });
   }
 
@@ -973,6 +1014,7 @@
   }
 
   function bootPsbPlayer() {
+    reportRuntimeAudioReady(false);
     try {
       initPlayer();
     } catch (err) {
@@ -1025,6 +1067,9 @@
   }
 
   window.addEventListener('resize', resizeCanvas);
-  window.addEventListener('beforeunload', disconnectEvents);
+  window.addEventListener('beforeunload', function () {
+    reportRuntimeAudioReady(false);
+    disconnectEvents();
+  });
   window.addEventListener('load', start);
 })();

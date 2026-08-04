@@ -10,9 +10,7 @@ import mimetypes
 import re
 import secrets
 import ssl
-import time
 import uuid
-from collections import deque
 from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
@@ -23,21 +21,15 @@ from websockets.asyncio.server import ServerConnection, serve, unix_serve
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as WsRequest
 
-from nanobot.agent.playback_segments import (
-    AssistantPlaybackSegment,
-    AssistantPlaybackSegmenter,
-)
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
-from nanobot.config.loader import load_config
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
 from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
 )
-from nanobot.session import UNIFIED_SESSION_KEY
 from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
 from nanobot.utils.document import SUPPORTED_EXTENSIONS
@@ -60,7 +52,7 @@ from nanobot.webui.http_utils import (
 )
 from nanobot.webui.mcp_presets_api import normalize_mcp_preset_mentions
 from nanobot.webui.tha_api import tha_websocket_loop
-from nanobot.webui.transcript import WebUITranscriptRecorder, append_transcript_object
+from nanobot.webui.transcript import WebUITranscriptRecorder
 from nanobot.webui.websocket_logging import websockets_server_logger
 from nanobot.webui.workspaces import WebUIWorkspaceController
 
@@ -488,18 +480,15 @@ class WebSocketChannel(BaseChannel):
         self._conn_screenshot_requests: dict[Any, set[str]] = {}
         # THA 独立页事件订阅连接，用于转发音频附件和表情事件。
         self._tha_event_subs: set[Any] = set()
+        # audio_id -> start 阶段已接管该流的 THA 连接。所有权必须贯穿整条流，
+        # 不能因 THA 在中途连接或断开而让 Electron 本地播放器接手半条音频。
+        self._tha_audio_streams: dict[str, set[Any]] = {}
         self._stop_event: asyncio.Event | None = None
         self._server_task: asyncio.Task[None] | None = None
         self._session_manager = session_manager
         self._unified_session = unified_session
         self._transcripts = WebUITranscriptRecorder(self.logger)
         self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
-        self._playback_segmenters: dict[tuple[str, str], AssistantPlaybackSegmenter] = {}
-        self._playback_queues: dict[str, deque[tuple[AssistantPlaybackSegment, Any]]] = {}
-        self._playback_tasks: dict[asyncio.Task[None], str] = {}
-        self._playback_tts_semaphore = asyncio.Semaphore(1)
-        self._pending_session_playback_segments: dict[tuple[str, str], list[AssistantPlaybackSegment]] = {}
-        self._pending_session_playback_retries: dict[tuple[str, str], int] = {}
         # 重启完成后、客户端重连前暂存的待投递消息（chat_id -> 消息列表）。
         # _hydrate_after_subscribe 会在订阅时统一投递并清空。
         self._pending_reconnect_messages: dict[str, list[Any]] = {}
@@ -870,8 +859,6 @@ class WebSocketChannel(BaseChannel):
                 content = _parse_inbound_payload(raw)
                 if content is None:
                     continue
-                if content.strip() == "/stop":
-                    self._cancel_playback_for_chat(default_chat_id)
                 # WebSocket already authenticates at handshake time (token),
                 # so pairing is not applicable. Treat as non-DM to avoid
                 # sending pairing codes to an already-authenticated client.
@@ -1283,12 +1270,7 @@ class WebSocketChannel(BaseChannel):
         self._screenshot_futures.clear()
         self._conn_screenshot_requests.clear()
         self._tha_event_subs.clear()
-        for task in list(self._playback_tasks):
-            task.cancel()
-        self._playback_tasks.clear()
-        self._playback_queues.clear()
-        self._pending_session_playback_segments.clear()
-        self._pending_session_playback_retries.clear()
+        self._tha_audio_streams.clear()
         self._tokens.clear()
 
     async def _safe_send_to(self, connection: Any, raw: str, *, label: str = "") -> None:
@@ -1324,211 +1306,79 @@ class WebSocketChannel(BaseChannel):
             await self._safe_send_to(connection, raw, label=" tha_events ")
         return len(conns)
 
-    @staticmethod
-    def _message_playback_tts_config() -> Any | None:
-        try:
-            cfg = load_config().tools.tts
-        except Exception:
-            return None
-        return cfg if bool(getattr(cfg, "message_playback_enabled", False)) else None
-
-    def _schedule_playback_segments(self, segments: list[AssistantPlaybackSegment], tts_config: Any) -> None:
-        for segment in segments:
-            if not segment.speech_text:
-                continue
-            segment.audio.status = "pending"
-            queue = self._playback_queues.setdefault(segment.chat_id, deque())
-            queue.append((segment, tts_config))
-            if not any(
-                chat_id == segment.chat_id and not task.done()
-                for task, chat_id in self._playback_tasks.items()
-            ):
-                task = asyncio.create_task(self._run_playback_queue(segment.chat_id))
-                self._playback_tasks[task] = segment.chat_id
-                task.add_done_callback(lambda done: self._playback_tasks.pop(done, None))
-
-    def _cancel_playback_for_chat(self, chat_id: str) -> None:
-        self._playback_segmenters = {
-            key: segmenter
-            for key, segmenter in self._playback_segmenters.items()
-            if key[0] != chat_id
-        }
-        self._playback_queues.pop(chat_id, None)
-        for task, task_chat_id in list(self._playback_tasks.items()):
-            if task_chat_id == chat_id:
-                task.cancel()
-                self._playback_tasks.pop(task, None)
-
-    async def _run_playback_queue(self, chat_id: str) -> None:
-        try:
-            while True:
-                queue = self._playback_queues.get(chat_id)
-                if not queue:
-                    self._playback_queues.pop(chat_id, None)
-                    return
-                segment, tts_config = queue.popleft()
-                async with self._playback_tts_semaphore:
-                    await self._synthesize_and_send_playback_segment(segment, tts_config)
-        except asyncio.CancelledError:
-            raise
-
-    async def _synthesize_and_send_playback_segment(
+    async def send_assistant_audio(
         self,
-        segment: AssistantPlaybackSegment,
-        tts_config: Any,
+        chat_id: str,
+        audio: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
     ) -> None:
-        try:
-            from nanobot.providers.tts import build_tts_provider
-
-            provider = build_tts_provider(tts_config)
-            default_voice = str(getattr(tts_config, "default_voice", "tongtong") or "tongtong")
-            ext = str(getattr(tts_config, "response_format", "wav") or "wav").lstrip(".")
-            out = (
-                get_media_dir()
-                / "tts"
-                / f"segment_{segment.message_id}_{segment.segment_index}_{int(time.time() * 1000)}.{ext}"
-            )
-            ok = await provider.synthesize(segment.speech_text, voice=default_voice, output_path=out)
-            if not ok:
-                segment.audio.status = "failed"
-                segment.audio.error = "tts_synthesis_failed"
-                await self.send_playback_segment(segment)
-                return
-            signed = self._http_router.sign_or_stage_media_path(out)
-            if signed is None:
-                segment.audio.status = "failed"
-                segment.audio.error = "media_sign_failed"
-                await self.send_playback_segment(segment)
-                return
-            segment.audio.status = "ready"
-            segment.audio.path = str(out)
-            segment.audio.url = signed.get("url")
-            mime, _ = mimetypes.guess_type(out.name)
-            segment.audio.mime_type = mime or f"audio/{ext}"
-            await self.send_playback_segment(segment)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            self.logger.exception("assistant playback segment TTS failed")
-            segment.audio.status = "failed"
-            segment.audio.error = "tts_unhandled_error"
-            await self.send_playback_segment(segment)
-
-    async def send_playback_segment(self, segment: AssistantPlaybackSegment) -> None:
-        self._try_append_session_playback_segment(segment)
-        conns = list(self._subs.get(segment.chat_id, ()))
-        if not conns:
+        phase = str(audio.get("phase") or "")
+        if phase not in {"start", "chunk", "end", "error"}:
             return
-        payload: dict[str, Any] = {
-            "event": "assistant_playback_segment",
-            "chat_id": segment.chat_id,
-            "segment": segment.to_dict(),
+        live_audio = dict(audio)
+        persisted_audio = dict(audio)
+        prepared_turn_fields: dict[str, Any] = {}
+        audio_id = str(audio.get("audioId") or "")
+        if phase == "start" and audio_id and self._tha_event_subs:
+            self._tha_audio_streams[audio_id] = set(self._tha_event_subs)
+        tha_owners = self._tha_audio_streams.get(audio_id, set())
+        tha_owns_stream = bool(tha_owners)
+        if phase == "start" and tha_owns_stream:
+            live_audio["owner"] = "tha"
+        if phase == "end":
+            path = audio.get("path")
+            if isinstance(path, str) and path:
+                signed = self._http_router.sign_or_stage_media_path(Path(path))
+                if signed is not None:
+                    live_audio["url"] = signed.get("url")
+                    live_audio.setdefault("name", signed.get("name"))
+            live_audio.pop("path", None)
+            transcript_event = {
+                "event": "assistant_audio_end",
+                "chat_id": chat_id,
+                "audio": persisted_audio,
+            }
+            self._transcripts.prepare_and_append(
+                chat_id,
+                transcript_event,
+                metadata=metadata,
+                phase="answer",
+            )
+            prepared_turn_fields = {
+                key: transcript_event[key]
+                for key in ("turn_id", "turn_phase", "turn_seq")
+                if key in transcript_event
+            }
+
+        payload = {
+            "event": f"assistant_audio_{phase}",
+            "chat_id": chat_id,
+            "audio": live_audio,
+            **prepared_turn_fields,
         }
-        self._try_append_webui_transcript(
-            segment.chat_id,
-            {
-                **payload,
-                "segment": segment.to_dict(
-                    include_audio_path=True,
-                    include_audio_url=False,
-                ),
-            },
-        )
-        raw = json.dumps(payload, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" playback_segment ")
-
-    def _try_append_webui_transcript(self, chat_id: str, obj: dict[str, Any]) -> None:
-        """将消息追加到 WebUI transcript 文件；失败时静默记录日志，不中断发送流程。"""
-        try:
-            append_transcript_object(f"websocket:{chat_id}", obj)
-        except Exception:
-            self.logger.debug("webui transcript append failed for chat {}", chat_id)
-
-    def _session_key_for_playback_chat(self, chat_id: str) -> str:
-        if self._unified_session and chat_id == INBOX_UNIFIED_CHAT_ID:
-            return UNIFIED_SESSION_KEY
-        return f"websocket:{chat_id}"
-
-    def _try_append_session_playback_segment(self, segment: AssistantPlaybackSegment) -> None:
-        if self._session_manager is None:
-            return
-        try:
-            session_key = self._session_key_for_playback_chat(segment.chat_id)
-            pending_key = (session_key, segment.message_id)
-            pending = self._pending_session_playback_segments.pop(pending_key, [])
-            segments = [*pending, segment]
-            session = self._session_manager.get_or_create(session_key)
-            target_index: int | None = None
-            for index in range(len(session.messages) - 1, -1, -1):
-                message = session.messages[index]
-                if message.get("role") != "assistant":
-                    continue
-                if message.get("id") == segment.message_id:
-                    target_index = index
-                    break
-            if target_index is None:
-                self._pending_session_playback_segments[pending_key] = segments
-                attempts = self._pending_session_playback_retries.get(pending_key, 0)
-                if attempts >= 5:
-                    self._pending_session_playback_segments.pop(pending_key, None)
-                    self._pending_session_playback_retries.pop(pending_key, None)
-                    return
-                self._pending_session_playback_retries[pending_key] = attempts + 1
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    return
-                loop.create_task(self._retry_pending_session_playback_segments(pending_key))
-                return
-
-            target = session.messages[target_index]
-            previous = [
-                item for item in target.get("playbackSegments") or []
-                if isinstance(item, dict)
-            ]
-            next_segments = previous
-            for queued_segment in segments:
-                persisted_segment = queued_segment.to_dict(
-                    include_audio_path=True,
-                    include_audio_url=False,
-                )
-                replaced = False
-                merged_segments: list[dict[str, Any]] = []
-                for item in next_segments:
-                    if item.get("segmentIndex") == persisted_segment.get("segmentIndex"):
-                        merged_segments.append(persisted_segment)
-                        replaced = True
-                    else:
-                        merged_segments.append(item)
-                if not replaced:
-                    merged_segments.append(persisted_segment)
-                next_segments = merged_segments
-            next_segments.sort(
-                key=lambda item: (
-                    item.get("segmentIndex")
-                    if isinstance(item.get("segmentIndex"), int)
-                    else 0
-                )
+        if phase != "end":
+            self._transcripts.prepare_event(
+                chat_id,
+                payload,
+                metadata=metadata,
+                phase="answer",
             )
-            target["playbackSegments"] = next_segments
-            target.setdefault("id", segment.message_id)
-            self._pending_session_playback_retries.pop(pending_key, None)
-            self._session_manager.save(session)
-        except Exception:
-            self.logger.debug("session playback segment append failed for {}", segment.chat_id)
-
-    async def _retry_pending_session_playback_segments(self, pending_key: tuple[str, str]) -> None:
-        await asyncio.sleep(1.0)
-        pending = self._pending_session_playback_segments.get(pending_key)
-        if not pending:
-            return
-        segment = pending.pop()
-        if pending:
-            self._pending_session_playback_segments[pending_key] = pending
-        else:
-            self._pending_session_playback_segments.pop(pending_key, None)
-        self._try_append_session_playback_segment(segment)
+        if tha_owns_stream:
+            tha_raw = json.dumps(
+                {
+                    "type": f"assistant_audio_{phase}",
+                    "chatId": chat_id,
+                    "audio": live_audio,
+                },
+                ensure_ascii=False,
+            )
+            for connection in list(tha_owners):
+                await self._safe_send_to(connection, tha_raw, label=" tha_audio ")
+            if phase in {"end", "error"}:
+                self._tha_audio_streams.pop(audio_id, None)
+        raw = json.dumps(payload, ensure_ascii=False)
+        for connection in list(self._subs.get(chat_id, ())):
+            await self._safe_send_to(connection, raw, label=" assistant_audio ")
 
     async def _fan_out_to_unified_inbox(
         self,
@@ -2047,8 +1897,6 @@ class WebSocketChannel(BaseChannel):
             return
         meta = metadata or {}
         stream_key = (chat_id, str(meta.get("_stream_id") or ""))
-        playback_message_id = str(meta.get("_stream_id") or chat_id)
-        tts_config = self._message_playback_tts_config()
         full_text: str | None = None
         if meta.get("_stream_end"):
             body: dict[str, Any] = {"event": "stream_end", "chat_id": chat_id}
@@ -2076,12 +1924,6 @@ class WebSocketChannel(BaseChannel):
                 for connection in conns:
                     await self._safe_send_to(connection, tail_raw, label=" stream ")
             full_text = "".join(buffered)
-            if tts_config is not None:
-                segmenter = self._playback_segmenters.pop(
-                    stream_key,
-                    AssistantPlaybackSegmenter(chat_id=chat_id, message_id=playback_message_id),
-                )
-                self._schedule_playback_segments(segmenter.finish(delta), tts_config)
             rewritten = self._http_router.rewrite_local_markdown_images(full_text)
             if rewritten != full_text:
                 body["text"] = rewritten
@@ -2092,12 +1934,6 @@ class WebSocketChannel(BaseChannel):
                 "text": delta,
             }
             self._stream_text_buffers.setdefault(stream_key, []).append(delta)
-            if tts_config is not None:
-                segmenter = self._playback_segmenters.setdefault(
-                    stream_key,
-                    AssistantPlaybackSegmenter(chat_id=chat_id, message_id=playback_message_id),
-                )
-                self._schedule_playback_segments(segmenter.feed(delta), tts_config)
         if meta.get("_stream_id") is not None:
             body["stream_id"] = meta["_stream_id"]
         self._transcripts.prepare_and_append(

@@ -15,7 +15,6 @@ _PSB_TAG_RE = re.compile(
     re.IGNORECASE,
 )
 _ATTR_RE = re.compile(r"""(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
-_SEGMENT_END_CHARS = frozenset("\n\u3002\uff01\uff1f!?\uff1b;")
 _THA_TAG_RE = re.compile(r"<[^>]+>")
 
 
@@ -151,81 +150,3 @@ def to_display_text(segment: AssistantPlaybackSegment | str) -> str:
 def to_speech_text(segment: AssistantPlaybackSegment | str) -> str:
     display = to_display_text(segment)
     return _THA_TAG_RE.sub("", display).strip()
-
-
-class AssistantPlaybackSegmenter:
-    """Incrementally split assistant deltas into playback segments."""
-
-    def __init__(self, *, chat_id: str, message_id: str) -> None:
-        self.chat_id = chat_id
-        self.message_id = message_id
-        self._buffer = ""
-        self._next_index = 0
-
-    def feed(self, delta: str) -> list[AssistantPlaybackSegment]:
-        if delta:
-            self._buffer += delta
-        return self._flush_completed()
-
-    def finish(self, delta: str = "") -> list[AssistantPlaybackSegment]:
-        if delta:
-            self._buffer += delta
-        if not self._buffer.strip():
-            self._buffer = ""
-            return []
-        segment = self._make_segment(self._take_buffer())
-        return [segment] if segment is not None else []
-
-    def _flush_completed(self) -> list[AssistantPlaybackSegment]:
-        segments: list[AssistantPlaybackSegment] = []
-        while True:
-            end = _find_segment_end(self._buffer)
-            if end is None:
-                break
-            raw = self._buffer[:end]
-            self._buffer = self._buffer[end:]
-            if raw.strip():
-                segment = self._make_segment(raw)
-                if segment is not None:
-                    segments.append(segment)
-        return segments
-
-    def _take_buffer(self) -> str:
-        raw = self._buffer
-        self._buffer = ""
-        return raw
-
-    def _make_segment(self, raw_text: str) -> AssistantPlaybackSegment | None:
-        _, controls, debug = parse_segment_controls(raw_text)
-        segment = AssistantPlaybackSegment(
-            chat_id=self.chat_id,
-            message_id=self.message_id,
-            segment_index=self._next_index,
-            raw_text=raw_text,
-            controls=controls,
-            debug=debug,
-        )
-        if not segment.speech_text:
-            return None
-        self._next_index += 1
-        return segment
-
-
-def _find_segment_end(text: str) -> int | None:
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if char == "<":
-            tag_end = text.find(">", index + 1)
-            if tag_end != -1:
-                index = tag_end + 1
-                continue
-        if char in _SEGMENT_END_CHARS:
-            return index + 1
-        if char == ".":
-            prev_char = text[index - 1] if index > 0 else ""
-            next_char = text[index + 1] if index + 1 < len(text) else ""
-            if prev_char != "." and next_char != "." and not (prev_char.isdigit() and next_char.isdigit()):
-                return index + 1
-        index += 1
-    return None

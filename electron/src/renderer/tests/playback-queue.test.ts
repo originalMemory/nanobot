@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearAssistantPlaybackQueues,
+  appendAssistantAudioChunk,
   enqueueAssistantPlaybackSegment,
+  finishAssistantAudioStream,
   replayAssistantPlaybackSegments,
   getAssistantPlaybackVersion,
   isAssistantPlaybackActive,
   stopAssistantPlayback,
+  startAssistantAudioStream,
 } from "@/lib/playback-queue";
 import type { AssistantPlaybackSegment } from "@/lib/types";
 
@@ -28,8 +31,9 @@ function segment(index: number): AssistantPlaybackSegment {
 
 describe("assistant playback queue", () => {
   beforeEach(() => {
-    clearAssistantPlaybackQueues();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    clearAssistantPlaybackQueues();
     vi.stubGlobal("Audio", class {
       currentTime = 0;
       onended: (() => void) | null = null;
@@ -133,5 +137,139 @@ describe("assistant playback queue", () => {
       "expression",
       "segment-end",
     ]);
+  });
+
+  it("prebuffers two PCM chunks before delegating one logical stream", async () => {
+    const sendAction = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("electronAPI", { psb: { sendAction } });
+    startAssistantAudioStream({
+      audioId: "speech-1",
+      sampleRate: 24000,
+      channels: 1,
+      encoding: "pcm_s16le",
+    });
+
+    appendAssistantAudioChunk({ audioId: "speech-1", sequence: 0, data: "AAAAAA==" });
+    await flushMicrotasks();
+    expect(sendAction).not.toHaveBeenCalled();
+
+    appendAssistantAudioChunk({ audioId: "speech-1", sequence: 1, data: "AAAAAA==" });
+    await flushMicrotasks(10);
+    await finishAssistantAudioStream({
+      audioId: "speech-1",
+      sampleRate: 24000,
+      durationMs: 1,
+    });
+
+    expect(sendAction.mock.calls.map((call) => call[0].type)).toEqual([
+      "audio-stream-start",
+      "audio-stream-chunk",
+      "audio-stream-chunk",
+      "audio-stream-end",
+    ]);
+  });
+
+  it("plays the buffered PCM locally when the desk pet is unavailable", async () => {
+    const sendAction = vi.fn().mockResolvedValue({ ok: false });
+    const started: number[] = [];
+    vi.stubGlobal("electronAPI", { psb: { sendAction } });
+    vi.stubGlobal("AudioContext", class {
+      currentTime = 0;
+      state = "running";
+      destination = {};
+      createBuffer(_channels: number, samples: number, sampleRate: number) {
+        return {
+          duration: samples / sampleRate,
+          getChannelData: () => new Float32Array(samples),
+        };
+      }
+      createBufferSource() {
+        return {
+          buffer: null,
+          connect: vi.fn(),
+          start: (time: number) => started.push(time),
+          stop: vi.fn(),
+        };
+      }
+      close = vi.fn().mockResolvedValue(undefined);
+      resume = vi.fn().mockResolvedValue(undefined);
+    });
+    startAssistantAudioStream({
+      audioId: "speech-local",
+      sampleRate: 24000,
+      channels: 1,
+      encoding: "pcm_s16le",
+    });
+
+    appendAssistantAudioChunk({ audioId: "speech-local", sequence: 0, data: "AAAAAA==" });
+    appendAssistantAudioChunk({ audioId: "speech-local", sequence: 1, data: "AAAAAA==" });
+    await flushMicrotasks(10);
+
+    expect(sendAction.mock.calls.map((call) => call[0].type)).toEqual(["audio-stream-start"]);
+    expect(started).toHaveLength(2);
+  });
+
+  it("serializes chunks buffered while PSB ownership is pending before stream end", async () => {
+    let acceptPsb: (() => void) | undefined;
+    const sendAction = vi.fn().mockImplementation((action: { type: string }) => {
+      if (action.type === "audio-stream-start") {
+        return new Promise<{ ok: true }>((resolve) => {
+          acceptPsb = () => resolve({ ok: true });
+        });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    vi.stubGlobal("electronAPI", { psb: { sendAction } });
+    startAssistantAudioStream({
+      audioId: "speech-pending",
+      sampleRate: 24000,
+      channels: 1,
+      encoding: "pcm_s16le",
+    });
+
+    appendAssistantAudioChunk({ audioId: "speech-pending", sequence: 0, data: "AAAAAA==" });
+    appendAssistantAudioChunk({ audioId: "speech-pending", sequence: 1, data: "AAAAAA==" });
+    await flushMicrotasks();
+    appendAssistantAudioChunk({ audioId: "speech-pending", sequence: 2, data: "AAAAAA==" });
+    const finishing = finishAssistantAudioStream({
+      audioId: "speech-pending",
+      sampleRate: 24000,
+      durationMs: 1,
+    });
+
+    expect(sendAction.mock.calls.map((call) => call[0].type)).toEqual(["audio-stream-start"]);
+    acceptPsb?.();
+    await finishing;
+
+    expect(sendAction.mock.calls.map((call) => call[0].type)).toEqual([
+      "audio-stream-start",
+      "audio-stream-chunk",
+      "audio-stream-chunk",
+      "audio-stream-chunk",
+      "audio-stream-end",
+    ]);
+    expect(sendAction.mock.calls.slice(1, 4).map((call) => call[0].payload.data)).toEqual([
+      "AAAAAA==",
+      "AAAAAA==",
+      "AAAAAA==",
+    ]);
+  });
+
+  it("does not replay a stream already owned by THA", async () => {
+    const sendAction = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("electronAPI", { psb: { sendAction } });
+
+    startAssistantAudioStream({
+      audioId: "speech-tha",
+      sampleRate: 24000,
+      channels: 1,
+      encoding: "pcm_s16le",
+      owner: "tha",
+    });
+    appendAssistantAudioChunk({ audioId: "speech-tha", sequence: 0, data: "AAAAAA==" });
+    await finishAssistantAudioStream({ audioId: "speech-tha", sampleRate: 24000 });
+
+    expect(sendAction).not.toHaveBeenCalled();
+    expect(isAssistantPlaybackActive("speech-tha")).toBe(false);
   });
 });

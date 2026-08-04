@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import os
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +30,24 @@ _RETRYABLE_EXCEPTIONS = (
     httpx.WriteError,
     httpx.RemoteProtocolError,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class TTSStreamChunk:
+    """GLM-TTS 返回的一块裸 PCM 音频。"""
+
+    sequence: int
+    pcm: bytes
+    sample_rate: int
+
+
+@dataclass(frozen=True, slots=True)
+class TTSStreamResult:
+    """一次完整流式合成的统计结果。"""
+
+    sample_rate: int
+    chunks: int
+    pcm_bytes: int
 
 
 def _resolve_speech_url(api_base: str | None, default_url: str) -> str:
@@ -187,6 +209,125 @@ class OpenAICompatTTSProvider:
             output_path=output_path,
             provider_label=self.provider_label,
         )
+
+    async def synthesize_stream(
+        self,
+        text: str,
+        voice: str,
+        on_chunk: Callable[[TTSStreamChunk], Awaitable[None]],
+    ) -> TTSStreamResult | None:
+        """以 SSE 接收 base64 编码的 16-bit mono PCM，并逐块回调。"""
+        if not self.api_key:
+            logger.warning("{} TTS 未配置 API key", self.provider_label)
+            return None
+        if not text.strip():
+            logger.warning("{} TTS: 文本为空，跳过", self.provider_label)
+            return None
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+        body: dict[str, Any] = {
+            "model": self.model,
+            "input": text,
+            "voice": voice,
+            "response_format": "pcm",
+            "encode_format": "base64",
+            "stream": True,
+            "speed": self.speed,
+            **self.extra_body,
+        }
+
+        for attempt in range(_MAX_RETRIES + 1):
+            emitted = False
+            try:
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        self.api_url,
+                        headers=headers,
+                        json=body,
+                        timeout=60.0,
+                    ) as response:
+                        if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES:
+                            await response.aread()
+                            await asyncio.sleep(_BACKOFF_S[attempt])
+                            continue
+                        response.raise_for_status()
+
+                        sample_rate: int | None = None
+                        chunks = 0
+                        pcm_bytes = 0
+                        finished = False
+                        expected_index = 0
+                        async for line in response.aiter_lines():
+                            if not line.startswith("data:"):
+                                continue
+                            raw = line[5:].strip()
+                            if not raw or raw == "[DONE]":
+                                continue
+                            event = json.loads(raw)
+                            choices = event.get("choices")
+                            if not isinstance(choices, list):
+                                raise ValueError("TTS SSE 缺少 choices")
+                            for choice in choices:
+                                if not isinstance(choice, dict):
+                                    continue
+                                choice_index = choice.get("index")
+                                if choice_index != expected_index:
+                                    raise ValueError(
+                                        "TTS SSE sequence 无效: "
+                                        f"expected={expected_index}, actual={choice_index}"
+                                    )
+                                delta = choice.get("delta") or {}
+                                encoded = delta.get("content") if isinstance(delta, dict) else None
+                                if isinstance(encoded, str) and encoded:
+                                    chunk_rate = delta.get("return_sample_rate") or sample_rate or 24000
+                                    if not isinstance(chunk_rate, int) or chunk_rate <= 0:
+                                        raise ValueError("TTS SSE sample rate 无效")
+                                    if sample_rate is not None and chunk_rate != sample_rate:
+                                        raise ValueError("TTS SSE sample rate 在流中发生变化")
+                                    sample_rate = chunk_rate
+                                    pcm = base64.b64decode(encoded, validate=True)
+                                    if not pcm or len(pcm) % 2:
+                                        raise ValueError("TTS SSE PCM chunk 无效")
+                                    chunk = TTSStreamChunk(chunks, pcm, sample_rate)
+                                    await on_chunk(chunk)
+                                    emitted = True
+                                    chunks += 1
+                                    pcm_bytes += len(pcm)
+                                if choice.get("finish_reason") == "stop":
+                                    finished = True
+                                expected_index += 1
+                        if not emitted or sample_rate is None:
+                            raise ValueError("TTS SSE 未返回音频")
+                        if not finished:
+                            raise ValueError("TTS SSE 未正常结束")
+                        return TTSStreamResult(sample_rate, chunks, pcm_bytes)
+            except asyncio.CancelledError:
+                raise
+            except _RETRYABLE_EXCEPTIONS as e:
+                if not emitted and attempt < _MAX_RETRIES:
+                    logger.warning(
+                        "{} 流式 TTS 瞬时错误（第 {}/{} 次）: {}",
+                        self.provider_label,
+                        attempt + 1,
+                        _MAX_RETRIES + 1,
+                        e,
+                    )
+                    await asyncio.sleep(_BACKOFF_S[attempt])
+                    continue
+                logger.warning("{} 流式 TTS 失败: {}", self.provider_label, e)
+                return None
+            except (httpx.HTTPStatusError, ValueError, json.JSONDecodeError) as e:
+                logger.warning("{} 流式 TTS 响应无效: {}", self.provider_label, e)
+                return None
+            except Exception:
+                logger.exception("{} 流式 TTS 错误", self.provider_label)
+                return None
+        return None
 
 
 def build_tts_provider(config: TtsConfig) -> OpenAICompatTTSProvider:

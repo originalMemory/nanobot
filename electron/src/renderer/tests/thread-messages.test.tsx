@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
@@ -35,6 +35,7 @@ function turnMessage(
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("ThreadMessages turn timeline", () => {
@@ -236,6 +237,55 @@ describe("ThreadMessages turn timeline", () => {
     expect(screen.getAllByRole("button", { name: /copy reply|复制回复/i })).toHaveLength(1);
     expect(container.querySelectorAll(".assistant-message-footer")).toHaveLength(1);
     expect(container.querySelector(".assistant-message-footer-metric")).toHaveTextContent("2s");
+  });
+
+  it("resolves assistant speech replay URLs against the gateway", async () => {
+    let audioUrl = "";
+    vi.stubGlobal("Audio", class {
+      currentTime = 5;
+      onended: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      pause = vi.fn();
+
+      constructor(url: string) {
+        audioUrl = url;
+      }
+
+      play = vi.fn().mockResolvedValue(undefined);
+    });
+    renderThread([
+      turnMessage({
+        id: "a-speech",
+        role: "assistant",
+        content: "带语音的回复",
+        createdAt: 1,
+        speech: {
+          audioId: "speech-1",
+          sampleRate: 24000,
+          durationMs: 14_200,
+          url: "/api/media/signed/speech.wav",
+        },
+      }),
+    ]);
+
+    const playButton = screen.getByRole("button", { name: /play reply audio|播放回复语音/i });
+    expect(playButton.querySelector(".lucide-circle-play")).toBeInTheDocument();
+    fireEvent.focus(playButton);
+    expect(
+      await screen.findAllByText(/播放回复语音 · 0:14|Play reply audio · 0:14/),
+    ).not.toHaveLength(0);
+    fireEvent.click(playButton);
+
+    await waitFor(() => {
+      expect(audioUrl).toBe("http://127.0.0.1:8765/api/media/signed/speech.wav");
+    });
+    const stopButton = screen.getByRole("button", { name: /stop reply audio|停止回复语音/i });
+    expect(stopButton.querySelector(".lucide-circle-stop")).toHaveClass("motion-safe:animate-pulse");
+    fireEvent.focus(stopButton);
+    expect(
+      await screen.findAllByText(/停止回复语音 · 0:05 \/ 0:14|Stop reply audio · 0:05 \/ 0:14/),
+    ).not.toHaveLength(0);
+    fireEvent.click(stopButton);
   });
 
   it("renders the turn header before activity and document-style assistant text", () => {

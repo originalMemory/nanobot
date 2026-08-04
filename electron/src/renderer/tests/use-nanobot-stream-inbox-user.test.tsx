@@ -847,6 +847,50 @@ describe("useNanobotStream inbox user events", () => {
     });
   });
 
+  it("binds completed speech to the final assistant message at turn_end", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "message",
+        chat_id: "inbox:unified",
+        text: "中途回复",
+        turn_id: "turn-speech",
+      });
+      handle({
+        event: "assistant_audio_end",
+        chat_id: "inbox:unified",
+        turn_id: "turn-speech",
+        audio: { audioId: "a1", sampleRate: 24000 },
+      });
+      handle({
+        event: "message",
+        chat_id: "inbox:unified",
+        text: "最终回复",
+        turn_id: "turn-speech",
+      });
+      handle({
+        event: "turn_end",
+        chat_id: "inbox:unified",
+        turn_id: "turn-speech",
+      });
+    });
+
+    const assistant = result.current.messages.filter((message) => message.role === "assistant");
+    expect(assistant[0].speech).toBeUndefined();
+    expect(assistant[1].speech).toMatchObject({ audioId: "a1" });
+  });
+
   it("keeps a live reasoning placeholder when sending a follow-up mid-turn", () => {
     const { client, chatHandlers } = createMockClient();
     const wrapper = ({ children }: { children: ReactNode }) => (

@@ -38,6 +38,7 @@ let windowDragTimer: ReturnType<typeof setInterval> | null = null;
 let windowDragState: { windowId: number; offsetX: number; offsetY: number } | null = null;
 let followMouseEnabled = true;
 let runtimeGatewayToken = '';
+let psbRuntimeAudioReady = false;
 
 const WINDOW_DRAG_POLL_MS = 8;
 
@@ -220,6 +221,7 @@ function createPsbBrowserWindow(
   preloadPath: string,
   config: PsbOpenConfig,
 ): BrowserWindow {
+  psbRuntimeAudioReady = false;
   const prefs = readDeskPetPrefs(store).psb.window;
   const width = config.width ?? prefs.width;
   const height = config.height ?? prefs.height;
@@ -281,6 +283,7 @@ export async function openPsbWindow(
   const gateway = { url: openConfig.url, token: openConfig.token || '' };
   const existing = activePsbWindow();
   if (existing) {
+    psbRuntimeAudioReady = false;
     await syncFollowMouseFromServer(gateway);
     await existing.loadURL(buildPsbPageUrl(openConfig));
     if (openConfig.width !== undefined || openConfig.height !== undefined) {
@@ -309,6 +312,7 @@ export async function openPsbWindow(
 }
 
 export function closePsbWindow(store: ElectronConfigStore, permanent: boolean): void {
+  psbRuntimeAudioReady = false;
   const window = activePsbWindow();
   if (window) {
     window.close();
@@ -322,6 +326,7 @@ export function closePsbWindow(store: ElectronConfigStore, permanent: boolean): 
 }
 
 export function closeAllPsbWindows(): void {
+  psbRuntimeAudioReady = false;
   const window = activePsbWindow();
   if (window) {
     window.close();
@@ -332,6 +337,12 @@ export function closeAllPsbWindows(): void {
 export function sendPsbRuntimeAction(action: PsbRuntimeAction): boolean {
   const window = activePsbWindow();
   if (!window) return false;
+  if (
+    (action.type === 'segment-audio' || action.type.startsWith('audio-stream-'))
+    && !psbRuntimeAudioReady
+  ) {
+    return false;
+  }
   window.webContents.send('psb:action', action);
   return true;
 }
@@ -456,6 +467,12 @@ export function registerPsbIpcHandlers(deps: PsbManagerDeps): void {
 
   ipcMain.on('psb:drag-end', () => {
     stopWindowDrag(store);
+  });
+
+  ipcMain.on('psb:runtime-audio-ready', (event, ready: unknown) => {
+    const window = activePsbWindow();
+    if (!window || window.webContents !== event.sender) return;
+    psbRuntimeAudioReady = ready === true;
   });
 
   ipcMain.handle(

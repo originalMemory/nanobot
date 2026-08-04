@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from nanobot.agent.tools.tts import TtsTool
+from nanobot.agent.tools.context import RequestContext
+from nanobot.agent.tools.tts import TtsTool, TtsToolConfig, strip_spoken_tags
 
 
 def _make_tts_config(
@@ -27,17 +27,26 @@ def _make_tts_config(
     cfg.response_format = response_format
     cfg.speed = speed
     cfg.extra_body = extra_body or {}
+    cfg.effective_mode = "agent"
     return cfg
 
 
 def _make_tool(
     tts_config: MagicMock | None = None,
     default_voice: str = "tongtong",
+    speech_runtime: MagicMock | None = None,
 ) -> TtsTool:
-    return TtsTool(
+    runtime = speech_runtime
+    if runtime is None:
+        runtime = MagicMock()
+        runtime.synthesize = AsyncMock(return_value=(MagicMock(), None))
+    tool = TtsTool(
         tts_config=tts_config or _make_tts_config(),
         default_voice=default_voice,
+        speech_runtime=runtime,
     )
+    tool.set_context(RequestContext("websocket", "chat", session_key="session", metadata={"webui_turn_id": "turn"}))
+    return tool
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +75,13 @@ def test_config_key() -> None:
     assert TtsTool.config_key == "tts"
 
 
+def test_legacy_tts_switches_map_to_mode() -> None:
+    assert TtsToolConfig(enabled=False).effective_mode == "off"
+    assert TtsToolConfig(enabled=True).effective_mode == "agent"
+    assert TtsToolConfig(enabled=True, messagePlaybackEnabled=True).effective_mode == "always"
+    assert TtsToolConfig(enabled=True, mode="off").effective_mode == "off"
+
+
 # ---------------------------------------------------------------------------
 # enabled() / create()
 # ---------------------------------------------------------------------------
@@ -73,13 +89,13 @@ def test_config_key() -> None:
 
 def test_enabled_when_tts_enabled() -> None:
     ctx = MagicMock()
-    ctx.config.tts.enabled = True
+    ctx.config.tts.effective_mode = "agent"
     assert TtsTool.enabled(ctx) is True
 
 
 def test_disabled_when_tts_disabled() -> None:
     ctx = MagicMock()
-    ctx.config.tts.enabled = False
+    ctx.config.tts.effective_mode = "off"
     assert TtsTool.enabled(ctx) is False
 
 
@@ -97,97 +113,51 @@ def test_create_uses_tts_config() -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_returns_audio_path(tmp_path: Path) -> None:
-    tool = _make_tool()
-    synth = AsyncMock(return_value=True)
-    with (
-        patch("nanobot.providers.tts.build_tts_provider") as mock_build,
-        patch("nanobot.config.paths.get_media_dir", return_value=tmp_path),
-    ):
-        provider_mock = MagicMock()
-        provider_mock.synthesize = synth
-        mock_build.return_value = provider_mock
+async def test_execute_attaches_audio_to_turn() -> None:
+    runtime = MagicMock()
+    runtime.synthesize = AsyncMock(return_value=(MagicMock(), None))
+    tool = _make_tool(speech_runtime=runtime)
 
-        result = await tool.execute(text="你好")
+    result = await tool.execute(text="你好")
 
-    assert synth.await_count == 1
-    assert result.endswith(".wav")
-    assert "tts_" in result
+    runtime.synthesize.assert_awaited_once()
+    assert "附着" in result
 
 
 @pytest.mark.asyncio
-async def test_execute_strips_psb_tags_before_synthesis(tmp_path: Path) -> None:
-    tool = _make_tool()
-    synth = AsyncMock(return_value=True)
-    with (
-        patch("nanobot.providers.tts.build_tts_provider") as mock_build,
-        patch("nanobot.config.paths.get_media_dir", return_value=tmp_path),
-    ):
-        provider_mock = MagicMock()
-        provider_mock.synthesize = synth
-        mock_build.return_value = provider_mock
-
-        await tool.execute(text='<psb:timeline name="待机" /><psb:expression name="微笑" />你好')
-
-    spoken = synth.call_args.args[0]
+async def test_execute_strips_psb_tags_before_synthesis() -> None:
+    spoken = strip_spoken_tags('<psb:timeline name="待机" /><psb:expression name="微笑" />你好')
     assert spoken == "你好"
     assert "psb:" not in spoken
 
 
 @pytest.mark.asyncio
-async def test_execute_strips_tha_tags_before_synthesis(tmp_path: Path) -> None:
-    tool = _make_tool()
-    synth = AsyncMock(return_value=True)
-    with (
-        patch("nanobot.providers.tts.build_tts_provider") as mock_build,
-        patch("nanobot.config.paths.get_media_dir", return_value=tmp_path),
-    ):
-        provider_mock = MagicMock()
-        provider_mock.synthesize = synth
-        mock_build.return_value = provider_mock
-
-        await tool.execute(text="<happy><nod>你好")
-
-    spoken = synth.call_args.args[0]
+async def test_execute_strips_tha_tags_before_synthesis() -> None:
+    spoken = strip_spoken_tags("<happy><nod>你好")
     assert spoken == "你好"
     assert "<" not in spoken
 
 
 @pytest.mark.asyncio
-async def test_execute_uses_default_voice(tmp_path: Path) -> None:
-    tool = _make_tool(default_voice="chuichui")
-    synth = AsyncMock(return_value=True)
-    with (
-        patch("nanobot.providers.tts.build_tts_provider") as mock_build,
-        patch("nanobot.config.paths.get_media_dir", return_value=tmp_path),
-    ):
-        provider_mock = MagicMock()
-        provider_mock.synthesize = synth
-        mock_build.return_value = provider_mock
+async def test_execute_uses_default_voice() -> None:
+    runtime = MagicMock()
+    runtime.synthesize = AsyncMock(return_value=(MagicMock(), None))
+    tool = _make_tool(default_voice="chuichui", speech_runtime=runtime)
 
-        await tool.execute(text="hello")
+    await tool.execute(text="hello")
 
-    _, kwargs = synth.call_args
-    assert kwargs.get("voice") == "chuichui" or synth.call_args.args[1] == "chuichui"
+    assert runtime.synthesize.await_args.kwargs["voice"] == "chuichui"
 
 
 @pytest.mark.asyncio
-async def test_execute_uses_explicit_voice(tmp_path: Path) -> None:
-    tool = _make_tool(default_voice="tongtong")
-    synth = AsyncMock(return_value=True)
-    with (
-        patch("nanobot.providers.tts.build_tts_provider") as mock_build,
-        patch("nanobot.config.paths.get_media_dir", return_value=tmp_path),
-    ):
-        provider_mock = MagicMock()
-        provider_mock.synthesize = synth
-        mock_build.return_value = provider_mock
+async def test_execute_uses_explicit_voice() -> None:
+    runtime = MagicMock()
+    runtime.synthesize = AsyncMock(return_value=(MagicMock(), None))
+    tool = _make_tool(default_voice="tongtong", speech_runtime=runtime)
 
-        await tool.execute(text="hi", voice="xiaochen")
+    await tool.execute(text="hi", voice="xiaochen")
 
-    call_args = synth.call_args
-    passed_voice = call_args.kwargs.get("voice") or call_args.args[1]
-    assert passed_voice == "xiaochen"
+    assert runtime.synthesize.await_args.kwargs["voice"] == "xiaochen"
 
 
 # ---------------------------------------------------------------------------
@@ -196,32 +166,21 @@ async def test_execute_uses_explicit_voice(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_returns_error_without_configured_voice(tmp_path: Path) -> None:
+async def test_execute_returns_error_without_configured_voice() -> None:
     tool = _make_tool(default_voice="")
-    with (
-        patch("nanobot.providers.tts.build_tts_provider") as mock_build,
-        patch("nanobot.config.paths.get_media_dir", return_value=tmp_path),
-    ):
-        result = await tool.execute(text="hello")
+    result = await tool.execute(text="hello")
 
     assert result.startswith("Error:")
     assert "defaultVoice" in result
-    mock_build.return_value.synthesize.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_execute_returns_error_on_failure(tmp_path: Path) -> None:
-    tool = _make_tool()
-    synth = AsyncMock(return_value=False)
-    with (
-        patch("nanobot.providers.tts.build_tts_provider") as mock_build,
-        patch("nanobot.config.paths.get_media_dir", return_value=tmp_path),
-    ):
-        provider_mock = MagicMock()
-        provider_mock.synthesize = synth
-        mock_build.return_value = provider_mock
+async def test_execute_returns_error_on_failure() -> None:
+    runtime = MagicMock()
+    runtime.synthesize = AsyncMock(return_value=(None, "failed"))
+    tool = _make_tool(speech_runtime=runtime)
 
-        result = await tool.execute(text="fail")
+    result = await tool.execute(text="fail")
 
     assert result.startswith("Error:")
 

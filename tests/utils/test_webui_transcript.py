@@ -1412,3 +1412,84 @@ def test_replay_playback_segment_does_not_attach_without_matching_message_id() -
     assert len(msgs) == 1
     assert msgs[0]["id"] == "old"
     assert "playbackSegments" not in msgs[0]
+
+
+def test_replay_assistant_audio_resigns_path_and_attaches_by_turn() -> None:
+    msgs = replay_transcript_to_ui_messages(
+        [
+            {"event": "user", "chat_id": "x", "text": "say", "turn_id": "turn-1"},
+            {
+                "event": "message",
+                "chat_id": "x",
+                "text": "你好",
+                "turn_id": "turn-1",
+            },
+            {
+                "event": "assistant_audio_end",
+                "chat_id": "x",
+                "turn_id": "turn-1",
+                "audio": {
+                    "audioId": "a1",
+                    "path": "/media/speech.wav",
+                    "mimeType": "audio/wav",
+                    "sampleRate": 24000,
+                },
+            },
+        ],
+        augment_media_paths=lambda paths: [
+            {"url": "/api/media/new/speech.wav", "name": "speech.wav"}
+        ],
+    )
+
+    assert msgs[1]["speech"]["url"] == "/api/media/new/speech.wav"
+    assert "path" not in msgs[1]["speech"]
+
+
+def test_replay_keeps_assistant_audio_that_finishes_before_final_message() -> None:
+    msgs = replay_transcript_to_ui_messages(
+        [
+            {"event": "user", "chat_id": "x", "text": "say", "turn_id": "turn-1"},
+            {
+                "event": "assistant_audio_end",
+                "chat_id": "x",
+                "turn_id": "turn-1",
+                "audio": {
+                    "audioId": "a1",
+                    "path": "/media/speech.wav",
+                    "mimeType": "audio/wav",
+                    "sampleRate": 24000,
+                },
+            },
+            {
+                "event": "message",
+                "chat_id": "x",
+                "text": "你好",
+                "turn_id": "turn-1",
+            },
+        ],
+        augment_media_paths=lambda paths: [
+            {"url": "/api/media/new/speech.wav", "name": "speech.wav"}
+        ],
+    )
+
+    assert msgs[1]["speech"]["audioId"] == "a1"
+    assert msgs[1]["speech"]["url"] == "/api/media/new/speech.wav"
+
+
+def test_replay_attaches_audio_to_last_assistant_message_at_turn_end() -> None:
+    msgs = replay_transcript_to_ui_messages([
+        {"event": "user", "chat_id": "x", "text": "say", "turn_id": "turn-1"},
+        {"event": "message", "chat_id": "x", "text": "中途回复", "turn_id": "turn-1"},
+        {
+            "event": "assistant_audio_end",
+            "chat_id": "x",
+            "turn_id": "turn-1",
+            "audio": {"audioId": "a1", "sampleRate": 24000},
+        },
+        {"event": "message", "chat_id": "x", "text": "最终回复", "turn_id": "turn-1"},
+        {"event": "turn_end", "chat_id": "x", "turn_id": "turn-1"},
+    ])
+
+    assistant = [message for message in msgs if message["role"] == "assistant"]
+    assert "speech" not in assistant[0]
+    assert assistant[-1]["speech"]["audioId"] == "a1"

@@ -1,0 +1,232 @@
+"""Turn-scoped shared streaming TTS runtime."""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import os
+import uuid
+import wave
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from loguru import logger
+
+from nanobot.agent.playback_segments import parse_segment_controls, to_speech_text
+from nanobot.agent.tools.context import RequestContext
+from nanobot.bus.events import OutboundMessage
+from nanobot.config.paths import get_media_dir
+from nanobot.providers.tts import TTSStreamChunk, build_tts_provider
+from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechResult:
+    """完整语音文件及其持久化元数据。"""
+
+    audio_id: str
+    path: Path
+    mime_type: str
+    sample_rate: int
+    duration_ms: int
+    provider: str
+    model: str
+    voice: str
+    controls: tuple[dict[str, Any], ...]
+
+    def to_dict(self, *, include_path: bool = True) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "audioId": self.audio_id,
+            "mimeType": self.mime_type,
+            "sampleRate": self.sample_rate,
+            "durationMs": self.duration_ms,
+            "provider": self.provider,
+            "model": self.model,
+            "voice": self.voice,
+            "controls": [dict(item) for item in self.controls],
+        }
+        if include_path:
+            result["path"] = str(self.path)
+        return result
+
+
+class SpeechRuntime:
+    """Serialize TTS calls and retain completed audio until the turn is saved."""
+
+    def __init__(self, bus: Any | None) -> None:
+        self._bus = bus
+        self._semaphore = asyncio.Semaphore(1)
+        self._active: set[tuple[str, str]] = set()
+        self._pending: dict[tuple[str, str], SpeechResult] = {}
+
+    @staticmethod
+    def _key(context: RequestContext) -> tuple[str, str] | None:
+        session_key = str(context.session_key or "").strip()
+        turn_id = str(context.metadata.get(WEBUI_TURN_METADATA_KEY) or "").strip()
+        if not session_key or not turn_id:
+            return None
+        return session_key, turn_id
+
+    def has_speech(self, context: RequestContext) -> bool:
+        key = self._key(context)
+        return key is not None and (key in self._active or key in self._pending)
+
+    def speech_for(self, session_key: str, turn_id: str) -> SpeechResult | None:
+        return self._pending.get((session_key, turn_id))
+
+    def clear_speech(self, session_key: str, turn_id: str) -> None:
+        self._pending.pop((session_key, turn_id), None)
+
+    async def _publish(
+        self,
+        context: RequestContext,
+        phase: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if self._bus is None:
+            return
+        await self._bus.publish_outbound(
+            OutboundMessage(
+                channel=context.channel,
+                chat_id=context.chat_id,
+                content="",
+                metadata={
+                    **context.metadata,
+                    "_assistant_audio": {"phase": phase, **payload},
+                },
+            )
+        )
+
+    async def synthesize(
+        self,
+        *,
+        config: Any,
+        context: RequestContext,
+        text: str,
+        voice: str,
+    ) -> tuple[SpeechResult | None, str | None]:
+        """Generate one logical audio stream for the active turn."""
+        key = self._key(context)
+        if key is None:
+            return None, "当前请求缺少 session/turn 上下文"
+        if key in self._active or key in self._pending:
+            return None, "本轮已经生成过语音"
+
+        spoken_text = to_speech_text(text)
+        if not spoken_text:
+            return None, "TTS 文本在剥离桌宠标签后为空"
+        _, controls, _ = parse_segment_controls(text)
+        audio_id = uuid.uuid4().hex
+        media_dir = get_media_dir() / "tts"
+        output_path = media_dir / f"speech_{audio_id}.wav"
+        pcm_tmp = media_dir / f".{audio_id}.pcm.tmp"
+        wav_tmp = media_dir / f".{audio_id}.wav.tmp"
+        provider = build_tts_provider(config)
+        started = False
+
+        self._active.add(key)
+        try:
+            async with self._semaphore:
+                media_dir.mkdir(parents=True, exist_ok=True)
+                with pcm_tmp.open("wb") as pcm_file:
+                    async def _on_chunk(chunk: TTSStreamChunk) -> None:
+                        nonlocal started
+                        if not started:
+                            await self._publish(
+                                context,
+                                "start",
+                                {
+                                    "audioId": audio_id,
+                                    "sampleRate": chunk.sample_rate,
+                                    "channels": 1,
+                                    "encoding": "pcm_s16le",
+                                    "controls": controls,
+                                    "text": text,
+                                },
+                            )
+                            started = True
+                        pcm_file.write(chunk.pcm)
+                        await self._publish(
+                            context,
+                            "chunk",
+                            {
+                                "audioId": audio_id,
+                                "sequence": chunk.sequence,
+                                "data": base64.b64encode(chunk.pcm).decode("ascii"),
+                            },
+                        )
+
+                    stream_result = await provider.synthesize_stream(
+                        spoken_text,
+                        voice,
+                        _on_chunk,
+                    )
+
+                if stream_result is None:
+                    await self._publish(
+                        context,
+                        "error",
+                        {"audioId": audio_id, "error": "tts_synthesis_failed"},
+                    )
+                    return None, f"TTS 合成失败，provider='{config.provider}'"
+
+                with wave.open(str(wav_tmp), "wb") as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(stream_result.sample_rate)
+                    with pcm_tmp.open("rb") as pcm_file:
+                        while data := pcm_file.read(1024 * 1024):
+                            wav_file.writeframesraw(data)
+                os.replace(wav_tmp, output_path)
+
+                duration_ms = round(
+                    stream_result.pcm_bytes * 1000 / (stream_result.sample_rate * 2)
+                )
+                result = SpeechResult(
+                    audio_id=audio_id,
+                    path=output_path,
+                    mime_type="audio/wav",
+                    sample_rate=stream_result.sample_rate,
+                    duration_ms=duration_ms,
+                    provider=str(config.provider),
+                    model=str(config.model),
+                    voice=voice,
+                    controls=tuple(controls),
+                )
+                self._pending[key] = result
+                await self._publish(context, "end", result.to_dict())
+
+                if context.channel != "websocket" and self._bus is not None:
+                    await self._bus.publish_outbound(
+                        OutboundMessage(
+                            channel=context.channel,
+                            chat_id=context.chat_id,
+                            content="",
+                            media=[str(output_path)],
+                            metadata={
+                                **context.metadata,
+                                "_assistant_audio_file_delivery": True,
+                            },
+                        )
+                    )
+                return result, None
+        except asyncio.CancelledError:
+            await self._publish(
+                context,
+                "error",
+                {"audioId": audio_id, "error": "cancelled"},
+            )
+            raise
+        except Exception:
+            logger.exception("流式 TTS runtime 失败")
+            await self._publish(
+                context,
+                "error",
+                {"audioId": audio_id, "error": "tts_runtime_failed"},
+            )
+            return None, "TTS runtime 失败"
+        finally:
+            self._active.discard(key)
+            pcm_tmp.unlink(missing_ok=True)
+            wav_tmp.unlink(missing_ok=True)

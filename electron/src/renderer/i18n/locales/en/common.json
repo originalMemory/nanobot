@@ -439,6 +439,16 @@
         "saveHint": "Changes apply to new web search requests."
       }
     },
+    "tts": {
+      "title": "TTS speech",
+      "mode": "Speech mode",
+      "modeDesc": "Turn speech off, let the AI decide, or read every complete reply aloud.",
+      "modeOff": "Off",
+      "modeAgent": "Let AI decide",
+      "modeAlways": "Always read aloud",
+      "defaultVoice": "Default voice",
+      "defaultVoiceDesc": "Voice name or voice_id, such as Candace or tongtong."
+    },
     "deskPet": {
       "tabs": {
         "psb": "PSB",

@@ -828,6 +828,7 @@ def settings_payload(
         "tts": {
             "enabled": config.tools.tts.enabled,
             "message_playback_enabled": config.tools.tts.message_playback_enabled,
+            "mode": config.tools.tts.effective_mode,
             "default_voice": config.tools.tts.default_voice,
             "provider": config.tools.tts.provider,
             "model": config.tools.tts.model,
@@ -1597,16 +1598,34 @@ def update_tha_settings(query: QueryParams) -> dict[str, Any]:
 
 
 def update_tts_settings(query: QueryParams) -> dict[str, Any]:
-    """更新 tools.tts 配置（enabled / message_playback_enabled / default_voice）。"""
+    """更新 tools.tts 配置。"""
     config = load_config()
     tts_config = config.tools.tts
     changed = False
+
+    mode = _query_first(query, "mode")
+    if mode is not None:
+        normalized_mode = mode.strip().lower()
+        if normalized_mode not in {"off", "agent", "always"}:
+            raise WebUISettingsError("mode must be one of: off, agent, always")
+        if tts_config.mode != normalized_mode:
+            tts_config.mode = normalized_mode
+            changed = True
+        legacy_enabled = normalized_mode == "agent"
+        legacy_playback = normalized_mode == "always"
+        if tts_config.enabled != legacy_enabled:
+            tts_config.enabled = legacy_enabled
+            changed = True
+        if tts_config.message_playback_enabled != legacy_playback:
+            tts_config.message_playback_enabled = legacy_playback
+            changed = True
 
     enabled = _query_first(query, "enabled")
     if enabled is not None:
         parsed = _parse_bool(enabled, "enabled")
         if tts_config.enabled != parsed:
             tts_config.enabled = parsed
+            tts_config.mode = None
             changed = True
 
     message_playback = _query_first_alias(query, "message_playback_enabled", "messagePlaybackEnabled")
@@ -1614,6 +1633,7 @@ def update_tts_settings(query: QueryParams) -> dict[str, Any]:
         parsed = _parse_bool(message_playback, "message_playback_enabled")
         if tts_config.message_playback_enabled != parsed:
             tts_config.message_playback_enabled = parsed
+            tts_config.mode = None
             changed = True
 
     default_voice = _query_first_alias(query, "default_voice", "defaultVoice")
