@@ -54,6 +54,14 @@ def test_tool_description_mentions_audio() -> None:
     assert "语音" in desc or "音频" in desc
 
 
+def test_tool_schema_exposes_optional_voice() -> None:
+    tool = _make_tool()
+    assert tool.parameters["required"] == ["text"]
+    assert set(tool.parameters["properties"]) == {"text", "voice"}
+    assert "默认音色" in tool.parameters["properties"]["text"]["description"]
+    assert "voice" not in tool.parameters["required"]
+
+
 def test_config_key() -> None:
     assert TtsTool.config_key == "tts"
 
@@ -188,6 +196,20 @@ async def test_execute_uses_explicit_voice(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_execute_returns_error_without_configured_voice(tmp_path: Path) -> None:
+    tool = _make_tool(default_voice="")
+    with (
+        patch("nanobot.providers.tts.build_tts_provider") as mock_build,
+        patch("nanobot.config.paths.get_media_dir", return_value=tmp_path),
+    ):
+        result = await tool.execute(text="hello")
+
+    assert result.startswith("Error:")
+    assert "defaultVoice" in result
+    mock_build.return_value.synthesize.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_execute_returns_error_on_failure(tmp_path: Path) -> None:
     tool = _make_tool()
     synth = AsyncMock(return_value=False)
@@ -221,10 +243,11 @@ def test_validate_params_accepts_text_only() -> None:
     assert errors == []
 
 
-def test_validate_params_accepts_text_and_voice() -> None:
-    tool = _make_tool()
-    errors = tool.validate_params({"text": "hello", "voice": "chuichui"})
-    assert errors == []
+def test_execute_signature_keeps_voice_for_internal_compatibility() -> None:
+    import inspect
+
+    parameter = inspect.signature(TtsTool.execute).parameters["voice"]
+    assert parameter.default is None
 
 
 def test_validate_params_rejects_empty_text() -> None:

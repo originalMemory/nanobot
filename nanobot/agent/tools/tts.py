@@ -46,21 +46,21 @@ class TtsToolConfig(TtsConfig):
     default_voice: str = Field(
         default="tongtong",
         description="默认音色名称或 voice_id（省略时回退此值）。"
-                    "GLM 系统音色示例：tongtong / chuichui；"
-                    "自定义克隆音色填写 UUID。",
+        "GLM 系统音色示例：tongtong / chuichui；"
+        "自定义克隆音色填写 UUID。",
     )
 
 
 @tool_parameters(
     tool_parameters_schema(
         text=StringSchema(
-            "要合成为语音的文本。",
+            "要合成为语音的文本。未指定 voice 时使用配置中的默认音色。",
             min_length=1,
             max_length=1024,
         ),
         voice=StringSchema(
-            "音色名称或 ID（如 'tongtong'、'chuichui'）。"
-            "省略时回退到配置中的默认音色。",
+            "可选的临时音色名称或 voice_id；省略时使用 tools.tts.defaultVoice。",
+            min_length=1,
         ),
         required=["text"],
     )
@@ -101,7 +101,7 @@ class TtsTool(Tool):
         return (
             "使用已配置的 TTS provider 将文本合成为语音。"
             "返回本地音频文件路径，可传入 message 工具的 media 字段发送给频道。"
-            "PSB 标签（如 <psb:timeline name=\"待机\" />）与 THA 表情/动作标签（如 <happy><nod>）"
+            'PSB 标签（如 <psb:timeline name="待机" />）与 THA 表情/动作标签（如 <happy><nod>）'
             "会在合成前自动剥离；标签应保留在 message 的 content 里以驱动桌宠。"
         )
 
@@ -110,6 +110,9 @@ class TtsTool(Tool):
 
         provider = build_tts_provider(self._tts_config)
         resolved_voice = voice or self._default_voice
+        if not resolved_voice:
+            return "Error: 未配置 TTS 音色，请在 config.json 中设置 tools.tts.defaultVoice"
+
         spoken_text = strip_spoken_tags(text)
         if not spoken_text:
             return "Error: TTS 文本在剥离桌宠标签后为空"
