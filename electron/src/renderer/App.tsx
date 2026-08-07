@@ -309,7 +309,7 @@ function Shell({
 
   const handleRaiseInboxShortcut = useCallback(({ toggle }: { toggle: boolean }) => {
     if (toggle && view === "chat" && activeChannel === null) {
-      void window.electronAPI?.window?.action("close");
+      void window.electronAPI?.window?.action("hide-and-restore-focus");
       return;
     }
     setView("chat");

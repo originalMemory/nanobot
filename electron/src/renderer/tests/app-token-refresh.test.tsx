@@ -261,4 +261,29 @@ describe("Electron App token refresh", () => {
     fireEvent.keyDown(window, { code: "Comma", key: ",", ctrlKey: true });
     expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument();
   });
+
+  it("uses the focus-restoring window action when the inbox shortcut toggles closed", async () => {
+    const windowAction = vi.fn(async () => {});
+    let raiseInbox: ((payload: { toggle: boolean }) => void) | undefined;
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        platform: { isMac: true, isWindows: false },
+        window: { action: windowAction },
+        shortcut: {
+          onRaiseInbox: (callback: (payload: { toggle: boolean }) => void) => {
+            raiseInbox = callback;
+            return () => {};
+          },
+        },
+      },
+    });
+    fetchBootstrapMock.mockResolvedValueOnce(bootstrap("tok-1", 300));
+
+    render(<App />);
+    await settleInitialBoot();
+    act(() => raiseInbox?.({ toggle: true }));
+
+    expect(windowAction).toHaveBeenCalledWith("hide-and-restore-focus");
+  });
 });

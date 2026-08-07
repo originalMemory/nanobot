@@ -269,25 +269,54 @@ function WallpaperSettingsRow({
   tx: (key: string, fallback: string) => string;
 }) {
   const { t } = useTranslation();
+  const [savedSource, setSavedSource] = useState<"url" | "directory">("url");
   const [savedUrl, setSavedUrl] = useState("");
+  const [savedDirectory, setSavedDirectory] = useState("");
+  const [savedOrder, setSavedOrder] = useState<"sequential" | "random">("sequential");
+  const [savedIndex, setSavedIndex] = useState(-1);
   const [savedInterval, setSavedInterval] = useState(1);
+  const [draftSource, setDraftSource] = useState<"url" | "directory">("url");
   const [draftUrl, setDraftUrl] = useState("");
+  const [draftDirectory, setDraftDirectory] = useState("");
+  const [draftOrder, setDraftOrder] = useState<"sequential" | "random">("sequential");
   const [draftInterval, setDraftInterval] = useState(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     window.electronAPI.wallpaper.getConfig().then((config) => {
+      setSavedSource(config.source);
       setSavedUrl(config.url);
+      setSavedDirectory(config.directory);
+      setSavedOrder(config.localOrder);
+      setSavedIndex(config.localIndex);
       setSavedInterval(config.intervalMinutes);
+      setDraftSource(config.source);
       setDraftUrl(config.url);
+      setDraftDirectory(config.directory);
+      setDraftOrder(config.localOrder);
       setDraftInterval(config.intervalMinutes);
     }).catch(() => { /* ignore load errors */ });
   }, []);
 
   const dirty =
+    draftSource !== savedSource ||
     draftUrl.trim() !== savedUrl.trim() ||
+    draftDirectory.trim() !== savedDirectory.trim() ||
+    draftOrder !== savedOrder ||
     Math.max(1, Math.floor(draftInterval) || 1) !== savedInterval;
+
+  const chooseDirectory = useCallback(async () => {
+    try {
+      const directory = await window.electronAPI.wallpaper.chooseDirectory();
+      if (directory) {
+        setDraftDirectory(directory);
+        setError(null);
+      }
+    } catch {
+      setError(t("settings.errors.wallpaperSaveFailed"));
+    }
+  }, [t]);
 
   const handleSave = useCallback(async () => {
     const intervalMinutes = Math.max(1, Math.floor(draftInterval) || 1);
@@ -295,38 +324,93 @@ function WallpaperSettingsRow({
     setError(null);
     try {
       const next = await window.electronAPI.wallpaper.setConfig({
+        source: draftSource,
         url: draftUrl.trim(),
+        directory: draftDirectory.trim(),
+        localOrder: draftOrder,
+        localIndex: savedIndex,
         intervalMinutes,
       });
+      setSavedSource(next.source);
       setSavedUrl(next.url);
+      setSavedDirectory(next.directory);
+      setSavedOrder(next.localOrder);
+      setSavedIndex(next.localIndex);
       setSavedInterval(next.intervalMinutes);
+      setDraftSource(next.source);
       setDraftUrl(next.url);
+      setDraftDirectory(next.directory);
+      setDraftOrder(next.localOrder);
       setDraftInterval(next.intervalMinutes);
     } catch {
       setError(t("settings.errors.wallpaperSaveFailed"));
     } finally {
       setSaving(false);
     }
-  }, [draftInterval, draftUrl, t]);
+  }, [draftDirectory, draftInterval, draftOrder, draftSource, draftUrl, savedIndex, t]);
 
   return (
     <SettingsRow
       title={tx("settings.rows.wallpaper", "Dynamic wallpaper")}
       description={tx(
         "settings.help.wallpaper",
-        "Fetch a background image from a URL on a schedule while the window is visible. Leave URL empty to disable.",
+        "Rotate a network image or images from a local directory while the window is visible.",
       )}
     >
       <div className="flex w-full flex-col gap-2">
-        <Input
-          value={draftUrl}
-          onChange={(event) => {
-            setDraftUrl(event.target.value);
+        <SegmentedControl
+          value={draftSource}
+          options={[
+            { value: "url", label: tx("settings.values.wallpaperUrlSource", "Network URL") },
+            { value: "directory", label: tx("settings.values.wallpaperDirectorySource", "Local folder") },
+          ]}
+          onChange={(source) => {
+            setDraftSource(source as "url" | "directory");
             setError(null);
           }}
-          placeholder={tx("settings.placeholders.wallpaperUrl", "Image URL")}
-          className="h-9 rounded-full bg-background/80 text-[12.5px]"
         />
+        {draftSource === "url" ? (
+          <Input
+            value={draftUrl}
+            onChange={(event) => {
+              setDraftUrl(event.target.value);
+              setError(null);
+            }}
+            placeholder={tx("settings.placeholders.wallpaperUrl", "Image URL")}
+            className="h-9 rounded-full bg-background/80 text-[12.5px]"
+          />
+        ) : (
+          <>
+            <div className="flex w-full items-center gap-2">
+              <Input
+                value={draftDirectory}
+                onChange={(event) => {
+                  setDraftDirectory(event.target.value);
+                  setError(null);
+                }}
+                placeholder={tx("settings.placeholders.wallpaperDirectory", "Image folder")}
+                className="h-9 min-w-0 flex-1 rounded-full bg-background/80 text-[12.5px]"
+              />
+              <Button type="button" variant="outline" onClick={() => void chooseDirectory()}>
+                {tx("settings.actions.chooseFolder", "Choose")}
+              </Button>
+            </div>
+            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>{tx("settings.rows.wallpaperOrder", "Order")}</span>
+              <SegmentedControl
+                value={draftOrder}
+                options={[
+                  { value: "sequential", label: tx("settings.values.sequential", "Sequential") },
+                  { value: "random", label: tx("settings.values.random", "Random") },
+                ]}
+                onChange={(order) => {
+                  setDraftOrder(order as "sequential" | "random");
+                  setError(null);
+                }}
+              />
+            </div>
+          </>
+        )}
         <div className="flex w-full flex-wrap items-center gap-2">
           <label className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
             <span className="shrink-0">

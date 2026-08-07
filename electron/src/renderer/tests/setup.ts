@@ -60,8 +60,16 @@ export function mockElectronAPI(
     value: {
       config: { get, set },
       wallpaper: {
-        getConfig: vi.fn(async () => ({ url: "", intervalMinutes: 1 })),
-        setConfig: vi.fn(async (config: { url: string; intervalMinutes: number }) => config),
+        getConfig: vi.fn(async () => ({
+          source: "url",
+          url: "",
+          directory: "",
+          localOrder: "sequential",
+          localIndex: -1,
+          intervalMinutes: 1,
+        })),
+        setConfig: vi.fn(async (config: Record<string, unknown>) => config),
+        chooseDirectory: vi.fn(async () => null),
         onUpdate: noop,
         onDisabled: noop,
       },

@@ -10,13 +10,17 @@ import type { NativeNotificationPayload } from './notification-text';
  *
  * All handlers live in main.ts ipcMain.handle() calls.
  */
-type WindowAction = 'show' | 'hide' | 'minimize' | 'maximize' | 'close';
+type WindowAction = 'show' | 'hide' | 'hide-and-restore-focus' | 'minimize' | 'maximize' | 'close';
 type WindowState = 'maximized' | 'normal';
 type SetRaiseInboxResult =
   | { ok: true; accelerator: string }
   | { ok: false; error: 'empty' | 'register_failed' };
 type WallpaperConfig = {
+  source: 'url' | 'directory';
   url: string;
+  directory: string;
+  localOrder: 'sequential' | 'random';
+  localIndex: number;
   intervalMinutes: number;
 };
 type ThaWindowConfig = {
@@ -186,6 +190,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     setConfig: (config: WallpaperConfig): Promise<WallpaperConfig> =>
       ipcRenderer.invoke('wallpaper:set-config', config),
+
+    chooseDirectory: (): Promise<string | null> =>
+      ipcRenderer.invoke('wallpaper:choose-directory'),
 
     onUpdate: (cb: (dataUrl: string) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, dataUrl: string) =>

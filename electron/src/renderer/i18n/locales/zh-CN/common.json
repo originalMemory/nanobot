@@ -157,6 +157,7 @@
       "raiseInboxShortcut": "唤起收件箱快捷键",
       "wallpaper": "动态壁纸",
       "wallpaperInterval": "更新间隔（分钟）",
+      "wallpaperOrder": "轮播顺序",
       "maxResults": "最大结果数",
       "timeout": "超时",
       "jinaReader": "Jina Reader",
@@ -222,7 +223,7 @@
       "brandLogos": "在设置页显示第三方服务商和 CLI 的 Logo。",
       "openAtLogin": "登录系统后自动启动 Nanobot。仅已安装的打包应用可用。",
       "raiseInboxShortcut": "全局快捷键：显示主窗口、切换到统一收件箱并聚焦输入框。点击按键区域后按下组合键，再点保存。",
-      "wallpaper": "从 URL 定时拉取背景图，仅在窗口可见时更换。留空 URL 可关闭壁纸。",
+      "wallpaper": "窗口可见时，定时轮换网络图片或本地目录中的图片。",
       "maxResults": "每次 web_search 返回的结果数量。",
       "timeout": "搜索服务商请求超时秒数。",
       "jinaReader": "可用时为 web_fetch 使用 Jina Reader。",
@@ -358,6 +359,10 @@
       "expanded": "展开",
       "on": "开",
       "off": "关",
+      "wallpaperUrlSource": "网络图片",
+      "wallpaperDirectorySource": "本地目录",
+      "sequential": "顺序",
+      "random": "随机",
       "configured": "已配置",
       "notConfigured": "未配置"
     },
@@ -376,7 +381,8 @@
       "recording": "请按下快捷键…"
     },
     "placeholders": {
-      "wallpaperUrl": "图片 URL"
+      "wallpaperUrl": "图片 URL",
+      "wallpaperDirectory": "图片目录"
     },
     "errors": {
       "openAtLoginUpdateFailed": "无法更新开机自启动设置，请稍后重试。",
@@ -389,6 +395,7 @@
       "saving": "保存中",
       "edit": "编辑",
       "cancel": "取消",
+      "chooseFolder": "选择目录",
       "openDocs": "打开文档"
     },
     "byok": {

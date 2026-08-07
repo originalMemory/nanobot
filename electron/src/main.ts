@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   desktopCapturer,
+  dialog,
   globalShortcut,
   ipcMain,
   Menu,
@@ -38,6 +39,20 @@ import {
   notificationBody,
   type NativeNotificationPayload,
 } from './notification-text';
+import {
+  listWallpaperImages,
+  localWallpaperCandidateIndices,
+  wallpaperDirectoryKey,
+  wallpaperFileToDataUrl,
+  type WallpaperConfig,
+  type WallpaperLocalOrder,
+  type WallpaperSource,
+} from './wallpaper';
+import {
+  captureWindowsForegroundWindow,
+  nativeWindowHandleValue,
+  restoreWindowsForegroundWindow,
+} from './windows-focus';
 
 if (process.platform === 'win32') {
   app.setToastActivatorCLSID(WINDOWS_TOAST_ACTIVATOR_CLSID);
@@ -77,11 +92,6 @@ interface LocalPreferences {
   activityMode: 'auto' | 'expanded';
   codeWrap: boolean;
   brandLogos: boolean;
-}
-
-interface WallpaperConfig {
-  url: string;
-  intervalMinutes: number;
 }
 
 // Keep in sync with renderer: src/renderer/hooks/useTheme.ts → Theme
@@ -132,7 +142,11 @@ const store = new Store<AppConfig>({
         brandLogos: true,
       },
       wallpaper: {
+        source: 'url',
         url: DEFAULT_WALLPAPER_URL,
+        directory: '',
+        localOrder: 'sequential',
+        localIndex: -1,
         intervalMinutes: 1,
       },
     },
@@ -174,31 +188,56 @@ ipcMain.handle('config:set', (_event, key: string, value: unknown) => {
 
 function getWallpaperConfig(): WallpaperConfig {
   const stored = store.get('appearance').wallpaper;
+  const source: WallpaperSource = stored?.source === 'directory' ? 'directory' : 'url';
   const url =
     typeof stored?.url === 'string' ? stored.url.trim() : DEFAULT_WALLPAPER_URL;
+  const directory = typeof stored?.directory === 'string' ? stored.directory.trim() : '';
+  const localOrder: WallpaperLocalOrder = stored?.localOrder === 'random'
+    ? 'random'
+    : 'sequential';
+  const localIndex = typeof stored?.localIndex === 'number' && Number.isInteger(stored.localIndex)
+    ? stored.localIndex
+    : -1;
   const rawInterval =
     typeof stored?.intervalMinutes === 'number' ? stored.intervalMinutes : 1;
   const intervalMinutes = Math.max(
     MIN_WALLPAPER_INTERVAL_MINUTES,
     Math.floor(rawInterval) || MIN_WALLPAPER_INTERVAL_MINUTES,
   );
-  return { url, intervalMinutes };
+  return { source, url, directory, localOrder, localIndex, intervalMinutes };
 }
 
 ipcMain.handle('wallpaper:get-config', (): WallpaperConfig => getWallpaperConfig());
 
 ipcMain.handle('wallpaper:set-config', (_event, config: WallpaperConfig): WallpaperConfig => {
+  const previous = getWallpaperConfig();
+  const source: WallpaperSource = config.source === 'directory' ? 'directory' : 'url';
   const url = typeof config.url === 'string' ? config.url.trim() : '';
+  const directory = typeof config.directory === 'string' ? config.directory.trim() : '';
+  const localOrder: WallpaperLocalOrder = config.localOrder === 'random'
+    ? 'random'
+    : 'sequential';
   const rawInterval =
     typeof config.intervalMinutes === 'number' ? config.intervalMinutes : 1;
   const intervalMinutes = Math.max(
     MIN_WALLPAPER_INTERVAL_MINUTES,
     Math.floor(rawInterval) || MIN_WALLPAPER_INTERVAL_MINUTES,
   );
-  const next = { url, intervalMinutes };
+  const localIndex = wallpaperDirectoryKey(directory) === wallpaperDirectoryKey(previous.directory)
+    ? previous.localIndex
+    : -1;
+  const next = { source, url, directory, localOrder, localIndex, intervalMinutes };
   store.set('appearance.wallpaper', next);
   restartWallpaperScheduler();
   return next;
+});
+
+ipcMain.handle('wallpaper:choose-directory', async (): Promise<string | null> => {
+  const options: Electron.OpenDialogOptions = { properties: ['openDirectory'] };
+  const result = mainWindow && !mainWindow.isDestroyed()
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
 });
 
 type SetRaiseInboxResult =
@@ -228,7 +267,7 @@ ipcMain.handle(
   },
 );
 
-type WindowAction = 'show' | 'hide' | 'minimize' | 'maximize' | 'close';
+type WindowAction = 'show' | 'hide' | 'hide-and-restore-focus' | 'minimize' | 'maximize' | 'close';
 type ThaWindowConfig = {
   url: string;
   token?: string;
@@ -244,6 +283,9 @@ ipcMain.handle('window:action', (_event, action: WindowAction) => {
       break;
     case 'hide':
       mainWindow.hide();
+      break;
+    case 'hide-and-restore-focus':
+      hideMainWindowAndRestorePreviousFocus();
       break;
     case 'minimize':
       mainWindow.minimize();
@@ -552,6 +594,7 @@ let mainWindow: BrowserWindow | null = null;
 let thaWindows: BrowserWindow[] = [];
 let registeredRaiseInboxAccelerator: string | null = null;
 let pendingRaiseInboxEvent = false;
+let previousWindowsForegroundHandle: string | null = null;
 /** 设置页录制快捷键时暂停全局注册，避免按下当前组合键触发跳转。 */
 let raiseInboxRecordingPaused = false;
 
@@ -560,7 +603,8 @@ let raiseInboxRecordingPaused = false;
 // ---------------------------------------------------------------------------
 
 let wallpaperInterval: ReturnType<typeof setInterval> | null = null;
-let wallpaperFetching = false;
+let wallpaperGeneration = 0;
+let wallpaperFetchingGeneration: number | null = null;
 let lastWallpaperDataUrl: string | null = null;
 
 function isMainWindowWallpaperVisible(): boolean {
@@ -595,22 +639,63 @@ async function fetchWallpaperAsDataUrl(url: string): Promise<string | null> {
   }
 }
 
+async function loadLocalWallpaper(
+  config: WallpaperConfig,
+): Promise<{ dataUrl: string; index: number } | null> {
+  try {
+    const files = await listWallpaperImages(config.directory);
+    const candidates = localWallpaperCandidateIndices(
+      files.length,
+      config.localIndex,
+      config.localOrder,
+    );
+    for (const index of candidates) {
+      try {
+        const dataUrl = await wallpaperFileToDataUrl(files[index]);
+        if (nativeImage.createFromDataURL(dataUrl).isEmpty()) {
+          throw new Error('invalid image data');
+        }
+        return { dataUrl, index };
+      } catch (error) {
+        console.error('[wallpaper] failed to read local image:', files[index], error);
+      }
+    }
+    if (files.length === 0) {
+      console.error('[wallpaper] no supported images in directory:', config.directory);
+    }
+  } catch (error) {
+    console.error('[wallpaper] failed to read directory:', config.directory, error);
+  }
+  return null;
+}
+
 async function fetchAndSendWallpaper(): Promise<void> {
-  const { url } = getWallpaperConfig();
-  if (!url) {
+  const generation = wallpaperGeneration;
+  const config = getWallpaperConfig();
+  const sourceValue = config.source === 'directory' ? config.directory : config.url;
+  if (!sourceValue) {
     sendWallpaperDisabled();
     return;
   }
-  if (wallpaperFetching) return;
-  wallpaperFetching = true;
+  if (wallpaperFetchingGeneration === generation) return;
+  wallpaperFetchingGeneration = generation;
   try {
-    const dataUrl = await fetchWallpaperAsDataUrl(url);
+    const local = config.source === 'directory'
+      ? await loadLocalWallpaper(config)
+      : null;
+    const dataUrl = config.source === 'directory'
+      ? local?.dataUrl ?? null
+      : await fetchWallpaperAsDataUrl(config.url);
+    if (generation !== wallpaperGeneration) return;
     if (dataUrl) {
+      if (local) store.set('appearance.wallpaper.localIndex', local.index);
       lastWallpaperDataUrl = dataUrl;
       sendWallpaperUpdate(dataUrl);
     }
   } finally {
-    wallpaperFetching = false;
+    if (wallpaperFetchingGeneration === generation) {
+      wallpaperFetchingGeneration = null;
+    }
   }
 }
 
@@ -623,20 +708,23 @@ function stopWallpaperScheduler(): void {
 
 function startWallpaperScheduler(): void {
   stopWallpaperScheduler();
-  const { url, intervalMinutes } = getWallpaperConfig();
-  if (!url || !isMainWindowWallpaperVisible()) return;
+  const config = getWallpaperConfig();
+  const sourceValue = config.source === 'directory' ? config.directory : config.url;
+  if (!sourceValue || !isMainWindowWallpaperVisible()) return;
 
   void fetchAndSendWallpaper();
   wallpaperInterval = setInterval(() => {
     if (isMainWindowWallpaperVisible()) {
       void fetchAndSendWallpaper();
     }
-  }, intervalMinutes * 60_000);
+  }, config.intervalMinutes * 60_000);
 }
 
 function restartWallpaperScheduler(): void {
-  const { url } = getWallpaperConfig();
-  if (!url) {
+  wallpaperGeneration += 1;
+  const config = getWallpaperConfig();
+  const sourceValue = config.source === 'directory' ? config.directory : config.url;
+  if (!sourceValue) {
     stopWallpaperScheduler();
     sendWallpaperDisabled();
     return;
@@ -676,8 +764,11 @@ function sendRaiseInboxToRenderer(toggle = false): void {
   mainWindow.webContents.send('shortcut:raise-inbox', { toggle });
 }
 
-function handleRaiseInboxShortcut(): void {
+async function handleRaiseInboxShortcut(): Promise<void> {
   if (!mainWindow || mainWindow.isDestroyed()) {
+    if (process.platform === 'win32') {
+      previousWindowsForegroundHandle = await captureWindowsForegroundWindow();
+    }
     pendingRaiseInboxEvent = true;
     showMainWindow();
     return;
@@ -685,6 +776,10 @@ function handleRaiseInboxShortcut(): void {
   if (isMainWindowRaisedAndFocused()) {
     sendRaiseInboxToRenderer(true);
     return;
+  }
+  if (process.platform === 'win32') {
+    const ownHandle = nativeWindowHandleValue(mainWindow.getNativeWindowHandle());
+    previousWindowsForegroundHandle = await captureWindowsForegroundWindow(ownHandle);
   }
   showMainWindow();
   sendRaiseInboxToRenderer(false);
@@ -712,7 +807,9 @@ function registerRaiseInboxShortcut(accelerator?: string): boolean {
   const next = (accelerator ?? getRaiseInboxAccelerator()).trim();
   if (!next) return false;
   unregisterRaiseInboxShortcut();
-  const ok = globalShortcut.register(next, handleRaiseInboxShortcut);
+  const ok = globalShortcut.register(next, () => {
+    void handleRaiseInboxShortcut();
+  });
   if (ok) {
     registeredRaiseInboxAccelerator = next;
   }
@@ -730,6 +827,31 @@ function showMainWindow(): void {
     return;
   }
   createWindow();
+}
+
+function hideMainWindowAndRestorePreviousFocus(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (process.platform === 'darwin') {
+    const auxiliaryWindows = BrowserWindow.getAllWindows().filter(
+      (window) => window !== mainWindow && !window.isDestroyed() && window.isVisible(),
+    );
+    mainWindow.hide();
+    app.hide();
+    setImmediate(() => {
+      for (const window of auxiliaryWindows) {
+        if (!window.isDestroyed()) window.showInactive();
+      }
+    });
+    return;
+  }
+  if (process.platform === 'win32') {
+    const handle = previousWindowsForegroundHandle;
+    previousWindowsForegroundHandle = null;
+    mainWindow.hide();
+    if (handle) void restoreWindowsForegroundWindow(handle);
+    return;
+  }
+  mainWindow.hide();
 }
 
 function ensureWindowOnScreen(bounds: {
@@ -851,6 +973,9 @@ function createWindow(): void {
   mainWindow.on('blur', () => {
     globalShortcut.unregister(SCREENSHOT_ACCELERATOR);
     sendPresence({ focused: false });
+    // 该句柄只对同一次快捷键唤起有效；中途切换应用后交由 Windows Z-order 恢复，
+    // 避免再次进入 Electron 时激活更早的陈旧窗口。
+    if (process.platform === 'win32') previousWindowsForegroundHandle = null;
   });
 
   // powerMonitor 必须在 app.whenReady() 后使用（此处已在 createWindow 内，满足条件）
@@ -870,10 +995,11 @@ function createWindow(): void {
       pendingRaiseInboxEvent = false;
       sendRaiseInboxToRenderer(false);
     }
-    const { url } = getWallpaperConfig();
-    if (url && lastWallpaperDataUrl) {
+    const wallpaper = getWallpaperConfig();
+    const sourceValue = wallpaper.source === 'directory' ? wallpaper.directory : wallpaper.url;
+    if (sourceValue && lastWallpaperDataUrl) {
       sendWallpaperUpdate(lastWallpaperDataUrl);
-    } else if (!url) {
+    } else if (!sourceValue) {
       sendWallpaperDisabled();
     }
     onWallpaperVisibilityChange();

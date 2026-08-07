@@ -157,6 +157,7 @@
       "raiseInboxShortcut": "Raise inbox shortcut",
       "wallpaper": "Dynamic wallpaper",
       "wallpaperInterval": "Update every (minutes)",
+      "wallpaperOrder": "Rotation order",
       "maxResults": "Max results",
       "timeout": "Timeout",
       "jinaReader": "Jina reader",
@@ -222,7 +223,7 @@
       "brandLogos": "Show third-party provider and CLI logos in Settings.",
       "openAtLogin": "Automatically start Nanobot after you sign in. Available in the installed app.",
       "raiseInboxShortcut": "Global shortcut to show the main window, open the unified inbox, and focus the composer. Click the key area, press a combination, then Save.",
-      "wallpaper": "Fetch a background image from a URL on a schedule while the window is visible. Leave URL empty to disable.",
+      "wallpaper": "Rotate a network image or images from a local directory while the window is visible.",
       "maxResults": "Results returned by each web_search call.",
       "timeout": "Seconds before a search provider request times out.",
       "jinaReader": "Use Jina Reader for web_fetch when available.",
@@ -358,6 +359,10 @@
       "expanded": "Expanded",
       "on": "On",
       "off": "Off",
+      "wallpaperUrlSource": "Network image",
+      "wallpaperDirectorySource": "Local folder",
+      "sequential": "Sequential",
+      "random": "Random",
       "configured": "Configured",
       "notConfigured": "Not configured"
     },
@@ -376,7 +381,8 @@
       "recording": "Press a shortcut…"
     },
     "placeholders": {
-      "wallpaperUrl": "Image URL"
+      "wallpaperUrl": "Image URL",
+      "wallpaperDirectory": "Image folder"
     },
     "errors": {
       "openAtLoginUpdateFailed": "Could not update the login startup setting. Please try again.",
@@ -389,6 +395,7 @@
       "saving": "Saving",
       "edit": "Edit",
       "cancel": "Cancel",
+      "chooseFolder": "Choose folder",
       "openDocs": "Open docs"
     },
     "byok": {

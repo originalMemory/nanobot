@@ -29,8 +29,16 @@ describe("open at login setting", () => {
         platform: { isMac: true, isWindows: false },
         app: { getOpenAtLogin, setOpenAtLogin },
         wallpaper: {
-          getConfig: vi.fn().mockResolvedValue({ url: "", intervalMinutes: 1 }),
+          getConfig: vi.fn().mockResolvedValue({
+            source: "url",
+            url: "",
+            directory: "",
+            localOrder: "sequential",
+            localIndex: -1,
+            intervalMinutes: 1,
+          }),
           setConfig: vi.fn(),
+          chooseDirectory: vi.fn(),
         },
         shortcut: {
           getRaiseInbox: vi.fn().mockResolvedValue("CmdOrCtrl+Shift+E"),

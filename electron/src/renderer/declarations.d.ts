@@ -2,10 +2,14 @@
 // Electron IPC bridge (injected by preload.ts via contextBridge)
 // ---------------------------------------------------------------------------
 
-type WindowAction = "show" | "hide" | "minimize" | "maximize" | "close";
+type WindowAction = "show" | "hide" | "hide-and-restore-focus" | "minimize" | "maximize" | "close";
 type WindowState = "maximized" | "normal";
 type WallpaperConfig = {
+  source: "url" | "directory";
   url: string;
+  directory: string;
+  localOrder: "sequential" | "random";
+  localIndex: number;
   intervalMinutes: number;
 };
 type ThaWindowConfig = {
@@ -99,6 +103,7 @@ interface ElectronAPI {
   wallpaper: {
     getConfig(): Promise<WallpaperConfig>;
     setConfig(config: WallpaperConfig): Promise<WallpaperConfig>;
+    chooseDirectory(): Promise<string | null>;
     onUpdate(cb: (dataUrl: string) => void): () => void;
     onDisabled(cb: () => void): () => void;
   };
