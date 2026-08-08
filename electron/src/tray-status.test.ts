@@ -9,6 +9,7 @@ import {
   disposeTrayStatus,
   initTrayStatus,
   notifyTrayIncoming,
+  refreshTrayStatus,
   setTrayStreaming,
   type TrayStatusIcons,
 } from './tray-status';
@@ -103,6 +104,16 @@ describe('tray status', () => {
 
     disposeTrayStatus();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('窗口恢复时重放 Windows 任务栏流式状态', () => {
+    const { window } = setup();
+    setTrayStreaming(true);
+    vi.mocked(window.setProgressBar).mockClear();
+
+    refreshTrayStatus();
+
+    expect(window.setProgressBar).toHaveBeenCalledWith(2, { mode: 'indeterminate' });
   });
 
   it('macOS 只更新菜单栏图标和 tooltip', () => {

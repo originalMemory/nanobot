@@ -112,6 +112,11 @@ export function setTrayStreaming(active: boolean): void {
   renderStatus();
 }
 
+/** Windows 隐藏窗口后会丢失任务栏进度，窗口恢复时重放缓存状态。 */
+export function refreshTrayStatus(): void {
+  updateTaskbar();
+}
+
 /** 窗口无焦点时标记未读；由 main 进程负责最终焦点判断。 */
 export function notifyTrayIncoming(): void {
   if (unread) return;

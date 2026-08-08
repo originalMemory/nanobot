@@ -32,6 +32,7 @@ import {
   disposeTrayStatus,
   initTrayStatus,
   notifyTrayIncoming,
+  refreshTrayStatus,
   setTrayStreaming,
   type TrayStatusIcons,
 } from './tray-status';
@@ -948,6 +949,7 @@ function createWindow(): void {
   });
 
   mainWindow.on('show', onWallpaperVisibilityChange);
+  mainWindow.on('show', refreshTrayStatus);
   mainWindow.on('hide', onWallpaperVisibilityChange);
   mainWindow.on('minimize', onWallpaperVisibilityChange);
   mainWindow.on('restore', onWallpaperVisibilityChange);
