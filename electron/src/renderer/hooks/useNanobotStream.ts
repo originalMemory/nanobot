@@ -638,6 +638,7 @@ export function useNanobotStream(
   const buffer = useRef<StreamBuffer | null>(null);
   const activeAssistantRef = useRef<ActiveAssistantCursor | null>(null);
   const closedAssistantStreamIdsRef = useRef<Set<string>>(new Set());
+  const closedTurnIdsRef = useRef<Set<string>>(new Set());
   const activeTurnIdsRef = useRef<Set<string>>(new Set());
   const activitySegmentRef = useRef<string | null>(null);
   const activityTurnIdRef = useRef<string | null>(null);
@@ -1011,6 +1012,7 @@ export function useNanobotStream(
     buffer.current = null;
     activeAssistantRef.current = null;
     closedAssistantStreamIdsRef.current.clear();
+    closedTurnIdsRef.current.clear();
     activeTurnIdsRef.current.clear();
     streamedTurnIdsRef.current.clear();
     turnSourceChannelsRef.current.clear();
@@ -1044,6 +1046,7 @@ export function useNanobotStream(
     buffer.current = null;
     activeAssistantRef.current = null;
     closedAssistantStreamIdsRef.current.clear();
+    closedTurnIdsRef.current.clear();
     activeTurnIdsRef.current.clear();
     streamedTurnIdsRef.current.clear();
     turnSourceChannelsRef.current.clear();
@@ -1081,6 +1084,7 @@ export function useNanobotStream(
           ? ev.turn_id
           : null;
         if (!failedTurnId) return;
+        closedTurnIdsRef.current.add(failedTurnId);
         activeTurnIdsRef.current.delete(failedTurnId);
         const hasActiveTurns = activeTurnIdsRef.current.size > 0;
         setIsStreaming(hasActiveTurns);
@@ -1108,6 +1112,7 @@ export function useNanobotStream(
       if (ev.event === "delta") {
         const turn = turnFieldsFromEvent(ev, "answer");
         if (!turn) return;
+        if (closedTurnIdsRef.current.has(turn.turnId)) return;
         if (suppressedTurnIdsRef.current.has(turn.turnId)) return;
         const chunk = typeof ev.text === "string" ? ev.text : "";
         if (!chunk) return;
@@ -1139,6 +1144,7 @@ export function useNanobotStream(
       if (ev.event === "reasoning_delta") {
         const turn = turnFieldsFromEvent(ev, "reasoning");
         if (!turn) return;
+        if (closedTurnIdsRef.current.has(turn.turnId)) return;
         if (suppressedTurnIdsRef.current.has(turn.turnId)) return;
         const chunk = ev.text;
         if (!chunk) return;
@@ -1151,6 +1157,7 @@ export function useNanobotStream(
       }
 
       if (ev.event === "vision_caption_delta") {
+        if (ev.turn_id && closedTurnIdsRef.current.has(ev.turn_id)) return;
         const chunk = ev.text;
         if (!chunk) return;
         const index = typeof ev.image_index === "number" ? ev.image_index : 0;
@@ -1284,6 +1291,7 @@ export function useNanobotStream(
           clearTimeout(streamEndTimerRef.current);
           streamEndTimerRef.current = null;
         }
+        closedTurnIdsRef.current.add(turn.turnId);
         activeTurnIdsRef.current.delete(turn.turnId);
         setIsStreaming(activeTurnIdsRef.current.size > 0);
         setRunStartedAt(null);
@@ -1609,6 +1617,7 @@ export function useNanobotStream(
       buffer.current = null;
       activeAssistantRef.current = null;
       closedAssistantStreamIdsRef.current.clear();
+      closedTurnIdsRef.current.clear();
       activeTurnIdsRef.current.clear();
       streamedTurnIdsRef.current.clear();
       turnSourceChannelsRef.current.clear();
@@ -1691,6 +1700,7 @@ export function useNanobotStream(
     setIsStreaming(false);
     setTurnModelName(null);
     setTurnModelProvider(null);
+    for (const turnId of activeTurnIdsRef.current) closedTurnIdsRef.current.add(turnId);
     setMessages((prev) => {
       buffer.current = null;
       activeAssistantRef.current = null;

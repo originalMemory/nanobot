@@ -739,6 +739,31 @@ describe("useNanobotStream inbox user events", () => {
     expect(result.current.isStreaming).toBe(true);
   });
 
+  it("ignores a late delta after its turn already ended", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({ event: "delta", chat_id: "inbox:unified", text: "done", turn_id: "turn-a" });
+      handle({ event: "turn_end", chat_id: "inbox:unified", turn_id: "turn-a" });
+      handle({ event: "delta", chat_id: "inbox:unified", text: "late", turn_id: "turn-a" });
+    });
+
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ turnId: "turn-a", content: "done", isStreaming: false }),
+    ]);
+  });
+
   it("an error only finalizes its matching turn", () => {
     const { client, chatHandlers } = createMockClient();
     const wrapper = ({ children }: { children: ReactNode }) => (
