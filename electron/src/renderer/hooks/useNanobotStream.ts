@@ -1257,6 +1257,22 @@ export function useNanobotStream(
           setRunStartedAt(ev.started_at);
         } else {
           setRunStartedAt(null);
+          const finishedLocalTurnIds = new Set(
+            [...activeTurnIdsRef.current].filter(
+              (turnId) => !turnSourceChannelsRef.current.has(turnId),
+            ),
+          );
+          for (const turnId of finishedLocalTurnIds) {
+            closedTurnIdsRef.current.add(turnId);
+            activeTurnIdsRef.current.delete(turnId);
+            clearActivitySegment(turnId);
+          }
+          setIsStreaming(activeTurnIdsRef.current.size > 0);
+          setMessages((prev) => prev.map((message) => (
+            message.isStreaming && message.turnId && finishedLocalTurnIds.has(message.turnId)
+              ? { ...message, isStreaming: false }
+              : message
+          )));
         }
         return;
       }

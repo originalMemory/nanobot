@@ -764,6 +764,30 @@ describe("useNanobotStream inbox user events", () => {
     ]);
   });
 
+  it("clears a local turn missing turn_end when goal status becomes idle", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({ event: "delta", chat_id: "inbox:unified", text: "done", turn_id: "turn-a" });
+      handle({ event: "goal_status", chat_id: "inbox:unified", status: "idle" });
+    });
+
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ turnId: "turn-a", content: "done", isStreaming: false }),
+    ]);
+  });
+
   it("an error only finalizes its matching turn", () => {
     const { client, chatHandlers } = createMockClient();
     const wrapper = ({ children }: { children: ReactNode }) => (
