@@ -24,6 +24,7 @@ x-common-config: &common-config
     - /mnt/cache/ssd/note:/home/nanobot/note
     - /mnt/cache/ssd:/nas/ssd
     - /mnt/cache/appdata:/nas/appdata
+    - /mnt/cache/clouddrive:/clouddrive
     - /mnt/user/hdd:/nas/hdd
     # Docker socket — 用于操作宿主机 Docker 容器
     - /var/run/docker.sock:/var/run/docker.sock
