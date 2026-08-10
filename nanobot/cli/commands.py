@@ -163,6 +163,44 @@ def _pick_heartbeat_target(
             return channel, chat_id
     return "cli", "direct"
 
+
+def _stamp_cron_delivery_metadata(
+    session_manager: Any,
+    session_keys: set[str],
+    job_id: str,
+    metadata: dict[str, Any],
+) -> None:
+    """把定时任务最终回复的元数据补到已记录的主动投递消息。"""
+    for session_key in session_keys:
+        session = session_manager.get_or_create(session_key)
+        for item in reversed(session.messages):
+            if item.get("role") != "assistant" or item.get("_cron_job_id") != job_id:
+                continue
+            usage = metadata.get("usage")
+            if isinstance(usage, dict) and usage:
+                item["usage"] = dict(usage)
+            response_model = metadata.get("_response_model")
+            if isinstance(response_model, dict) and response_model.get("model"):
+                item["response_model"] = str(response_model["model"])
+                provider = response_model.get("provider")
+                if isinstance(provider, str) and provider:
+                    item["response_provider"] = provider
+            fallback_used = metadata.get("_fallback_used")
+            if isinstance(fallback_used, bool):
+                item["fallback_used"] = fallback_used
+            fallback_models = metadata.get("_fallback_models")
+            if isinstance(fallback_models, list) and fallback_models:
+                item["_fallback_models"] = list(fallback_models)
+            speech = metadata.get("speech")
+            if (
+                isinstance(speech, dict)
+                and isinstance(speech.get("audioId"), str)
+                and speech["audioId"]
+            ):
+                item["speech"] = dict(speech)
+            session_manager.save(session)
+            break
+
 # ---------------------------------------------------------------------------
 # CLI input: prompt_toolkit for editing, paste, history, and display
 # ---------------------------------------------------------------------------
@@ -1028,34 +1066,25 @@ def _run_gateway(
                 saved_fallback_models = saved_response.get("_fallback_models")
                 if isinstance(saved_fallback_models, list) and saved_fallback_models:
                     metadata["_fallback_models"] = list(saved_fallback_models)
+                saved_speech = saved_response.get("speech")
+                if (
+                    isinstance(saved_speech, dict)
+                    and isinstance(saved_speech.get("audioId"), str)
+                    and saved_speech["audioId"]
+                ):
+                    metadata["speech"] = dict(saved_speech)
         return metadata
 
     recorded_cron_delivery_sessions: dict[str, set[str]] = {}
 
     def _stamp_recorded_cron_deliveries(job_id: str, metadata: dict[str, Any]) -> None:
         session_keys = recorded_cron_delivery_sessions.pop(job_id, set())
-        for session_key in session_keys:
-            session = session_manager.get_or_create(session_key)
-            for item in reversed(session.messages):
-                if item.get("role") != "assistant" or item.get("_cron_job_id") != job_id:
-                    continue
-                usage = metadata.get("usage")
-                if isinstance(usage, dict) and usage:
-                    item["usage"] = dict(usage)
-                response_model = metadata.get("_response_model")
-                if isinstance(response_model, dict) and response_model.get("model"):
-                    item["response_model"] = str(response_model["model"])
-                    provider = response_model.get("provider")
-                    if isinstance(provider, str) and provider:
-                        item["response_provider"] = provider
-                fallback_used = metadata.get("_fallback_used")
-                if isinstance(fallback_used, bool):
-                    item["fallback_used"] = fallback_used
-                fallback_models = metadata.get("_fallback_models")
-                if isinstance(fallback_models, list) and fallback_models:
-                    item["_fallback_models"] = list(fallback_models)
-                session_manager.save(session)
-                break
+        _stamp_cron_delivery_metadata(
+            session_manager,
+            session_keys,
+            job_id,
+            metadata,
+        )
 
     async def _deliver_to_channel(
         msg: OutboundMessage, *, record: bool = False, session_key: str | None = None,

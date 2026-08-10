@@ -1044,6 +1044,62 @@ def test_pick_heartbeat_target_unified_without_websocket_falls_back_to_cli():
     assert target == ("cli", "direct")
 
 
+def test_stamp_cron_delivery_metadata_attaches_completed_speech() -> None:
+    from nanobot.cli.commands import _stamp_cron_delivery_metadata
+
+    session = MagicMock()
+    session.messages = [
+        {
+            "role": "assistant",
+            "content": "问候文字",
+            "_cron_job_id": "heartbeat-job",
+        }
+    ]
+    session_manager = MagicMock()
+    session_manager.get_or_create.return_value = session
+    speech = {
+        "audioId": "speech-1",
+        "path": "/media/tts/speech-1.wav",
+        "mimeType": "audio/wav",
+        "durationMs": 1500,
+    }
+
+    _stamp_cron_delivery_metadata(
+        session_manager,
+        {"unified:default"},
+        "heartbeat-job",
+        {"speech": speech},
+    )
+
+    assert session.messages[0]["speech"] == speech
+    assert session.messages[0]["speech"] is not speech
+    session_manager.save.assert_called_once_with(session)
+
+
+def test_stamp_cron_delivery_metadata_rejects_legacy_audio_id() -> None:
+    from nanobot.cli.commands import _stamp_cron_delivery_metadata
+
+    session = MagicMock()
+    session.messages = [
+        {
+            "role": "assistant",
+            "content": "问候文字",
+            "_cron_job_id": "heartbeat-job",
+        }
+    ]
+    session_manager = MagicMock()
+    session_manager.get_or_create.return_value = session
+
+    _stamp_cron_delivery_metadata(
+        session_manager,
+        {"unified:default"},
+        "heartbeat-job",
+        {"speech": {"audio_id": "wrong-key"}},
+    )
+
+    assert "speech" not in session.messages[0]
+
+
 def _write_instance_config(tmp_path: Path) -> Path:
     config_file = tmp_path / "instance" / "config.json"
     config_file.parent.mkdir(parents=True)
