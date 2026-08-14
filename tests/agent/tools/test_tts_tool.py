@@ -63,12 +63,11 @@ def test_tool_description_mentions_audio() -> None:
     assert "语音" in desc or "音频" in desc
 
 
-def test_tool_schema_exposes_optional_voice() -> None:
+def test_tool_schema_only_exposes_text() -> None:
     tool = _make_tool()
     assert tool.parameters["required"] == ["text"]
-    assert set(tool.parameters["properties"]) == {"text", "voice"}
-    assert "默认音色" in tool.parameters["properties"]["text"]["description"]
-    assert "voice" not in tool.parameters["required"]
+    assert set(tool.parameters["properties"]) == {"text"}
+    assert "系统配置" in tool.parameters["properties"]["text"]["description"]
 
 
 def test_config_key() -> None:
@@ -150,14 +149,14 @@ async def test_execute_uses_default_voice() -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_uses_explicit_voice() -> None:
+async def test_execute_ignores_legacy_voice_argument() -> None:
     runtime = MagicMock()
     runtime.synthesize = AsyncMock(return_value=(MagicMock(), None))
     tool = _make_tool(default_voice="tongtong", speech_runtime=runtime)
 
     await tool.execute(text="hi", voice="xiaochen")
 
-    assert runtime.synthesize.await_args.kwargs["voice"] == "xiaochen"
+    assert runtime.synthesize.await_args.kwargs["voice"] == "tongtong"
 
 
 # ---------------------------------------------------------------------------
@@ -202,11 +201,12 @@ def test_validate_params_accepts_text_only() -> None:
     assert errors == []
 
 
-def test_execute_signature_keeps_voice_for_internal_compatibility() -> None:
+def test_execute_signature_does_not_expose_voice() -> None:
     import inspect
 
-    parameter = inspect.signature(TtsTool.execute).parameters["voice"]
-    assert parameter.default is None
+    parameters = inspect.signature(TtsTool.execute).parameters
+    assert "voice" not in parameters
+    assert any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
 
 
 def test_validate_params_rejects_empty_text() -> None:

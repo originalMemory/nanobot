@@ -31,10 +31,10 @@ def strip_spoken_tags(text: str) -> str:
 
 
 class TtsToolConfig(TtsConfig):
-    """tools.tts 配置：TTS provider 参数 + 工具开关 + 默认音色。
+    """tools.tts 配置：TTS provider 参数 + 工具开关 + 固定音色。
 
     继承 TtsConfig（provider/api_base/api_key/model/response_format/speed/extra_body），
-    新增 enabled 和 default_voice。
+    新增 enabled 和 default_voice。音色仅由系统配置决定，不向 agent 暴露。
     与 imageGeneration 遵循相同模式，挂载在 ToolsConfig.tts 下。
     """
 
@@ -45,7 +45,7 @@ class TtsToolConfig(TtsConfig):
     )
     default_voice: str = Field(
         default="tongtong",
-        description="默认音色名称或 voice_id（省略时回退此值）。"
+        description="内置 TTS 固定使用的音色名称或 voice_id。"
         "GLM 系统音色示例：tongtong / chuichui；"
         "自定义克隆音色填写 UUID。",
     )
@@ -67,13 +67,9 @@ class TtsToolConfig(TtsConfig):
 @tool_parameters(
     tool_parameters_schema(
         text=StringSchema(
-            "要合成为语音的文本。未指定 voice 时使用配置中的默认音色。",
+            "要合成为语音的文本。音色由系统配置固定决定。",
             min_length=1,
             max_length=1024,
-        ),
-        voice=StringSchema(
-            "可选的临时音色名称或 voice_id；省略时使用 tools.tts.defaultVoice。",
-            min_length=1,
         ),
         required=["text"],
     )
@@ -131,8 +127,13 @@ class TtsTool(Tool):
             "会在合成前自动剥离；标签应保留在 message 的 content 里以驱动桌宠。"
         )
 
-    async def execute(self, text: str, voice: str | None = None, **_: Any) -> str:
-        resolved_voice = voice or self._default_voice
+    async def execute(self, text: str, **_: Any) -> str:
+        """使用系统配置的固定音色合成语音。
+
+        ``**_`` 仅用于兼容旧会话可能残留的 ``voice`` 参数；任何遗留参数都会被忽略，
+        不得覆盖 ``tools.tts.defaultVoice``。
+        """
+        resolved_voice = self._default_voice
         if not resolved_voice:
             return "Error: 未配置 TTS 音色，请在 config.json 中设置 tools.tts.defaultVoice"
 

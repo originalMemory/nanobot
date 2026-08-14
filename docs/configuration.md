@@ -1744,7 +1744,7 @@ If you previously used `proactiveChat`, remove that top-level config block. The 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `tools.tts.enabled` | `false` | Enable the TTS agent tool for optional proactive audio. |
-| `tools.tts.defaultVoice` | `"tongtong"` | Default voice name or ID. GLM system voices: `tongtong`, `chuichui`. Custom cloned voices use a UUID. |
+| `tools.tts.defaultVoice` | `"tongtong"` | Fixed voice name or ID used by the built-in TTS tool. The agent cannot override it per call. GLM system voices: `tongtong`, `chuichui`; custom cloned voices use a UUID. |
 | `tools.tts.provider` | `"glm-tts"` | Label used in logs (does not affect routing). |
 | `tools.tts.apiBase` | GLM endpoint | Base URL for the OpenAI-compatible `/audio/speech` endpoint. |
 | `tools.tts.apiKey` | `null` | API key. Prefer `${ENV_VAR}` references. |
