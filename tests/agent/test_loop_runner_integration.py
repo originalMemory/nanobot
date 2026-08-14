@@ -377,6 +377,139 @@ async def test_next_turn_after_llm_error_keeps_turn_boundary(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_context_overflow_consolidates_once_and_continues_current_tool_turn(tmp_path):
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.agent.runner import _PERSISTED_MODEL_ERROR_PLACEHOLDER
+    from nanobot.bus.events import InboundMessage
+    from nanobot.bus.queue import MessageBus
+
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    provider.chat_with_retry = AsyncMock(side_effect=[
+        LLMResponse(
+            content="",
+            tool_calls=[ToolCallRequest(id="call_1", name="read_file", arguments={"path": "a"})],
+            usage={"prompt_tokens": 100, "completion_tokens": 10},
+        ),
+        LLMResponse(
+            content=(
+                "Error calling Codex (RuntimeError): Response failed: "
+                "{'type': 'invalid_request_error', 'code': 'context_length_exceeded'}"
+            ),
+            finish_reason="error",
+            tool_calls=[],
+            usage={},
+        ),
+        LLMResponse(
+            content="continued after compact",
+            tool_calls=[],
+            usage={"prompt_tokens": 40, "completion_tokens": 5},
+        ),
+    ])
+
+    loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
+    loop.tools.get_definitions = MagicMock(return_value=[])
+    loop.tools.prepare_call = MagicMock(return_value=(None, {}, None))
+    loop.tools.execute = AsyncMock(return_value="file contents")
+    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    message = loop._with_webui_turn_metadata(InboundMessage(
+        channel="websocket",
+        sender_id="user",
+        chat_id="inbox:unified",
+        content="large task",
+    ))
+    result = await loop._process_message(
+        message,
+        session_key="unified:default",
+    )
+
+    assert result is not None
+    assert result.content == "continued after compact"
+    loop.tools.execute.assert_awaited_once()
+    assert any(
+        call.kwargs.get("force") is True
+        for call in loop.consolidator.maybe_consolidate_by_tokens.await_args_list
+    )
+    compaction_events = [
+        outbound
+        for outbound in list(loop.bus.outbound._queue)
+        if str(outbound.metadata.get("_activity_id", "")).startswith("context-compaction:")
+    ]
+    assert [event.metadata["_activity_status"] for event in compaction_events] == [
+        "start", "end",
+    ]
+    assert all(event.metadata["_progress"] is True for event in compaction_events)
+    assert all(event.metadata["_activity_ephemeral"] is True for event in compaction_events)
+    assert compaction_events[0].content == "上下文已超出模型窗口，正在压缩历史并继续本轮任务。"
+    assert compaction_events[1].content == ""
+
+    retry_messages = provider.chat_with_retry.await_args_list[2].kwargs["messages"]
+    assert any(message.get("tool_call_id") == "call_1" for message in retry_messages)
+    assert all(
+        message.get("content") != _PERSISTED_MODEL_ERROR_PLACEHOLDER
+        for message in retry_messages
+    )
+
+    session = loop.sessions.get_or_create("unified:default")
+    assert [message["role"] for message in session.messages] == [
+        "user", "assistant", "tool", "assistant",
+    ]
+    assert session.messages[-1]["content"] == "continued after compact"
+
+
+@pytest.mark.asyncio
+async def test_context_overflow_returns_original_error_when_consolidation_fails(tmp_path):
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.bus.events import InboundMessage
+    from nanobot.bus.queue import MessageBus
+
+    original_error = (
+        "Error calling Codex (RuntimeError): Response failed: "
+        "{'type': 'invalid_request_error', 'code': 'context_length_exceeded'}"
+    )
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
+        content=original_error,
+        finish_reason="error",
+        tool_calls=[],
+        usage={},
+    ))
+
+    loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
+    loop.tools.get_definitions = MagicMock(return_value=[])
+
+    async def fail_forced_consolidation(*_args, **kwargs):
+        if kwargs.get("force"):
+            raise OSError("session write failed")
+
+    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(  # type: ignore[method-assign]
+        side_effect=fail_forced_consolidation,
+    )
+
+    message = loop._with_webui_turn_metadata(InboundMessage(
+        channel="websocket",
+        sender_id="user",
+        chat_id="inbox:unified",
+        content="large task",
+    ))
+    result = await loop._process_message(message, session_key="unified:default")
+
+    assert result is not None
+    assert result.content == original_error
+    provider.chat_with_retry.assert_awaited_once()
+    compaction_events = [
+        outbound
+        for outbound in list(loop.bus.outbound._queue)
+        if str(outbound.metadata.get("_activity_id", "")).startswith("context-compaction:")
+    ]
+    assert [event.metadata["_activity_status"] for event in compaction_events] == [
+        "start", "end",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, monkeypatch):
     from nanobot.agent.subagent import SubagentManager, SubagentStatus
     from nanobot.bus.queue import MessageBus

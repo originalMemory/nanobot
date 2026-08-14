@@ -1678,6 +1678,12 @@ class WebSocketChannel(BaseChannel):
             payload["kind"] = "tool_hint"
         elif msg.metadata.get("_progress"):
             payload["kind"] = "progress"
+        activity_id = msg.metadata.get("_activity_id")
+        if isinstance(activity_id, str) and activity_id:
+            payload["activity_id"] = activity_id
+            activity_status = msg.metadata.get("_activity_status")
+            if activity_status in {"start", "end"}:
+                payload["activity_status"] = activity_status
         if msg.metadata.get("_channel_delivery"):
             payload["channel_delivery"] = True
         if msg.metadata.get("_user_initiated_channel_delivery"):
@@ -1707,13 +1713,21 @@ class WebSocketChannel(BaseChannel):
         if isinstance(fallback_used, bool):
             payload["fallback_used"] = fallback_used
         phase = "activity" if payload.get("kind") in {"tool_hint", "progress"} else "answer"
-        self._transcripts.prepare_and_append(
-            msg.chat_id,
-            payload,
-            metadata=msg.metadata,
-            phase=phase,
-            transcript_overrides={"text": text},
-        )
+        if msg.metadata.get("_activity_ephemeral"):
+            self._transcripts.prepare_event(
+                msg.chat_id,
+                payload,
+                metadata=msg.metadata,
+                phase=phase,
+            )
+        else:
+            self._transcripts.prepare_and_append(
+                msg.chat_id,
+                payload,
+                metadata=msg.metadata,
+                phase=phase,
+                transcript_overrides={"text": text},
+            )
         raw = json.dumps(payload, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" ")

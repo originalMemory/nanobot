@@ -1093,11 +1093,13 @@ export function useNanobotStream(
           setTurnModelName(null);
           setTurnModelProvider(null);
         }
-        setMessages((prev) => prev.map((message) => (
-          message.isStreaming && message.turnId === failedTurnId
-            ? { ...message, isStreaming: false }
-            : message
-        )));
+        setMessages((prev) => prev
+          .filter((message) => !message.activityId || message.turnId !== failedTurnId)
+          .map((message) => (
+            message.isStreaming && message.turnId === failedTurnId
+              ? { ...message, isStreaming: false }
+              : message
+          )));
         if (buffer.current?.turnId === failedTurnId) buffer.current = null;
         if (activeAssistantRef.current?.turnId === failedTurnId) {
           activeAssistantRef.current = null;
@@ -1268,11 +1270,17 @@ export function useNanobotStream(
             clearActivitySegment(turnId);
           }
           setIsStreaming(activeTurnIdsRef.current.size > 0);
-          setMessages((prev) => prev.map((message) => (
-            message.isStreaming && message.turnId && finishedLocalTurnIds.has(message.turnId)
-              ? { ...message, isStreaming: false }
-              : message
-          )));
+          setMessages((prev) => prev
+            .filter((message) => (
+              !message.activityId
+              || !message.turnId
+              || !finishedLocalTurnIds.has(message.turnId)
+            ))
+            .map((message) => (
+              message.isStreaming && message.turnId && finishedLocalTurnIds.has(message.turnId)
+                ? { ...message, isStreaming: false }
+                : message
+            )));
         }
         return;
       }
@@ -1323,6 +1331,9 @@ export function useNanobotStream(
               : m
           ));
           finalized = pruneReasoningOnlyPlaceholders(finalized, turn.turnId);
+          finalized = finalized.filter(
+            (message) => !message.activityId || message.turnId !== turn.turnId,
+          );
           finalized = finalizeUserVisionCaptionStreaming(finalized);
           if (typeof ev.latency_ms === "number" && ev.latency_ms >= 0) {
             finalized = stampLastAssistantLatency(
@@ -1441,6 +1452,12 @@ export function useNanobotStream(
         // Attach them to the last trace row if it was the last emitted item
         // so a sequence of calls collapses into one compact trace group.
         if (ev.kind === "tool_hint" || ev.kind === "progress") {
+          if (ev.activity_id && ev.activity_status === "end") {
+            setMessages((prev) => prev.filter(
+              (message) => message.activityId !== ev.activity_id,
+            ));
+            return;
+          }
           const structuredEvents = normalizeToolProgressEvents(ev.tool_events);
           const structuredLines = toolTraceLinesFromEvents(ev.tool_events);
           const lines = structuredLines.length > 0
@@ -1451,6 +1468,25 @@ export function useNanobotStream(
           if (lines.length === 0) return;
           setMessages((prev) => {
             const segmentId = ensureActivitySegmentId(turn.turnId);
+            if (ev.activity_id) {
+              const withoutPrevious = prev.filter(
+                (message) => message.activityId !== ev.activity_id,
+              );
+              return [
+                ...withoutPrevious,
+                {
+                  id: crypto.randomUUID(),
+                  role: "tool",
+                  kind: "trace",
+                  content: lines[lines.length - 1],
+                  traces: lines,
+                  activityId: ev.activity_id,
+                  activitySegmentId: segmentId,
+                  ...turn,
+                  createdAt: Date.now(),
+                },
+              ];
+            }
             const last = prev[prev.length - 1];
             if (
               last

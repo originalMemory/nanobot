@@ -189,6 +189,49 @@ describe("useNanobotStream inbox user events", () => {
     expect(result.current.turnModelName).toBeNull();
   });
 
+  it("removes a live activity when its matching end event arrives", () => {
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({
+        event: "message",
+        chat_id: "inbox:unified",
+        kind: "progress",
+        activity_id: "context-compaction:turn-test",
+        activity_status: "start",
+        text: "上下文已超出模型窗口，正在压缩历史并继续本轮任务。",
+      });
+    });
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]).toMatchObject({
+      role: "tool",
+      kind: "trace",
+      activityId: "context-compaction:turn-test",
+    });
+
+    act(() => {
+      handle({
+        event: "message",
+        chat_id: "inbox:unified",
+        kind: "progress",
+        activity_id: "context-compaction:turn-test",
+        activity_status: "end",
+        text: "",
+      });
+    });
+    expect(result.current.messages).toHaveLength(0);
+  });
+
   it("keeps the reply model and fallback marker on the completed message", () => {
     const { client, chatHandlers } = createMockClient();
     const wrapper = ({ children }: { children: ReactNode }) => (

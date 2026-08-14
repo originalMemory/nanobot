@@ -66,6 +66,8 @@ export interface UIMessage {
   fileEdits?: UIFileEdit[];
   /** Activity rows created during the same agent phase share one collapsible block. */
   activitySegmentId?: string;
+  /** Live activity lifecycle key; a matching end event removes this row. */
+  activityId?: string;
   /** User turn: optimistic blob URLs for preview. Replay: placeholder chips. */
   images?: UIImage[];
   /** Signed or local UI-renderable media attachments. */
@@ -774,6 +776,9 @@ type InboundEventPayload =
       /** Present when the frame is an agent breadcrumb (e.g. tool hint,
        * generic progress line) rather than a conversational reply. */
       kind?: "tool_hint" | "progress" | "reasoning";
+      /** Optional lifecycle key for a replaceable/removable live activity. */
+      activity_id?: string;
+      activity_status?: "start" | "end";
       /** Server-measured turn wall time when this frame finishes an assistant reply. */
       latency_ms?: number;
       /** Full-turn model usage for completed proactive deliveries. */

@@ -829,6 +829,58 @@ async def test_send_progress_includes_structured_tool_events() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ephemeral_activity_lifecycle_is_not_persisted() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "inbox:unified")
+    channel._transcripts.append = MagicMock()
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="inbox:unified",
+        content="正在压缩",
+        metadata={
+            "_progress": True,
+            "_activity_id": "context-compaction:turn-compact",
+            "_activity_status": "start",
+            "_activity_ephemeral": True,
+            "webui_turn_id": "turn-compact",
+        },
+    ))
+
+    payload = json.loads(mock_ws.send.await_args.args[0])
+    assert payload == {
+        "event": "message",
+        "chat_id": "inbox:unified",
+        "text": "正在压缩",
+        "kind": "progress",
+        "activity_id": "context-compaction:turn-compact",
+        "activity_status": "start",
+        "turn_id": "turn-compact",
+        "turn_phase": "activity",
+        "turn_seq": 0,
+    }
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="inbox:unified",
+        content="",
+        metadata={
+            "_progress": True,
+            "_activity_id": "context-compaction:turn-compact",
+            "_activity_status": "end",
+            "_activity_ephemeral": True,
+            "webui_turn_id": "turn-compact",
+        },
+    ))
+    end_payload = json.loads(mock_ws.send.await_args.args[0])
+    assert end_payload["text"] == ""
+    assert end_payload["activity_id"] == "context-compaction:turn-compact"
+    assert end_payload["activity_status"] == "end"
+    channel._transcripts.append.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_send_file_edit_progress_uses_file_edit_event() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))

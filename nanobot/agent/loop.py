@@ -22,7 +22,12 @@ from nanobot.agent.context import ContextBuilder
 from nanobot.agent.hook import AgentHook, CompositeHook
 from nanobot.agent.memory import Consolidator
 from nanobot.agent.progress_hook import AgentProgressHook
-from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
+from nanobot.agent.runner import (
+    _MAX_INJECTIONS_PER_TURN,
+    _PERSISTED_MODEL_ERROR_PLACEHOLDER,
+    AgentRunner,
+    AgentRunSpec,
+)
 from nanobot.agent.speech import SpeechRuntime
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
@@ -1762,6 +1767,8 @@ class AgentLoop:
             ephemeral=ctx.ephemeral,
             tools=ctx.tools,
         )
+        if not ctx.ephemeral and self._is_context_length_error(result):
+            result = await self._retry_after_context_consolidation(ctx, result, on_stream)
         final_content, tools_used, all_msgs, stop_reason, had_injections = result
         ctx.final_content = final_content
         ctx.tools_used = tools_used
@@ -1770,6 +1777,142 @@ class AgentLoop:
         ctx.had_injections = had_injections
         await turn_continuation.maybe_continue_turn(ctx)
         return "ok"
+
+    @staticmethod
+    def _is_context_length_error(
+        result: tuple[str | None, list[str], list[dict], str, bool],
+    ) -> bool:
+        final_content, _, _, stop_reason, _ = result
+        return (
+            stop_reason == "error"
+            and isinstance(final_content, str)
+            and "context_length_exceeded" in final_content.lower()
+        )
+
+    async def _retry_after_context_consolidation(
+        self,
+        ctx: TurnContext,
+        failed_result: tuple[str | None, list[str], list[dict], str, bool],
+        on_stream: Callable[[str], Awaitable[None]] | None,
+    ) -> tuple[str | None, list[str], list[dict], str, bool]:
+        """上下文溢出时压缩持久历史一次，并携带本轮工具结果继续执行。"""
+        _, previous_tools, failed_messages, _, previous_injections = failed_result
+        current_turn = list(failed_messages[len(ctx.initial_messages):])
+        if (
+            current_turn
+            and current_turn[-1].get("role") == "assistant"
+            and current_turn[-1].get("content") == _PERSISTED_MODEL_ERROR_PLACEHOLDER
+        ):
+            current_turn.pop()
+
+        logger.warning(
+            "Context window exceeded for {}; consolidating session and retrying once",
+            ctx.session_key,
+        )
+        previous_usage = dict(self._last_usage)
+        await self._publish_context_compaction(ctx, "start")
+        try:
+            await self.consolidator.maybe_consolidate_by_tokens(
+                ctx.session,
+                replay_max_messages=self._max_messages,
+                force=True,
+            )
+            session = self.sessions.get_or_create(ctx.session_key)
+            session, compacted_summary = self.auto_compact.prepare_session(
+                session,
+                ctx.session_key,
+            )
+            pending_summary = ctx.pending_summary
+            if compacted_summary is not None:
+                pending_summary = compacted_summary
+
+            history = session.get_history(
+                max_messages=self._max_messages,
+                max_tokens=self._replay_token_budget(),
+                include_timestamps=True,
+            )
+            # BUILD 已提前持久化当前用户消息。重建 prompt 时让 ContextBuilder
+            # 重新附加原始消息（含图片等运行态信息），避免历史里再重复一份。
+            if ctx.user_persisted_early and history and history[-1].get("role") == "user":
+                history.pop()
+
+            initial_messages = self._build_initial_messages(
+                ctx.msg,
+                session,
+                history,
+                pending_summary,
+                include_memory_recent_history=True,
+            )
+        except Exception:
+            logger.exception(
+                "Context overflow recovery failed for {}; returning original model error",
+                ctx.session_key,
+            )
+            return failed_result
+        finally:
+            await self._publish_context_compaction(ctx, "end")
+        ctx.session = session
+        ctx.history = history
+        ctx.pending_summary = pending_summary
+        ctx.initial_messages = initial_messages
+        retry_messages = ctx.initial_messages + current_turn
+        retried = await self._run_agent_loop(
+            retry_messages,
+            on_progress=ctx.on_progress,
+            on_stream=on_stream,
+            on_stream_end=ctx.on_stream_end,
+            on_retry_wait=ctx.on_retry_wait,
+            session=ctx.session,
+            channel=ctx.msg.channel,
+            chat_id=ctx.msg.chat_id,
+            message_id=ctx.msg.metadata.get("message_id"),
+            metadata=ctx.msg.metadata,
+            session_key=ctx.session_key,
+            pending_queue=ctx.pending_queue,
+            ephemeral=False,
+            tools=ctx.tools,
+        )
+        retry_usage = dict(self._last_usage)
+        for key in ("turn_prompt_tokens", "turn_completion_tokens", "turn_cached_tokens"):
+            retry_usage[key] = int(previous_usage.get(key, 0)) + int(retry_usage.get(key, 0))
+        self._last_usage = retry_usage
+
+        final_content, retry_tools, all_messages, stop_reason, retry_injections = retried
+        tools_used = list(dict.fromkeys([*previous_tools, *retry_tools]))
+        return (
+            final_content,
+            tools_used,
+            all_messages,
+            stop_reason,
+            previous_injections or retry_injections,
+        )
+
+    async def _publish_context_compaction(self, ctx: TurnContext, status: str) -> None:
+        """通过通用 activity 生命周期推送不持久化的上下文压缩状态。"""
+        if ctx.msg.channel == "websocket":
+            chat_id = ctx.msg.chat_id
+        elif self._unified_session and ctx.msg.channel != "cli":
+            chat_id = "inbox:unified"
+        else:
+            return
+        await self.bus.publish_outbound(
+            OutboundMessage(
+                channel="websocket",
+                chat_id=chat_id,
+                content=(
+                    "上下文已超出模型窗口，正在压缩历史并继续本轮任务。"
+                    if status == "start"
+                    else ""
+                ),
+                metadata={
+                    **dict(ctx.msg.metadata or {}),
+                    "_progress": True,
+                    "_activity_id": f"context-compaction:{ctx.turn_id}",
+                    "_activity_status": status,
+                    "_activity_ephemeral": True,
+                },
+            )
+        )
 
     def _build_turn_usage(self, session: Session) -> dict[str, int]:
         """Merge runner usage with session context estimate (same basis as /status)."""
