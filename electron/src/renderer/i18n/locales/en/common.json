@@ -904,6 +904,7 @@
   "workspace": {
     "title": "Workspace",
     "back": "Back to inbox",
+    "refresh": "Refresh",
     "preview": {
       "empty": "Select a file on the left to preview",
       "loading": "Loading…",
@@ -916,6 +917,11 @@
       "loadFile": "Failed to read file",
       "http": "Request failed (HTTP {{status}})"
     }
+  },
+  "diary": {
+    "title": "Journal",
+    "openToday": "Open today's journal",
+    "todayMissing": "Today's journal was not found: {{path}}"
   },
   "automations": {
     "title": "Automations",

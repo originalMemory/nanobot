@@ -836,6 +836,7 @@ def settings_payload(
         "runtime": {
             "config_path": str(get_config_path().expanduser()),
             "workspace_path": str(config.workspace_path),
+            "diary_root": config.diary_root or None,
             "gateway_host": config.gateway.host,
             "gateway_port": config.gateway.port,
             "heartbeat": {

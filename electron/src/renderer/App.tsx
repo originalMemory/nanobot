@@ -186,7 +186,7 @@ function Shell({
   const { theme, setTheme } = useTheme();
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
   const [channels, setChannels] = useState<string[]>([]);
-  const [view, setView] = useState<"chat" | "settings" | "workspace" | "automations">("chat");
+  const [view, setView] = useState<"chat" | "settings" | "workspace" | "diary" | "automations">("chat");
   const [botIdentity, setBotIdentity] = useState<BotIdentity>({ botName: "nanobot", botIcon: "", botAvatarUrl: null });
   const [settings, setSettings] = useState<SettingsPayload | null>(null);
   const [modelSelectionPending, setModelSelectionPending] = useState(false);
@@ -382,9 +382,11 @@ function Shell({
             onThemeChange={setTheme}
             onOpenSettings={() => setView("settings")}
             onOpenWorkspace={() => setView("workspace")}
+            onOpenDiary={() => setView("diary")}
             onOpenAutomations={() => setView("automations")}
             settingsActive={view === "settings"}
             workspaceActive={view === "workspace"}
+            diaryActive={view === "diary"}
             automationsActive={view === "automations"}
           />
 
@@ -429,9 +431,22 @@ function Shell({
             ) : view === "workspace" ? (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <WorkspaceView
+                  key="workspace"
                   token={token}
                   gatewayUrl={gatewayUrl}
-                  workspacePath={settings?.runtime.workspace_path ?? null}
+                  rootPath={settings?.runtime.workspace_path ?? null}
+                  onBack={() => setView("chat")}
+                />
+              </div>
+            ) : view === "diary" ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <WorkspaceView
+                  key="diary"
+                  token={token}
+                  gatewayUrl={gatewayUrl}
+                  rootPath={settings?.runtime.diary_root ?? null}
+                  source="diary"
+                  timezone={settings?.agent.timezone ?? null}
                   onBack={() => setView("chat")}
                 />
               </div>

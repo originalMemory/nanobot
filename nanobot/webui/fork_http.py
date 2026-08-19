@@ -259,6 +259,7 @@ class ForkGatewayHTTPHandler:
         cron_service: CronService | None,
         static_dist_path: Path | None,
         workspace_path: Path | None,
+        diary_path: Path | None,
         runtime_model_name: Callable[[], str | None] | None,
         runtime_model_setter: Callable[[str | None], None] | None,
         runtime_surface: str = "browser",
@@ -280,6 +281,11 @@ class ForkGatewayHTTPHandler:
             if workspace_path is not None
             else get_workspace_path()
         ).resolve(strict=False)
+        self._diary_path = (
+            Path(diary_path).expanduser().resolve(strict=False)
+            if diary_path is not None
+            else None
+        )
         self._runtime_model_name = runtime_model_name
         self._runtime_model_setter = runtime_model_setter
         self._runtime_surface = runtime_surface
@@ -480,6 +486,10 @@ class ForkGatewayHTTPHandler:
             return self._handle_workspace_list(request)
         if got == "/api/workspace/read":
             return self._handle_workspace_read(request)
+        if got == "/api/diary/list":
+            return self._handle_diary_list(request)
+        if got == "/api/diary/read":
+            return self._handle_diary_read(request)
         if got == "/api/tha":
             return self._handle_tha_payload(request)
         if got == "/api/tha/config/update":
@@ -1220,6 +1230,34 @@ class ForkGatewayHTTPHandler:
             return _http_error(400, "missing path")
         try:
             payload = read_workspace_file(self._workspace_path, rel_path)
+        except WorkspaceFilesError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    def _handle_diary_list(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self._diary_path is None:
+            return _http_error(404, "diary root is not configured")
+        query = _parse_query(request.path)
+        rel_path = _query_first(query, "path") or ""
+        try:
+            payload = list_workspace_dir(self._diary_path, rel_path)
+        except WorkspaceFilesError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    def _handle_diary_read(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self._diary_path is None:
+            return _http_error(404, "diary root is not configured")
+        query = _parse_query(request.path)
+        rel_path = _query_first(query, "path")
+        if rel_path is None:
+            return _http_error(400, "missing path")
+        try:
+            payload = read_workspace_file(self._diary_path, rel_path)
         except WorkspaceFilesError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(payload)

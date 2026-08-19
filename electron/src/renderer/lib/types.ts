@@ -396,6 +396,7 @@ export interface SettingsPayload {
   runtime: {
     config_path: string;
     workspace_path: string;
+    diary_root: string | null;
     gateway_host: string;
     gateway_port: number;
     heartbeat: {

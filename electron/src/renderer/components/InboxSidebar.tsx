@@ -1,4 +1,4 @@
-import { CalendarClock, Check, FolderOpen, Inbox, Palette, Power, Settings } from "lucide-react";
+import { BookOpen, CalendarClock, Check, FolderOpen, Inbox, Palette, Power, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -41,9 +41,11 @@ interface InboxSidebarProps {
   onThemeChange: (t: Theme) => void;
   onOpenSettings?: () => void;
   onOpenWorkspace?: () => void;
+  onOpenDiary?: () => void;
   onOpenAutomations?: () => void;
   settingsActive?: boolean;
   workspaceActive?: boolean;
+  diaryActive?: boolean;
   automationsActive?: boolean;
 }
 
@@ -55,9 +57,11 @@ export function InboxSidebar({
   onThemeChange,
   onOpenSettings,
   onOpenWorkspace,
+  onOpenDiary,
   onOpenAutomations,
   settingsActive = false,
   workspaceActive = false,
+  diaryActive = false,
   automationsActive = false,
 }: InboxSidebarProps) {
   const { t } = useTranslation();
@@ -113,6 +117,16 @@ export function InboxSidebar({
             onClick={onOpenWorkspace}
           >
             <FolderOpen className="h-4 w-4" />
+          </NavItem>
+        ) : null}
+
+        {onOpenDiary ? (
+          <NavItem
+            label={t("diary.title")}
+            active={diaryActive}
+            onClick={onOpenDiary}
+          >
+            <BookOpen className="h-4 w-4" />
           </NavItem>
         ) : null}
 

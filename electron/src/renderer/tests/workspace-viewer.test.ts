@@ -9,6 +9,7 @@ import {
   joinWorkspacePath,
   MAX_JSONL_FORMAT_BYTES,
   previewModeForPath,
+  todayDiaryPath,
   workspaceAncestorDirs,
   workspaceImageDataUrl,
 } from "@/lib/workspaceViewer";
@@ -80,5 +81,15 @@ describe("workspaceViewer", () => {
     expect(workspaceAncestorDirs("README.md")).toEqual([]);
     expect(workspaceAncestorDirs("skills/SKILL.md")).toEqual(["skills"]);
     expect(workspaceAncestorDirs("skills/bills/SKILL.md")).toEqual(["skills", "skills/bills"]);
+  });
+
+  it("builds the fixed diary path for the configured timezone", () => {
+    const instant = new Date("2026-07-12T01:30:00Z");
+    expect(todayDiaryPath("Asia/Shanghai", instant)).toBe(
+      "2026/07/2026-07-12 周日.md",
+    );
+    expect(todayDiaryPath("America/Los_Angeles", instant)).toBe(
+      "2026/07/2026-07-11 周六.md",
+    );
   });
 });

@@ -556,3 +556,26 @@ export async function fetchWorkspaceRead(
   query.set("path", path);
   return request(`${base}/api/workspace/read?${query}`, token, { signal });
 }
+
+export async function fetchDiaryList(
+  token: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+  path = "",
+): Promise<WorkspaceListPayload> {
+  const query = new URLSearchParams();
+  if (path) query.set("path", path);
+  const suffix = query.toString();
+  const url = suffix ? `${base}/api/diary/list?${suffix}` : `${base}/api/diary/list`;
+  return request(url, token);
+}
+
+export async function fetchDiaryRead(
+  token: string,
+  path: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+  signal?: AbortSignal,
+): Promise<WorkspaceReadPayload> {
+  const query = new URLSearchParams();
+  query.set("path", path);
+  return request(`${base}/api/diary/read?${query}`, token, { signal });
+}

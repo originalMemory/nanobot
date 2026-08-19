@@ -159,3 +159,28 @@ export function workspaceAncestorDirs(filePath: string): string[] {
   }
   return result;
 }
+
+export function todayDiaryPath(timeZone?: string | null, now = new Date()): string {
+  const format = (zone?: string) => new Intl.DateTimeFormat("en-CA", {
+    ...(zone ? { timeZone: zone } : {}),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = format(timeZone || undefined);
+  } catch {
+    parts = format();
+  }
+  const value = (type: Intl.DateTimeFormatPartTypes) => (
+    parts.find((part) => part.type === type)?.value ?? ""
+  );
+  const year = value("year");
+  const month = value("month");
+  const day = value("day");
+  const weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][
+    new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay()
+  ];
+  return `${year}/${month}/${year}-${month}-${day} ${weekday}.md`;
+}

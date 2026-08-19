@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileText, Folder } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronRight, FileText, Folder, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { FilePreview } from "@/components/workspace/FilePreview";
 import { Button } from "@/components/ui/button";
-import { ApiError, fetchWorkspaceList, fetchWorkspaceRead } from "@/lib/api";
+import {
+  ApiError,
+  fetchDiaryList,
+  fetchDiaryRead,
+  fetchWorkspaceList,
+  fetchWorkspaceRead,
+} from "@/lib/api";
 import {
   joinWorkspacePath,
   previewModeForPath,
+  todayDiaryPath,
   workspaceAncestorDirs,
   workspaceImageDataUrl,
   type WorkspaceListEntry,
@@ -17,7 +24,9 @@ import { cn } from "@/lib/utils";
 interface WorkspaceViewProps {
   token: string;
   gatewayUrl: string;
-  workspacePath: string | null;
+  rootPath: string | null;
+  source?: "workspace" | "diary";
+  timezone?: string | null;
   onBack: () => void;
 }
 
@@ -42,7 +51,9 @@ function emptyNodeState(): TreeNodeState {
 export function WorkspaceView({
   token,
   gatewayUrl,
-  workspacePath,
+  rootPath,
+  source = "workspace",
+  timezone = null,
   onBack,
 }: WorkspaceViewProps) {
   const { t } = useTranslation();
@@ -57,6 +68,9 @@ export function WorkspaceView({
   const [restoring, setRestoring] = useState(false);
   const previewAbortRef = useRef<AbortController | null>(null);
   const restoredRef = useRef(false);
+  const storageKey = `${source}_viewer_state`;
+  const listDirectory = source === "diary" ? fetchDiaryList : fetchWorkspaceList;
+  const readFile = source === "diary" ? fetchDiaryRead : fetchWorkspaceRead;
 
   const loadDirectory = useCallback(async (relPath: string) => {
     const isRoot = relPath === "";
@@ -71,7 +85,7 @@ export function WorkspaceView({
 
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      const payload = await fetchWorkspaceList(token, gatewayUrl, relPath);
+      const payload = await listDirectory(token, gatewayUrl, relPath);
       setState((prev) => ({
         ...prev,
         entries: payload.entries,
@@ -90,7 +104,7 @@ export function WorkspaceView({
         error: message,
       }));
     }
-  }, [gatewayUrl, t, token]);
+  }, [gatewayUrl, listDirectory, t, token]);
 
   useEffect(() => {
     void loadDirectory("");
@@ -100,16 +114,16 @@ export function WorkspaceView({
   useEffect(() => {
     if (restoring || !selectedPath) return;
     localStorage.setItem(
-      "workspace_viewer_state",
+      storageKey,
       JSON.stringify({ selectedPath }),
     );
-  }, [selectedPath, restoring]);
+  }, [selectedPath, restoring, storageKey]);
 
   /* 根目录加载完成后恢复上次位置 */
   useEffect(() => {
     if (!rootState.loaded || restoredRef.current) return;
     restoredRef.current = true;
-    const saved = localStorage.getItem("workspace_viewer_state");
+    const saved = localStorage.getItem(storageKey);
     if (!saved) return;
     let parsed: { selectedPath?: string };
     try { parsed = JSON.parse(saved); } catch { return; }
@@ -123,7 +137,7 @@ export function WorkspaceView({
 
     (async () => {
       try {
-        const payload = await fetchWorkspaceList(token, gatewayUrl, dirPath);
+        const payload = await listDirectory(token, gatewayUrl, dirPath);
         const exists = payload.entries.some(
           (e) => e.name === fileName && e.kind === "file",
         );
@@ -133,10 +147,10 @@ export function WorkspaceView({
           }
           openFile(restoreTarget);
         } else {
-          localStorage.removeItem("workspace_viewer_state");
+          localStorage.removeItem(storageKey);
         }
       } catch {
-        localStorage.removeItem("workspace_viewer_state");
+        localStorage.removeItem(storageKey);
       } finally {
         setRestoring(false);
       }
@@ -148,7 +162,7 @@ export function WorkspaceView({
     previewAbortRef.current?.abort();
   }, []);
 
-  const openFile = useCallback(async (relPath: string) => {
+  const openFile = useCallback(async (relPath: string, notFoundMessage?: string) => {
     previewAbortRef.current?.abort();
     const controller = new AbortController();
     previewAbortRef.current = controller;
@@ -161,15 +175,15 @@ export function WorkspaceView({
       setPreviewTruncated(false);
       setPreviewError(t("workspace.preview.unsupported"));
       setPreviewLoading(false);
-      return;
+      return false;
     }
     setPreviewLoading(true);
     setPreviewError(null);
     setPreviewContent(null);
     setPreviewImageSrc(null);
     try {
-      const payload = await fetchWorkspaceRead(token, relPath, gatewayUrl, signal);
-      if (signal.aborted) return;
+      const payload = await readFile(token, relPath, gatewayUrl, signal);
+      if (signal.aborted) return false;
       if (payload.kind === "image") {
         setPreviewImageSrc(workspaceImageDataUrl(payload));
         setPreviewContent(null);
@@ -179,12 +193,15 @@ export function WorkspaceView({
         setPreviewImageSrc(null);
         setPreviewTruncated(Boolean(payload.truncated));
       }
+      return true;
     } catch (err) {
       if (signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
-        return;
+        return false;
       }
       const message = err instanceof ApiError
-        ? (err.status === 415 || err.status === 413
+        ? (err.status === 404 && notFoundMessage
+            ? notFoundMessage
+            : err.status === 415 || err.status === 413
             ? t(err.status === 413 ? "workspace.preview.tooLarge" : "workspace.preview.unsupported")
             : t("workspace.errors.http", { status: err.status }))
         : t("workspace.errors.loadFile");
@@ -192,12 +209,30 @@ export function WorkspaceView({
       setPreviewContent(null);
       setPreviewImageSrc(null);
       setPreviewTruncated(false);
+      return false;
     } finally {
       if (!signal.aborted) {
         setPreviewLoading(false);
       }
     }
-  }, [gatewayUrl, t, token]);
+  }, [gatewayUrl, readFile, t, token]);
+
+  const revealFile = useCallback(async (relPath: string, notFoundMessage?: string) => {
+    if (!await openFile(relPath, notFoundMessage)) return;
+    for (const path of workspaceAncestorDirs(relPath)) {
+      await loadDirectory(path);
+    }
+  }, [loadDirectory, openFile]);
+
+  const refresh = useCallback(async () => {
+    await loadDirectory("");
+    if (selectedPath) await revealFile(selectedPath);
+  }, [loadDirectory, revealFile, selectedPath]);
+
+  const openToday = useCallback(() => {
+    const path = todayDiaryPath(timezone);
+    void revealFile(path, t("diary.todayMissing", { path }));
+  }, [revealFile, t, timezone]);
 
   const toggleDirectory = useCallback((relPath: string) => {
     const current = childStates[relPath] ?? emptyNodeState();
@@ -221,11 +256,22 @@ export function WorkspaceView({
           {t("workspace.back")}
         </Button>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold">{t("workspace.title")}</h1>
-          {workspacePath ? (
-            <p className="truncate font-mono text-xs text-muted-foreground">{workspacePath}</p>
+          <h1 className="truncate text-sm font-semibold">
+            {t(source === "diary" ? "diary.title" : "workspace.title")}
+          </h1>
+          {rootPath ? (
+            <p className="truncate font-mono text-xs text-muted-foreground">{rootPath}</p>
           ) : null}
         </div>
+        {source === "diary" ? (
+          <Button variant="ghost" size="sm" onClick={openToday}>
+            <CalendarDays className="mr-1.5 h-4 w-4" />
+            {t("diary.openToday")}
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="icon" onClick={() => void refresh()} title={t("workspace.refresh")}>
+          <RefreshCw className="h-4 w-4" />
+        </Button>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)]">
