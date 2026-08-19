@@ -36,6 +36,9 @@ MAX_RESULTS = 10
 RECENT_RESULTS_WITHOUT_CARD = 6
 HISTORICAL_RESULTS_WITHOUT_CARD = 4
 TOPIC_THRESHOLD = 20
+TOPIC_MIN_MONTHS = 3
+TOPIC_MIN_SPAN_DAYS = 90
+TOPIC_CARD_SCHEMA_VERSION = 1
 ACTIVE_MEMORY_LOG_MAX_BYTES = 5 * 1024 * 1024
 
 SHANGHAI = timezone(timedelta(hours=8))
@@ -197,7 +200,12 @@ class ActiveMemoryHook(AgentHook):
         if not self._topic_dir or not self._summarize or not self._schedule:
             return
         card = _find_topic_card(self._topic_dir, [topic])
-        if not force and card and card.get("fingerprint") == fingerprint:
+        if (
+            not force
+            and card
+            and card.get("schema_version") == TOPIC_CARD_SCHEMA_VERSION
+            and card.get("fingerprint") == fingerprint
+        ):
             return
         key = _topic_key(topic)
         if key in self._topic_tasks or key in self._pending_topic_cards:
@@ -320,7 +328,11 @@ def _search_diary(
     )
     ranked = _diversify_candidates(candidates, words)
 
-    topic_card = _find_topic_card(topic_dir, words) if topic_dir else None
+    topic_card = (
+        _find_topic_card(topic_dir, words, word_sets=sets, diary_root=diary_root)
+        if topic_dir
+        else None
+    )
     inferred_topic_files: set[str] | None = None
     inferred_term: str | None = None
     if topic_dir and not topic_card:
@@ -337,9 +349,9 @@ def _search_diary(
         names = {topic, *(str(alias) for alias in topic_card.get("aliases") or [])}
         related_sets = [files for word, files in zip(words, sets, strict=True) if word in names]
         canonical_files = inferred_topic_files or (
-            sets[words.index(topic)]
-            if topic in words
-            else _grep_files(topic, diary_root)
+            topic_card.get("_topic_files")
+            or (sets[words.index(topic)] if topic in words else None)
+            or _topic_source_files(topic_card, diary_root)
         )
         topic_files = sorted(
             canonical_files
@@ -349,7 +361,7 @@ def _search_diary(
         eligible = [
             (len(files), index)
             for index, files in enumerate(sets)
-            if len(files) >= TOPIC_THRESHOLD
+            if _is_long_term_topic(files)
         ]
         topic_index = min(eligible)[1] if eligible else None
         topic = words[topic_index] if topic_index is not None else None
@@ -393,6 +405,22 @@ def _search_diary(
 def _extract_summary(content: str) -> str:
     match = re.search(r"(?m)^概要:\s*(.+?)\s*$", content)
     return match.group(1).strip() if match else ""
+
+
+def _is_long_term_topic(files: set[str]) -> bool:
+    if len(files) < TOPIC_THRESHOLD:
+        return False
+    dates = []
+    for filename in files:
+        with suppress(ValueError):
+            dates.append(datetime.strptime(Path(filename).name[:10], "%Y-%m-%d").date())
+    if len(dates) < TOPIC_THRESHOLD:
+        return False
+    months = {(date.year, date.month) for date in dates}
+    return (
+        len(months) >= TOPIC_MIN_MONTHS
+        and (max(dates) - min(dates)).days >= TOPIC_MIN_SPAN_DAYS
+    )
 
 
 def _extract_topic_evidence(content: str, terms: str | tuple[str, ...]) -> str:
@@ -538,15 +566,20 @@ def _load_topic_cards(topic_dir: Path | None) -> list[dict[str, Any]]:
     return cards
 
 
-def _find_topic_card(topic_dir: Path | None, words: list[str]) -> dict[str, Any] | None:
+def _find_topic_card(
+    topic_dir: Path | None,
+    words: list[str],
+    *,
+    word_sets: list[set[str]] | None = None,
+    diary_root: str = "",
+) -> dict[str, Any] | None:
     wanted = {word.casefold() for word in words}
 
-    def matched_count(names: set[str]) -> int:
-        return sum(
-            1
-            for name in names
+    def matched_names(names: set[str]) -> set[str]:
+        return {
+            name for name in names
             if name and set(name.casefold().split()) <= wanted
-        )
+        }
 
     best: tuple[tuple[int, int, int], dict[str, Any]] | None = None
     for card in _load_topic_cards(topic_dir):
@@ -557,21 +590,37 @@ def _find_topic_card(topic_dir: Path | None, words: list[str]) -> dict[str, Any]
             for entity in card.get("related_entities") or []
             if isinstance(entity, dict) and entity.get("name")
         }
-        topic_overlap = matched_count(topic_names)
-        alias_overlap = matched_count(alias_names)
-        related_overlap = matched_count(related_names)
+        topic_matches = matched_names(topic_names)
+        alias_matches = matched_names(alias_names)
+        related_matches = matched_names(related_names)
+        topic_overlap = len(topic_matches)
+        alias_overlap = len(alias_matches)
+        related_overlap = len(related_matches)
         match_kind = "topic" if topic_overlap else "alias" if alias_overlap else "related"
         overlap = topic_overlap or alias_overlap or related_overlap
         if overlap == 0:
             continue
+        file_overlap = 0
+        topic_files: set[str] | None = None
+        if related_overlap and word_sets and diary_root:
+            query_files = set().union(*word_sets)
+            topic_files = _topic_source_files(card, diary_root)
+            file_overlap = len(query_files & topic_files)
         rank = (
             3 if match_kind == "topic" else 2 if match_kind == "alias" else 1,
-            overlap,
+            file_overlap if match_kind == "related" else overlap,
             int(card.get("source_count") or 0),
         )
         if best is None or rank > best[0]:
             matched = dict(card)
             matched["_match_kind"] = match_kind
+            if match_kind == "related":
+                matched["_topic_files"] = topic_files or set()
+                matched["_matched_related_entities"] = [
+                    entity
+                    for entity in card.get("related_entities") or []
+                    if isinstance(entity, dict) and str(entity.get("name")) in related_matches
+                ]
             best = (rank, matched)
     return best[1] if best else None
 
@@ -585,23 +634,56 @@ def _infer_parent_topic_card(
     """未知实体与已有主题在同篇日记共现时，关联父主题而非新建平级卡。"""
     best: tuple[tuple[float, int, int], dict[str, Any], set[str], str] | None = None
     for card in _load_topic_cards(topic_dir):
-        topic = str(card["topic"])
-        topic_files = _grep_files(topic, diary_root)
+        topic_files = _topic_source_files(card, diary_root)
+        topic_names = _topic_names(card)
         if not topic_files:
             continue
         for word, files in zip(words, word_sets, strict=True):
             if not files:
                 continue
             overlap = topic_files & files
-            evidenced = len(overlap)
+            nearby = {
+                path for path in overlap
+                if any(_terms_share_paragraph(path, name, word) for name in topic_names)
+            }
+            distinct_dates = {Path(path).name[:10] for path in overlap}
+            evidenced = max(
+                len(nearby),
+                len(overlap) if len(distinct_dates) >= 2 else 0,
+            )
             if evidenced == 0:
                 continue
             rank = (evidenced / len(files), evidenced, int(card.get("source_count") or 0))
             if best is None or rank > best[0]:
                 matched = dict(card)
                 matched["_match_kind"] = "inferred_related"
+                matched["_inferred_term"] = word
                 best = (rank, matched, topic_files, word)
     return (best[1], best[2], best[3]) if best else None
+
+
+def _terms_share_paragraph(filepath: str, left: str, right: str) -> bool:
+    try:
+        content = Path(filepath).read_text(encoding="utf-8", errors="ignore").casefold()
+    except OSError:
+        return False
+    left_folded = left.casefold()
+    right_folded = right.casefold()
+    return any(
+        left_folded in paragraph and right_folded in paragraph
+        for paragraph in re.split(r"\n\s*\n", content)
+    )
+
+
+def _topic_source_files(card: dict[str, Any], diary_root: str) -> set[str]:
+    return set().union(*(_grep_files(name, diary_root) for name in _topic_names(card)))
+
+
+def _topic_names(card: dict[str, Any]) -> set[str]:
+    return {
+        str(card.get("topic") or "").strip(),
+        *(str(alias).strip() for alias in card.get("aliases") or []),
+    } - {""}
 
 
 def _topic_fingerprint(files: list[str]) -> str:
@@ -691,8 +773,17 @@ async def _build_topic_card(
         related_entities.append({
             "name": name,
             "relation": relation,
-            "source_dates": source_dates,
+            "source_dates": sorted(set(source_dates)),
         })
+    merged_entities: dict[str, dict[str, Any]] = {}
+    for entity in related_entities:
+        key = entity["name"].casefold()
+        current = merged_entities.get(key)
+        if current is None:
+            merged_entities[key] = entity
+            continue
+        current["source_dates"] = sorted(set(current["source_dates"]) | set(entity["source_dates"]))
+    related_entities = list(merged_entities.values())
     related_names = {entity["name"] for entity in related_entities}
     aliases = [alias for alias in aliases if alias not in related_names]
     existing_topics = {
@@ -709,6 +800,7 @@ async def _build_topic_card(
     ):
         return False
     card = {
+        "schema_version": TOPIC_CARD_SCHEMA_VERSION,
         "topic": canonical_topic,
         "aliases": aliases,
         "related_entities": related_entities,
@@ -724,6 +816,9 @@ async def _build_topic_card(
     temp = path.with_suffix(".tmp")
     temp.write_text(json.dumps(card, ensure_ascii=False, indent=2), encoding="utf-8")
     temp.replace(path)
+    old_path = _topic_path(topic_dir, topic)
+    if old_path != path:
+        old_path.unlink(missing_ok=True)
     return True
 
 
@@ -748,6 +843,25 @@ def _format_injection(
         )
         lines.extend([
             f"{heading}｜{topic_card.get('topic', '')}｜{range_text}",
+        ])
+        matched_entities = topic_card.get("_matched_related_entities") or []
+        inferred_term = str(topic_card.get("_inferred_term") or "").strip()
+        if matched_entities or inferred_term:
+            lines.append("当前关联：")
+            for entity in matched_entities:
+                dates = "、".join(str(date) for date in entity.get("source_dates") or [])
+                evidence = f"；来源：{dates}" if dates else ""
+                lines.append(
+                    f"- {entity.get('name')}：{topic_card.get('topic')}的"
+                    f"{entity.get('relation')}{evidence}"
+                )
+            if inferred_term:
+                lines.append(
+                    f"- {inferred_term}：与{topic_card.get('topic')}在日记中共现，"
+                    "关系待后台主题卡更新"
+                )
+        lines.extend([
+            "",
             str(topic_card["summary"]),
             "",
         ])

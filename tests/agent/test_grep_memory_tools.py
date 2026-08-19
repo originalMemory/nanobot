@@ -273,6 +273,25 @@ def test_active_memory_high_frequency_topic_keeps_recent_and_historical_results(
     assert any(hit["date"].startswith("2024-") for hit in result.hits[6:])
 
 
+def test_short_term_dense_keyword_does_not_create_topic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    files = set()
+    for day in range(1, 21):
+        path = tmp_path / f"2026-08-{day:02d} 周一.md"
+        path.write_text("概要: 临时活动\n活动", encoding="utf-8")
+        files.add(str(path))
+    monkeypatch.setattr(
+        "nanobot.agent.active_memory._grep_files",
+        lambda _word, _root: files,
+    )
+
+    result = _search_diary("活动", str(tmp_path))
+
+    assert result.topic is None
+
+
 @pytest.mark.asyncio
 async def test_active_memory_topic_card_uses_main_summary_result(tmp_path: Path) -> None:
     notes = []
@@ -290,6 +309,10 @@ async def test_active_memory_topic_card_uses_main_summary_result(tmp_path: Path)
                 "name": "今汐",
                 "relation": "角色",
                 "source_dates": ["2025-01-01"],
+            }, {
+                "name": "今汐",
+                "relation": "角色",
+                "source_dates": ["2026-01-01", "2026-01-01"],
             }],
             "summary": "- 2025：开始关注\n- 2026：持续游玩",
         }, ensure_ascii=False)
@@ -305,6 +328,7 @@ async def test_active_memory_topic_card_uses_main_summary_result(tmp_path: Path)
     )
 
     card = json.loads(next(topic_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert card["schema_version"] == 1
     assert card["topic"] == "鸣潮"
     assert card["source_count"] == 2
     assert card["fingerprint"] == "fp"
@@ -360,6 +384,33 @@ async def test_active_memory_topic_card_failure_is_background_only(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_old_topic_card_schema_triggers_rebuild(tmp_path: Path) -> None:
+    note = tmp_path / "2026-01-01 周四.md"
+    note.write_text("概要: 鸣潮记录\n鸣潮", encoding="utf-8")
+    topic_dir = tmp_path / "memory" / "active_memory_topics"
+    topic_dir.mkdir(parents=True)
+    _topic_path(topic_dir, "鸣潮").write_text(json.dumps({
+        "topic": "鸣潮",
+        "aliases": [],
+        "source_count": 1,
+        "fingerprint": "fp",
+        "summary": "旧卡",
+    }, ensure_ascii=False), encoding="utf-8")
+    scheduled = []
+
+    async def summarize(_prompt: str) -> str:
+        return '{"topic":"鸣潮","aliases":[],"summary":"新卡"}'
+
+    hook = ActiveMemoryHook(diary_root=str(tmp_path), workspace=tmp_path)
+    hook.configure_topic_summary(summarize, scheduled.append)
+    hook._maybe_schedule_topic_card("鸣潮", [str(note)], "fp")
+    await hook.on_finally(AgentRunHookContext(messages=[]))
+
+    assert len(scheduled) == 1
+    await scheduled[0]
+
+
+@pytest.mark.asyncio
 async def test_active_memory_topic_card_keeps_large_source_set_in_one_call(tmp_path: Path) -> None:
     notes = []
     for index in range(81):
@@ -412,6 +463,34 @@ async def test_narrow_seed_does_not_overwrite_broader_canonical_card(tmp_path: P
     assert json.loads(path.read_text(encoding="utf-8"))["summary"] == "完整鸣潮卡"
 
 
+@pytest.mark.asyncio
+async def test_canonical_topic_rename_removes_old_hash_file(tmp_path: Path) -> None:
+    topic_dir = tmp_path / "topics"
+    topic_dir.mkdir()
+    old_path = _topic_path(topic_dir, "Wuthering Waves")
+    old_path.write_text(json.dumps({
+        "topic": "Wuthering Waves",
+        "aliases": [],
+        "source_count": 1,
+        "summary": "旧卡",
+    }), encoding="utf-8")
+    note = tmp_path / "2026-01-01 周四.md"
+    note.write_text("概要: 鸣潮记录\nWuthering Waves", encoding="utf-8")
+
+    async def summarize(_prompt: str) -> str:
+        return '{"topic":"鸣潮","aliases":["Wuthering Waves"],"summary":"新卡"}'
+
+    assert await _build_topic_card(
+        topic="Wuthering Waves",
+        files=[str(note)],
+        fingerprint="fp",
+        topic_dir=topic_dir,
+        summarize=summarize,
+    ) is True
+    assert old_path.exists() is False
+    assert _topic_path(topic_dir, "鸣潮").exists() is True
+
+
 def test_active_memory_reuses_parent_topic_card_by_related_entity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -449,6 +528,7 @@ def test_active_memory_reuses_parent_topic_card_by_related_entity(
 
     injection = _format_injection(result.hits, result.topic_card)
     assert "关联主题脉络｜鸣潮" in injection
+    assert "今汐：鸣潮的角色" in injection
 
     alias_result = _search_diary("wuthering waves", str(tmp_path), topic_dir)
     assert alias_result.topic_card is not None
@@ -463,17 +543,20 @@ def test_active_memory_infers_new_related_entity_from_topic_cooccurrence(
     topic_dir.mkdir()
     (topic_dir / "card.json").write_text(json.dumps({
         "topic": "鸣潮",
-        "aliases": [],
+        "aliases": ["Wuthering Waves"],
         "related_entities": [],
         "source_count": 50,
         "fingerprint": "old",
         "summary": "鸣潮长期摘要",
     }, ensure_ascii=False), encoding="utf-8")
     note = tmp_path / "2026-08-19 周三.md"
-    note.write_text("概要: 鸣潮新角色绯雪登场\n鸣潮 绯雪", encoding="utf-8")
+    note.write_text(
+        "概要: Wuthering Waves 新角色绯雪登场\nWuthering Waves 绯雪",
+        encoding="utf-8",
+    )
 
     def fake_files(word: str, _root: str) -> set[str]:
-        return {str(note)} if word in {"鸣潮", "绯雪"} else set()
+        return {str(note)} if word in {"Wuthering Waves", "绯雪"} else set()
 
     monkeypatch.setattr("nanobot.agent.active_memory._grep_files", fake_files)
     result = _search_diary("绯雪", str(tmp_path), topic_dir)
@@ -482,6 +565,63 @@ def test_active_memory_infers_new_related_entity_from_topic_cooccurrence(
     assert result.topic_card["_match_kind"] == "inferred_related"
     assert result.force_topic_update is True
     assert result.topic_files == [str(note)]
+
+
+def test_related_entity_uses_alias_topic_source_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    topic_dir = tmp_path / "topics"
+    topic_dir.mkdir()
+    (topic_dir / "card.json").write_text(json.dumps({
+        "topic": "鸣潮",
+        "aliases": ["Wuthering Waves"],
+        "related_entities": [{"name": "今汐", "relation": "角色", "source_dates": []}],
+        "source_count": 1,
+        "summary": "鸣潮摘要",
+    }, ensure_ascii=False), encoding="utf-8")
+    source = tmp_path / "2025-01-01 周三.md"
+    source.write_text("概要: Wuthering Waves 记录\nWuthering Waves", encoding="utf-8")
+    related = tmp_path / "2026-01-01 周四.md"
+    related.write_text("概要: 今汐剧情\n今汐", encoding="utf-8")
+
+    def fake_files(word: str, _root: str) -> set[str]:
+        return {
+            "Wuthering Waves": {str(source)},
+            "今汐": {str(related)},
+        }.get(word, set())
+
+    monkeypatch.setattr("nanobot.agent.active_memory._grep_files", fake_files)
+    result = _search_diary("今汐", str(tmp_path), topic_dir)
+
+    assert result.topic == "鸣潮"
+    assert result.topic_files == [str(source)]
+
+
+def test_single_file_unrelated_paragraphs_do_not_infer_parent_topic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    topic_dir = tmp_path / "topics"
+    topic_dir.mkdir()
+    (topic_dir / "card.json").write_text(json.dumps({
+        "topic": "鸣潮",
+        "aliases": [],
+        "related_entities": [],
+        "source_count": 50,
+        "summary": "鸣潮摘要",
+    }, ensure_ascii=False), encoding="utf-8")
+    note = tmp_path / "2026-08-19 周三.md"
+    note.write_text("今天玩鸣潮。\n\n晚饭吃了苹果。", encoding="utf-8")
+
+    def fake_files(word: str, _root: str) -> set[str]:
+        return {str(note)} if word in {"鸣潮", "苹果"} else set()
+
+    monkeypatch.setattr("nanobot.agent.active_memory._grep_files", fake_files)
+
+    result = _search_diary("苹果", str(tmp_path), topic_dir)
+
+    assert result.topic is None
 
 
 def test_active_memory_with_topic_card_prefers_recent_raw_results(
@@ -508,6 +648,73 @@ def test_active_memory_with_topic_card_prefers_recent_raw_results(
     result = _search_diary("鸣潮 今汐", str(tmp_path), topic_dir)
 
     assert result.hits[0]["date"] == "2026-01-01"
+
+
+def test_related_entity_parent_uses_current_file_overlap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    topic_dir = tmp_path / "topics"
+    topic_dir.mkdir()
+    for filename, topic, count in (
+        ("a.json", "鸣潮", 100),
+        ("b.json", "赛博朋克：边缘行者", 20),
+    ):
+        (topic_dir / filename).write_text(json.dumps({
+            "topic": topic,
+            "aliases": [],
+            "related_entities": [{"name": "露西", "relation": "角色", "source_dates": []}],
+            "source_count": count,
+            "summary": f"{topic}摘要",
+        }, ensure_ascii=False), encoding="utf-8")
+    note = tmp_path / "2026-01-01 周四.md"
+    note.write_text("概要: 露西联动\n露西", encoding="utf-8")
+
+    def fake_files(word: str, _root: str) -> set[str]:
+        if word in {"露西", "赛博朋克：边缘行者"}:
+            return {str(note)}
+        return set()
+
+    monkeypatch.setattr("nanobot.agent.active_memory._grep_files", fake_files)
+    result = _search_diary("露西", str(tmp_path), topic_dir)
+
+    assert result.topic == "赛博朋克：边缘行者"
+
+
+def test_parent_inference_keeps_cross_date_evidence_when_one_match_is_nearby(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    topic_dir = tmp_path / "topics"
+    topic_dir.mkdir()
+    for filename, topic, count in (("a.json", "A", 100), ("b.json", "B", 10)):
+        (topic_dir / filename).write_text(json.dumps({
+            "topic": topic,
+            "aliases": [],
+            "related_entities": [],
+            "source_count": count,
+            "summary": f"{topic}摘要",
+        }), encoding="utf-8")
+
+    a_files = set()
+    for index in range(3):
+        path = tmp_path / f"2025-0{index + 1}-01-a.md"
+        path.write_text("A X" if index == 0 else "A\n\nX", encoding="utf-8")
+        a_files.add(str(path))
+    b_files = set()
+    for index in range(2):
+        path = tmp_path / f"2026-0{index + 1}-01-b.md"
+        path.write_text("B\n\nX", encoding="utf-8")
+        b_files.add(str(path))
+    query_files = a_files | b_files
+
+    def fake_files(word: str, _root: str) -> set[str]:
+        return {"A": a_files, "B": b_files, "X": query_files}.get(word, set())
+
+    monkeypatch.setattr("nanobot.agent.active_memory._grep_files", fake_files)
+    result = _search_diary("X", str(tmp_path), topic_dir)
+
+    assert result.topic == "A"
 
 
 @pytest.mark.asyncio
