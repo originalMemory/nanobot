@@ -93,6 +93,11 @@ class FallbackProvider(LLMProvider):
     ) -> None:
         self._fallback_model_observer = observer
 
+    @property
+    def primary_provider(self) -> LLMProvider:
+        """返回主 provider，供不应影响 fallback 熔断状态的后台维护调用。"""
+        return self._primary
+
     async def _notify_model(
         self,
         model: str,

@@ -375,6 +375,13 @@ class AgentLoop:
         self._current_iteration: int = 0
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
+        for extra_hook in self._extra_hooks:
+            configure = getattr(extra_hook, "configure_topic_summary", None)
+            if callable(configure):
+                configure(
+                    self._summarize_active_memory_topic,
+                    self._schedule_background,
+                )
 
     @classmethod
     def from_config(
@@ -1272,6 +1279,27 @@ class AgentLoop:
         task = asyncio.create_task(coro)
         self._background_tasks.append(task)
         task.add_done_callback(self._background_tasks.remove)
+
+    async def _summarize_active_memory_topic(self, prompt: str) -> str:
+        """后台 use 当前主模型生成主题卡；不注册工具，不进入 AgentRunner。"""
+        request_token = bind_request_context(None)
+        try:
+            summary_provider = (
+                self.provider.primary_provider
+                if isinstance(self.provider, FallbackProvider)
+                else self.provider
+            )
+            response = await summary_provider.chat_with_retry(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                tools=None,
+                temperature=0.1,
+            )
+        finally:
+            reset_request_context(request_token)
+        if response.finish_reason == "error":
+            raise RuntimeError(response.content or "active memory topic summary failed")
+        return response.content or ""
 
     def stop(self) -> None:
         """Stop the agent loop."""
