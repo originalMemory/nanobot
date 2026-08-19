@@ -8,8 +8,11 @@ import {
   formatStructuredJsonContent,
   joinWorkspacePath,
   MAX_JSONL_FORMAT_BYTES,
+  obsidianImageEmbeds,
+  obsidianImageName,
   previewModeForPath,
   todayDiaryPath,
+  rewriteObsidianImages,
   workspaceAncestorDirs,
   workspaceImageDataUrl,
 } from "@/lib/workspaceViewer";
@@ -90,6 +93,19 @@ describe("workspaceViewer", () => {
     );
     expect(todayDiaryPath("America/Los_Angeles", instant)).toBe(
       "2026/07/2026-07-11 周六.md",
+    );
+  });
+
+  it("extracts and rewrites Obsidian image embeds", () => {
+    const markdown = "![[banner.jpg]]\n![[moon.png|800x600]]";
+    expect(obsidianImageEmbeds(markdown)).toEqual([
+      { name: "banner.jpg" },
+      { name: "moon.png", width: 800, height: 600 },
+    ]);
+    expect(obsidianImageName("[[banner.jpg]]")).toBe("banner.jpg");
+    expect(obsidianImageName("[[moon.png|800x600]]")).toBe("moon.png");
+    expect(rewriteObsidianImages(markdown)).toContain(
+      '![moon.png](diary-image:moon.png "size=800x600")',
     );
   });
 });

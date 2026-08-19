@@ -18,6 +18,7 @@ import type {
 } from "./types";
 import type {
   WorkspaceListPayload,
+  WorkspaceReadImagePayload,
   WorkspaceReadPayload,
 } from "./workspaceViewer";
 import { DEFAULT_GATEWAY_HTTP } from "./bootstrap";
@@ -578,4 +579,17 @@ export async function fetchDiaryRead(
   const query = new URLSearchParams();
   query.set("path", path);
   return request(`${base}/api/diary/read?${query}`, token, { signal });
+}
+
+export async function fetchDiaryImage(
+  token: string,
+  notePath: string,
+  imageName: string,
+  base: string = DEFAULT_GATEWAY_HTTP,
+  signal?: AbortSignal,
+): Promise<WorkspaceReadImagePayload> {
+  const query = new URLSearchParams();
+  query.set("note", notePath);
+  query.set("name", imageName);
+  return request(`${base}/api/diary/image?${query}`, token, { signal });
 }

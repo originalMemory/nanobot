@@ -1,10 +1,12 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CodeBlock } from "@/components/CodeBlock";
+import { fetchDiaryImage } from "@/lib/api";
 import {
   formatStructuredJsonContent,
   previewModeForPath,
+  workspaceImageDataUrl,
 } from "@/lib/workspaceViewer";
 import { WorkspaceMarkdown } from "@/components/workspace/WorkspaceMarkdown";
 
@@ -15,6 +17,10 @@ interface FilePreviewProps {
   truncated?: boolean;
   error?: string | null;
   loading?: boolean;
+  frontmatter?: Record<string, unknown> | null;
+  source?: "workspace" | "diary";
+  token?: string;
+  gatewayUrl?: string;
 }
 
 export function FilePreview({
@@ -24,8 +30,20 @@ export function FilePreview({
   truncated = false,
   error = null,
   loading = false,
+  frontmatter = null,
+  source = "workspace",
+  token = "",
+  gatewayUrl = "",
 }: FilePreviewProps) {
   const { t } = useTranslation();
+  const resolveDiaryImage = useCallback(async (name: string) => {
+    if (source !== "diary" || !path || !token || !gatewayUrl) return null;
+    try {
+      return workspaceImageDataUrl(await fetchDiaryImage(token, path, name, gatewayUrl));
+    } catch {
+      return null;
+    }
+  }, [gatewayUrl, path, source, token]);
 
   const preview = useMemo(() => {
     if (!path) return null;
@@ -44,7 +62,16 @@ export function FilePreview({
     }
     if (content == null) return null;
     if (mode === "markdown") {
-      return <WorkspaceMarkdown>{content}</WorkspaceMarkdown>;
+      return (
+        <WorkspaceMarkdown
+          path={path}
+          diary={source === "diary"}
+          frontmatter={frontmatter ?? undefined}
+          resolveImage={source === "diary" ? resolveDiaryImage : undefined}
+        >
+          {content}
+        </WorkspaceMarkdown>
+      );
     }
     if (mode === "unsupported") {
       return (
@@ -61,7 +88,7 @@ export function FilePreview({
         wrapLongLines
       />
     );
-  }, [content, imageSrc, path, t]);
+  }, [content, frontmatter, imageSrc, path, resolveDiaryImage, source, t]);
 
   if (loading) {
     return (

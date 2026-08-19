@@ -120,6 +120,8 @@ from nanobot.webui.transcript import (
 from nanobot.webui.workspace_files import (
     WorkspaceFilesError,
     list_workspace_dir,
+    read_diary_file,
+    read_diary_image,
     read_workspace_file,
 )
 
@@ -490,6 +492,8 @@ class ForkGatewayHTTPHandler:
             return self._handle_diary_list(request)
         if got == "/api/diary/read":
             return self._handle_diary_read(request)
+        if got == "/api/diary/image":
+            return self._handle_diary_image(request)
         if got == "/api/tha":
             return self._handle_tha_payload(request)
         if got == "/api/tha/config/update":
@@ -1257,7 +1261,23 @@ class ForkGatewayHTTPHandler:
         if rel_path is None:
             return _http_error(400, "missing path")
         try:
-            payload = read_workspace_file(self._diary_path, rel_path)
+            payload = read_diary_file(self._diary_path, rel_path)
+        except WorkspaceFilesError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    def _handle_diary_image(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self._diary_path is None:
+            return _http_error(404, "diary root is not configured")
+        query = _parse_query(request.path)
+        try:
+            payload = read_diary_image(
+                self._diary_path,
+                _query_first(query, "note"),
+                _query_first(query, "name"),
+            )
         except WorkspaceFilesError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(payload)

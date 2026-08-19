@@ -14,6 +14,55 @@
   --cjk-line-height: 1.625;
 }
 
+/* 日记库：只复刻 Blue Topaz 中最常用的 callout 层次，不加载 Obsidian 主题。 */
+.diary-document .obsidian-callout {
+  margin: 1rem 0;
+  border: 1px solid hsl(var(--border) / 0.75);
+  border-left: 4px solid hsl(var(--primary) / 0.72);
+  border-radius: 0.75rem;
+  background: hsl(var(--muted) / 0.34);
+  padding: 0.75rem 1rem;
+}
+
+.diary-document .obsidian-callout > .callout-title {
+  margin-bottom: 0.4rem;
+  color: hsl(var(--primary));
+  font-weight: 650;
+}
+
+.diary-document .obsidian-callout > :last-child {
+  margin-bottom: 0;
+}
+
+.diary-document .obsidian-callout[data-callout="quote"] {
+  border-left-color: hsl(272 55% 65% / 0.78);
+  background: hsl(272 55% 65% / 0.09);
+}
+
+.diary-document .obsidian-callout[data-callout="summary"] {
+  border-left-color: hsl(35 86% 58% / 0.82);
+  background: hsl(35 86% 58% / 0.09);
+}
+
+.diary-document .obsidian-callout[data-callout="multi-column"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.diary-document .obsidian-callout[data-callout="multi-column"] > .callout-title {
+  display: none;
+}
+
+.diary-document .obsidian-callout[data-callout="multi-column"] > .obsidian-callout {
+  min-width: 240px;
+  flex: 1 1 0;
+  margin: 0;
+}
+
 :lang(zh), :lang(zh-CN), :lang(zh-TW), :lang(zh-HK), :lang(ja), :lang(ko) {
   --cjk-line-height: 1.8;
 }

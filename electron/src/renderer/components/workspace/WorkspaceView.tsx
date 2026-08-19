@@ -62,6 +62,7 @@ export function WorkspaceView({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [previewImageSrc, setPreviewImageSrc] = useState<string | null>(null);
+  const [previewFrontmatter, setPreviewFrontmatter] = useState<Record<string, unknown> | null>(null);
   const [previewTruncated, setPreviewTruncated] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -172,6 +173,7 @@ export function WorkspaceView({
     if (previewModeForPath(relPath) === "unsupported") {
       setPreviewContent(null);
       setPreviewImageSrc(null);
+      setPreviewFrontmatter(null);
       setPreviewTruncated(false);
       setPreviewError(t("workspace.preview.unsupported"));
       setPreviewLoading(false);
@@ -181,16 +183,19 @@ export function WorkspaceView({
     setPreviewError(null);
     setPreviewContent(null);
     setPreviewImageSrc(null);
+    setPreviewFrontmatter(null);
     try {
       const payload = await readFile(token, relPath, gatewayUrl, signal);
       if (signal.aborted) return false;
       if (payload.kind === "image") {
         setPreviewImageSrc(workspaceImageDataUrl(payload));
         setPreviewContent(null);
+        setPreviewFrontmatter(null);
         setPreviewTruncated(Boolean(payload.truncated));
       } else {
         setPreviewContent(payload.content);
         setPreviewImageSrc(null);
+        setPreviewFrontmatter(payload.frontmatter ?? null);
         setPreviewTruncated(Boolean(payload.truncated));
       }
       return true;
@@ -208,6 +213,7 @@ export function WorkspaceView({
       setPreviewError(message);
       setPreviewContent(null);
       setPreviewImageSrc(null);
+      setPreviewFrontmatter(null);
       setPreviewTruncated(false);
       return false;
     } finally {
@@ -298,6 +304,10 @@ export function WorkspaceView({
             truncated={previewTruncated}
             error={previewError}
             loading={previewLoading}
+            frontmatter={previewFrontmatter}
+            source={source}
+            token={token}
+            gatewayUrl={gatewayUrl}
           />
         </section>
       </div>

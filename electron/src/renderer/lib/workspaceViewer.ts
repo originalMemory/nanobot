@@ -18,6 +18,7 @@ export interface WorkspaceReadTextPayload {
   encoding: "utf-8";
   size_bytes?: number;
   truncated?: boolean;
+  frontmatter?: Record<string, unknown>;
 }
 
 export interface WorkspaceReadImagePayload {
@@ -141,6 +142,49 @@ export function formatStructuredJsonContent(
 
 export function workspaceImageDataUrl(payload: WorkspaceReadImagePayload): string {
   return `data:${payload.mime_type};base64,${payload.content_base64}`;
+}
+
+const OBSIDIAN_IMAGE_EMBED_RE = /!\[\[([^\]|#]+\.(?:png|jpe?g|gif|webp|bmp|ico))(?:#[^\]|]*)?(?:\|(\d+)(?:x(\d+))?)?\]\]/gi;
+export const DIARY_IMAGE_URL_PREFIX = "diary-image:";
+
+export interface ObsidianImageEmbed {
+  name: string;
+  width?: number;
+  height?: number;
+}
+
+export function obsidianImageEmbeds(markdown: string): ObsidianImageEmbed[] {
+  const embeds = new Map<string, ObsidianImageEmbed>();
+  for (const match of markdown.matchAll(OBSIDIAN_IMAGE_EMBED_RE)) {
+    const name = match[1].trim();
+    const width = match[2] ? Number(match[2]) : undefined;
+    const height = match[3] ? Number(match[3]) : undefined;
+    embeds.set(name, { name, ...(width ? { width } : {}), ...(height ? { height } : {}) });
+  }
+  return [...embeds.values()];
+}
+
+export function obsidianImageName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = /^\[\[([^\]|#]+\.(?:png|jpe?g|gif|webp|bmp|ico))(?:#[^\]|]*)?(?:\|\d+(?:x\d+)?)?\]\]$/i.exec(
+    value.trim(),
+  );
+  return match?.[1].trim() || null;
+}
+
+export function rewriteObsidianImages(
+  markdown: string,
+): string {
+  return markdown.replace(
+    OBSIDIAN_IMAGE_EMBED_RE,
+    (_original, rawName: string, rawWidth?: string, rawHeight?: string) => {
+      const name = rawName.trim();
+      const size = rawWidth
+        ? ` \"size=${rawWidth}${rawHeight ? `x${rawHeight}` : ""}\"`
+        : "";
+      return `![${name}](${DIARY_IMAGE_URL_PREFIX}${encodeURIComponent(name)}${size})`;
+    },
+  );
 }
 
 export function joinWorkspacePath(parent: string, name: string): string {

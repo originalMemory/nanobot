@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+import re
 from pathlib import Path
 from typing import Any, Literal
+
+import yaml
 
 from nanobot.security.workspace_policy import is_path_within, require_path_within
 
@@ -32,6 +35,11 @@ _BINARY_EXTENSIONS = frozenset({
 })
 
 MAX_READ_BYTES = 10 * 1024 * 1024
+_FRONTMATTER_RE = re.compile(
+    r"\A---[ \t]*\r?\n(?P<yaml>.*?)\r?\n---[ \t]*(?:\r?\n|\Z)",
+    re.DOTALL,
+)
+_DIARY_DATE_DIR_RE = re.compile(r"^\d{4}/\d{2}/")
 
 
 class WorkspaceFilesError(Exception):
@@ -179,3 +187,56 @@ def read_workspace_file(workspace_root: Path, rel_path: str | None) -> dict[str,
         "size_bytes": size_bytes,
         "truncated": truncated,
     }
+
+
+def _json_safe_yaml(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _json_safe_yaml(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_yaml(item) for item in value]
+    isoformat = getattr(value, "isoformat", None)
+    return isoformat() if callable(isoformat) else str(value)
+
+
+def read_diary_file(diary_root: Path, rel_path: str | None) -> dict[str, Any]:
+    """读取日记文件；Markdown 额外拆出 YAML frontmatter。"""
+    payload = read_workspace_file(diary_root, rel_path)
+    if payload.get("kind") != "text" or Path(payload["path"]).suffix.lower() != ".md":
+        return payload
+    match = _FRONTMATTER_RE.match(payload["content"])
+    if match is None:
+        return payload
+    try:
+        parsed = yaml.safe_load(match.group("yaml")) or {}
+    except yaml.YAMLError:
+        parsed = {}
+    payload["content"] = payload["content"][match.end():]
+    payload["frontmatter"] = _json_safe_yaml(parsed) if isinstance(parsed, dict) else {}
+    return payload
+
+
+def read_diary_image(
+    diary_root: Path,
+    note_path: str | None,
+    image_name: str | None,
+) -> dict[str, Any]:
+    """按日记年月从同级 ``assets/images/YYYY/MM`` 读取一个图片附件。"""
+    normalized_note = _normalize_rel_path(note_path)
+    _reject_unsafe_rel_path(normalized_note)
+    if not normalized_note or not _DIARY_DATE_DIR_RE.match(normalized_note):
+        raise WorkspaceFilesError("diary note path must start with YYYY/MM", status=400)
+    note = resolve_workspace_relative_path(diary_root, normalized_note)
+    if not note.is_file() or note.suffix.lower() not in {".md", ".markdown"}:
+        raise WorkspaceFilesError("diary note not found", status=404)
+
+    raw_name = (image_name or "").split("|", 1)[0].split("#", 1)[0].strip()
+    if not raw_name or "/" in raw_name or "\\" in raw_name or Path(raw_name).name != raw_name:
+        raise WorkspaceFilesError("invalid diary image name", status=400)
+    if Path(raw_name).suffix.lower() not in _IMAGE_EXTENSIONS:
+        raise WorkspaceFilesError("unsupported diary image type", status=415)
+
+    year, month = normalized_note.split("/", 2)[:2]
+    asset_root = diary_root.expanduser().resolve(strict=False).parent / "assets" / "images" / year / month
+    return read_workspace_file(asset_root, raw_name)
