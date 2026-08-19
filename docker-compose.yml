@@ -12,7 +12,7 @@ x-common-config: &common-config
     TZ: Asia/Shanghai
     HTTP_PROXY: "http://192.168.31.73:7890"
     HTTPS_PROXY: "http://192.168.31.73:7890"
-    NO_PROXY: "localhost,127.0.0.1,nanobot-gateway,nanobot-api"
+    NO_PROXY: "localhost,127.0.0.1,192.168.31.73,nanobot-gateway,nanobot-api"
     OAUTH_CLI_KIT_TOKEN_PATH: "/home/nanobot/.nanobot/auth/codex.json"
   group_add:
     - "281"

@@ -1,6 +1,6 @@
 """ActiveMemory hook：自动记忆召回。
 
-用户发消息时，用 MBP 上的 Ollama (qwen3:8b) 提取关键词，
+用户发消息时，用 NAS 上的 Ollama 微调模型提取关键词，
 grep 搜日记，把结果注入上下文。
 """
 
@@ -22,34 +22,16 @@ from nanobot.agent.hook import AgentHook, AgentHookContext
 
 # ── 配置 ──────────────────────────────────────────────
 
-OLLAMA_URL = "http://192.168.31.75:11434/api/generate"
-OLLAMA_MODEL = "qwen3:8b"
-OLLAMA_TIMEOUT = 3.0  # 秒，超时静默跳过
+OLLAMA_URL = "http://192.168.31.73:11434/api/chat"
+OLLAMA_MODEL = "active-memory:1.7b"
+OLLAMA_TIMEOUT = 6.0  # 秒，超时静默跳过
 
 MAX_RESULTS = 5
-MAX_KEYWORDS = 5
 ACTIVE_MEMORY_LOG_MAX_BYTES = 5 * 1024 * 1024
 
 SHANGHAI = timezone(timedelta(hours=8))
 
-PROMPT_TEMPLATE = """提取消息中的搜索关键词，用于在日记中检索相关历史记录。
-
-【提取】
-- 人名、作品名、事件名、地点名等专有名词
-- 食物名称、物品名称
-- 保留原文标点
-- 话题限定词（剧情、到货、bug 等）可紧跟实体
-- 即使语境是否定/推迟，实体名仍要提取
-
-【不提取】
-- 操作指令动词（下载、提取、执行、修复、检查、写、改等）
-- 文件路径、代码变量、技术术语
-- 纯感叹、问候、确认
-
-【格式】空格分隔（禁止顿号），最多{max_keywords}个；无关键词则输出"无"
-
-消息：{text}
-关键词："""
+SYSTEM_PROMPT = """你是日记检索数据标注员。只从用户消息原文复制最多5个搜索词，覆盖所有人名、作品名、地点名、事件名、食物名、物品名；剧情、到货、预购等限定词仅在原文出现时提取。否定、取消、推迟不影响实体提取。排除操作动词、文件路径、代码标识符、软件开发术语、问候、确认及无具体指代的词。禁止输出原文没有的词，禁止改写。以空格分隔；没有则只输出无，不要解释。"""
 
 
 # ── 核心 ──────────────────────────────────────────────
@@ -132,20 +114,27 @@ class ActiveMemoryHook(AgentHook):
         _log(self._log_path, log_entry, total_ms, search_ms)
 
     async def _extract_keywords(self, text: str) -> str:
-        """调 MBP Ollama 提取关键词。"""
-        prompt = PROMPT_TEMPLATE.format(text=text, max_keywords=MAX_KEYWORDS)
+        """调用 NAS Ollama 微调模型提取关键词。"""
         async with httpx.AsyncClient() as client:
             resp = await client.post(OLLAMA_URL, json={
                 "model": OLLAMA_MODEL,
-                "prompt": prompt,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": text},
+                ],
                 "think": False,
-                "options": {"temperature": 0.1, "max_tokens": 40},
+                "options": {
+                    "temperature": 0,
+                    "num_ctx": 1024,
+                    "num_predict": 30,
+                    "seed": 42,
+                },
                 "stream": False,
                 "keep_alive": -1,
             })
             resp.raise_for_status()
             data = resp.json()
-            return (data.get("response") or "").strip().replace("\n", " ")
+            return (data.get("message", {}).get("content") or "").strip().replace("\n", " ")
 
 
 # ── 搜索 ──────────────────────────────────────────────
@@ -231,9 +220,9 @@ def _extract_snippet(filepath: str, words: list[str]) -> str:
         lines = r.stdout.strip().split("\n")
         # 过滤概要行和分隔线
         cleaned = [
-            l for l in lines
-            if not l.strip().startswith("概要:")
-            and l.strip() not in ("---", "--", "")
+            line for line in lines
+            if not line.strip().startswith("概要:")
+            and line.strip() not in ("---", "--", "")
         ]
         return " ".join(cleaned)[:200]
     except Exception:
