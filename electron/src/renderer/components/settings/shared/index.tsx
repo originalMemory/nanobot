@@ -56,6 +56,7 @@ export type SettingsSectionKey =
   | "apps"
   | "runtime"
   | "deskPet"
+  | "avatarCompanion"
   | "tts"
   | "advanced";
 

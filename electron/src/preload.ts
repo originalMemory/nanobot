@@ -153,6 +153,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('psb:try-auto-open', token, url),
   },
 
+  livetalking: {
+    checkHealth: (): Promise<{
+      reachable: boolean;
+      lastCheckedAtMs: number | null;
+      lastError: string | null;
+    }> => ipcRenderer.invoke('livetalking:check-health'),
+    offer: (
+      sdp: string,
+      avatar?: string,
+    ): Promise<{ sdp?: string; type?: string; sessionid?: string; code?: number; msg?: string }> =>
+      ipcRenderer.invoke('livetalking:offer', sdp, avatar),
+    setAudiotype: (sessionid: string, audiotype: number): Promise<unknown> =>
+      ipcRenderer.invoke('livetalking:set-audiotype', sessionid, audiotype),
+    interrupt: (sessionid: string): Promise<unknown> =>
+      ipcRenderer.invoke('livetalking:interrupt', sessionid),
+    audiostreamStart: (sessionid: string, sampleRate: number): Promise<unknown> =>
+      ipcRenderer.invoke('livetalking:audiostream-start', sessionid, sampleRate),
+    audiostreamChunk: (sessionid: string, data: ArrayBuffer): Promise<unknown> =>
+      ipcRenderer.invoke('livetalking:audiostream-chunk', sessionid, data),
+    audiostreamFinish: (sessionid: string): Promise<unknown> =>
+      ipcRenderer.invoke('livetalking:audiostream-finish', sessionid),
+    isSpeaking: (sessionid: string): Promise<unknown> =>
+      ipcRenderer.invoke('livetalking:is-speaking', sessionid),
+  },
+
   /** THA 透明窗口鼠标穿透（与 SAP electronAPI 对齐） */
   setIgnoreMouseEvents: (
     ignore: boolean,

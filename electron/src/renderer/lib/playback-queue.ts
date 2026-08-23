@@ -4,6 +4,13 @@ import type {
   AssistantPlaybackSegment,
   AssistantSpeech,
 } from "./types";
+import {
+  finishLivetalkingStream,
+  interruptLivetalking,
+  isAvatarCompanionAudioActive,
+  sendLivetalkingChunk,
+  startLivetalkingStream,
+} from "./livetalking-bridge";
 
 type QueueKey = string;
 type PsbAction = { type: string; payload?: Record<string, unknown> };
@@ -166,13 +173,18 @@ function activateStream(stream: StreamingAudio): Promise<void> {
   if (stream.activation) return stream.activation;
   stream.activation = (async () => {
     try {
-      stream.delegated = await sendPsbAction({
-        type: "audio-stream-start",
-        payload: { audioId: stream.audioId, sampleRate: stream.sampleRate },
-      });
+      // 委托优先级: LiveTalking 数字伴侣 > psb 桌宠 > 本地播放
+      stream.delegated = await startLivetalkingStream(stream.audioId, stream.sampleRate);
+      if (!stream.delegated) {
+        stream.delegated = await sendPsbAction({
+          type: "audio-stream-start",
+          payload: { audioId: stream.audioId, sampleRate: stream.sampleRate },
+        });
+      }
       if (streams.get(stream.audioId) !== stream) {
         if (stream.delegated) {
           await sendPsbAction({ type: "audio-stream-stop", payload: { audioId: stream.audioId } });
+          await finishLivetalkingStream();
         }
         return;
       }
@@ -184,7 +196,9 @@ function activateStream(stream: StreamingAudio): Promise<void> {
       stream.activatedAtMs = Date.now();
       const chunks = stream.buffered.splice(0);
       for (const chunk of chunks) {
-        if (stream.delegated) {
+        if (stream.delegated && isAvatarCompanionAudioActive()) {
+          await sendLivetalkingChunk(chunk.data);
+        } else if (stream.delegated) {
           queueDelegatedChunk(stream, chunk.data);
         } else {
           scheduleLocalChunk(stream, chunk.pcm);
@@ -207,7 +221,10 @@ function stopStreamingAudio(audioId: string): void {
     try { source.stop(); } catch { /* already ended */ }
   });
   if (stream.context) void stream.context.close();
-  if (stream.delegated) {
+  if (stream.delegated && isAvatarCompanionAudioActive()) {
+    void finishLivetalkingStream();
+    void interruptLivetalking();
+  } else if (stream.delegated) {
     void sendPsbAction({ type: "audio-stream-stop", payload: { audioId } });
   }
   streams.delete(audioId);
@@ -264,7 +281,19 @@ export function appendAssistantAudioChunk(audio: AssistantAudioChunk): void {
     if (stream.buffered.length >= 2 || stream.bufferedSeconds >= 1) void activateStream(stream);
     return;
   }
-  if (stream.delegated) {
+  if (stream.delegated && isAvatarCompanionAudioActive()) {
+    stream.deliveryChain = stream.deliveryChain.then(async () => {
+      if (streams.get(stream.audioId) !== stream) return;
+      const ok = await sendLivetalkingChunk(audio.data);
+      if (!ok) {
+        // LiveTalking 中途失败: 停止委托，剩余块回退本地播放
+        stream.delegated = false;
+        stream.context = new AudioContext({ sampleRate: stream.sampleRate });
+        stream.nextStartTime = stream.context.currentTime + 0.03;
+        scheduleLocalChunk(stream, pcm);
+      }
+    });
+  } else if (stream.delegated) {
     queueDelegatedChunk(stream, audio.data);
   } else {
     scheduleLocalChunk(stream, pcm);
@@ -283,7 +312,11 @@ export async function finishAssistantAudioStream(audio: AssistantSpeech): Promis
   if (stream.delegated) {
     await stream.deliveryChain;
     if (!streams.has(audio.audioId)) return;
-    await sendPsbAction({ type: "audio-stream-end", payload: { audioId: stream.audioId } });
+    if (isAvatarCompanionAudioActive()) {
+      await finishLivetalkingStream();
+    } else {
+      await sendPsbAction({ type: "audio-stream-end", payload: { audioId: stream.audioId } });
+    }
   }
   const remainingMs = stream.context
     ? Math.max(0, (stream.nextStartTime - stream.context.currentTime) * 1000)

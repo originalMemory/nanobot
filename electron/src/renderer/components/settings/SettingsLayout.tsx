@@ -1,4 +1,4 @@
-import { Activity, Blocks, ChevronLeft, Globe2, ImageIcon, Palette, PawPrint, Server, ShieldCheck, SlidersHorizontal, Volume2, type LucideIcon } from "lucide-react";
+import { Activity, Blocks, ChevronLeft, Globe2, ImageIcon, Palette, PawPrint, Server, ShieldCheck, SlidersHorizontal, UserRound, Volume2, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import type { SettingsSectionKey } from "./shared";
@@ -20,6 +20,7 @@ const SETTINGS_NAV_ITEMS: Array<{
   { key: "apps", icon: Blocks, fallback: "Apps" },
   { key: "runtime", icon: Server, fallback: "Runtime" },
   { key: "deskPet", icon: PawPrint, fallback: "Desk Pet" },
+  { key: "avatarCompanion", icon: UserRound, fallback: "Avatar Companion" },
   { key: "tts", icon: Volume2, fallback: "TTS" },
   { key: "advanced", icon: ShieldCheck, fallback: "Advanced" },
 ];

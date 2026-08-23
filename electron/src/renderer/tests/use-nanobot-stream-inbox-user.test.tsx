@@ -62,6 +62,7 @@ describe("useNanobotStream inbox user events", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -808,6 +809,7 @@ describe("useNanobotStream inbox user events", () => {
   });
 
   it("clears a local turn missing turn_end when goal status becomes idle", () => {
+    vi.useFakeTimers();
     const { client, chatHandlers } = createMockClient();
     const wrapper = ({ children }: { children: ReactNode }) => (
       <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
@@ -825,10 +827,44 @@ describe("useNanobotStream inbox user events", () => {
       handle({ event: "goal_status", chat_id: "inbox:unified", status: "idle" });
     });
 
+    expect(result.current.isStreaming).toBe(true);
+    act(() => vi.advanceTimersByTime(1000));
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.messages).toEqual([
       expect.objectContaining({ turnId: "turn-a", content: "done", isStreaming: false }),
     ]);
+  });
+
+  it("does not end streaming when more output follows an early idle status", () => {
+    vi.useFakeTimers();
+    const { client, chatHandlers } = createMockClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ClientProvider client={client} token="t" apiBase="http://127.0.0.1:8765">
+        {children}
+      </ClientProvider>
+    );
+    const { result } = renderHook(
+      () => useNanobotStream("inbox:unified", []),
+      { wrapper },
+    );
+    const handle = chatHandlers.get("inbox:unified")!;
+
+    act(() => {
+      handle({ event: "delta", chat_id: "inbox:unified", text: "first", turn_id: "turn-a" });
+      handle({ event: "goal_status", chat_id: "inbox:unified", status: "idle" });
+      handle({ event: "delta", chat_id: "inbox:unified", text: " last", turn_id: "turn-a" });
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ turnId: "turn-a", content: "first last", isStreaming: true }),
+    ]);
+
+    act(() => {
+      handle({ event: "turn_end", chat_id: "inbox:unified", turn_id: "turn-a" });
+    });
+    expect(result.current.isStreaming).toBe(false);
   });
 
   it("an error only finalizes its matching turn", () => {

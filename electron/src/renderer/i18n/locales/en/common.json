@@ -1,4 +1,16 @@
 {
+  "avatarCompanion": {
+    "title": "Companion",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "hide": "Hide",
+    "unavailable": "LiveTalking service unavailable",
+    "audioFallback": "Voice replies play normally.",
+    "stateIdle": "Idle",
+    "stateWorking": "Working",
+    "stateSpeaking": "Speaking",
+    "stateUnavailable": "Offline"
+  },
   "app": {
     "brand": "nanobot",
     "loading": {
@@ -455,6 +467,20 @@
       "modeAlways": "Always read aloud",
       "defaultVoice": "Default voice",
       "defaultVoiceDesc": "Voice name or voice_id, such as Candace or tongtong."
+    },
+    "avatarCompanion": {
+      "serviceSection": "LiveTalking service",
+      "enable": "Enable avatar companion",
+      "enableDescription": "Requires a local LiveTalking service (loopback only). Chat and voice playback stay unaffected when disabled.",
+      "serverUrl": "Server URL",
+      "serverUrlDescription": "LiveTalking local service address. Loopback addresses only.",
+      "nonLoopback": "Loopback only",
+      "checkConnection": "Check",
+      "connectionStatus": "Connection status",
+      "reachable": "Reachable",
+      "unreachable": "Unreachable",
+      "timeout": "Timeout (ms)",
+      "timeoutDescription": "Health check and audio submission timeout."
     },
     "deskPet": {
       "tabs": {

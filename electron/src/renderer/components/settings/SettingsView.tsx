@@ -43,6 +43,7 @@ import { WebSection } from "./WebSection";
 import { AppsSection } from "./AppsSection";
 import { RuntimeSection } from "./RuntimeSection";
 import { AdvancedSection } from "./AdvancedSection";
+import { AvatarCompanionSection } from "./AvatarCompanionSection";
 import { DeskPetSection } from "./DeskPetSection";
 import { TtsSection } from "./TtsSection";
 
@@ -415,6 +416,8 @@ export function SettingsView({
             onRefreshSettings={handleRefreshSettings}
           />
         );
+      case "avatarCompanion":
+        return <AvatarCompanionSection />;
       case "tts":
         return (
           <TtsSection
@@ -458,13 +461,16 @@ export function SettingsView({
     }
   }
 
+  // avatarCompanion 与 appearance 一样只依赖本地偏好，不受网关设置加载态影响
+  const localOnly = activeSection === "appearance" || activeSection === "avatarCompanion";
+
   return (
     <SettingsLayout
       activeSection={activeSection}
       onSelectSection={setActiveSection}
       onBack={onBack}
-      loading={activeSection !== "appearance" && settingsLoading}
-      error={activeSection !== "appearance" ? settingsError : null}
+      loading={!localOnly && settingsLoading}
+      error={!localOnly ? settingsError : null}
     >
       {renderSection()}
     </SettingsLayout>

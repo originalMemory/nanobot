@@ -25,6 +25,7 @@ const MIN_WALLPAPER_INTERVAL_MINUTES = 1;
 const WINDOWS_TOAST_ACTIVATOR_CLSID = '{D405C197-DC97-4A6C-ACD8-3D10BCBD5365}';
 import { DEFAULT_PSB_LOCAL_PREFS, type DeskPetLocalPrefs } from './psb/types';
 import { cleanupPsbOnQuit, registerPsbIpcHandlers } from './main/psb-manager';
+import { registerLivetalkingIpcHandlers } from './main/livetalking';
 import Store from 'electron-store';
 import { APP_ID, APP_NAME } from '../app.meta';
 import {
@@ -174,6 +175,8 @@ registerPsbIpcHandlers({
     token: '',
   }),
 });
+
+registerLivetalkingIpcHandlers({ store });
 
 // ---------------------------------------------------------------------------
 // IPC handlers (6.4)

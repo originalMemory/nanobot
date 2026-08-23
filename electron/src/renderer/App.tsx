@@ -6,6 +6,7 @@ import { InboxView } from "@/components/InboxView";
 import { AutomationView } from "@/components/automations/AutomationView";
 import { ScreenshotPreviewModal } from "@/components/ScreenshotPreviewModal";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { AvatarCompanionPanel } from "@/components/ui/AvatarCompanionPanel";
 import type { SettingsSectionKey } from "@/components/settings/shared";
 import { WorkspaceView } from "@/components/workspace/WorkspaceView";
 import { WallpaperLayer } from "@/components/WallpaperLayer";
@@ -417,6 +418,7 @@ function Shell({
                 onReasoningEffortSelect={handleSelectReasoningEffort}
                 focusComposerSignal={focusComposerSignal}
               />
+              <AvatarCompanionPanel />
             </div>
             {view === "settings" ? (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

@@ -89,6 +89,23 @@ interface ElectronAPI {
     updateFollowMouse(enabled: boolean): Promise<{ ok: boolean; followMouse?: boolean }>;
     tryAutoOpen(token?: string, url?: string): Promise<void>;
   };
+  livetalking: {
+    checkHealth(): Promise<{
+      reachable: boolean;
+      lastCheckedAtMs: number | null;
+      lastError: string | null;
+    }>;
+    offer(
+      sdp: string,
+      avatar?: string,
+    ): Promise<{ sdp?: string; type?: string; sessionid?: string; code?: number; msg?: string }>;
+    setAudiotype(sessionid: string, audiotype: number): Promise<unknown>;
+    interrupt(sessionid: string): Promise<unknown>;
+    audiostreamStart(sessionid: string, sampleRate: number): Promise<unknown>;
+    audiostreamChunk(sessionid: string, data: ArrayBuffer): Promise<unknown>;
+    audiostreamFinish(sessionid: string): Promise<unknown>;
+    isSpeaking(sessionid: string): Promise<unknown>;
+  };
   /** THA 透明窗口鼠标穿透 */
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): Promise<void>;
   screenshot: {

@@ -1,4 +1,16 @@
 {
+  "avatarCompanion": {
+    "title": "数字伴侣",
+    "collapse": "收起",
+    "expand": "展开",
+    "hide": "隐藏",
+    "unavailable": "LiveTalking 服务不可用",
+    "audioFallback": "语音回复正常播放。",
+    "stateIdle": "待机",
+    "stateWorking": "工作中",
+    "stateSpeaking": "说话中",
+    "stateUnavailable": "离线"
+  },
   "app": {
     "brand": "nanobot",
     "loading": {
@@ -455,6 +467,20 @@
       "modeAlways": "始终朗读",
       "defaultVoice": "默认音色",
       "defaultVoiceDesc": "音色名称或 voice_id（如：坎蒂丝 / tongtong）。"
+    },
+    "avatarCompanion": {
+      "serviceSection": "LiveTalking 服务",
+      "enable": "启用数字伴侣",
+      "enableDescription": "需要本地 LiveTalking 服务（仅限回环地址）。关闭时不影响聊天与语音播放。",
+      "serverUrl": "服务地址",
+      "serverUrlDescription": "LiveTalking 本地服务地址，仅接受本机回环地址。",
+      "nonLoopback": "仅限回环地址",
+      "checkConnection": "测试连接",
+      "connectionStatus": "连接状态",
+      "reachable": "可连接",
+      "unreachable": "无法连接",
+      "timeout": "超时（毫秒）",
+      "timeoutDescription": "健康检查与音频提交超时时间。"
     },
     "deskPet": {
       "tabs": {

@@ -17,6 +17,12 @@ import {
   startAssistantAudioStream,
   stopAssistantPlayback,
 } from "@/lib/playback-queue";
+import {
+  avatarCompanionInterrupt,
+  avatarCompanionSpeaking,
+  avatarCompanionTurnEnd,
+  avatarCompanionTurnStart,
+} from "@/lib/livetalking-bridge";
 import type {
   AssistantPlaybackSegment,
   AssistantSpeech,
@@ -651,13 +657,7 @@ export function useNanobotStream(
   const pendingSpeechRef = useRef<Map<string, AssistantSpeech>>(new Map());
   const captionFrameRef = useRef<number | null>(null);
   const suppressedTurnIdsRef = useRef<Set<string>>(new Set());
-  /** Timer that defers ``isStreaming = false`` after ``stream_end``.
-   *
-   * When the model finishes a text segment and calls a tool, the server
-   * sends ``stream_end`` but the agent is still "thinking" while the tool
-   * executes.  By deferring the flag reset by a short window (1 s) we keep
-   * the loading spinner alive across tool-call boundaries without needing
-   * backend changes. */
+  /** idle 兜底延迟；后续流事件会取消，避免早于 ``turn_end`` 结束展示。 */
   const streamEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const captionPartsRef = useRef<Map<number, VisionCaptionPart>>(new Map());
   const captionImageCountRef = useRef(0);
@@ -1217,6 +1217,8 @@ export function useNanobotStream(
       if (ev.event === "assistant_audio_start") {
         flushPendingStreamEvents();
         startAssistantAudioStream(ev.audio);
+        // 数字伴侣: 音频即说话(LiveTalking 服务端自动退出工作态)
+        avatarCompanionSpeaking();
         return;
       }
 
@@ -1259,28 +1261,31 @@ export function useNanobotStream(
           setRunStartedAt(ev.started_at);
         } else {
           setRunStartedAt(null);
-          const finishedLocalTurnIds = new Set(
-            [...activeTurnIdsRef.current].filter(
-              (turnId) => !turnSourceChannelsRef.current.has(turnId),
-            ),
-          );
-          for (const turnId of finishedLocalTurnIds) {
-            closedTurnIdsRef.current.add(turnId);
-            activeTurnIdsRef.current.delete(turnId);
-            clearActivitySegment(turnId);
-          }
-          setIsStreaming(activeTurnIdsRef.current.size > 0);
-          setMessages((prev) => prev
-            .filter((message) => (
-              !message.activityId
-              || !message.turnId
-              || !finishedLocalTurnIds.has(message.turnId)
-            ))
-            .map((message) => (
-              message.isStreaming && message.turnId && finishedLocalTurnIds.has(message.turnId)
-                ? { ...message, isStreaming: false }
-                : message
-            )));
+          streamEndTimerRef.current = setTimeout(() => {
+            streamEndTimerRef.current = null;
+            const finishedLocalTurnIds = new Set(
+              [...activeTurnIdsRef.current].filter(
+                (turnId) => !turnSourceChannelsRef.current.has(turnId),
+              ),
+            );
+            for (const turnId of finishedLocalTurnIds) {
+              closedTurnIdsRef.current.add(turnId);
+              activeTurnIdsRef.current.delete(turnId);
+              clearActivitySegment(turnId);
+            }
+            setIsStreaming(activeTurnIdsRef.current.size > 0);
+            setMessages((prev) => prev
+              .filter((message) => (
+                !message.activityId
+                || !message.turnId
+                || !finishedLocalTurnIds.has(message.turnId)
+              ))
+              .map((message) => (
+                message.isStreaming && message.turnId && finishedLocalTurnIds.has(message.turnId)
+                  ? { ...message, isStreaming: false }
+                  : message
+              )));
+          }, 1000);
         }
         return;
       }
@@ -1299,6 +1304,8 @@ export function useNanobotStream(
       if (ev.event === "turn_end") {
         const turn = turnFieldsFromEvent(ev, "complete");
         if (!turn) return;
+        // 数字伴侣: 回合结束回待机池(音频若仍在播, 服务端说话结束后自然回落)
+        avatarCompanionTurnEnd();
         if ("goal_state" in ev && ev.goal_state != null && typeof ev.goal_state === "object") {
           setGoalState(ev.goal_state);
         }
@@ -1740,6 +1747,8 @@ export function useNanobotStream(
       // Mark streaming immediately so the UI shows the loading indicator
       // right away, before the first delta arrives from the server.
       setIsStreaming(true);
+      // 数字伴侣: 新回合开始 -> 工作态池(有音频时服务端自动切说话)
+      avatarCompanionTurnStart();
       const wireMedia = hasImages ? images!.map((i) => i.media) : undefined;
       client.sendMessage(chatId, content, wireMedia, { ...options, turnId });
     },
@@ -1750,6 +1759,8 @@ export function useNanobotStream(
     if (!chatId) return;
     flushPendingStreamEvents();
     setIsStreaming(false);
+    // 数字伴侣: 手动停止 -> 打断说话并回待机
+    avatarCompanionInterrupt();
     setTurnModelName(null);
     setTurnModelProvider(null);
     for (const turnId of activeTurnIdsRef.current) closedTurnIdsRef.current.add(turnId);

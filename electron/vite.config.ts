@@ -18,6 +18,7 @@ export default defineConfig({
       "src/renderer/**/*.test.ts",
       "src/renderer/**/*.test.tsx",
       "src/psb/**/*.test.ts",
+      "src/main/**/*.test.ts",
     ],
   },
 });
