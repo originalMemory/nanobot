@@ -594,6 +594,8 @@ def _model_call_order_state(config: Config) -> tuple[list[str], bool]:
     for fallback in defaults.fallback_models:
         if not isinstance(fallback, str):
             return [], False
+        if fallback == primary:
+            continue
         order.append(fallback)
     return order, True
 
@@ -886,13 +888,6 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
         if preset_value is not None and preset_value not in config.model_presets:
             raise WebUISettingsError("unknown model preset")
         if defaults.model_preset != preset_value:
-            current_order, editable = _model_call_order_state(config)
-            if editable and preset_value is not None:
-                reordered = [
-                    preset_value,
-                    *(name for name in current_order if name != preset_value),
-                ]
-                defaults.fallback_models = reordered[1:]
             defaults.model_preset = preset_value
             changed = True
 

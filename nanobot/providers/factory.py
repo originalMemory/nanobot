@@ -129,9 +129,12 @@ def _resolve_fallback_presets(config: Config, primary: ModelPresetConfig) -> lis
     presets: list[ModelPresetConfig] = []
     for fallback in config.agents.defaults.fallback_models:
         if isinstance(fallback, str):
-            presets.append(config.model_presets[fallback])
+            candidate = config.model_presets[fallback]
         else:
-            presets.append(_inline_fallback_preset(primary, fallback))
+            candidate = _inline_fallback_preset(primary, fallback)
+        if candidate.model == primary.model and candidate.provider == primary.provider:
+            continue
+        presets.append(candidate)
     return presets
 
 

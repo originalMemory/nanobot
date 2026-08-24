@@ -14,13 +14,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nanobot.agent.vision_caption import (
-    CaptionResult,
     _CAPTION_PROMPT,
+    CaptionResult,
     caption_images,
-    format_captions,
 )
 from nanobot.bus.events import InboundMessage
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -292,6 +290,10 @@ def _make_fake_loop(
     loop = types.SimpleNamespace(
         _vision_provider=vision_provider,
         _vision_model=vision_model,
+        _configured_vision_model=vision_model,
+        _configured_vision_provider_name=None,
+        _vision_provider_factory=None,
+        provider=None,
         _unified_session=unified_session,
         bus=bus,
         _outbound_calls=outbound_calls,
@@ -340,6 +342,64 @@ async def test_state_caption_skips_when_media_empty() -> None:
 
     assert result == "ok"
     mock_caption.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_state_caption_uses_vision_enabled_fallback_when_primary_vision_disabled() -> None:
+    """主模型关闭辅助视觉时，启用视觉的 fallback 仍应先生成 caption。"""
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.config.schema import ModelPresetConfig
+    from nanobot.providers.fallback_provider import FallbackProvider
+
+    vision_provider = MagicMock()
+    loop = _make_fake_loop()
+    loop.provider = FallbackProvider(
+        primary=MagicMock(),
+        fallback_presets=[ModelPresetConfig(model="fallback", vision_enabled=True)],
+        provider_factory=MagicMock(),
+    )
+    loop._configured_vision_model = "vision-model"
+    loop._configured_vision_provider_name = "gemini"
+    loop._vision_provider_factory = MagicMock(return_value=vision_provider)
+    ctx = _make_turn_ctx(media=["/img/cat.png"])
+    results = [CaptionResult(index=0, path="/img/cat.png", text="一只猫")]
+
+    with (
+        patch("nanobot.agent.vision_caption.caption_images", new=AsyncMock(return_value=results)) as caption,
+        patch("nanobot.agent.vision_caption.format_captions", return_value="图片描述：一只猫"),
+    ):
+        result = await AgentLoop._state_caption(loop, ctx)
+
+    assert result == "ok"
+    loop._vision_provider_factory.assert_called_once_with("vision-model", "gemini")
+    assert caption.await_args.kwargs["provider"] is vision_provider
+    assert ctx.msg.media == []
+
+
+@pytest.mark.asyncio
+async def test_state_caption_does_not_forward_media_when_fallback_vision_init_fails() -> None:
+    """fallback 的辅助视觉 provider 初始化失败也必须移除原始图片。"""
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.config.schema import ModelPresetConfig
+    from nanobot.providers.fallback_provider import FallbackProvider
+
+    loop = _make_fake_loop()
+    loop.provider = FallbackProvider(
+        primary=MagicMock(),
+        fallback_presets=[ModelPresetConfig(model="fallback", vision_enabled=True)],
+        provider_factory=MagicMock(),
+    )
+    loop._configured_vision_model = "vision-model"
+    loop._vision_provider_factory = MagicMock(side_effect=RuntimeError("unavailable"))
+    ctx = _make_turn_ctx(media=["/img/cat.png"])
+
+    with patch("nanobot.agent.vision_caption.caption_images") as caption:
+        result = await AgentLoop._state_caption(loop, ctx)
+
+    assert result == "ok"
+    caption.assert_not_called()
+    assert ctx.msg.media == []
+    assert "初始化失败" in ctx.msg.content
 
 
 @pytest.mark.asyncio

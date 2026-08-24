@@ -98,6 +98,11 @@ class FallbackProvider(LLMProvider):
         """返回主 provider，供不应影响 fallback 熔断状态的后台维护调用。"""
         return self._primary
 
+    @property
+    def has_vision_enabled_fallback(self) -> bool:
+        """是否存在启用辅助视觉的候选 fallback。"""
+        return any(preset.vision_enabled for preset in self._fallback_presets)
+
     async def _notify_model(
         self,
         model: str,

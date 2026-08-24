@@ -121,6 +121,23 @@ def test_fallback_models_accept_preset_refs_and_inline_configs() -> None:
     )
 
 
+def test_active_model_is_not_its_own_fallback() -> None:
+    from nanobot.config.schema import Config
+    from nanobot.providers.factory import _resolve_fallback_presets
+
+    config = Config.model_validate({
+        "agents": {"defaults": {"modelPreset": "primary", "fallbackModels": ["primary", "backup"]}},
+        "modelPresets": {
+            "primary": {"provider": "openai", "model": "gpt-4.1"},
+            "backup": {"provider": "openai", "model": "gpt-4.1-mini"},
+        },
+    })
+
+    fallbacks = _resolve_fallback_presets(config, config.resolve_preset())
+
+    assert [preset.model for preset in fallbacks] == ["gpt-4.1-mini"]
+
+
 def test_fallback_model_preset_ref_must_exist() -> None:
     from nanobot.config.schema import Config
 

@@ -1612,8 +1612,32 @@ class AgentLoop:
         """
         from nanobot.agent.vision_caption import caption_images, format_captions
 
-        if not self._vision_provider or not self._vision_model:
-            return "ok"
+        vision_provider = self._vision_provider
+        vision_model = self._vision_model
+        fallback_provider = self.provider if isinstance(self.provider, FallbackProvider) else None
+        fallback_requires_caption = (
+            not vision_provider
+            and fallback_provider is not None
+            and fallback_provider.has_vision_enabled_fallback
+        )
+        vision_provider_error: str | None = None
+        if fallback_requires_caption and self._configured_vision_model and self._vision_provider_factory:
+            try:
+                vision_provider = self._vision_provider_factory(
+                    self._configured_vision_model,
+                    self._configured_vision_provider_name,
+                )
+                if not vision_provider:
+                    raise RuntimeError("provider 未创建")
+                vision_model = self._configured_vision_model
+            except Exception as exc:
+                vision_provider_error = f"辅助视觉模型初始化失败：{exc}"
+                logger.warning("为启用视觉的 fallback 创建辅助视觉 provider 失败", exc_info=True)
+        elif fallback_requires_caption:
+            vision_provider_error = "辅助视觉模型未配置"
+        if not vision_provider or not vision_model:
+            if vision_provider_error is None:
+                return "ok"
         if not ctx.msg.media:
             return "ok"
 
@@ -1668,12 +1692,20 @@ class AgentLoop:
                 "on_image_end": _on_caption_image_end,
             }
 
-        results = await caption_images(
-            image_paths=ctx.msg.media,
-            provider=self._vision_provider,
-            model=self._vision_model,
-            **caption_kwargs,
-        )
+        if vision_provider_error is not None:
+            from nanobot.agent.vision_caption import CaptionResult
+
+            results = [
+                CaptionResult(index=i, path=path, error=vision_provider_error)
+                for i, path in enumerate(ctx.msg.media)
+            ]
+        else:
+            results = await caption_images(
+                image_paths=ctx.msg.media,
+                provider=vision_provider,
+                model=vision_model,
+                **caption_kwargs,
+            )
         elapsed = time.monotonic() - t0
 
         failed = [r for r in results if not r.success]

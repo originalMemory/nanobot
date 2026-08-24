@@ -58,9 +58,9 @@ def test_model_call_order_migrates_and_updates_named_presets(
     assert saved.agents.defaults.fallback_models == [primary]
 
     switched = update_agent_settings({"model_preset": [primary]})
-    assert switched["model_call_order"] == [primary, "fast"]
+    assert switched["model_call_order"] == [primary]
     saved = load_config(config_path)
-    assert saved.agents.defaults.fallback_models == ["fast"]
+    assert saved.agents.defaults.fallback_models == [primary]
 
     edited = update_model_configuration({"name": ["fast"], "label": ["Fast edited"]})
     assert edited["model_call_order"] == ["fast", primary]
