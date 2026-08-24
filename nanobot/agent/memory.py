@@ -872,7 +872,7 @@ class Consolidator:
             return truncate_text(text, _RAW_ARCHIVE_MAX_CHARS)
         try:
             enc = tiktoken.get_encoding("cl100k_base")
-            tokens = enc.encode(text)
+            tokens = enc.encode(text, disallowed_special=())
             if len(tokens) <= budget:
                 return text
             return enc.decode(tokens[:budget]) + "\n... (truncated)"

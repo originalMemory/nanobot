@@ -457,7 +457,7 @@ def estimate_prompt_tokens(
             parts.append(json.dumps(tools, ensure_ascii=False))
 
         per_message_overhead = len(messages) * 4
-        return len(enc.encode("\n".join(parts))) + per_message_overhead
+        return len(enc.encode("\n".join(parts), disallowed_special=())) + per_message_overhead
     except Exception:
         return 0
 
@@ -495,7 +495,7 @@ def estimate_message_tokens(message: dict[str, Any]) -> int:
         return 4
     try:
         enc = tiktoken.get_encoding("cl100k_base")
-        return max(4, len(enc.encode(payload)) + 4)
+        return max(4, len(enc.encode(payload, disallowed_special=())) + 4)
     except Exception:
         return max(4, len(payload) // 4 + 4)
 

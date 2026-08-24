@@ -656,6 +656,14 @@ class TestRawArchiveTruncation:
 class TestArchiveTruncation:
     """archive() must truncate formatted text before sending to consolidation LLM."""
 
+    def test_token_budget_truncation_handles_special_token_text(self, consolidator):
+        consolidator.context_window_tokens = 6_000
+
+        truncated = consolidator._truncate_to_token_budget("<|endoftext|> " * 10_000)
+
+        assert "(truncated)" in truncated
+        assert len(truncated) < len("<|endoftext|> " * 10_000)
+
     async def test_archive_truncates_large_formatted_text(self, consolidator, mock_provider, store):
         """Large formatted text should be truncated to token budget before LLM call."""
         # context_window_tokens=1000, max_completion_tokens=100, _SAFETY_BUFFER=1024

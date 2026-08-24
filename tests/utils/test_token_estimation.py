@@ -1,4 +1,8 @@
-from nanobot.utils.helpers import estimate_prompt_tokens_chain
+from nanobot.utils.helpers import (
+    estimate_message_tokens,
+    estimate_prompt_tokens,
+    estimate_prompt_tokens_chain,
+)
 
 
 class _NoCounterProvider:
@@ -30,3 +34,15 @@ def test_estimate_prompt_tokens_chain_falls_back_when_provider_counter_fails() -
 
     assert tokens > 0
     assert source == "tiktoken"
+
+
+def test_token_estimates_treat_special_token_text_as_plain_content() -> None:
+    message = {
+        "role": "tool",
+        "name": "read_file",
+        "tool_call_id": "call-1",
+        "content": "model log: <|endoftext|>",
+    }
+
+    assert estimate_prompt_tokens([message]) > 0
+    assert estimate_message_tokens(message) > 4

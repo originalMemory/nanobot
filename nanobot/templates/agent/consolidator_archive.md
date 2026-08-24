@@ -18,6 +18,14 @@ Marks (choose the best match):
 
 Priority: user corrections and preferences > solutions > decisions > events > environment facts. The most valuable memory prevents the user from having to repeat themselves.
 
+For every retained fact involving an action, judgment, decision, recommendation, or correction, preserve the actor and status explicitly:
+- `用户确认／决定／亲自完成：…`
+- `焰执行／建议／判断／修复：…`
+- `系统／cron：仅提醒／自动执行／未执行：…`
+- Do not turn the assistant's suggestion, inference, query, or action into a user decision, opinion, or completed action.
+
+Retain operational corrections only when forgetting them would repeat a user-visible failure. State `旧规则 → 正确规则 → 适用边界`, including external identifier mappings, cron responsibility boundaries, path migrations, and whether media must enter the diary.
+
 Do not mark something [skip] merely because it might already exist in long-term memory; Dream handles cross-file deduplication later.
 
 Output concise bullet points only. No preamble, no commentary.
