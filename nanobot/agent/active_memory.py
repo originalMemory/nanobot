@@ -36,9 +36,10 @@ MAX_RESULTS = 10
 RECENT_RESULTS_WITHOUT_CARD = 6
 HISTORICAL_RESULTS_WITHOUT_CARD = 4
 TOPIC_THRESHOLD = 20
-TOPIC_MIN_MONTHS = 3
 TOPIC_MIN_SPAN_DAYS = 90
-TOPIC_CARD_SCHEMA_VERSION = 2
+TOPIC_CARD_SCHEMA_VERSION = 5
+TOPIC_DECISION_SCHEMA_VERSION = 1
+TOPIC_DECISION_SAMPLE_SIZE = 16
 ACTIVE_MEMORY_LOG_MAX_BYTES = 5 * 1024 * 1024
 
 SHANGHAI = timezone(timedelta(hours=8))
@@ -133,6 +134,8 @@ class ActiveMemoryHook(AgentHook):
         log_entry["files"] = [h["date"] for h in hits]
         log_entry["candidate_count"] = len(search.candidates)
         log_entry["topic"] = search.topic
+        log_entry["topic_candidate"] = search.update_topic
+        log_entry["topic_candidate_terms"] = list(search.topic_evidence_terms)
         log_entry["topic_card"] = "hit" if search.topic_card else "miss"
 
         if not hits:
@@ -146,12 +149,19 @@ class ActiveMemoryHook(AgentHook):
         log_entry["action"] = "injected"
         log_entry["injection_chars"] = len(injection)
 
-        if search.topic and search.topic_files:
+        update_topic = search.update_topic or search.topic
+        if search.update_topic is not None:
+            update_files = search.update_topic_files
+            update_fingerprint = search.update_fingerprint
+        else:
+            update_files = search.topic_files
+            update_fingerprint = search.fingerprint
+        if update_topic and update_files:
             self._maybe_schedule_topic_card(
-                search.topic,
-                search.topic_files,
-                search.fingerprint,
-                force=search.force_topic_update,
+                update_topic,
+                update_files,
+                update_fingerprint,
+                force=search.update_topic is not None,
                 evidence_terms=search.topic_evidence_terms,
             )
 
@@ -200,6 +210,9 @@ class ActiveMemoryHook(AgentHook):
         if not self._topic_dir or not self._summarize or not self._schedule:
             return
         card = _find_topic_card(self._topic_dir, [topic])
+        decision = _load_topic_decision(self._topic_dir, topic)
+        if not card and decision and decision.get("eligible") is False:
+            return
         if (
             not force
             and card
@@ -227,6 +240,24 @@ class ActiveMemoryHook(AgentHook):
         async def build() -> None:
             started = time.monotonic()
             try:
+                card = _find_topic_card(self._topic_dir, [topic])
+                decision = _load_topic_decision(self._topic_dir, topic)
+                if not card and decision is None:
+                    eligible, reason = await _assess_topic_candidate(
+                        topic=topic,
+                        files=files,
+                        summarize=self._summarize,
+                    )
+                    _write_topic_decision(self._topic_dir, topic, eligible, reason)
+                    decision = {"eligible": eligible, "reason": reason}
+                if not card and decision and decision.get("eligible") is False:
+                    _log(self._log_path, {
+                        "action": "topic_card_rejected",
+                        "topic": topic,
+                        "reason": str(decision.get("reason") or "")[:300],
+                        "source_count": len(files),
+                    }, int((time.monotonic() - started) * 1000), 0)
+                    return
                 updated = await _build_topic_card(
                     topic=topic,
                     files=files,
@@ -273,8 +304,10 @@ class DiarySearchResult:
     topic_files: list[str] | None = None
     fingerprint: str = ""
     topic_card: dict[str, Any] | None = None
-    force_topic_update: bool = False
     topic_evidence_terms: tuple[str, ...] = ()
+    update_topic: str | None = None
+    update_topic_files: list[str] | None = None
+    update_fingerprint: str = ""
 
 
 def _grep_diary(keywords: str, diary_root: str = "") -> list[dict[str, Any]]:
@@ -333,22 +366,11 @@ def _search_diary(
         if topic_dir
         else None
     )
-    inferred_topic_files: set[str] | None = None
-    inferred_term: str | None = None
-    if topic_dir and not topic_card:
-        inferred = _infer_parent_topic_card(
-            topic_dir,
-            words,
-            sets,
-            diary_root,
-        )
-        if inferred:
-            topic_card, inferred_topic_files, inferred_term = inferred
     if topic_card:
         topic = str(topic_card["topic"])
         names = {topic, *(str(alias) for alias in topic_card.get("aliases") or [])}
         related_sets = [files for word, files in zip(words, sets, strict=True) if word in names]
-        canonical_files = inferred_topic_files or (
+        canonical_files = (
             topic_card.get("_topic_files")
             or (sets[words.index(topic)] if topic in words else None)
             or _topic_source_files(topic_card, diary_root)
@@ -358,15 +380,32 @@ def _search_diary(
             or (set().union(*related_sets) if related_sets else sets[0])
         )
     else:
+        topic = None
+        topic_files = None
+    update_topic: str | None = None
+    update_topic_files: list[str] | None = None
+    inferred_term: str | None = None
+    if topic_dir and not topic_card:
+        inferred = _infer_parent_topic_card(topic_dir, words, sets, diary_root)
+        if inferred:
+            candidate_card, candidate_files, inferred_term = inferred
+            update_topic = str(candidate_card["topic"])
+            update_topic_files = sorted(candidate_files)
+    if not topic_card and update_topic is None:
         eligible = [
             (len(files), index)
             for index, files in enumerate(sets)
             if _is_long_term_topic(files)
+            and not (
+                topic_dir
+                and (_load_topic_decision(topic_dir, words[index]) or {}).get("eligible") is False
+            )
         ]
         topic_index = min(eligible)[1] if eligible else None
         topic = words[topic_index] if topic_index is not None else None
         topic_files = sorted(sets[topic_index]) if topic_index is not None else None
     fingerprint = _topic_fingerprint(topic_files or [])
+    update_fingerprint = _topic_fingerprint(update_topic_files or [])
     if topic_card:
         ranked = sorted(candidates, key=lambda item: item.date, reverse=True)
     elif topic:
@@ -397,8 +436,10 @@ def _search_diary(
         topic_files=topic_files,
         fingerprint=fingerprint,
         topic_card=topic_card,
-        force_topic_update=inferred_term is not None,
         topic_evidence_terms=(inferred_term,) if inferred_term else (),
+        update_topic=update_topic,
+        update_topic_files=update_topic_files,
+        update_fingerprint=update_fingerprint,
     )
 
 
@@ -416,11 +457,7 @@ def _is_long_term_topic(files: set[str]) -> bool:
             dates.append(datetime.strptime(Path(filename).name[:10], "%Y-%m-%d").date())
     if len(dates) < TOPIC_THRESHOLD:
         return False
-    months = {(date.year, date.month) for date in dates}
-    return (
-        len(months) >= TOPIC_MIN_MONTHS
-        and (max(dates) - min(dates)).days >= TOPIC_MIN_SPAN_DAYS
-    )
+    return (max(dates) - min(dates)).days >= TOPIC_MIN_SPAN_DAYS
 
 
 def _extract_topic_evidence(content: str, terms: str | tuple[str, ...]) -> str:
@@ -552,6 +589,44 @@ def _topic_path(topic_dir: Path, topic: str) -> Path:
     return topic_dir / f"{_topic_key(topic)}.json"
 
 
+def _topic_decision_path(topic_dir: Path, topic: str) -> Path:
+    return topic_dir / "decisions" / f"{_topic_key(topic.casefold())}.json"
+
+
+def _load_topic_decision(topic_dir: Path, topic: str) -> dict[str, Any] | None:
+    try:
+        decision = json.loads(_topic_decision_path(topic_dir, topic).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(decision, dict)
+        or decision.get("schema_version") != TOPIC_DECISION_SCHEMA_VERSION
+        or not isinstance(decision.get("eligible"), bool)
+    ):
+        return None
+    return decision
+
+
+def _write_topic_decision(
+    topic_dir: Path,
+    topic: str,
+    eligible: bool,
+    reason: str,
+) -> None:
+    path = _topic_decision_path(topic_dir, topic)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": TOPIC_DECISION_SCHEMA_VERSION,
+        "topic": topic,
+        "eligible": eligible,
+        "reason": reason,
+        "updated_at": datetime.now(SHANGHAI).isoformat(),
+    }
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(path)
+
+
 def _load_topic_cards(topic_dir: Path | None) -> list[dict[str, Any]]:
     if topic_dir is None or not topic_dir.is_dir():
         return []
@@ -636,9 +711,14 @@ def _infer_parent_topic_card(
     for card in _load_topic_cards(topic_dir):
         topic_files = _topic_source_files(card, diary_root)
         topic_names = _topic_names(card)
+        rejected_names = _rejected_relation_names(card)
+        related_topic_names = _related_topic_names(card)
         if not topic_files:
             continue
         for word, files in zip(words, word_sets, strict=True):
+            key = word.casefold()
+            if key in rejected_names or key in related_topic_names:
+                continue
             if not files:
                 continue
             overlap = topic_files & files
@@ -686,6 +766,22 @@ def _topic_names(card: dict[str, Any]) -> set[str]:
     } - {""}
 
 
+def _rejected_relation_names(card: dict[str, Any]) -> set[str]:
+    return {
+        str(item.get("name") or "").casefold()
+        for item in card.get("rejected_relations") or []
+        if isinstance(item, dict) and item.get("name")
+    }
+
+
+def _related_topic_names(card: dict[str, Any]) -> set[str]:
+    return {
+        str(item.get("name") or "").casefold()
+        for item in card.get("related_topics") or []
+        if isinstance(item, dict) and item.get("name")
+    }
+
+
 def _topic_fingerprint(files: list[str]) -> str:
     digest = hashlib.sha256()
     for filename in files:
@@ -697,6 +793,65 @@ def _topic_fingerprint(files: list[str]) -> str:
     return digest.hexdigest()
 
 
+def _parse_json_object(raw: str) -> dict[str, Any] | None:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.IGNORECASE)
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+async def _assess_topic_candidate(
+    *,
+    topic: str,
+    files: list[str],
+    summarize: Callable[[str], Awaitable[str]],
+) -> tuple[bool, str]:
+    ordered = sorted(files)
+    if len(ordered) > TOPIC_DECISION_SAMPLE_SIZE:
+        last = len(ordered) - 1
+        ordered = [
+            ordered[round(index * last / (TOPIC_DECISION_SAMPLE_SIZE - 1))]
+            for index in range(TOPIC_DECISION_SAMPLE_SIZE)
+        ]
+    samples = []
+    for filename in ordered:
+        try:
+            content = await asyncio.to_thread(
+                Path(filename).read_text,
+                encoding="utf-8",
+                errors="ignore",
+            )
+        except OSError:
+            continue
+        summary = _extract_summary(content)
+        evidence = _extract_topic_evidence(content, topic)[:400]
+        samples.append(
+            f"[{Path(filename).name[:10]}]\n概要：{summary or '无'}"
+            + (f"\n命中内容：{evidence}" if evidence else "")
+        )
+    prompt = (
+        "你是长期记忆主题资格分类器。判断候选词本身能否形成可复用、独立且连贯的长期脉络。"
+        "作品、人物、具体项目、组织、关系、地点，以及 MOD 这类跨作品但可独立追踪的稳定主题"
+        "可以建卡。工作、生活、真人、花、游戏、吃饭、睡觉、心情等宽泛类别、普通描述或"
+        "偶发活动不能建卡；样本包含具体事件不代表上位词值得建卡。命中次数和时间跨度已经"
+        "由程序验证，不得仅据此通过。只输出 JSON："
+        '{"eligible":true或false,"reason":"一句话说明接受或拒绝原因"}。\n\n'
+        f"候选主题：{topic}\n命中文件数：{len(files)}\n\n"
+        + "\n\n".join(samples)
+    )
+    generated = _parse_json_object(await summarize(prompt))
+    if generated is None or not isinstance(generated.get("eligible"), bool):
+        raise ValueError("主题资格判断未返回合法 JSON")
+    reason = str(generated.get("reason") or "").strip()
+    if not reason:
+        raise ValueError("主题资格判断未返回原因")
+    return bool(generated["eligible"]), reason
+
+
 async def _build_topic_card(
     *,
     topic: str,
@@ -706,6 +861,7 @@ async def _build_topic_card(
     summarize: Callable[[str], Awaitable[str]],
     evidence_terms: tuple[str, ...] = (),
 ) -> bool:
+    previous = _find_topic_card(topic_dir, [topic])
     entries: list[tuple[str, str, str]] = []
     for filename in files:
         try:
@@ -731,6 +887,15 @@ async def _build_topic_card(
         + (f"\n正文证据：\n{evidence}" if evidence else "")
         for date, summary, evidence in entries
     )
+    candidate_note = (
+        "本次候选关联词："
+        + "、".join(evidence_terms)
+        + "。逐一判断：从属实体写入 related_entities；有稳定语义联系但可独立存在的平级"
+        "主题写入 related_topics；仅仅同日出现、没有语义关系的候选写入"
+        " rejected_relations 并给出明确原因。每个候选必须且只能出现一次。"
+        if evidence_terms
+        else ""
+    )
     prompt = (
         "你是长期日记主题整理器。根据按日期排列的日记概要，整理主题的长期脉络。"
         "保留重要阶段、态度变化、关键事件与时间，不编造；输出简洁中文 Markdown，"
@@ -741,7 +906,11 @@ async def _build_topic_card(
         "概要或正文证据中实际出现，并给出关系类型与支持日期。只输出 JSON："
         '{"topic":"规范主题名","aliases":["同义名"],'
         '"related_entities":[{"name":"实体","relation":"人物/角色/地点/组织/专属事件/具体物品",'
-        '"source_dates":["YYYY-MM-DD"]}],"summary":"Markdown摘要"}。\n\n'
+        '"source_dates":["YYYY-MM-DD"]}],'
+        '"related_topics":[{"name":"平级主题","relation":"语义关系"}],'
+        '"rejected_relations":[{"name":"候选词","reason":"无语义关系的原因"}],'
+        '"summary":"Markdown摘要"}。\n\n'
+        f"{candidate_note}\n"
         f"主题：{topic}\n日期范围：{entries[0][0]} 至 {entries[-1][0]}\n\n{source}"
     )
     raw = (await summarize(prompt)).strip()
@@ -787,6 +956,55 @@ async def _build_topic_card(
             continue
         current["source_dates"] = sorted(set(current["source_dates"]) | set(entity["source_dates"]))
     related_entities = list(merged_entities.values())
+    related_topics: dict[str, dict[str, str]] = {}
+    source_folded = source_text.casefold()
+    for item in generated.get("related_topics") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        relation = str(item.get("relation") or "").strip()
+        if name and relation and name.casefold() in source_folded:
+            related_topics[name.casefold()] = {"name": name, "relation": relation}
+    generated_rejections: dict[str, tuple[str, str]] = {}
+    evidence_keys = {term.casefold() for term in evidence_terms}
+    for item in generated.get("rejected_relations") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        reason = str(item.get("reason") or "").strip()
+        if name and reason and name.casefold() in evidence_keys:
+            generated_rejections[name.casefold()] = (name, reason)
+    rejected_related: dict[str, dict[str, Any]] = {}
+    for item in (previous or {}).get("rejected_relations") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        reason = str(item.get("reason") or "").strip()
+        if name and reason:
+            rejected_related[name.casefold()] = {
+                "name": name,
+                "reason": reason,
+            }
+    accepted_names = {entity["name"].casefold() for entity in related_entities}
+    for key in accepted_names | {canonical_topic.casefold(), *(alias.casefold() for alias in aliases)}:
+        related_topics.pop(key, None)
+    related_topic_names = set(related_topics)
+    for term in evidence_terms:
+        key = term.casefold()
+        if key in accepted_names or key in related_topic_names:
+            continue
+        rejected = generated_rejections.get(key)
+        if rejected is None:
+            continue
+        rejected_related[key] = {
+            "name": rejected[0],
+            "reason": rejected[1],
+        }
+    for key in accepted_names | related_topic_names:
+        rejected_related.pop(key, None)
+    classified_names = accepted_names | related_topic_names | set(rejected_related)
+    if any(term.casefold() not in classified_names for term in evidence_terms):
+        return False
     related_names = {entity["name"] for entity in related_entities}
     aliases = [alias for alias in aliases if alias not in related_names]
     existing_topics = {
@@ -807,6 +1025,8 @@ async def _build_topic_card(
         "topic": canonical_topic,
         "aliases": aliases,
         "related_entities": related_entities,
+        "related_topics": list(related_topics.values()),
+        "rejected_relations": list(rejected_related.values()),
         "date_range": [entries[0][0], entries[-1][0]],
         "source_count": len(entries),
         "sources": [date for date, _, _ in entries],

@@ -14,6 +14,7 @@ from nanobot.agent.active_memory import (
     _build_topic_card,
     _format_injection,
     _grep_diary,
+    _load_topic_decision,
     _log,
     _search_diary,
     _topic_path,
@@ -166,6 +167,68 @@ async def test_active_memory_appends_reference_to_latest_user_message(
     )
 
 
+@pytest.mark.asyncio
+async def test_active_memory_schedules_unconfirmed_relation_without_injecting_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    note = tmp_path / "2026-08-23 周日.md"
+    note.write_text("概要: 鸣潮与大侠立志传\n鸣潮 大侠立志传", encoding="utf-8")
+
+    async def fake_extract(_self: ActiveMemoryHook, _text: str) -> str:
+        return "大侠立志传"
+
+    monkeypatch.setattr(ActiveMemoryHook, "_extract_keywords", fake_extract)
+    monkeypatch.setattr(
+        "nanobot.agent.active_memory._search_diary",
+        lambda *_args: DiarySearchResult(
+            hits=[{"date": "2026-08-23", "snippet": "玩了大侠立志传"}],
+            candidates=[],
+            update_topic="鸣潮",
+            update_topic_files=[str(note)],
+            update_fingerprint="fp",
+            topic_evidence_terms=("大侠立志传",),
+        ),
+    )
+    scheduled = []
+
+    async def summarize(_prompt: str) -> str:
+        return json.dumps({
+            "topic": "鸣潮",
+            "aliases": [],
+            "related_entities": [],
+            "rejected_relations": [{
+                "name": "大侠立志传",
+                "reason": "独立游戏作品，与鸣潮是平级主题",
+            }],
+            "summary": "摘要",
+        }, ensure_ascii=False)
+
+    hook = ActiveMemoryHook(diary_root=str(tmp_path), workspace=tmp_path)
+    hook.configure_topic_summary(summarize, scheduled.append)
+    hook._topic_dir.mkdir(parents=True)
+    _topic_path(hook._topic_dir, "鸣潮").write_text(json.dumps({
+        "schema_version": 5,
+        "topic": "鸣潮",
+        "aliases": [],
+        "related_entities": [],
+        "source_count": 1,
+        "summary": "鸣潮长期摘要",
+    }, ensure_ascii=False), encoding="utf-8")
+    user = {"role": "user", "content": "昨天玩了什么游戏？"}
+    await hook.before_iteration(AgentHookContext(iteration=0, messages=[user]))
+    await hook.on_finally(AgentRunHookContext(messages=[]))
+
+    assert "鸣潮长期摘要" not in user["content"]
+    assert len(scheduled) == 1
+    await scheduled[0]
+    card = json.loads(_topic_path(hook._topic_dir, "鸣潮").read_text(encoding="utf-8"))
+    assert card["rejected_relations"] == [{
+        "name": "大侠立志传",
+        "reason": "独立游戏作品，与鸣潮是平级主题",
+    }]
+
+
 def test_active_memory_logs_under_workspace(tmp_path: Path) -> None:
     hook = ActiveMemoryHook(diary_root="/notes", workspace=tmp_path)
 
@@ -292,6 +355,28 @@ def test_short_term_dense_keyword_does_not_create_topic(
     assert result.topic is None
 
 
+def test_long_term_candidate_is_not_filtered_by_summary_ratio(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    files = set()
+    for index in range(20):
+        year = 2024 + index // 12
+        month = index % 12 + 1
+        path = tmp_path / f"{year:04d}-{month:02d}-01 周一.md"
+        summary = "真人照片" if index == 0 else "普通日常"
+        path.write_text(f"概要: {summary}\n看了真人图片", encoding="utf-8")
+        files.add(str(path))
+    monkeypatch.setattr(
+        "nanobot.agent.active_memory._grep_files",
+        lambda _word, _root: files,
+    )
+
+    result = _search_diary("真人", str(tmp_path))
+
+    assert result.topic == "真人"
+
+
 @pytest.mark.asyncio
 async def test_active_memory_topic_card_uses_main_summary_result(tmp_path: Path) -> None:
     notes = []
@@ -331,7 +416,7 @@ async def test_active_memory_topic_card_uses_main_summary_result(tmp_path: Path)
     )
 
     card = json.loads(next(topic_dir.glob("*.json")).read_text(encoding="utf-8"))
-    assert card["schema_version"] == 2
+    assert card["schema_version"] == 5
     assert card["topic"] == "鸣潮"
     assert card["source_count"] == 2
     assert card["fingerprint"] == "fp"
@@ -342,6 +427,8 @@ async def test_active_memory_topic_card_uses_main_summary_result(tmp_path: Path)
     }]
     assert "MOD、抽卡、战斗" in prompts[0]
     assert "不得把 MOD 写成“鸣潮 MOD”" in prompts[0]
+    assert "本次候选关联词：今汐" in prompts[0]
+    assert '"related_topics"' in prompts[0]
 
 
 @pytest.mark.asyncio
@@ -350,7 +437,9 @@ async def test_active_memory_topic_card_generation_is_single_flight(tmp_path: Pa
     note.write_text("概要: 鸣潮记录\n", encoding="utf-8")
     scheduled = []
 
-    async def summarize(_prompt: str) -> str:
+    async def summarize(prompt: str) -> str:
+        if "主题资格分类器" in prompt:
+            return '{"eligible":true,"reason":"明确作品"}'
         return '{"topic":"鸣潮","aliases":[],"summary":"长期摘要"}'
 
     hook = ActiveMemoryHook(diary_root=str(tmp_path), workspace=tmp_path)
@@ -363,9 +452,56 @@ async def test_active_memory_topic_card_generation_is_single_flight(tmp_path: Pa
     assert len(scheduled) == 1
     await scheduled[0]
     assert hook._topic_tasks == set()
+    decision = _load_topic_decision(hook._topic_dir, "鸣潮")
+    assert decision["eligible"] is True
+    assert decision["reason"] == "明确作品"
 
     hook._maybe_schedule_topic_card("鸣潮", [str(note)], "fp")
     assert len(scheduled) == 1
+
+
+@pytest.mark.asyncio
+async def test_rejected_topic_decision_caches_reason_and_skips_future_requests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notes = []
+    for index in range(20):
+        year = 2024 + index // 12
+        month = index % 12 + 1
+        note = tmp_path / f"{year:04d}-{month:02d}-01 周一.md"
+        note.write_text("概要: 普通日常\n看了真人图片", encoding="utf-8")
+        notes.append(str(note))
+    scheduled = []
+    prompts = []
+
+    async def summarize(prompt: str) -> str:
+        prompts.append(prompt)
+        return '{"eligible":false,"reason":"真人是宽泛图片类别，不构成独立长期主题"}'
+
+    hook = ActiveMemoryHook(diary_root=str(tmp_path), workspace=tmp_path)
+    hook.configure_topic_summary(summarize, scheduled.append)
+    hook._maybe_schedule_topic_card("真人", notes, "fp")
+    await hook.on_finally(AgentRunHookContext(messages=[]))
+    await scheduled[0]
+
+    decision = _load_topic_decision(hook._topic_dir, "真人")
+    assert decision["eligible"] is False
+    assert decision["reason"] == "真人是宽泛图片类别，不构成独立长期主题"
+    assert len(prompts) == 1
+    assert list(hook._topic_dir.glob("*.json")) == []
+
+    hook._maybe_schedule_topic_card("真人", notes, "changed")
+    await hook.on_finally(AgentRunHookContext(messages=[]))
+    assert len(scheduled) == 1
+    assert len(prompts) == 1
+
+    monkeypatch.setattr(
+        "nanobot.agent.active_memory._grep_files",
+        lambda _word, _root: set(notes),
+    )
+    result = _search_diary("真人", str(tmp_path), hook._topic_dir)
+    assert result.topic is None
 
 
 @pytest.mark.asyncio
@@ -384,6 +520,7 @@ async def test_active_memory_topic_card_failure_is_background_only(tmp_path: Pat
 
     await scheduled[0]
     assert list(hook._topic_dir.glob("*.json")) == []
+    assert _load_topic_decision(hook._topic_dir, "鸣潮") is None
     log = json.loads(hook._log_path.read_text(encoding="utf-8"))
     assert log["action"] == "topic_card_error"
 
@@ -395,6 +532,7 @@ async def test_old_topic_card_schema_triggers_rebuild(tmp_path: Path) -> None:
     topic_dir = tmp_path / "memory" / "active_memory_topics"
     topic_dir.mkdir(parents=True)
     _topic_path(topic_dir, "鸣潮").write_text(json.dumps({
+        "schema_version": 2,
         "topic": "鸣潮",
         "aliases": [],
         "source_count": 1,
@@ -413,6 +551,8 @@ async def test_old_topic_card_schema_triggers_rebuild(tmp_path: Path) -> None:
 
     assert len(scheduled) == 1
     await scheduled[0]
+    rebuilt = json.loads(_topic_path(topic_dir, "鸣潮").read_text(encoding="utf-8"))
+    assert rebuilt["schema_version"] == 5
 
 
 @pytest.mark.asyncio
@@ -566,10 +706,212 @@ def test_active_memory_infers_new_related_entity_from_topic_cooccurrence(
     monkeypatch.setattr("nanobot.agent.active_memory._grep_files", fake_files)
     result = _search_diary("绯雪", str(tmp_path), topic_dir)
 
-    assert result.topic == "鸣潮"
-    assert result.topic_card["_match_kind"] == "inferred_related"
-    assert result.force_topic_update is True
-    assert result.topic_files == [str(note)]
+    assert result.topic is None
+    assert result.topic_card is None
+    assert result.update_topic == "鸣潮"
+    assert result.update_topic_files == [str(note)]
+    assert result.topic_evidence_terms == ("绯雪",)
+
+
+@pytest.mark.asyncio
+async def test_rejected_relation_is_permanent_when_evidence_dates_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    topic_dir = tmp_path / "topics"
+    topic_dir.mkdir()
+    first = tmp_path / "2026-08-23 周日.md"
+    first.write_text("概要: 鸣潮和大侠立志传\n鸣潮 大侠立志传", encoding="utf-8")
+    card_path = _topic_path(topic_dir, "鸣潮")
+    card_path.write_text(json.dumps({
+        "schema_version": 5,
+        "topic": "鸣潮",
+        "aliases": [],
+        "related_entities": [],
+        "source_count": 1,
+        "summary": "旧摘要",
+    }, ensure_ascii=False), encoding="utf-8")
+
+    async def summarize(_prompt: str) -> str:
+        return json.dumps({
+            "topic": "鸣潮",
+            "aliases": [],
+            "related_entities": [],
+            "rejected_relations": [{
+                "name": "大侠立志传",
+                "reason": "独立游戏作品，与鸣潮是平级主题",
+            }],
+            "summary": "新摘要",
+        }, ensure_ascii=False)
+
+    assert await _build_topic_card(
+        topic="鸣潮",
+        files=[str(first)],
+        fingerprint="fp",
+        topic_dir=topic_dir,
+        summarize=summarize,
+        evidence_terms=("大侠立志传",),
+    ) is True
+    card = json.loads(card_path.read_text(encoding="utf-8"))
+    assert card["rejected_relations"] == [{
+        "name": "大侠立志传",
+        "reason": "独立游戏作品，与鸣潮是平级主题",
+    }]
+
+    topic_files = {str(first)}
+    candidate_files = {str(first)}
+
+    def fake_files(word: str, _root: str) -> set[str]:
+        return topic_files if word == "鸣潮" else candidate_files
+
+    monkeypatch.setattr("nanobot.agent.active_memory._grep_files", fake_files)
+    unchanged = _search_diary("大侠立志传", str(tmp_path), topic_dir)
+    assert unchanged.update_topic is None
+
+    second = tmp_path / "2026-08-24 周一.md"
+    second.write_text("概要: 鸣潮和大侠立志传\n鸣潮 大侠立志传", encoding="utf-8")
+    topic_files.add(str(second))
+    candidate_files.add(str(second))
+    changed = _search_diary("大侠立志传", str(tmp_path), topic_dir)
+    assert changed.update_topic is None
+
+
+@pytest.mark.asyncio
+async def test_related_topic_is_stored_without_dates_and_does_not_inherit_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    topic_dir = tmp_path / "topics"
+    topic_dir.mkdir()
+    note = tmp_path / "2026-08-23 周日.md"
+    note.write_text("概要: 鸣潮 MOD 更新\n修复鸣潮 MOD", encoding="utf-8")
+    card_path = _topic_path(topic_dir, "鸣潮")
+    card_path.write_text(json.dumps({
+        "schema_version": 5,
+        "topic": "鸣潮",
+        "aliases": [],
+        "related_entities": [],
+        "related_topics": [],
+        "source_count": 1,
+        "summary": "旧摘要",
+    }, ensure_ascii=False), encoding="utf-8")
+
+    async def summarize(_prompt: str) -> str:
+        return json.dumps({
+            "topic": "鸣潮",
+            "aliases": [],
+            "related_entities": [],
+            "related_topics": [{"name": "MOD", "relation": "内容扩展"}],
+            "rejected_relations": [],
+            "summary": "鸣潮长期摘要",
+        }, ensure_ascii=False)
+
+    assert await _build_topic_card(
+        topic="鸣潮",
+        files=[str(note)],
+        fingerprint="fp",
+        topic_dir=topic_dir,
+        summarize=summarize,
+        evidence_terms=("MOD",),
+    ) is True
+    card = json.loads(card_path.read_text(encoding="utf-8"))
+    assert card["related_topics"] == [{"name": "MOD", "relation": "内容扩展"}]
+
+    monkeypatch.setattr(
+        "nanobot.agent.active_memory._grep_files",
+        lambda word, _root: {str(note)} if word in {"鸣潮", "MOD"} else set(),
+    )
+    monkeypatch.setattr(
+        "nanobot.agent.active_memory._terms_share_paragraph",
+        lambda *_args: pytest.fail("cached related topic should skip paragraph scan"),
+    )
+    result = _search_diary("MOD", str(tmp_path), topic_dir)
+    assert result.topic_card is None
+    assert result.update_topic is None
+
+
+@pytest.mark.asyncio
+async def test_relation_candidate_must_be_classified_under_its_original_name(
+    tmp_path: Path,
+) -> None:
+    topic_dir = tmp_path / "topics"
+    topic_dir.mkdir()
+    note = tmp_path / "2026-08-23 周日.md"
+    note.write_text("概要: 鸣潮 MOD 更新\n修复鸣潮 MOD", encoding="utf-8")
+    card_path = _topic_path(topic_dir, "鸣潮")
+    original = {
+        "schema_version": 5,
+        "topic": "鸣潮",
+        "aliases": [],
+        "related_entities": [],
+        "related_topics": [],
+        "rejected_relations": [],
+        "source_count": 1,
+        "summary": "旧摘要",
+    }
+    card_path.write_text(json.dumps(original, ensure_ascii=False), encoding="utf-8")
+
+    async def summarize(_prompt: str) -> str:
+        return json.dumps({
+            "topic": "鸣潮",
+            "aliases": [],
+            "related_entities": [],
+            "related_topics": [{"name": "鸣潮 MOD", "relation": "内容扩展"}],
+            "rejected_relations": [],
+            "summary": "新摘要",
+        }, ensure_ascii=False)
+
+    assert await _build_topic_card(
+        topic="鸣潮",
+        files=[str(note)],
+        fingerprint="fp",
+        topic_dir=topic_dir,
+        summarize=summarize,
+        evidence_terms=("MOD",),
+    ) is False
+    assert json.loads(card_path.read_text(encoding="utf-8")) == original
+
+
+@pytest.mark.asyncio
+async def test_regular_rebuild_clears_rejection_reclassified_as_related_topic(
+    tmp_path: Path,
+) -> None:
+    topic_dir = tmp_path / "topics"
+    topic_dir.mkdir()
+    note = tmp_path / "2026-08-23 周日.md"
+    note.write_text("概要: 鸣潮 MOD 更新\n修复鸣潮 MOD", encoding="utf-8")
+    card_path = _topic_path(topic_dir, "鸣潮")
+    card_path.write_text(json.dumps({
+        "schema_version": 5,
+        "topic": "鸣潮",
+        "aliases": [],
+        "related_entities": [],
+        "related_topics": [],
+        "rejected_relations": [{"name": "MOD", "reason": "旧判断"}],
+        "source_count": 1,
+        "summary": "旧摘要",
+    }, ensure_ascii=False), encoding="utf-8")
+
+    async def summarize(_prompt: str) -> str:
+        return json.dumps({
+            "topic": "鸣潮",
+            "aliases": [],
+            "related_entities": [],
+            "related_topics": [{"name": "MOD", "relation": "内容扩展"}],
+            "rejected_relations": [],
+            "summary": "新摘要",
+        }, ensure_ascii=False)
+
+    assert await _build_topic_card(
+        topic="鸣潮",
+        files=[str(note)],
+        fingerprint="fp",
+        topic_dir=topic_dir,
+        summarize=summarize,
+    ) is True
+    card = json.loads(card_path.read_text(encoding="utf-8"))
+    assert card["related_topics"] == [{"name": "MOD", "relation": "内容扩展"}]
+    assert card["rejected_relations"] == []
 
 
 def test_related_entity_uses_alias_topic_source_files(
@@ -719,7 +1061,8 @@ def test_parent_inference_keeps_cross_date_evidence_when_one_match_is_nearby(
     monkeypatch.setattr("nanobot.agent.active_memory._grep_files", fake_files)
     result = _search_diary("X", str(tmp_path), topic_dir)
 
-    assert result.topic == "A"
+    assert result.topic is None
+    assert result.update_topic == "A"
 
 
 @pytest.mark.asyncio
