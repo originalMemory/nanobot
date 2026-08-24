@@ -38,7 +38,7 @@ HISTORICAL_RESULTS_WITHOUT_CARD = 4
 TOPIC_THRESHOLD = 20
 TOPIC_MIN_MONTHS = 3
 TOPIC_MIN_SPAN_DAYS = 90
-TOPIC_CARD_SCHEMA_VERSION = 1
+TOPIC_CARD_SCHEMA_VERSION = 2
 ACTIVE_MEMORY_LOG_MAX_BYTES = 5 * 1024 * 1024
 
 SHANGHAI = timezone(timedelta(hours=8))
@@ -734,10 +734,13 @@ async def _build_topic_card(
     prompt = (
         "你是长期日记主题整理器。根据按日期排列的日记概要，整理主题的长期脉络。"
         "保留重要阶段、态度变化、关键事件与时间，不编造；输出简洁中文 Markdown，"
-        "区分同义别名与主题内相关实体。相关实体必须在下方概要或正文证据中实际出现，"
-        "并给出关系类型与支持日期。只输出 JSON："
+        "区分同义别名与主题内从属实体。related_entities 只列有专名、可明确指认且隶属于"
+        "该主题的人物、角色、组织、地点、专属事件或具体物品。MOD、抽卡、战斗、建模、"
+        "音乐等可跨主题独立讨论的概念、机制、行为或内容类别只保留在摘要中，不算从属实体；"
+        "不得通过拼接主题名制造实体，例如不得把 MOD 写成“鸣潮 MOD”。相关实体必须在下方"
+        "概要或正文证据中实际出现，并给出关系类型与支持日期。只输出 JSON："
         '{"topic":"规范主题名","aliases":["同义名"],'
-        '"related_entities":[{"name":"实体","relation":"角色/地点/组织/事件/物品",'
+        '"related_entities":[{"name":"实体","relation":"人物/角色/地点/组织/专属事件/具体物品",'
         '"source_dates":["YYYY-MM-DD"]}],"summary":"Markdown摘要"}。\n\n'
         f"主题：{topic}\n日期范围：{entries[0][0]} 至 {entries[-1][0]}\n\n{source}"
     )

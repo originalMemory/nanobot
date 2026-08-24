@@ -301,7 +301,10 @@ async def test_active_memory_topic_card_uses_main_summary_result(tmp_path: Path)
         path.write_text(f"概要: {date} 的游戏记录\n{body}\n", encoding="utf-8")
         notes.append(str(path))
 
-    async def summarize(_prompt: str) -> str:
+    prompts = []
+
+    async def summarize(prompt: str) -> str:
+        prompts.append(prompt)
         return json.dumps({
             "topic": "鸣潮",
             "aliases": ["Wuthering Waves"],
@@ -328,7 +331,7 @@ async def test_active_memory_topic_card_uses_main_summary_result(tmp_path: Path)
     )
 
     card = json.loads(next(topic_dir.glob("*.json")).read_text(encoding="utf-8"))
-    assert card["schema_version"] == 1
+    assert card["schema_version"] == 2
     assert card["topic"] == "鸣潮"
     assert card["source_count"] == 2
     assert card["fingerprint"] == "fp"
@@ -337,6 +340,8 @@ async def test_active_memory_topic_card_uses_main_summary_result(tmp_path: Path)
         "relation": "角色",
         "source_dates": ["2026-01-01"],
     }]
+    assert "MOD、抽卡、战斗" in prompts[0]
+    assert "不得把 MOD 写成“鸣潮 MOD”" in prompts[0]
 
 
 @pytest.mark.asyncio
