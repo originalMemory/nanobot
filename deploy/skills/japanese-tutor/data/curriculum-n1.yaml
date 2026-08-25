@@ -1,0 +1,24 @@
+schema_version: 1
+textbook_lessons:
+  beginner: 48
+  intermediate: 32
+  advanced: 24
+node_schema:
+  required:
+    - id
+    - textbook
+    - jlpt_estimate
+    - communication_functions
+    - grammar
+    - prerequisites
+    - vocabulary_selector
+    - skills
+    - exercise_types
+    - sources
+    - verification
+  verification_values:
+    - candidate
+    - cross_checked
+    - verified
+nodes: []
+bridge_nodes: []

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "profile",
+    "tracks",
+    "nodes",
+    "known_lexical_units",
+    "legacy_observations",
+    "current_node",
+    "last_session",
+    "next_recommendation"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile": {"type": "object"},
+    "tracks": {"type": "object"},
+    "nodes": {"type": "object"},
+    "known_lexical_units": {"type": "array", "items": {"type": "string"}},
+    "legacy_observations": {"type": "array", "items": {"type": "string"}},
+    "current_node": {"type": ["string", "null"]},
+    "last_session": {"type": ["object", "null"]},
+    "next_recommendation": {"type": ["string", "null"]}
+  }
+}
