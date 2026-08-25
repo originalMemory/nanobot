@@ -16,12 +16,23 @@ description: 以中文持续教授日语，处理水平诊断、JLPT 学习规�
 
 不要把每次回复写成固定教案。简单查词直接回答；连续课程才使用完整闭环。
 
+## 结构化学习状态
+
+正式诊断或连续课程使用 `memory/japanese-learning-state.json` 保存六轨状态。通过 `exec` 调用 `skills/japanese-tutor/scripts/curriculum_state.py`，不要直接改 JSON：
+
+1. 状态不存在时先执行 `init`；若已有 `memory/japanese-learning.md`，随后执行一次 `import-legacy`。
+2. 继续课程前执行 `status`，已有诊断证据时不要重复诊断。
+3. 首次诊断执行 `diagnostic-plan`；完成评估后用当前会话 ID 执行 `record-diagnostic`。
+
+`memory/japanese-learning.md` 继续作为简短的人类可读摘要。一次查词、翻译或普通纠错不初始化结构化状态。
+
 ## 按需读取
 
 - 初次诊断、制定路线、选择难度或安排一节课：读取 [references/curriculum.md](references/curriculum.md)。
 - 批改句子、作文、翻译或会话表达：读取 [references/correction-rubric.md](references/correction-rubric.md)。
 - 创建、读取或更新学习档案与复习项：读取 [references/learning-state.md](references/learning-state.md)。
 - 查询词义、词性、读音、音调、例句、语法或 JLPT 动态信息：读取 [references/sources.md](references/sources.md)。
+- 正式课堂需要检查 Anki 可用性或牌组结构：读取 [references/anki-workflow.md](references/anki-workflow.md)。
 
 只读取当前任务需要的参考，不要默认加载全部文件。
 

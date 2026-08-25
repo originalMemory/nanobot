@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "curriculum_state.py"
 
@@ -63,7 +62,9 @@ class CurriculumStateTest(unittest.TestCase):
             )
             imported = self.run_script(workspace, "import-legacy", "--legacy-path", str(legacy))
             self.assertEqual(imported.returncode, 0, imported.stderr)
-            state = json.loads((workspace / "memory" / "japanese-learning-state.json").read_text())
+            state = json.loads(
+                (workspace / "memory" / "japanese-learning-state.json").read_text(encoding="utf-8")
+            )
             self.assertEqual(state["profile"]["goal"], "JLPT N1")
             self.assertEqual(state["nodes"], {})
             self.assertIn("[助词]：に 和 で 混淆", state["legacy_observations"])

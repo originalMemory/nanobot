@@ -82,7 +82,7 @@ Node 状态为 `new → learning → reviewing → mastered`。只有跨至少�
 
 ### 5. Anki 是复习权威，AI 是课堂编排者
 
-MBP 原生运行 Anki Desktop，AnkiConnect 绑定 MBP 局域网地址的 `8765` 并使用 API key。NAS nanobot adapter 使用 `http://<MBP-LAN-IP>:8765` 访问，不要求 Docker network。用户在 Anki GUI 中登录 AnkiWeb 并手工导入：
+MBP 原生运行 Anki Desktop，AnkiConnect 绑定 MBP 局域网地址的 `8765`。当前部署由用户明确选择可信局域网模式，不设置 API key；adapter 仍支持从私密配置读取可选 key，未配置时不发送该字段。NAS nanobot adapter 使用 `http://<MBP-LAN-IP>:8765` 访问，不要求 Docker network。用户在 Anki GUI 中登录 AnkiWeb 并手工导入：
 - `1939635284` 初级假名到释义；
 - `1892756252` 中级假名到释义；
 - `1899668880` 高级假名到释义。
@@ -95,7 +95,7 @@ Anki 只决定哪些既有 Card 到期以及回答后的下一次间隔，不负
 
 AI 生成的句子卡 mutation 先预览并获得明确确认，再取得跨进程 mutation lock 串行执行。每个候选生成稳定 `CandidateId` 并写入 Note 字段。音频使用 candidate ID 与内容 hash 生成确定性文件名；`anki_adapter` 从 nanobot workspace 读取音频 bytes，以 base64 `data` 调用 AnkiConnect `storeMediaFile`，不得把 nanobot 本地 path 传给 Anki 容器。随后按 `CandidateId` 查重并创建 Note，最后 sync。媒体成功但 Note 失败时允许以同名同 hash 重试；Note 已存在时重试不得重复创建。sync 失败返回 `written_unsynced`，后续只重试 sync，不得重放已成功 mutation。AnkiConnect 的 `multi` 不作为事务边界。
 
-AI 生成句子使用 `Japanese Immersion` Note Type，可生成 Reading/Speaking Card；只有候选明确包含可用音频时才额外生成 Listening Card。该 Note Type 包含 `CandidateId`、`CurriculumNode`、`SourceRefs` 和生成器版本。个人词汇到 curriculum node 的映射只保存在 learner state 或 planner 输出中，不回写原牌组；无法映射时报告，不伪造映射。
+AI 生成句子写入“日语沉浸学习”牌组，使用 `Japanese Immersion` Note Type，可生成 Reading/Speaking Card；只有候选明确包含可用音频时才额外生成 Listening Card。该 Note Type 包含 `CandidateId`、`CurriculumNode`、`SourceRefs` 和生成器版本。个人词汇到 curriculum node 的映射只保存在 learner state 或 planner 输出中，不回写原牌组；无法映射时报告，不伪造映射。
 
 Anki 和词汇复习不依赖 nanobot TTS。`tts_media.py` 只在用户确认“把 AI 生成句子做成带音频的听力卡”时调用，复用 nanobot 已配置的 OpenAI-compatible TTS provider 和固定日语 clone voice，把文本合成为 workspace 临时音频，并通过 JSON 返回 path、MIME、SHA-256、voice 和 generator metadata。它不走 turn-scoped `tts` tool，不向 stdout/stderr 输出 API key；`anki_adapter` base64 上传成功后清理临时文件。合成失败时仍可创建不带音频的 Reading/Speaking Card，但不得创建或声称存在 Listening Card。
 

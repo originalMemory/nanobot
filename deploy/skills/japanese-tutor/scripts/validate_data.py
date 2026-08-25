@@ -50,7 +50,7 @@ def validate_sources(path: Path) -> None:
             raise ValueError(f"source redistributable 必须是布尔值: {source_id}")
 
 
-def validate_curriculum_schema(path: Path) -> None:
+def validate_curriculum_schema(path: Path, *, allow_incomplete: bool = False) -> bool:
     data = load_yaml(path)
     if data.get("schema_version") != 1:
         raise ValueError("curriculum schema_version 必须为 1")
@@ -60,21 +60,35 @@ def validate_curriculum_schema(path: Path) -> None:
     schema = data.get("node_schema")
     if not isinstance(schema, dict) or not schema.get("required"):
         raise ValueError("curriculum 缺少 node_schema.required")
-    if not isinstance(data.get("nodes"), list) or not isinstance(data.get("bridge_nodes"), list):
+    nodes = data.get("nodes")
+    if not isinstance(nodes, list) or not isinstance(data.get("bridge_nodes"), list):
         raise ValueError("curriculum nodes 和 bridge_nodes 必须是列表")
+    expected = sum(lessons.values())
+    if len(nodes) != expected:
+        if not allow_incomplete or len(nodes) > expected:
+            raise ValueError(f"curriculum nodes 必须恰好 {expected} 个，当前 {len(nodes)} 个")
+        return False
+    return True
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path, default=Path(__file__).resolve().parents[1] / "data")
+    parser.add_argument("--allow-incomplete", action="store_true")
     args = parser.parse_args()
     try:
         validate_sources(args.data_dir / "source-registry.yaml")
-        validate_curriculum_schema(args.data_dir / "curriculum-n1.yaml")
+        complete = validate_curriculum_schema(
+            args.data_dir / "curriculum-n1.yaml",
+            allow_incomplete=args.allow_incomplete,
+        )
     except ValueError as exc:
         print(f"校验失败: {exc}", file=sys.stderr)
         return 1
-    print("静态数据校验通过")
+    if complete:
+        print("静态数据校验通过")
+    else:
+        print("静态数据结构校验通过（课程节点未完成）")
     return 0
 
 

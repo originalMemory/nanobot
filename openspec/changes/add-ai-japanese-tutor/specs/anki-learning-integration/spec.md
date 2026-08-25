@@ -1,15 +1,19 @@
 ## ADDED Requirements
 
 ### Requirement: MBP 原生 Anki Desktop
-系统 SHALL 使用 MBP 原生安装的 Anki Desktop；AnkiConnect SHALL 通过局域网端口和 API key 供 NAS nanobot 访问。
+系统 SHALL 使用 MBP 原生安装的 Anki Desktop；AnkiConnect SHALL 通过可信局域网端口供 NAS nanobot 访问，并支持可选 API key。
 
 #### Scenario: MBP 上的 Anki 运行
 - **WHEN** MBP 已唤醒且 Anki Desktop 正在运行
 - **THEN** Anki collection、Note Type、媒体和配置 SHALL 保持可用
 
-#### Scenario: AnkiConnect 局域网访问
-- **WHEN** NAS nanobot 使用已配置的 MBP 局域网地址与 API key 调用 AnkiConnect
-- **THEN** Anki 服务 SHALL 接受该调用并拒绝无效 API key
+#### Scenario: 可信局域网无 key 访问
+- **WHEN** 用户明确选择可信局域网模式且未配置 API key
+- **THEN** NAS nanobot SHALL 不发送 key 字段，并可通过已配置的 MBP 局域网地址调用 AnkiConnect
+
+#### Scenario: 配置 API key
+- **WHEN** 私密配置包含 API key
+- **THEN** NAS nanobot SHALL 随请求发送该 key，Anki 服务 SHALL 接受有效 key 并拒绝无效 key
 
 #### Scenario: GUI 与同步可用
 - **WHEN** MBP 上的 Anki Desktop 运行
@@ -80,7 +84,7 @@ adapter SHALL 暴露到期卡、卡片元数据、lapse/review history，以及 
 - **THEN** AI MAY 在课堂中临时反向提问，但 SHALL NOT 创建或声称存在新的 Anki 反向词汇 Card
 
 ### Requirement: AI 句子卡模型
-集成 SHALL 提供 `Japanese Immersion` Note Type，包含可追溯来源的 Reading/Speaking Card，并在存在有效音频时支持 Listening Card。
+集成 SHALL 在“日语沉浸学习”牌组中提供 `Japanese Immersion` Note Type，包含可追溯来源的 Reading/Speaking Card，并在存在有效音频时支持 Listening Card。
 
 #### Scenario: 创建纯文本句子卡
 - **WHEN** 用户确认添加不带音频的句子候选

@@ -26,7 +26,7 @@ NAS 已部署名为 `japanese-tutor` 的初版 workspace Skill，包含教学提
 
 ## 影响
 
-- 部署：MBP 安装原生 Anki Desktop 和 AnkiConnect；AnkiConnect 通过局域网端口与 API key 供 NAS nanobot 访问。
+- 部署：MBP 安装原生 Anki Desktop 和 AnkiConnect；AnkiConnect 仅通过可信局域网端口供 NAS nanobot 访问，API key 保留为可选配置。
 - Skill：将下载的 NAS 初版迁移到仓库内 `deploy/skills/japanese-tutor/` 作为 canonical bundle，扩展 references、结构化课程数据、scripts 和 tests；验收后由用户显式部署到 NAS `<workspace>/skills/japanese-tutor/`，部署前备份旧版。
 - 外部系统：Anki Desktop、AnkiConnect、AnkiWeb、现有 OpenAI-compatible TTS provider。
 - 核心代码：MVP 不修改 nanobot agent loop、provider、WebSocket、Electron 或浏览器 WebUI。

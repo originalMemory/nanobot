@@ -1,23 +1,23 @@
 ## 1. MBP 原生 Anki
 
-- [ ] 1.1 在 MBP 安装官方 Anki Desktop，创建或选择专用 Profile，并验证 AnkiWeb 登录与第二设备同步。
-- [ ] 1.2 在 MBP 安装 AnkiConnect 插件 `2055492159`，设置 API key、`webBindAddress: "0.0.0.0"` 与端口 `8765`。
-- [ ] 1.3 从被忽略的私密配置加载 AnkiConnect API key 和 MBP 局域网 URL；让 NAS adapter 禁用环境代理或正确设置 `NO_PROXY`，并验证 nanobot 可通过局域网 `8765` 调用 AnkiConnect。
+- [x] 1.1 在 MBP 安装官方 Anki Desktop，创建或选择专用 Profile，并验证 AnkiWeb 登录与第二设备同步。
+- [x] 1.2 在 MBP 安装 AnkiConnect 插件 `2055492159`，设置 `webBindAddress: "0.0.0.0"` 与端口 `8765`；用户确认仅在可信局域网使用，当前不设置 API key。
+- [ ] 1.3 从被忽略的私密配置加载 MBP 局域网 URL 和可选 AnkiConnect API key；key 未配置时 adapter 不发送该字段。让 NAS adapter 禁用环境代理或正确设置 `NO_PROXY`，并验证 nanobot 可通过局域网 `8765` 调用 AnkiConnect。
 - [ ] 1.4 验证 MBP 唤醒且 Anki 运行时可访问；MBP 休眠、离线或 Anki 退出时，adapter 应返回可识别的不可用状态。
-- [ ] 1.5 记录三个 AnkiWeb 牌组 `1939635284`、`1892756252`、`1899668880` 的手工导入门；用户完成前停止后续真实牌组联调。
+- [x] 1.5 记录三个 AnkiWeb 牌组 `1939635284`、`1892756252`、`1899668880` 的手工导入门；用户完成前停止后续真实牌组联调。
 
 ## 2. Anki Adapter 与个人词汇牌组
 
-- [ ] 2.1 实现 `anki_adapter.py` 传输层、API key 处理、JSON 输出、错误 exit code、`health` 和 `sync`，确保日志不泄露密钥。
-- [ ] 2.2 实现只读 `discover`，报告匹配牌组、字段、标签、Note 数、重复项和媒体异常，不修改牌组。
-- [ ] 2.3 实现只读 `due`、`card-info`、`review-history`、`lesson-vocabulary`，按教材等级/课/单元返回词汇字段、Card/Note ID、音频引用、lapse 元数据和课程映射；实现 scheduler-backed `answer`。
-- [ ] 2.4 实现透明评分规则：错误/放弃/揭示答案后才会为 Again，使用提示或揭示前多次尝试后答对为 Hard，无提示直接答对为 Good，Easy 只由用户明确指定；支持整节只练习和手动评分模式，不用异步响应时间单独评分。
-- [ ] 2.5 使用 mock AnkiConnect 测试 health、discovery、due/history、四档评分、提示状态、只练习/手动模式、认证失败、畸形响应、代理绕过和网络失败。
-- [ ] 2.6 验证三个导入词汇牌组保持原 Note Type、字段、模板、Card、媒体和 FSRS 状态不变。
-- [ ] 2.7 定义 `Japanese Immersion` 字段、Reading/Speaking/Listening 模板、CSS、稳定 `CandidateId`、`CurriculumNode`、`SourceRefs`、生成器元数据和幂等 `ensure-immersion-model`。
-- [ ] 2.8 实现已确认句子卡的 `find`、`add-note`、跨进程 mutation lock、Candidate 对账和串行写入；sync 失败返回 `written_unsynced` 并支持只重试 sync。
-- [ ] 2.9 实现 adapter 读取 nanobot 临时音频 bytes 并以 base64 `data` 调用 `storeMediaFile`；禁止把 nanobot 本地 path 传给 Anki 容器。
-- [ ] 2.10 增加故障注入测试，证明媒体/Note 部分写入可幂等重试，sync 失败后不会重复 Note、媒体或重放 mutation。
+- [x] 2.1 实现 `anki_adapter.py` 传输层、可选 API key 处理、JSON 输出、错误 exit code、`health` 和 `sync`；配置 key 时确保日志不泄露密钥。
+- [x] 2.2 实现只读 `discover`，报告匹配牌组、字段、标签、Note 数、重复项和媒体异常，不修改牌组。
+- [x] 2.3 实现只读 `due`、`card-info`、`review-history`、`lesson-vocabulary`，按教材等级/课/单元返回词汇字段、Card/Note ID、音频引用、lapse 元数据和课程映射；实现 scheduler-backed `answer`。
+- [x] 2.4 实现透明评分规则：错误/放弃/揭示答案后才会为 Again，使用提示或揭示前多次尝试后答对为 Hard，无提示直接答对为 Good，Easy 只由用户明确指定；支持整节只练习和手动评分模式，不用异步响应时间单独评分。
+- [x] 2.5 使用 mock AnkiConnect 测试 health、discovery、due/history、四档评分、提示状态、只练习/手动模式、认证失败、畸形响应、代理绕过和网络失败。
+- [x] 2.6 验证三个导入词汇牌组保持原 Note Type、字段、模板、Card、媒体和 FSRS 状态不变。
+- [x] 2.7 定义 `Japanese Immersion` 字段、Reading/Speaking/Listening 模板、CSS、稳定 `CandidateId`、`CurriculumNode`、`SourceRefs`、生成器元数据和幂等 `ensure-immersion-model`。
+- [x] 2.8 实现已确认句子卡的 `find`、`add-note`、跨进程 mutation lock、Candidate 对账和串行写入；sync 失败返回 `written_unsynced` 并支持只重试 sync。
+- [x] 2.9 实现 adapter 读取 nanobot 临时音频 bytes 并以 base64 `data` 调用 `storeMediaFile`；禁止把 nanobot 本地 path 传给 Anki 容器。
+- [x] 2.10 增加故障注入测试，证明媒体/Note 部分写入可幂等重试，sync 失败后不会重复 Note、媒体或重放 mutation。
 
 ## 3. 来源注册表与课程数据
 
