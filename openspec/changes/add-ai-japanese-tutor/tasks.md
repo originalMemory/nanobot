@@ -57,19 +57,19 @@
 
 ## 6. 主动学习
 
-- [ ] 6.1 定义 `<workspace>/memory/japanese-learning-settings.json`：Daily/Weekly 开关与日程、IANA 时区、quiet hours、新课提醒、Cron job ID 和最近成功提交 Daily 提示日期，不增加 nanobot core 配置。
-- [ ] 6.2 实现 Daily 入口：优先提交一道到期复习题，否则预告下一节点；用户回复前不开始完整课堂。
-- [ ] 6.3 实现 Weekly 六轨/node/lapse 报告，不规定每周固定课数，也不占 Daily 配额。
-- [ ] 6.4 实现 quiet hours 命中时跳过且不补发；Daily 提示提交 outbound bus 后才计入本地日期配额，提交前失败不计数。
-- [ ] 6.5 验证 Heartbeat 不能推进节点、记录 mastery、创建卡片或启动正式课堂。
+- [x] 6.1 在技能文档定义 nanobot 现有 Cron 的 Daily/Weekly 调用方式；创建时直接指定时间和时区，不增加技能私有 settings 或调度器。
+- [x] 6.2 定义 Daily 内容：优先提交一道到期复习题，否则预告下一节点；用户回复前不开始完整课堂。
+- [x] 6.3 定义 Weekly 内容：汇总六轨、node、lapse 和下一重点，不规定每周固定课数。
 
 ## 7. 验证与发布
 
-- [ ] 7.1 扫描仓库和镜像，证明不含教材牌组 payload、音频、解密 key、导出 collection 或私密凭据。
+- [x] 7.1 扫描仓库和技能 bundle，证明不含教材牌组 payload、音频、解密 key、导出 collection 或私密凭据。
+- [ ] 7.1a 部署 NAS 镜像或容器后扫描最终镜像，确认没有上述内容。
 - [ ] 7.2 运行标准课端到端：planner → Anki 到期词汇题 → 用户直接答对/提示后答对/答错 → AI 自动判定 Good/Hard/Again → Anki scheduler 更新 → 一个新目标 → transfer check；另验证只练习模式不写 review。
 - [ ] 7.3 运行可选句子制卡端到端：候选预览 → 用户确认纯文本或音频 → 可选 TTS → base64 媒体写入 → Note 写入 → AnkiWeb sync → 第二设备复习。
 - [ ] 7.4 验证媒体/Note 写入失败可重试、不调用 sync 且不报告成功。
 - [ ] 7.5 验证本地写入成功后 sync 失败返回 `written_unsynced`、保留 Note ID，并在只重试 sync 时不产生重复 Card 或媒体。
-- [ ] 7.6 验证重启后 Anki 数据、稀疏学习状态、当前节点、未解决错因、设置、Daily 配额和下一建议保持连续。
-- [ ] 7.7 为 `deploy/skills/japanese-tutor/` 生成 manifest/checksum，在隔离 workspace 测试，并记录 NAS backup/copy/verify/rollback；实现阶段不得覆盖实际 NAS workspace。
+- [x] 7.6 验证重启后稀疏学习状态、当前节点、未解决错因和下一建议保持连续；Cron 持久化由 nanobot 现有能力负责。
+- [ ] 7.6a 在 NAS 真实 Anki 环境验证重启后 Anki collection 与同步数据保持连续。
+- [x] 7.7 为 `deploy/skills/japanese-tutor/` 生成 manifest/checksum，在隔离 workspace 测试，并记录 NAS backup/copy/verify/rollback；实现阶段不得覆盖实际 NAS workspace。
 - [ ] 7.8 用户部署 bundle 且 NAS 手动课堂验收通过后才启用 Daily/Weekly Cron，并记录禁用与回滚步骤。

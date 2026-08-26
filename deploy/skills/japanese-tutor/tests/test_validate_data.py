@@ -99,3 +99,5 @@ class ValidateDataTest(unittest.TestCase):
         self.assertIn("scripts/curriculum_state.py", skill)
         self.assertIn("japanese-learning-state.json", skill)
         self.assertIn("import-legacy", skill)
+        self.assertIn("references/proactive-learning.md", skill)
+        self.assertIn("references/deployment.md", skill)

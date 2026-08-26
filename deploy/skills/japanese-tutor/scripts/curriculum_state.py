@@ -689,7 +689,12 @@ def main() -> int:
             if args.action == "plan":
                 curriculum = load_curriculum(args.curriculum)
                 anki = load_anki_status(args.anki_status)
-                emit(plan_next(state, curriculum, anki, args.question_gap))
+                result = plan_next(state, curriculum, anki, args.question_gap)
+                state["next_recommendation"] = (
+                    result["next_node"]["id"] if result["next_node"] else None
+                )
+                save_state(state_path, state)
+                emit(result)
                 return 0
             if args.action == "session-plan":
                 curriculum = load_curriculum(args.curriculum)
@@ -757,6 +762,17 @@ def main() -> int:
                         "known_lexical_units": len(state["known_lexical_units"]),
                         "legacy_observations": len(state["legacy_observations"]),
                         "tracks": state["tracks"],
+                        "active_nodes": {
+                            node_id: node.get("status", "new")
+                            for node_id, node in state["nodes"].items()
+                            if node.get("status", "new") != "mastered"
+                        },
+                        "recent_corrections": [
+                            item["correction"]
+                            for node in state["nodes"].values()
+                            for item in node.get("evidence", [])
+                            if item.get("correction")
+                        ][-8:],
                     }
                 )
             else:

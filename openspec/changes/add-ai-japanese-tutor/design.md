@@ -131,11 +131,11 @@ curriculum_state plan --duration 20
 
 AI 不直接改 Anki SQLite、due 或 interval；只通过上述透明规则和 Anki scheduler 提交 review。用户可在课程开始时选择“只练习不记 Anki”或“手动评分”，此时 Card 保持原状态，界面必须明确说明没有记入 Anki review。AI 不在用户未确认句子卡候选时创建正式卡片。
 
-### 8. 主动学习 use Cron，不 use Heartbeat 推进课程
+### 8. 主动学习直接复用 nanobot Cron
 
-Daily Cron 调 planner 和 Anki due：有 due 时发一道短题，否则仅预告 next node；用户回复后才展开课程，到期卡按同一自动评分规则记入 Anki。Weekly Cron 通过 adapter 的 review history 汇总六轨、node 和 lapse。Heartbeat 不推进 node、不记录 evidence、不创建卡片。
+Daily Cron 调 planner 和 Anki due：有 due 时发一道短题，否则仅预告 next node；用户回复后才展开课程，到期卡按同一自动评分规则记入 Anki。Weekly Cron 通过 adapter 的 review history 汇总六轨、node 和 lapse。
 
-主动学习设置保存在 `<workspace>/memory/japanese-learning-settings.json`，包含 enabled、IANA timezone、daily/weekly schedule、quiet hours、new-lesson reminder 开关和最近一次成功提交日期；不新增 nanobot core 配置。quiet hours 内命中的任务直接跳过且不补发。每日上限按配置时区的本地日期计算；MVP 无 channel delivery receipt，因此 daily prompt 成功提交到 outbound bus 后即计数，生成失败或提交前失败不计数，weekly report 不占用 daily quota。
+技能只提供 Daily/Weekly 的 prompt 内容和调用边界。任务的启停、时间、时区、触发与持久化全部由 nanobot 现有 Cron 能力负责；创建任务时直接指定合适时间。技能不保存独立 settings、quiet hours、配额或 Cron job ID，也不实现第二套调度逻辑。
 
 ## 风险与取舍
 
@@ -146,7 +146,7 @@ Daily Cron 调 planner 和 Anki due：有 due 时发一道短题，否则仅预�
 - [AnkiConnect mutation 破坏导入词汇牌组] → 对三个词汇牌组只读查询，仅通过 Anki scheduler 提交透明规则判定的 rating；不迁移、不改模板、不回写字段。
 - [Cron 与手动课程并发写状态或 Anki] → learner state 使用进程间文件锁和原子替换；Anki mutation 使用独立跨进程锁及稳定 CandidateId。
 - [课程过大导致上下文膨胀] → SKILL 只路由；planner 每轮只返回相关 node 和少量来源，不加载完整 YAML。
-- [Cron 打扰用户] → 默认关闭；配置固定时段、静默窗口和每日一次上限，无 due 时可保持安静。
+- [Cron 打扰用户] → 仅在用户确认后创建，并在创建 nanobot Cron 时直接选择合适时段；无 due 时只给简短预告。
 
 ## 迁移计划
 

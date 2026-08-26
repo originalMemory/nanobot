@@ -516,6 +516,38 @@ class CurriculumStateTest(unittest.TestCase):
             self.assertEqual(evidence["correction"], "助词应使用に")
             self.assertTrue(evidence["used_hint"])
 
+    def test_restart_preserves_current_node_correction_and_recommendation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            self.assertEqual(self.run_script(workspace, "init").returncode, 0)
+            recorded = self.run_script(
+                workspace,
+                "record-evidence",
+                "--curriculum",
+                str(CURRICULUM),
+                "--node-id",
+                "foundation-kana",
+                "--session-id",
+                "restart-session",
+                "--evidence-kind",
+                "production",
+                "--outcome",
+                "incorrect",
+                "--correction",
+                "促音需要停顿",
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            planned = self.run_script(workspace, "plan", "--curriculum", str(CURRICULUM))
+            self.assertEqual(planned.returncode, 0, planned.stderr)
+
+            restarted = self.run_script(workspace, "status")
+            self.assertEqual(restarted.returncode, 0, restarted.stderr)
+            status = json.loads(restarted.stdout)
+            self.assertEqual(status["current_node"], "foundation-kana")
+            self.assertEqual(status["next_recommendation"], "foundation-kana")
+            self.assertIn("促音需要停顿", status["recent_corrections"])
+            self.assertEqual(status["active_nodes"]["foundation-kana"], "learning")
+
     def test_concurrent_writers_preserve_both_updates(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)

@@ -24,6 +24,8 @@ description: 以中文持续教授日语，处理水平诊断、JLPT 学习规�
 - 初次诊断、制定路线、选择难度或安排一节课：读取 [references/curriculum.md](references/curriculum.md)。
 - 连续正式课堂、课程计划、材料或卡片预览：读取 [references/teaching-loop.md](references/teaching-loop.md)。
 - 生成课堂材料、检查覆盖率或预览句子卡：读取 [references/material-contract.md](references/material-contract.md)。
+- 创建或执行日常/周常学习 Cron：读取 [references/proactive-learning.md](references/proactive-learning.md)。
+- 构建、校验、部署或回滚技能 bundle：读取 [references/deployment.md](references/deployment.md)。
 - 批改句子、作文、翻译或会话表达：读取 [references/correction-rubric.md](references/correction-rubric.md)。
 - 创建、读取或更新学习档案与复习项：读取 [references/learning-state.md](references/learning-state.md)。
 - 查询词义、词性、读音、音调、例句、语法或 JLPT 动态信息：读取 [references/sources.md](references/sources.md)。

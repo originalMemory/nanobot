@@ -11,7 +11,7 @@ NAS 已部署名为 `japanese-tutor` 的初版 workspace Skill，包含教学提
 - 新增受 mastery 约束且可度量的材料生成：例句、短对话、分级阅读和听力练习；AI 生成句子只有在用户确认制作听力卡时才可选地合成 TTS 音频。
 - 在 MBP 原生运行 Anki Desktop + AnkiConnect；NAS nanobot 通过局域网访问 MBP，继续使用 AnkiWeb 多设备同步。
 - 支持用户手工导入三个新标日“假名到释义”个人牌组；AI 直接读取其中的词汇、课程标签、到期卡和复习历史，不迁移、不改写原牌组，也不在仓库或镜像中分发牌组及教材音频。
-- 新增 daily review 与 weekly report Cron；Heartbeat 不推进课程或修改 mastery。
+- 定义 daily review 与 weekly report 的教学内容，由 nanobot 现有 Cron 创建并按用户指定时间触发，不实现技能私有调度器。
 - 将用户语音输入、ASR、forced alignment 和发音评分留作独立后续变更。
 
 ## 能力范围
@@ -19,7 +19,7 @@ NAS 已部署名为 `japanese-tutor` 的初版 workspace Skill，包含教学提
 ### 新增能力
 - `ai-japanese-curriculum`: N1 课程索引、来源治理、六轨 mastery、AI planner、材料生成、教学闭环与学习时长。
 - `anki-learning-integration`: MBP 原生 Anki Desktop、AnkiConnect adapter、个人新标日牌组发现与复习、AI 句子卡、媒体与同步边界。
-- `proactive-japanese-learning`: Daily/weekly Cron、提醒抑制、课程入口和跨会话连续性。
+- `proactive-japanese-learning`: 复用 nanobot Cron 的 Daily/Weekly 教学内容、课程入口和跨会话连续性。
 
 ### 修改能力
 
