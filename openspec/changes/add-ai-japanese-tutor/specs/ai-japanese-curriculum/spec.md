@@ -96,6 +96,10 @@ Anki 词汇复习 SHALL NOT 依赖 nanobot TTS；只有用户确认需要带音�
 - **WHEN** 句子音频合成失败
 - **THEN** 系统 MAY 创建不带音频的 Reading/Speaking Card，但 SHALL NOT 创建或声称存在 Listening Card
 
+#### Scenario: 交付课堂听力题
+- **WHEN** 标准课节点包含听力能力，或听力是当前弱项
+- **THEN** 系统 SHALL 生成独立纯日语音频，并将题干与音频附件作为同一条聊天消息发送
+
 ### Requirement: 来源治理
 系统 SHALL 维护来源注册表，包含版本、许可证、可信等级、允许用途和署名要求。
 

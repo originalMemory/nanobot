@@ -48,10 +48,10 @@
 
 - [x] 5.1 重写教学参考为 plan → review → teach → practice → transfer → preview → record 闭环，并保留现有人格。
 - [x] 5.2 增加 `SudachiPy + SudachiDict-core` 材料分析依赖；实现结构化词汇单位、lemma 归一、已知集合匹配、声明式排除/豁免和默认不少于 90% 的实测覆盖率。
-- [x] 5.3 定义两个例句、2～4 轮对话、可选分级阅读、可选听力文本及来源/生成器元数据的 prompt/输出契约。
+- [x] 5.3 定义两个例句、2～4 轮对话、可选分级阅读、可选听力文本及来源/生成器元数据的 prompt/输出契约；即时听力题以题干加音频附件同条发送。
 - [x] 5.4 实现纠错与迁移证据记录，不把一次答对视为 mastered。
 - [x] 5.5 实现最多 3 个句子卡候选预览，并要求明确确认后才调用 Anki mutation。
-- [x] 5.6 实现可选 `tts_media.py`：只为用户确认的带音频 AI 句子卡调用现有 OpenAI-compatible TTS 和日语 clone voice；返回 path、MIME、SHA-256、voice 和生成器元数据，不泄露凭据。
+- [x] 5.6 实现可选 `tts_media.py`：为确认的带音频 AI 句子卡或用户主动请求的即时听力题调用现有 OpenAI-compatible TTS 和日语 clone voice；返回 path、MIME、SHA-256、voice 和生成器元数据，不泄露凭据。
 - [x] 5.7 TTS 失败时允许继续创建不带音频的 Reading/Speaking Card，但不得创建或声称存在 Listening Card。
 - [x] 5.8 更新人类可读 `memory/japanese-learning.md` 摘要，不复制 Anki due date 或 review history。
 

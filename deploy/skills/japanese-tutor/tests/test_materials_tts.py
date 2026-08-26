@@ -118,3 +118,24 @@ class TtsMediaTest(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("确认", result.stderr)
+
+    def test_listening_question_does_not_require_card_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "tts_media.py"),
+                    "--text",
+                    "こんにちは",
+                    "--workspace",
+                    temp_dir,
+                    "--purpose",
+                    "listening-question",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertNotIn("确认", result.stderr)
+            self.assertIn("japaneseVoiceId", result.stderr)

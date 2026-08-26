@@ -466,6 +466,10 @@ def build_session_plan(
         )
         if mode == "deep":
             steps.append({"kind": "extended_input", "options": ["graded_reading", "tts_listening"]})
+        if mode == "standard" and (
+            "listening" in new_target["skills"] or "listening" in next_plan["review_focus"]
+        ):
+            steps.append({"kind": "listening_question", "node_id": new_target["id"]})
         steps.append({"kind": "transfer_check", "node_id": new_target["id"]})
     elif mode == "micro" and not due_cards:
         steps.append({"kind": "transfer_check", "cards": 0})

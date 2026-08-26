@@ -53,10 +53,11 @@ def main() -> int:
         default=Path(__file__).resolve().parents[1] / "japanese-tutor.private.json",
     )
     parser.add_argument("--nanobot-config", type=Path)
+    parser.add_argument("--purpose", choices=("card", "listening-question"), default="card")
     parser.add_argument("--confirmed", action="store_true")
     args = parser.parse_args()
     try:
-        if not args.confirmed:
+        if args.purpose == "card" and not args.confirmed:
             raise ValueError("生成句子音频需要明确确认")
         print(
             json.dumps(

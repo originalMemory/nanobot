@@ -12,4 +12,4 @@ AI 生成两个例句、2～4 轮短对话，以及可选分级阅读或听力�
 {"japaneseVoiceId":"REPLACE_WITH_JAPANESE_VOICE_ID"}
 ```
 
-它从 `~/.nanobot/config.json` 读取现有 TTS 服务配置，只从技能私密配置读取独立日语音色，并非流式。必须传 `--confirmed`；失败时可继续创建 Reading/Speaking 卡，但不能创建 Listening 卡。
+它从 `~/.nanobot/config.json` 读取现有 TTS 服务配置，只从技能私密配置读取独立日语音色，并非流式。`--purpose card` 必须传 `--confirmed`；`--purpose listening-question` 用于课堂自动安排的短听力题，生成后必须通过 `message(media=[path])` 与题干一并发送。卡片合成失败时可继续创建 Reading/Speaking 卡，但不能创建 Listening 卡。

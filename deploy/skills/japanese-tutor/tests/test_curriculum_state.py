@@ -408,6 +408,17 @@ class CurriculumStateTest(unittest.TestCase):
             self.assertEqual(plan["budget_minutes"], 30)
             self.assertIn("extended_input", [step["kind"] for step in plan["steps"]])
 
+    def test_standard_session_adds_listening_for_listening_weakness(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            self.assertEqual(self.run_script(workspace, "init").returncode, 0)
+            path, state = self.read_state(workspace)
+            state["tracks"]["listening"]["level"] = "foundation"
+            path.write_text(json.dumps(state), encoding="utf-8")
+            result = self.run_script(workspace, "session-plan", "--curriculum", str(CURRICULUM))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("listening_question", [step["kind"] for step in json.loads(result.stdout)["steps"]])
+
     def test_mastery_requires_two_sessions_and_downgrades(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)
