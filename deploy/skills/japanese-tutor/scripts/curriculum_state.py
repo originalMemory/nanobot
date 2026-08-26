@@ -117,7 +117,9 @@ def validate_state(state: Any) -> dict[str, Any]:
         raise ValueError("current_node 必须是字符串或 null")
     if state["last_session"] is not None and not isinstance(state["last_session"], dict):
         raise ValueError("last_session 必须是对象或 null")
-    if state["next_recommendation"] is not None and not isinstance(state["next_recommendation"], str):
+    if state["next_recommendation"] is not None and not isinstance(
+        state["next_recommendation"], str
+    ):
         raise ValueError("next_recommendation 必须是字符串或 null")
 
     tracks = state["tracks"]
@@ -133,7 +135,9 @@ def validate_state(state: Any) -> dict[str, Any]:
     for node_id, node in state["nodes"].items():
         if not isinstance(node_id, str) or not isinstance(node, dict):
             raise ValueError("nodes 必须是节点 ID 到对象的映射")
-        if node.get("status", "new") not in NODE_STATES or not isinstance(node.get("evidence", []), list):
+        if node.get("status", "new") not in NODE_STATES or not isinstance(
+            node.get("evidence", []), list
+        ):
             raise ValueError(f"节点状态无效: {node_id}")
     return state
 
@@ -198,6 +202,33 @@ def recover_state(path: Path) -> Path | None:
 
 def emit(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+def write_summary(path: Path, state: dict[str, Any]) -> None:
+    tracks = "\n".join(
+        f"- {name}: {state['tracks'][name]['level'] or '未定级'}" for name in TRACK_NAMES
+    )
+    observations = "\n".join(f"- {item}" for item in state["legacy_observations"][-8:]) or "- 暂无"
+    start, end = "<!-- japanese-tutor:summary:start -->", "<!-- japanese-tutor:summary:end -->"
+    block = (
+        f"{start}\n## 自动摘要\n- 目标：{state['profile']['goal']}\n"
+        f"- 当前节点：{state['current_node'] or '暂无'}\n\n### 六轨\n{tracks}\n\n"
+        f"### 易错与待加强\n{observations}\n{end}"
+    )
+    existing = path.read_text(encoding="utf-8") if path.exists() else "# 日语学习档案\n"
+    if start in existing and end in existing:
+        before, remainder = existing.split(start, 1)
+        _, after = remainder.split(end, 1)
+        content = before.rstrip() + "\n\n" + block + after
+    else:
+        content = existing.rstrip() + "\n\n" + block + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temp_name, path)
 
 
 def import_legacy(path: Path, state: dict[str, Any]) -> int:
@@ -331,11 +362,7 @@ def weak_tracks(state: dict[str, Any], node: dict[str, Any]) -> list[str]:
 
 def matching_question_gaps(node: dict[str, Any], question_gaps: list[str]) -> list[str]:
     skills = set(node.get("skills", []))
-    return [
-        gap
-        for gap in question_gaps
-        if QUESTION_SKILLS.get(gap.split(":", 1)[0]) in skills
-    ]
+    return [gap for gap in question_gaps if QUESTION_SKILLS.get(gap.split(":", 1)[0]) in skills]
 
 
 def plan_next(
@@ -392,7 +419,9 @@ def plan_next(
     node_id = node["id"]
     status = node_state(state, node_id)
     matched_weaknesses = [
-        weakness for weakness in anki["weaknesses"] if isinstance(weakness, dict) and weakness.get("node_id") == node_id
+        weakness
+        for weakness in anki["weaknesses"]
+        if isinstance(weakness, dict) and weakness.get("node_id") == node_id
     ]
     return {
         "ok": True,
@@ -473,7 +502,9 @@ def stage_gate(
             for node in curriculum["nodes"]
             if node.get("textbook", {}).get("level") == stage
         ]
-    missing_nodes = [node_id for node_id in required_nodes if node_state(state, node_id) != "mastered"]
+    missing_nodes = [
+        node_id for node_id in required_nodes if node_state(state, node_id) != "mastered"
+    ]
     below_tracks = [
         track
         for track in TRACK_NAMES
@@ -499,6 +530,9 @@ def record_evidence(
     session_id: str,
     kind: str,
     outcome: str,
+    context: str = "transfer",
+    correction: str = "",
+    used_hint: bool = False,
 ) -> dict[str, Any]:
     if not session_id.strip():
         raise ValueError("课程证据必须提供 session_id")
@@ -506,6 +540,8 @@ def record_evidence(
         raise ValueError("课程证据 kind 必须是 recognition 或 production")
     if outcome not in {"correct", "incorrect"}:
         raise ValueError("课程证据 outcome 必须是 correct 或 incorrect")
+    if context not in {"original", "transfer"}:
+        raise ValueError("课程证据 context 必须是 original 或 transfer")
     known_ids = {
         node["id"]
         for node in [*curriculum["nodes"], *curriculum["bridge_nodes"]]
@@ -519,23 +555,39 @@ def record_evidence(
         "session_id": session_id,
         "kind": kind,
         "outcome": outcome,
+        "context": context,
+        "correction": correction.strip(),
+        "used_hint": used_hint,
         "recorded_at": datetime.now(UTC).isoformat(),
     }
     entry["evidence"].append(evidence)
     state["current_node"] = node_id
-    state["last_session"] = {"id": session_id, "node_id": node_id, "recorded_at": evidence["recorded_at"]}
+    state["last_session"] = {
+        "id": session_id,
+        "node_id": node_id,
+        "recorded_at": evidence["recorded_at"],
+    }
 
     if outcome == "incorrect":
         entry["status"] = "reviewing" if entry["status"] == "mastered" else "learning"
         return entry
 
     last_incorrect = max(
-        (index for index, item in enumerate(entry["evidence"]) if item.get("outcome") == "incorrect"),
+        (
+            index
+            for index, item in enumerate(entry["evidence"])
+            if item.get("outcome") == "incorrect"
+        ),
         default=-1,
     )
     successful: dict[str, set[str]] = {}
     for item in entry["evidence"][last_incorrect + 1 :]:
-        if item.get("outcome") == "correct" and isinstance(item.get("session_id"), str):
+        if (
+            item.get("outcome") == "correct"
+            and item.get("context", "transfer") == "transfer"
+            and not item.get("used_hint", False)
+            and isinstance(item.get("session_id"), str)
+        ):
             successful.setdefault(item["session_id"], set()).add(str(item.get("kind")))
     complete_sessions = [
         evidence_session
@@ -562,6 +614,7 @@ def main() -> int:
             "import-legacy",
             "diagnostic-plan",
             "record-diagnostic",
+            "update-summary",
             "plan",
             "session-plan",
             "stage-gate",
@@ -575,7 +628,11 @@ def main() -> int:
     )
     parser.add_argument("--recover", action="store_true")
     parser.add_argument("--legacy-path", type=Path)
-    parser.add_argument("--curriculum", type=Path, default=Path(__file__).resolve().parents[1] / "data" / "curriculum-n1.yaml")
+    parser.add_argument(
+        "--curriculum",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "data" / "curriculum-n1.yaml",
+    )
     parser.add_argument("--anki-status", type=Path)
     parser.add_argument("--session", choices=tuple(SESSION_BUDGETS), default="standard")
     parser.add_argument("--fatigued", action="store_true")
@@ -584,6 +641,9 @@ def main() -> int:
     parser.add_argument("--node-id")
     parser.add_argument("--evidence-kind", choices=("recognition", "production"))
     parser.add_argument("--outcome", choices=("correct", "incorrect"))
+    parser.add_argument("--evidence-context", choices=("original", "transfer"), default="transfer")
+    parser.add_argument("--correction", default="")
+    parser.add_argument("--used-hint", action="store_true")
     parser.add_argument("--session-id", default="")
     parser.add_argument("--placement", action="append", default=[])
     args = parser.parse_args()
@@ -605,7 +665,9 @@ def main() -> int:
                 else:
                     state = default_state()
                     save_state(state_path, state)
-                emit({"ok": True, "path": str(state_path), "backup": str(backup) if backup else None})
+                emit(
+                    {"ok": True, "path": str(state_path), "backup": str(backup) if backup else None}
+                )
                 return 0
 
             if args.action == "diagnostic-plan":
@@ -618,6 +680,11 @@ def main() -> int:
                 record_diagnostic(state, args.placement, args.session_id)
                 save_state(state_path, state)
                 emit({"ok": True, "path": str(state_path), "tracks": state["tracks"]})
+                return 0
+            if args.action == "update-summary":
+                summary_path = args.workspace / "memory" / "japanese-learning.md"
+                write_summary(summary_path, state)
+                emit({"ok": True, "path": str(summary_path)})
                 return 0
             if args.action == "plan":
                 curriculum = load_curriculum(args.curriculum)
@@ -653,15 +720,32 @@ def main() -> int:
                     session_id=args.session_id,
                     kind=args.evidence_kind,
                     outcome=args.outcome,
+                    context=args.evidence_context,
+                    correction=args.correction,
+                    used_hint=args.used_hint,
                 )
                 save_state(state_path, state)
-                emit({"ok": True, "node_id": args.node_id, "status": entry["status"], "evidence": entry["evidence"]})
+                emit(
+                    {
+                        "ok": True,
+                        "node_id": args.node_id,
+                        "status": entry["status"],
+                        "evidence": entry["evidence"],
+                    }
+                )
                 return 0
             if args.action == "import-legacy":
                 legacy_path = args.legacy_path or args.workspace / "memory" / "japanese-learning.md"
                 imported = import_legacy(legacy_path, state)
                 save_state(state_path, state)
-                emit({"ok": True, "path": str(state_path), "legacy_path": str(legacy_path), "imported": imported})
+                emit(
+                    {
+                        "ok": True,
+                        "path": str(state_path),
+                        "legacy_path": str(legacy_path),
+                        "imported": imported,
+                    }
+                )
                 return 0
             if args.action == "status":
                 emit(

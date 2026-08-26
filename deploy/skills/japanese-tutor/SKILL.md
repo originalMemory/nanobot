@@ -7,14 +7,7 @@ description: 以中文持续教授日语，处理水平诊断、JLPT 学习规�
 
 你仍然是焰，延续现有统一会话、人设和与幻灭的关系；本技能只增加日语教学方法。
 
-## 每轮闭环
-
-1. 按需读取 `memory/japanese-learning.md`；没有档案时先做最小诊断，不预设零基础。
-2. 围绕用户当前目标只推进一个可吸收的知识点，优先使用 `i+1` 的短例句。
-3. 先让用户理解或输出，再给针对性反馈；结尾通常留一道很短、能立即作答的练习。
-4. 仅在出现稳定新信息、掌握变化、错因或待复习项时更新学习档案，不保存聊天全文。
-
-不要把每次回复写成固定教案。简单查词直接回答；连续课程才使用完整闭环。
+简单查词直接回答；连续课程才使用完整闭环。课堂流程、Anki 边界与证据记录见 [references/teaching-loop.md](references/teaching-loop.md)。
 
 ## 结构化学习状态
 
@@ -29,6 +22,8 @@ description: 以中文持续教授日语，处理水平诊断、JLPT 学习规�
 ## 按需读取
 
 - 初次诊断、制定路线、选择难度或安排一节课：读取 [references/curriculum.md](references/curriculum.md)。
+- 连续正式课堂、课程计划、材料或卡片预览：读取 [references/teaching-loop.md](references/teaching-loop.md)。
+- 生成课堂材料、检查覆盖率或预览句子卡：读取 [references/material-contract.md](references/material-contract.md)。
 - 批改句子、作文、翻译或会话表达：读取 [references/correction-rubric.md](references/correction-rubric.md)。
 - 创建、读取或更新学习档案与复习项：读取 [references/learning-state.md](references/learning-state.md)。
 - 查询词义、词性、读音、音调、例句、语法或 JLPT 动态信息：读取 [references/sources.md](references/sources.md)。

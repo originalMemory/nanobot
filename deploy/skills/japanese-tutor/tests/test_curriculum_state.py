@@ -61,7 +61,9 @@ class CurriculumStateTest(unittest.TestCase):
             self.assertNotEqual(blocked.returncode, 0)
             recovered = self.run_script(workspace, "init", "--recover")
             self.assertEqual(recovered.returncode, 0, recovered.stderr)
-            self.assertEqual(len(list(path.parent.glob("japanese-learning-state.corrupt.*.json"))), 1)
+            self.assertEqual(
+                len(list(path.parent.glob("japanese-learning-state.corrupt.*.json"))), 1
+            )
 
     def test_import_legacy_ignores_mastered_claims(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -88,6 +90,20 @@ class CurriculumStateTest(unittest.TestCase):
             self.assertEqual(state["profile"]["goal"], "JLPT N1")
             self.assertEqual(state["nodes"], {})
             self.assertIn("[助词]：に 和 で 混淆", state["legacy_observations"])
+
+    def test_update_summary_preserves_manual_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            self.assertEqual(self.run_script(workspace, "init").returncode, 0)
+            summary = workspace / "memory" / "japanese-learning.md"
+            summary.write_text("# 日语学习档案\n\n## 我的备注\n保留这段。\n", encoding="utf-8")
+            first = self.run_script(workspace, "update-summary")
+            second = self.run_script(workspace, "update-summary")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            content = summary.read_text(encoding="utf-8")
+            self.assertIn("保留这段", content)
+            self.assertEqual(content.count("japanese-tutor:summary:start"), 1)
 
     def test_diagnostic_tracks_are_independent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -131,7 +147,9 @@ class CurriculumStateTest(unittest.TestCase):
             path.write_text(json.dumps(state), encoding="utf-8")
             second = self.run_script(workspace, "plan", "--curriculum", str(CURRICULUM))
             self.assertEqual(second.returncode, 0, second.stderr)
-            self.assertEqual(json.loads(second.stdout)["next_node"]["id"], "foundation-basic-sentence")
+            self.assertEqual(
+                json.loads(second.stdout)["next_node"]["id"], "foundation-basic-sentence"
+            )
             state["nodes"]["foundation-basic-sentence"] = {"status": "mastered"}
             path.write_text(json.dumps(state), encoding="utf-8")
             third = self.run_script(workspace, "plan", "--curriculum", str(CURRICULUM))
@@ -370,7 +388,9 @@ class CurriculumStateTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)
             self.assertEqual(self.run_script(workspace, "init").returncode, 0)
-            result = self.run_script(workspace, "session-plan", "--session", "micro", "--curriculum", str(CURRICULUM))
+            result = self.run_script(
+                workspace, "session-plan", "--session", "micro", "--curriculum", str(CURRICULUM)
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             plan = json.loads(result.stdout)
             self.assertEqual(plan["budget_minutes"], 5)
@@ -380,7 +400,9 @@ class CurriculumStateTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)
             self.assertEqual(self.run_script(workspace, "init").returncode, 0)
-            result = self.run_script(workspace, "session-plan", "--session", "deep", "--curriculum", str(CURRICULUM))
+            result = self.run_script(
+                workspace, "session-plan", "--session", "deep", "--curriculum", str(CURRICULUM)
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             plan = json.loads(result.stdout)
             self.assertEqual(plan["budget_minutes"], 30)
@@ -390,7 +412,13 @@ class CurriculumStateTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)
             self.assertEqual(self.run_script(workspace, "init").returncode, 0)
-            common = ("record-evidence", "--curriculum", str(CURRICULUM), "--node-id", "foundation-kana")
+            common = (
+                "record-evidence",
+                "--curriculum",
+                str(CURRICULUM),
+                "--node-id",
+                "foundation-kana",
+            )
             for kind in ("recognition", "production"):
                 result = self.run_script(
                     workspace,
@@ -444,6 +472,50 @@ class CurriculumStateTest(unittest.TestCase):
             self.assertEqual(still_reviewing.returncode, 0, still_reviewing.stderr)
             self.assertEqual(json.loads(still_reviewing.stdout)["status"], "reviewing")
 
+    def test_original_context_and_correction_do_not_create_mastery(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            self.assertEqual(self.run_script(workspace, "init").returncode, 0)
+            common = (
+                "record-evidence",
+                "--curriculum",
+                str(CURRICULUM),
+                "--node-id",
+                "foundation-kana",
+                "--evidence-context",
+                "original",
+            )
+            for session in ("one", "two"):
+                for kind in ("recognition", "production"):
+                    result = self.run_script(
+                        workspace,
+                        *common,
+                        "--session-id",
+                        session,
+                        "--evidence-kind",
+                        kind,
+                        "--outcome",
+                        "correct",
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual(json.loads(result.stdout)["status"], "mastered")
+            wrong = self.run_script(
+                workspace,
+                *common,
+                "--session-id",
+                "three",
+                "--evidence-kind",
+                "production",
+                "--outcome",
+                "incorrect",
+                "--correction",
+                "助词应使用に",
+                "--used-hint",
+            )
+            evidence = json.loads(wrong.stdout)["evidence"][-1]
+            self.assertEqual(evidence["correction"], "助词应使用に")
+            self.assertTrue(evidence["used_hint"])
+
     def test_concurrent_writers_preserve_both_updates(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)
@@ -479,9 +551,7 @@ class CurriculumStateTest(unittest.TestCase):
                 _, stderr = process.communicate(timeout=10)
                 self.assertEqual(process.returncode, 0, stderr)
             _, state = self.read_state(workspace)
-            self.assertEqual(
-                set(state["nodes"]), {"foundation-kana", "foundation-basic-sentence"}
-            )
+            self.assertEqual(set(state["nodes"]), {"foundation-kana", "foundation-basic-sentence"})
 
     def test_stage_gate_checks_nodes_tracks_and_question_gaps(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

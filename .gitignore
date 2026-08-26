@@ -106,3 +106,5 @@ temp/
 *.tmp
 exp/
 .playwright-mcp/
+# 日语老师本地部署配置（Anki 地址、日语克隆音色等）
+deploy/skills/japanese-tutor/japanese-tutor.private.json
