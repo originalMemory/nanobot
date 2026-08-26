@@ -80,7 +80,20 @@ Node 状态为 `new → learning → reviewing → mastered`。只有跨至少�
 
 材料生成后 use `SudachiPy + SudachiDict-core` 做确定性分词和 lemma 归一，输出结构化 lexical units：`surface`、`lemma`、`kind`、`known_reason`。覆盖率分母只包含词汇、汉字词和语法功能单位，排除标点、纯数字和已标记的专名。known set 来自已掌握 curriculum vocabulary、已确认的学习 evidence 和可映射的个人 Anki notes，当前 primary target 计为唯一允许的新单位。默认覆盖率低于 90% 时必须简化或重写；确实无法避免的专名或教学必需词要记录 exemption，不能静默通过。生成的例句、对话、阅读和听力稿记录 curriculum node、generator version、覆盖率明细和语言事实来源。
 
-### 5. Anki 是复习权威，AI 是课堂编排者
+### 5. 六册 PDF 使用可恢复的两阶段视觉提取
+
+课程事实优先来自用户本地 `D:\标准日本语` 下六册 PDF：初级上下、中级上下、高级上下，共 2362 页。PDF 可能是纯扫描版；流程不得依赖文本层，使用 Poppler 按页渲染，再调用本地 Ollama `qwen3.8:27b` 的 vision 能力。
+
+提取分两阶段：
+
+1. **页级提取**：每页独立输出严格 JSON，记录书册、PDF 页码、印刷页码、单元、课号、页面类型、栏目、显式知识点、语用限制、词汇主题、练习类型和不确定项。续页允许课号为空，不自行猜测。
+2. **课程级合并**：按相邻页、页眉、课程起止页和目录信息聚合页面，补全续页归属，去重并生成 curriculum node；只保留抽象句型、规则、能力目标、易混点和来源页码，不复制连续教材正文、完整例句、练习或词表。
+
+`extract_curriculum.py` 使用本地工作目录保存 manifest 和逐页结果。Manifest 记录 PDF 的路径、大小、修改时间、SHA-256、页数，以及模型、prompt 和 schema 版本。每页结果先写临时文件，校验 JSON 后原子替换；只有输入指纹和版本均一致的 `completed` 页面才跳过。中断后默认继续 pending/failed 页面，并支持按书册、页码范围、失败页或强制页重跑。默认并发为 1，避免 27B vision 模型争抢显存。
+
+页级原始结果、渲染图片和可能包含教材原文的中间产物不得进入仓库。仓库只保存脚本、schema、无版权 payload 的测试 fixture，以及通过课程级合并和复核后的抽象 curriculum node。Qwen 初次输出统一标记为 `candidate`；课程边界合并、schema 校验和抽样人工复核后才可升级为 `cross_checked`。
+
+### 6. Anki 是复习权威，AI 是课堂编排者
 
 MBP 原生运行 Anki Desktop，AnkiConnect 绑定 MBP 局域网地址的 `8765`。当前部署由用户明确选择可信局域网模式，不设置 API key；adapter 仍支持从私密配置读取可选 key，未配置时不发送该字段。NAS nanobot adapter 使用 `http://<MBP-LAN-IP>:8765` 访问，不要求 Docker network。用户在 Anki GUI 中登录 AnkiWeb 并手工导入：
 - `1939635284` 初级假名到释义；
@@ -99,7 +112,7 @@ AI 生成句子写入“日语沉浸学习”牌组，使用 `Japanese Immersion
 
 Anki 和词汇复习不依赖 nanobot TTS。`tts_media.py` 只在用户确认“把 AI 生成句子做成带音频的听力卡”时调用，复用 nanobot 已配置的 OpenAI-compatible TTS provider 和固定日语 clone voice，把文本合成为 workspace 临时音频，并通过 JSON 返回 path、MIME、SHA-256、voice 和 generator metadata。它不走 turn-scoped `tts` tool，不向 stdout/stderr 输出 API key；`anki_adapter` base64 上传成功后清理临时文件。合成失败时仍可创建不带音频的 Reading/Speaking Card，但不得创建或声称存在 Listening Card。
 
-### 6. 上课时由 AI 调 planner 与 Anki adapter
+### 7. 上课时由 AI 调 planner 与 Anki adapter
 
 典型调用顺序：
 
@@ -118,7 +131,7 @@ curriculum_state plan --duration 20
 
 AI 不直接改 Anki SQLite、due 或 interval；只通过上述透明规则和 Anki scheduler 提交 review。用户可在课程开始时选择“只练习不记 Anki”或“手动评分”，此时 Card 保持原状态，界面必须明确说明没有记入 Anki review。AI 不在用户未确认句子卡候选时创建正式卡片。
 
-### 7. 主动学习 use Cron，不 use Heartbeat 推进课程
+### 8. 主动学习 use Cron，不 use Heartbeat 推进课程
 
 Daily Cron 调 planner 和 Anki due：有 due 时发一道短题，否则仅预告 next node；用户回复后才展开课程，到期卡按同一自动评分规则记入 Anki。Weekly Cron 通过 adapter 的 review history 汇总六轨、node 和 lapse。Heartbeat 不推进 node、不记录 evidence、不创建卡片。
 
@@ -139,10 +152,11 @@ Daily Cron 调 planner 和 Anki due：有 due 时发一道短题，否则仅预�
 
 1. 在 MBP 安装原生 Anki Desktop 和 AnkiConnect，验证 AnkiWeb sync、局域网 API 与 MBP 未休眠时的稳定连接。
 2. 用户手工导入三个牌组；NAS 执行只读 discovery，核对 deck、字段、Note 数和媒体引用，不迁移牌组。
-3. 将 Downloads 初版导入 `deploy/skills/japanese-tutor/` 并固定为 canonical source；完成 source registry、104 课索引 schema、planner 和测试。
-4. 在隔离 workspace 部署完整 skill bundle，先用 MBP 导入词汇牌组手动触发课程和 Anki review；通过端到端验证后生成 NAS 部署清单和 bundle checksum。
-5. 用户备份 NAS 旧版 `<workspace>/skills/japanese-tutor/` 后显式覆盖；确认实际 NAS 行为后再启用 daily/weekly Cron。
-6. 回滚时先停用 Cron，以备份的旧 Skill 目录恢复；Anki 词汇牌组从未迁移，可独立保留。
+3. 实现可断点续跑的 PDF 页级提取器，在本地工作目录完成六册候选 JSON；先用初级上第 1 课做人工对照，再逐册慢跑。
+4. 按课程合并候选结果，生成并复核 104 个抽象 curriculum node；逐页中间产物不进入仓库。
+5. 在隔离 workspace 部署完整 skill bundle，先用 MBP 导入词汇牌组手动触发课程和 Anki review；通过端到端验证后生成 NAS 部署清单和 bundle checksum。
+6. 用户备份 NAS 旧版 `<workspace>/skills/japanese-tutor/` 后显式覆盖；确认实际 NAS 行为后再启用 daily/weekly Cron。
+7. 回滚时先停用 Cron，以备份的旧 Skill 目录恢复；Anki 词汇牌组从未迁移，可独立保留。
 
 ## 待确认问题
 

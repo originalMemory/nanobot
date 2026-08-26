@@ -6,6 +6,7 @@ NAS 已部署名为 `japanese-tutor` 的初版 workspace Skill，包含教学提
 
 - 保留现有技能名 `japanese-tutor` 并原地升级为模块化 bundle；入口 Skill 保持短小，课程图、来源规则、教学策略、Anki adapter 和模板按需加载，同时保留初版的人格边界、简单查词直答和谨慎纠错原则。
 - 新增标日初级 48、中级 32、高级 24 课的结构化索引，并建立 Foundation→N5→N1 prerequisite graph、bridge node、六轨 mastery 和阶段 gate。
+- 使用用户本地 `D:\标准日本语` 下六册扫描 PDF，通过本地 Qwen3.8 27B 视觉模型做可断点续跑的逐页知识点提取，再按课程聚合；逐页 OCR/视觉结果留在本地工作目录，不把教材正文、练习、译文或图片提交到仓库。
 - 新增 AI 教学规划器；每轮先复习 3～5 个到期弱项，再教授一个新目标，默认课程时长 15～20 分钟。
 - 新增受 mastery 约束且可度量的材料生成：例句、短对话、分级阅读和听力练习；AI 生成句子只有在用户确认制作听力卡时才可选地合成 TTS 音频。
 - 在 MBP 原生运行 Anki Desktop + AnkiConnect；NAS nanobot 通过局域网访问 MBP，继续使用 AnkiWeb 多设备同步。

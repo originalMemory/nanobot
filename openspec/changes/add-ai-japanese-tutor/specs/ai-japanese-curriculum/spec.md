@@ -11,6 +11,29 @@
 - **WHEN** 课程节点的验证状态为 `candidate`
 - **THEN** planner SHALL 将其排除在正式教学与制卡之外
 
+### Requirement: 可恢复的本地 PDF 视觉提取
+系统 SHALL 能从用户本地六册新标日 PDF 生成页级候选知识点，并在进程中断后从未完成页面继续，不得要求重新处理已验证完成且输入与版本未变化的页面。
+
+#### Scenario: 首次处理扫描 PDF
+- **WHEN** PDF 页面没有可用文本层
+- **THEN** 提取器 SHALL 渲染页面并调用本地 Qwen vision 模型，输出符合 schema 的页级 JSON
+
+#### Scenario: 中途停止后继续
+- **WHEN** 提取进程在部分页面完成后退出
+- **THEN** 再次运行 SHALL 跳过输入指纹、模型、prompt 和 schema 版本均匹配的 completed 页面，仅继续 pending 或 failed 页面
+
+#### Scenario: PDF 或提取规范变化
+- **WHEN** PDF 指纹、模型、prompt 或 schema 版本发生变化
+- **THEN** 受影响的旧结果 SHALL 不被当作有效完成结果，并可按书册或页码范围重跑
+
+#### Scenario: 课程跨多页
+- **WHEN** 某页没有独立课号但与前后页面属于同一课程
+- **THEN** 页级提取 SHALL 保留未知归属，课程级合并 SHALL 根据相邻页和课程边界确定归属，不得让单页模型猜测
+
+#### Scenario: 中间产物版权隔离
+- **WHEN** 页级结果或渲染图片可能包含教材原文、练习、译文或图片
+- **THEN** 这些中间产物 SHALL 只保存在本地工作目录且不得提交；仓库 curriculum node 仅保留抽象知识点、规则、能力目标和来源页码
+
 ### Requirement: 六轨独立掌握度
 系统 SHALL 分别跟踪词汇/汉字、语法、阅读、听力、会话输出和考试策略。
 

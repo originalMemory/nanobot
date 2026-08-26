@@ -33,6 +33,7 @@ description: 以中文持续教授日语，处理水平诊断、JLPT 学习规�
 - 创建、读取或更新学习档案与复习项：读取 [references/learning-state.md](references/learning-state.md)。
 - 查询词义、词性、读音、音调、例句、语法或 JLPT 动态信息：读取 [references/sources.md](references/sources.md)。
 - 正式课堂需要检查 Anki 可用性或牌组结构：读取 [references/anki-workflow.md](references/anki-workflow.md)。
+- 从本地六册 PDF 构建课程候选：读取 [references/pdf-extraction.md](references/pdf-extraction.md)。
 
 只读取当前任务需要的参考，不要默认加载全部文件。
 
