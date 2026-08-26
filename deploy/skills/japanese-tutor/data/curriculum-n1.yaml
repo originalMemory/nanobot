@@ -32869,6 +32869,7 @@ nodes:
 bridge_nodes:
 - id: foundation-kana
   title: 假名、长音、促音与拗音
+  target_level: foundation
   skills:
   - vocabulary_kanji
   - listening
@@ -32878,6 +32879,7 @@ bridge_nodes:
   verification: cross_checked
 - id: foundation-basic-sentence
   title: 日语基本句、助词与礼貌体
+  target_level: N5
   skills:
   - grammar
   - spoken_output
@@ -32888,6 +32890,7 @@ bridge_nodes:
   verification: cross_checked
 - id: bridge-n4-n3
   title: 从基础课堂日语到日常连贯表达
+  target_level: N3
   skills:
   - grammar
   - reading
@@ -32900,12 +32903,13 @@ bridge_nodes:
   verification: cross_checked
 - id: bridge-n3-n2
   title: 从日常理解到复杂篇章与自然语速
+  target_level: N2
   skills:
   - grammar
   - reading
   - listening
   - spoken_output
-  - exam_strategy
+  - test_strategy
   prerequisites:
   - textbook-intermediate-32
   sources:

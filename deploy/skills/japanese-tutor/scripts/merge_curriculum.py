@@ -30,6 +30,7 @@ BRIDGE_NODES = [
     {
         "id": "foundation-kana",
         "title": "假名、长音、促音与拗音",
+        "target_level": "foundation",
         "skills": ["vocabulary_kanji", "listening"],
         "prerequisites": [],
         "sources": [{"id": "irodori"}],
@@ -38,6 +39,7 @@ BRIDGE_NODES = [
     {
         "id": "foundation-basic-sentence",
         "title": "日语基本句、助词与礼貌体",
+        "target_level": "N5",
         "skills": ["grammar", "spoken_output"],
         "prerequisites": ["foundation-kana"],
         "sources": [{"id": "irodori"}],
@@ -46,6 +48,7 @@ BRIDGE_NODES = [
     {
         "id": "bridge-n4-n3",
         "title": "从基础课堂日语到日常连贯表达",
+        "target_level": "N3",
         "skills": ["grammar", "reading", "listening", "spoken_output"],
         "prerequisites": ["textbook-beginner-48"],
         "sources": [{"id": "jlpt-official"}],
@@ -54,7 +57,8 @@ BRIDGE_NODES = [
     {
         "id": "bridge-n3-n2",
         "title": "从日常理解到复杂篇章与自然语速",
-        "skills": ["grammar", "reading", "listening", "spoken_output", "exam_strategy"],
+        "target_level": "N2",
+        "skills": ["grammar", "reading", "listening", "spoken_output", "test_strategy"],
         "prerequisites": ["textbook-intermediate-32"],
         "sources": [{"id": "jlpt-official"}],
         "verification": "cross_checked",

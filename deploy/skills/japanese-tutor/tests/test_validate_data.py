@@ -62,6 +62,22 @@ class ValidateDataTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("bridge source 引用无效", result.stderr)
 
+    def test_bridge_rejects_unknown_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            curriculum = yaml.safe_load((ROOT / "data" / "curriculum-n1.yaml").read_text(encoding="utf-8"))
+            curriculum["bridge_nodes"][-1]["skills"][-1] = "exam_strategy"
+            (data_dir / "curriculum-n1.yaml").write_text(
+                yaml.safe_dump(curriculum, allow_unicode=True, sort_keys=False), encoding="utf-8"
+            )
+            (data_dir / "source-registry.yaml").write_text(
+                (ROOT / "data" / "source-registry.yaml").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            result = self.run_validator("--data-dir", str(data_dir))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("bridge skills 无效", result.stderr)
+
     def test_jlpt_coverage_requires_four_tracks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             data_dir = Path(temp_dir)

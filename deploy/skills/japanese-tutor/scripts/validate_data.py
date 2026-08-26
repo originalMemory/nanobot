@@ -11,6 +11,16 @@ from urllib.parse import urlparse
 
 import yaml
 
+VALID_SKILLS = {
+    "vocabulary_kanji",
+    "grammar",
+    "reading",
+    "listening",
+    "spoken_output",
+    "test_strategy",
+}
+VALID_LEVELS = {"foundation", "N5", "N4", "N3", "N2", "N1"}
+
 
 def load_yaml(path: Path) -> dict:
     try:
@@ -107,6 +117,10 @@ def validate_curriculum_schema(
             raise ValueError(f"curriculum pdf_pages 无效: {node_id}")
         if not isinstance(node.get("prerequisites"), list):
             raise ValueError(f"curriculum prerequisites 无效: {node_id}")
+        if not isinstance(node.get("skills"), list) or any(
+            skill not in VALID_SKILLS for skill in node["skills"]
+        ):
+            raise ValueError(f"curriculum skills 无效: {node_id}")
         sources = node.get("sources")
         if not isinstance(sources, list) or not sources:
             raise ValueError(f"curriculum sources 无效: {node_id}")
@@ -126,14 +140,22 @@ def validate_curriculum_schema(
     }
     if len(bridge_ids) != len(bridges):
         raise ValueError("bridge node id 无效或重复")
-    bridge_required = {"id", "title", "skills", "prerequisites", "sources", "verification"}
+    bridge_required = {
+        "id", "title", "target_level", "skills", "prerequisites", "sources", "verification"
+    }
     for bridge in bridges:
         if not isinstance(bridge, dict) or bridge_required - bridge.keys():
             raise ValueError("bridge node 缺少必填字段")
         if bridge["verification"] not in allowed_verification:
             raise ValueError(f"bridge verification 无效: {bridge['id']}")
-        if not isinstance(bridge["skills"], list) or not bridge["skills"]:
+        if (
+            not isinstance(bridge["skills"], list)
+            or not bridge["skills"]
+            or any(skill not in VALID_SKILLS for skill in bridge["skills"])
+        ):
             raise ValueError(f"bridge skills 无效: {bridge['id']}")
+        if bridge["target_level"] not in VALID_LEVELS:
+            raise ValueError(f"bridge target_level 无效: {bridge['id']}")
         if not isinstance(bridge["sources"], list) or not bridge["sources"]:
             raise ValueError(f"bridge sources 无效: {bridge['id']}")
         if any(source.get("id") not in (source_ids or set()) for source in bridge["sources"]):
