@@ -11,7 +11,7 @@ from pydantic import Field
 from nanobot.agent.psb_tags import strip_psb_tags
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
-from nanobot.config.schema import TtsConfig
+from nanobot.config.schema import TtsConfig, TtsFallbackConfig
 
 if TYPE_CHECKING:
     from nanobot.agent.speech import SpeechRuntime
@@ -49,6 +49,15 @@ class TtsToolConfig(TtsConfig):
         "GLM 系统音色示例：tongtong / chuichui；"
         "自定义克隆音色填写 UUID。",
     )
+    fallback: TtsFallbackConfig | None = Field(
+        default=None,
+        description="主 TTS 在首个音频块前失败时使用的备用配置。",
+    )
+    health_check_url: str | None = Field(
+        default=None,
+        description="主 TTS 的快速健康检查地址；失败时直接使用 fallback。",
+    )
+    health_check_timeout_s: float = Field(default=0.5, gt=0, le=10)
     mode: Literal["off", "agent", "always"] | None = Field(
         default=None,
         description="TTS 模式：关闭、由 AI 决定、每轮完整回复自动朗读。",
@@ -67,7 +76,8 @@ class TtsToolConfig(TtsConfig):
 @tool_parameters(
     tool_parameters_schema(
         text=StringSchema(
-            "要合成为语音的文本。音色由系统配置固定决定。",
+            "要合成为语音的文本。音色由系统配置固定决定。中日混合时，中文使用 "
+            "[zh]...[/zh]，日语使用 [ja]...[/ja]；标签仅写在本参数中，不写入回复正文。",
             min_length=1,
             max_length=1024,
         ),
@@ -125,6 +135,7 @@ class TtsTool(Tool):
             "语音会自动附着到当前 assistant 回复；不要再调用 message 工具发送音频。"
             'PSB 标签（如 <psb:timeline name="待机" />）与 THA 表情/动作标签（如 <happy><nod>）'
             "会在合成前自动剥离；标签应保留在 message 的 content 里以驱动桌宠。"
+            "中日混合语音须在 text 中标注 [zh]...[/zh] 与 [ja]...[/ja]。"
         )
 
     async def execute(self, text: str, **_: Any) -> str:

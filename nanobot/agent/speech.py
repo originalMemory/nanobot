@@ -11,14 +11,32 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 from loguru import logger
 
-from nanobot.agent.playback_segments import parse_segment_controls, to_speech_text
+from nanobot.agent.playback_segments import (
+    parse_segment_controls,
+    strip_tts_language_tags,
+    to_speech_text,
+)
 from nanobot.agent.tools.context import RequestContext
 from nanobot.bus.events import OutboundMessage
 from nanobot.config.paths import get_media_dir
 from nanobot.providers.tts import TTSStreamChunk, build_tts_provider
 from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
+
+
+async def _tts_health_check(config: Any) -> bool:
+    """快速检查本地 TTS；未配置检查地址时保持原行为。"""
+    url = str(getattr(config, "health_check_url", "") or "").strip()
+    if not url:
+        return True
+    timeout = float(getattr(config, "health_check_timeout_s", 0.5))
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            return (await client.get(url)).is_success
+    except (httpx.HTTPError, ValueError):
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +141,8 @@ class SpeechRuntime:
         pcm_tmp = media_dir / f".{audio_id}.pcm.tmp"
         wav_tmp = media_dir / f".{audio_id}.wav.tmp"
         provider = build_tts_provider(config)
+        effective_config = config
+        effective_voice = voice
         started = False
 
         self._active.add(key)
@@ -157,11 +177,30 @@ class SpeechRuntime:
                             },
                         )
 
-                    stream_result = await provider.synthesize_stream(
-                        spoken_text,
-                        voice,
-                        _on_chunk,
-                    )
+                    fallback = getattr(config, "fallback", None)
+                    fallback_voice = getattr(fallback, "default_voice", "") if fallback else ""
+                    fallback_text = strip_tts_language_tags(spoken_text)
+                    if fallback and not await _tts_health_check(config):
+                        logger.warning("主 TTS 健康检查失败，直接切换备用 provider")
+                        stream_result = None
+                    else:
+                        stream_result = await provider.synthesize_stream(
+                            spoken_text,
+                            voice,
+                            _on_chunk,
+                        )
+                    if stream_result is None and not started and fallback_voice and fallback_text:
+                        logger.warning(
+                            "主 TTS 未返回音频，切换到备用 provider='{}'",
+                            fallback.provider,
+                        )
+                        effective_config = fallback
+                        effective_voice = fallback_voice
+                        stream_result = await build_tts_provider(fallback).synthesize_stream(
+                            fallback_text,
+                            fallback_voice,
+                            _on_chunk,
+                        )
 
                 if stream_result is None:
                     await self._publish(
@@ -189,9 +228,9 @@ class SpeechRuntime:
                     mime_type="audio/wav",
                     sample_rate=stream_result.sample_rate,
                     duration_ms=duration_ms,
-                    provider=str(config.provider),
-                    model=str(config.model),
-                    voice=voice,
+                    provider=str(effective_config.provider),
+                    model=str(effective_config.model),
+                    voice=effective_voice,
                     controls=tuple(controls),
                 )
                 self._pending[key] = result

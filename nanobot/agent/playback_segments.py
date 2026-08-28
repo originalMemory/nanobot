@@ -16,6 +16,7 @@ _PSB_TAG_RE = re.compile(
 )
 _ATTR_RE = re.compile(r"""(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 _THA_TAG_RE = re.compile(r"<[^>]+>")
+_TTS_LANGUAGE_TAG_RE = re.compile(r"\[/?(?:zh|ja)\]", re.IGNORECASE)
 
 
 @dataclass(slots=True)
@@ -150,3 +151,8 @@ def to_display_text(segment: AssistantPlaybackSegment | str) -> str:
 def to_speech_text(segment: AssistantPlaybackSegment | str) -> str:
     display = to_display_text(segment)
     return _THA_TAG_RE.sub("", display).strip()
+
+
+def strip_tts_language_tags(text: str) -> str:
+    """去掉 IndexTTS 的中日语言标签，供不支持标签的 fallback 使用。"""
+    return _TTS_LANGUAGE_TAG_RE.sub("", text).strip()

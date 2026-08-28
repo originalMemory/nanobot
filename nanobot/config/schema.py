@@ -279,6 +279,12 @@ class TtsConfig(Base):
     # GLM-TTS 去水印示例：extra_body = {"watermark_enabled": false}
 
 
+class TtsFallbackConfig(TtsConfig):
+    """TTS 主服务不可用时使用的固定音色配置。"""
+
+    default_voice: str
+
+
 class THAConfig(Base):
     """THA 2D 桌面宠物配置。"""
 
