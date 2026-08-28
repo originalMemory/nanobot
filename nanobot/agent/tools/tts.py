@@ -45,7 +45,7 @@ class TtsToolConfig(TtsConfig):
     )
     default_voice: str = Field(
         default="tongtong",
-        description="内置 TTS 固定使用的音色名称或 voice_id。"
+        description="内置 TTS 中文固定使用的音色名称或 voice_id。"
         "GLM 系统音色示例：tongtong / chuichui；"
         "自定义克隆音色填写 UUID。",
     )
@@ -133,6 +133,7 @@ class TtsTool(Tool):
         return (
             "将本轮要说的话合成为语音并直接播放。每轮最多调用一次。"
             "语音会自动附着到当前 assistant 回复；不要再调用 message 工具发送音频。"
+            "中文和日语音色由系统配置，内部会并发生成并按原文顺序连续播放。"
             'PSB 标签（如 <psb:timeline name="待机" />）与 THA 表情/动作标签（如 <happy><nod>）'
             "会在合成前自动剥离；标签应保留在 message 的 content 里以驱动桌宠。"
             "中日混合语音须在 text 中标注 [zh]...[/zh] 与 [ja]...[/ja]。"

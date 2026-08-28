@@ -82,6 +82,36 @@ async def test_streams_pcm_writes_wav_and_retains_turn_record(monkeypatch, tmp_p
 
 
 @pytest.mark.asyncio
+async def test_reuses_provider_across_turns(monkeypatch, tmp_path) -> None:
+    bus = MagicMock()
+    bus.publish_outbound = AsyncMock()
+    provider = MagicMock()
+
+    async def synthesize_stream(text, voice, on_chunk):
+        await on_chunk(TTSStreamChunk(0, b"\x00\x00" * 100, 24000))
+        return TTSStreamResult(sample_rate=24000, chunks=1, pcm_bytes=200)
+
+    provider.synthesize_stream = AsyncMock(side_effect=synthesize_stream)
+    factory = MagicMock(return_value=provider)
+    monkeypatch.setattr("nanobot.agent.speech.build_tts_provider", factory)
+    monkeypatch.setattr("nanobot.agent.speech.get_media_dir", lambda: tmp_path)
+    runtime = SpeechRuntime(bus)
+    config = _config()
+
+    await runtime.synthesize(config=config, context=_context(), text="第一轮", voice="v")
+    second_context = RequestContext(
+        channel="websocket",
+        chat_id="chat-1",
+        session_key="unified:default",
+        metadata={"webui_turn_id": "turn-2"},
+    )
+    await runtime.synthesize(config=config, context=second_context, text="第二轮", voice="v")
+
+    factory.assert_called_once_with(config)
+    assert provider.synthesize_stream.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_submit_returns_before_first_chunk_and_finishes_in_background(
     monkeypatch,
     tmp_path,

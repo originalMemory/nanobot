@@ -252,7 +252,7 @@ class HeartbeatConfig(Base):
 
 
 class TtsConfig(Base):
-    """TTS provider configuration (OpenAI-compatible POST /audio/speech).
+    """TTS provider configuration.
 
     GLM-TTS preset defaults (覆盖为 OpenAI/Groq 只需改 api_base + model):
       api_base = https://open.bigmodel.cn/api/paas/v4
@@ -276,6 +276,8 @@ class TtsConfig(Base):
     response_format: str = "wav"
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     extra_body: dict[str, Any] = Field(default_factory=dict)
+    japanese_voice: str | None = None
+    rpm: int = Field(default=20, ge=1, le=20)
     # GLM-TTS 去水印示例：extra_body = {"watermark_enabled": false}
 
 

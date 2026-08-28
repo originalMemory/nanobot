@@ -86,6 +86,8 @@ class SpeechRuntime:
         self._semaphore = asyncio.Semaphore(1)
         self._active: set[tuple[str, str]] = set()
         self._pending: dict[tuple[str, str], SpeechResult] = {}
+        self._provider_config: Any | None = None
+        self._provider: Any | None = None
 
     @staticmethod
     def _key(context: RequestContext) -> tuple[str, str] | None:
@@ -104,6 +106,13 @@ class SpeechRuntime:
 
     def clear_speech(self, session_key: str, turn_id: str) -> None:
         self._pending.pop((session_key, turn_id), None)
+
+    def _provider_for(self, config: Any) -> Any:
+        """复用 provider，使 MiniMax RPM 窗口跨 turn 生效。"""
+        if self._provider_config is not config:
+            self._provider = build_tts_provider(config)
+            self._provider_config = config
+        return self._provider
 
     def submit(
         self,
@@ -215,7 +224,7 @@ class SpeechRuntime:
         if not _reserved:
             self._active.add(key)
         try:
-            provider = build_tts_provider(config)
+            provider = self._provider_for(config)
             async with self._semaphore:
                 media_dir.mkdir(parents=True, exist_ok=True)
                 with pcm_tmp.open("wb") as pcm_file:
