@@ -82,6 +82,92 @@ async def test_streams_pcm_writes_wav_and_retains_turn_record(monkeypatch, tmp_p
 
 
 @pytest.mark.asyncio
+async def test_submit_returns_before_first_chunk_and_finishes_in_background(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    bus = MagicMock()
+    bus.publish_outbound = AsyncMock()
+    provider = MagicMock()
+    release = asyncio.Event()
+
+    async def synthesize_stream(text, voice, on_chunk):
+        await release.wait()
+        await on_chunk(TTSStreamChunk(0, b"\x00\x00" * 100, 24000))
+        return TTSStreamResult(sample_rate=24000, chunks=1, pcm_bytes=200)
+
+    provider.synthesize_stream = AsyncMock(side_effect=synthesize_stream)
+    monkeypatch.setattr("nanobot.agent.speech.build_tts_provider", lambda _: provider)
+    monkeypatch.setattr("nanobot.agent.speech.get_media_dir", lambda: tmp_path)
+    tasks: list[asyncio.Task] = []
+    completed = AsyncMock()
+
+    def schedule(coro) -> None:
+        tasks.append(asyncio.create_task(coro))
+
+    runtime = SpeechRuntime(bus, schedule_background=schedule, on_complete=completed)
+
+    error = runtime.submit(
+        config=_config(),
+        context=_context(),
+        text="慢速语音",
+        voice="voice-1",
+    )
+
+    assert error is None
+    assert runtime.has_speech(_context()) is True
+    assert bus.publish_outbound.await_count == 0
+    assert runtime.submit(
+        config=_config(),
+        context=_context(),
+        text="重复语音",
+        voice="voice-1",
+    ) == "本轮已经生成过语音"
+
+    release.set()
+    await tasks[0]
+
+    events = [call.args[0].metadata["_assistant_audio"] for call in bus.publish_outbound.await_args_list]
+    assert [event["phase"] for event in events] == ["start", "chunk", "end"]
+    completed.assert_awaited_once()
+    assert runtime.speech_for("unified:default", "turn-1") is not None
+
+
+@pytest.mark.asyncio
+async def test_submit_provider_build_failure_emits_error_and_releases_turn(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    bus = MagicMock()
+    bus.publish_outbound = AsyncMock()
+    tasks: list[asyncio.Task] = []
+
+    def schedule(coro) -> None:
+        tasks.append(asyncio.create_task(coro))
+
+    monkeypatch.setattr(
+        "nanobot.agent.speech.build_tts_provider",
+        MagicMock(side_effect=RuntimeError("broken config")),
+    )
+    monkeypatch.setattr("nanobot.agent.speech.get_media_dir", lambda: tmp_path)
+    runtime = SpeechRuntime(bus, schedule_background=schedule)
+
+    error = runtime.submit(
+        config=_config(),
+        context=_context(),
+        text="构造失败",
+        voice="voice-1",
+    )
+    await tasks[0]
+
+    assert error is None
+    assert runtime.has_speech(_context()) is False
+    event = bus.publish_outbound.await_args.args[0].metadata["_assistant_audio"]
+    assert event["phase"] == "error"
+    assert event["error"] == "tts_runtime_failed"
+
+
+@pytest.mark.asyncio
 async def test_rejects_second_audio_in_same_turn(monkeypatch, tmp_path) -> None:
     bus = MagicMock()
     bus.publish_outbound = AsyncMock()

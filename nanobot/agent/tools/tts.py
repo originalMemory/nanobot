@@ -155,12 +155,12 @@ class TtsTool(Tool):
         context = self._request_context.get()
         if self._speech_runtime is None or context is None:
             return "Error: TTS runtime 未配置"
-        result, error = await self._speech_runtime.synthesize(
+        error = self._speech_runtime.submit(
             config=self._tts_config,
             context=context,
             text=text,
             voice=resolved_voice,
         )
-        if result is None:
-            return f"Error: {error or 'TTS 合成失败'}"
-        return "语音已生成并附着到本轮回复。"
+        if error:
+            return f"Error: {error}"
+        return "语音生成已触发，将流式播放并在完成后附着到本轮回复。"

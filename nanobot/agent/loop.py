@@ -28,7 +28,7 @@ from nanobot.agent.runner import (
     AgentRunner,
     AgentRunSpec,
 )
-from nanobot.agent.speech import SpeechRuntime
+from nanobot.agent.speech import SpeechResult, SpeechRuntime
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
 from nanobot.agent.tools.diary_search import DiarySearchTool
@@ -244,7 +244,6 @@ class AgentLoop:
         _tc = tools_config or ToolsConfig()
         defaults = AgentDefaults()
         self.bus = bus
-        self.speech_runtime = SpeechRuntime(bus)
         self.runtime_events = runtime_events or RuntimeEventBus()
         self.runtime_event_publisher = RuntimeEventPublisher(self.runtime_events)
         self._diary_root = diary_root
@@ -330,6 +329,11 @@ class AgentLoop:
         self._mcp_connecting = False
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
         self._background_tasks: list[asyncio.Task] = []
+        self.speech_runtime = SpeechRuntime(
+            bus,
+            schedule_background=self._schedule_background,
+            on_complete=self._attach_completed_speech,
+        )
         self._session_locks: dict[str, asyncio.Lock] = {}
         # Per-session pending queues for mid-turn message injection.
         # When a session has an active task, new messages for that session
@@ -1280,6 +1284,22 @@ class AgentLoop:
         self._background_tasks.append(task)
         task.add_done_callback(self._background_tasks.remove)
 
+    async def _attach_completed_speech(
+        self,
+        session_key: str,
+        turn_id: str,
+        speech: SpeechResult,
+    ) -> None:
+        """将晚于 turn 保存完成的语音补写到原 assistant 消息。"""
+        session = self.sessions.get_or_create(session_key)
+        for message in reversed(session.messages):
+            if message.get("_webui_turn_id") != turn_id:
+                continue
+            message["speech"] = speech.to_dict()
+            self.sessions.save(session)
+            self.speech_runtime.clear_speech(session_key, turn_id)
+            return
+
     async def _summarize_active_memory_topic(self, prompt: str) -> str:
         """后台 use 当前主模型生成主题卡；不注册工具，不进入 AgentRunner。"""
         request_token = bind_request_context(None)
@@ -2046,6 +2066,7 @@ class AgentLoop:
             fallback_used=ctx.msg.metadata.get("_fallback_used"),
             fallback_models=ctx.msg.metadata.get("_fallback_models"),
             speech=speech.to_dict() if speech is not None else None,
+            turn_id=webui_turn_id,
             **self._source_extras(ctx.msg),
         )
         self._runtime_events().record_turn_latency(
@@ -2141,6 +2162,7 @@ class AgentLoop:
         fallback_used: Any = None,
         fallback_models: Any = None,
         speech: dict[str, Any] | None = None,
+        turn_id: str | None = None,
         source_channel: str | None = None,
         source_chat_id: str | None = None,
     ) -> None:
@@ -2201,6 +2223,8 @@ class AgentLoop:
                 session.messages[last_assistant_idx]["_fallback_models"] = list(fallback_models)
             if speech:
                 session.messages[last_assistant_idx]["speech"] = dict(speech)
+            if turn_id:
+                session.messages[last_assistant_idx]["_webui_turn_id"] = turn_id
         session.updated_at = datetime.now(timezone.utc).astimezone()
 
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:

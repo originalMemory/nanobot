@@ -7,6 +7,7 @@ import base64
 import os
 import uuid
 import wave
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -72,8 +73,16 @@ class SpeechResult:
 class SpeechRuntime:
     """Serialize TTS calls and retain completed audio until the turn is saved."""
 
-    def __init__(self, bus: Any | None) -> None:
+    def __init__(
+        self,
+        bus: Any | None,
+        *,
+        schedule_background: Callable[[Coroutine[Any, Any, None]], None] | None = None,
+        on_complete: Callable[[str, str, SpeechResult], Awaitable[None]] | None = None,
+    ) -> None:
         self._bus = bus
+        self._schedule_background = schedule_background
+        self._on_complete = on_complete
         self._semaphore = asyncio.Semaphore(1)
         self._active: set[tuple[str, str]] = set()
         self._pending: dict[tuple[str, str], SpeechResult] = {}
@@ -95,6 +104,64 @@ class SpeechRuntime:
 
     def clear_speech(self, session_key: str, turn_id: str) -> None:
         self._pending.pop((session_key, turn_id), None)
+
+    def submit(
+        self,
+        *,
+        config: Any,
+        context: RequestContext,
+        text: str,
+        voice: str,
+    ) -> str | None:
+        """提交后台合成；返回错误时任务未启动。"""
+        key = self._key(context)
+        if key is None:
+            return "当前请求缺少 session/turn 上下文"
+        if key in self._active or key in self._pending:
+            return "本轮已经生成过语音"
+        if not to_speech_text(text):
+            return "TTS 文本在剥离桌宠标签后为空"
+        if self._schedule_background is None:
+            return "TTS 后台调度未配置"
+
+        task = self._synthesize_submitted(
+            key=key,
+            config=config,
+            context=context,
+            text=text,
+            voice=voice,
+        )
+        self._active.add(key)
+        try:
+            self._schedule_background(task)
+        except Exception:
+            task.close()
+            self._active.discard(key)
+            logger.exception("TTS 后台任务提交失败")
+            return "TTS 后台任务提交失败"
+        return None
+
+    async def _synthesize_submitted(
+        self,
+        *,
+        key: tuple[str, str],
+        config: Any,
+        context: RequestContext,
+        text: str,
+        voice: str,
+    ) -> None:
+        result, _ = await self.synthesize(
+            config=config,
+            context=context,
+            text=text,
+            voice=voice,
+            _reserved=True,
+        )
+        if result is not None and self._on_complete is not None:
+            try:
+                await self._on_complete(key[0], key[1], result)
+            except Exception:
+                logger.exception("TTS 完成后写入历史失败")
 
     async def _publish(
         self,
@@ -123,12 +190,13 @@ class SpeechRuntime:
         context: RequestContext,
         text: str,
         voice: str,
+        _reserved: bool = False,
     ) -> tuple[SpeechResult | None, str | None]:
         """Generate one logical audio stream for the active turn."""
         key = self._key(context)
         if key is None:
             return None, "当前请求缺少 session/turn 上下文"
-        if key in self._active or key in self._pending:
+        if not _reserved and (key in self._active or key in self._pending):
             return None, "本轮已经生成过语音"
 
         spoken_text = to_speech_text(text)
@@ -140,13 +208,14 @@ class SpeechRuntime:
         output_path = media_dir / f"speech_{audio_id}.wav"
         pcm_tmp = media_dir / f".{audio_id}.pcm.tmp"
         wav_tmp = media_dir / f".{audio_id}.wav.tmp"
-        provider = build_tts_provider(config)
         effective_config = config
         effective_voice = voice
         started = False
 
-        self._active.add(key)
+        if not _reserved:
+            self._active.add(key)
         try:
+            provider = build_tts_provider(config)
             async with self._semaphore:
                 media_dir.mkdir(parents=True, exist_ok=True)
                 with pcm_tmp.open("wb") as pcm_file:

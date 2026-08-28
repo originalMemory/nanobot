@@ -6,6 +6,7 @@ import pytest
 
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.loop import AgentLoop
+from nanobot.agent.speech import SpeechResult
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse
@@ -419,10 +420,42 @@ def test_save_turn_attaches_speech_only_to_last_assistant() -> None:
         ],
         skip=0,
         speech=speech,
+        turn_id="turn-early",
     )
 
     assert "speech" not in session.messages[0]
     assert session.messages[-1]["speech"] == speech
+    assert session.messages[-1]["_webui_turn_id"] == "turn-early"
+
+
+@pytest.mark.asyncio
+async def test_completed_speech_attaches_after_assistant_was_saved(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    session = loop.sessions.get_or_create("test:late-speech")
+    loop._save_turn(
+        session,
+        [{"role": "assistant", "content": "final answer"}],
+        skip=0,
+        turn_id="turn-late",
+    )
+    loop.sessions.save(session)
+    speech = SpeechResult(
+        audio_id="speech-late",
+        path=tmp_path / "speech-late.wav",
+        mime_type="audio/wav",
+        sample_rate=24000,
+        duration_ms=1000,
+        provider="glm-tts",
+        model="glm-tts",
+        voice="voice-1",
+        controls=(),
+    )
+
+    await loop._attach_completed_speech("test:late-speech", "turn-late", speech)
+
+    assert session.messages[-1]["speech"] == speech.to_dict()
+    loop.sessions.invalidate("test:late-speech")
+    assert loop.sessions.get_or_create("test:late-speech").messages[-1]["speech"] == speech.to_dict()
 
 
 def test_save_turn_usage_not_written_when_empty() -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -39,7 +39,7 @@ def _make_tool(
     runtime = speech_runtime
     if runtime is None:
         runtime = MagicMock()
-        runtime.synthesize = AsyncMock(return_value=(MagicMock(), None))
+        runtime.submit.return_value = None
     tool = TtsTool(
         tts_config=tts_config or _make_tts_config(),
         default_voice=default_voice,
@@ -114,12 +114,13 @@ def test_create_uses_tts_config() -> None:
 @pytest.mark.asyncio
 async def test_execute_attaches_audio_to_turn() -> None:
     runtime = MagicMock()
-    runtime.synthesize = AsyncMock(return_value=(MagicMock(), None))
+    runtime.submit.return_value = None
     tool = _make_tool(speech_runtime=runtime)
 
     result = await tool.execute(text="你好")
 
-    runtime.synthesize.assert_awaited_once()
+    runtime.submit.assert_called_once()
+    assert "已触发" in result
     assert "附着" in result
 
 
@@ -140,23 +141,23 @@ async def test_execute_strips_tha_tags_before_synthesis() -> None:
 @pytest.mark.asyncio
 async def test_execute_uses_default_voice() -> None:
     runtime = MagicMock()
-    runtime.synthesize = AsyncMock(return_value=(MagicMock(), None))
+    runtime.submit.return_value = None
     tool = _make_tool(default_voice="chuichui", speech_runtime=runtime)
 
     await tool.execute(text="hello")
 
-    assert runtime.synthesize.await_args.kwargs["voice"] == "chuichui"
+    assert runtime.submit.call_args.kwargs["voice"] == "chuichui"
 
 
 @pytest.mark.asyncio
 async def test_execute_ignores_legacy_voice_argument() -> None:
     runtime = MagicMock()
-    runtime.synthesize = AsyncMock(return_value=(MagicMock(), None))
+    runtime.submit.return_value = None
     tool = _make_tool(default_voice="tongtong", speech_runtime=runtime)
 
     await tool.execute(text="hi", voice="xiaochen")
 
-    assert runtime.synthesize.await_args.kwargs["voice"] == "tongtong"
+    assert runtime.submit.call_args.kwargs["voice"] == "tongtong"
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +177,7 @@ async def test_execute_returns_error_without_configured_voice() -> None:
 @pytest.mark.asyncio
 async def test_execute_returns_error_on_failure() -> None:
     runtime = MagicMock()
-    runtime.synthesize = AsyncMock(return_value=(None, "failed"))
+    runtime.submit.return_value = "failed"
     tool = _make_tool(speech_runtime=runtime)
 
     result = await tool.execute(text="fail")
