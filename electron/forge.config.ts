@@ -49,7 +49,7 @@ const config: ForgeConfig = {
     // 不带后缀：Forge 按平台自动选 .icns(macOS) / .ico(Windows) / .png(Linux)
     // 对应文件需预先放在 assets/ 目录下
     icon: path.resolve(__dirname, 'assets', 'icon'),
-    extraResource: [path.resolve(__dirname, 'assets')],
+    extraResource: [path.resolve(__dirname, 'assets'), path.resolve(__dirname, 'avatar-videos')],
     win32metadata: {
       CompanyName: APP_NAME,
       FileDescription: APP_NAME,

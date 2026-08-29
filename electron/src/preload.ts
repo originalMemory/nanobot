@@ -154,6 +154,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   livetalking: {
+    localVideos: (): Promise<{ idle: string[]; working: string[] }> => ipcRenderer.invoke('livetalking:local-videos'),
     checkHealth: (): Promise<{
       reachable: boolean;
       lastCheckedAtMs: number | null;

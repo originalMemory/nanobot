@@ -6,6 +6,7 @@ import type {
 } from "./types";
 import {
   finishLivetalkingStream,
+  disconnectLivetalking,
   interruptLivetalking,
   isAvatarCompanionAudioActive,
   sendLivetalkingChunk,
@@ -23,6 +24,7 @@ type StreamingAudio = {
   buffered: Array<{ pcm: Uint8Array; data: string }>;
   bufferedSeconds: number;
   delegated: boolean | null;
+  livetalking: boolean;
   activated: boolean;
   activatedAtMs: number | null;
   activation: Promise<void> | null;
@@ -174,7 +176,8 @@ function activateStream(stream: StreamingAudio): Promise<void> {
   stream.activation = (async () => {
     try {
       // 委托优先级: LiveTalking 数字伴侣 > psb 桌宠 > 本地播放
-      stream.delegated = await startLivetalkingStream(stream.audioId, stream.sampleRate);
+      stream.livetalking = await startLivetalkingStream(stream.audioId, stream.sampleRate);
+      stream.delegated = stream.livetalking;
       if (!stream.delegated) {
         stream.delegated = await sendPsbAction({
           type: "audio-stream-start",
@@ -182,9 +185,11 @@ function activateStream(stream: StreamingAudio): Promise<void> {
         });
       }
       if (streams.get(stream.audioId) !== stream) {
-        if (stream.delegated) {
-          await sendPsbAction({ type: "audio-stream-stop", payload: { audioId: stream.audioId } });
+        if (stream.livetalking) {
           await finishLivetalkingStream();
+          disconnectLivetalking();
+        } else if (stream.delegated) {
+          await sendPsbAction({ type: "audio-stream-stop", payload: { audioId: stream.audioId } });
         }
         return;
       }
@@ -221,9 +226,12 @@ function stopStreamingAudio(audioId: string): void {
     try { source.stop(); } catch { /* already ended */ }
   });
   if (stream.context) void stream.context.close();
-  if (stream.delegated && isAvatarCompanionAudioActive()) {
+  if (stream.livetalking && isAvatarCompanionAudioActive()) {
     void finishLivetalkingStream();
     void interruptLivetalking();
+    disconnectLivetalking();
+  } else if (stream.livetalking) {
+    disconnectLivetalking();
   } else if (stream.delegated) {
     void sendPsbAction({ type: "audio-stream-stop", payload: { audioId } });
   }
@@ -247,6 +255,7 @@ export function startAssistantAudioStream(audio: AssistantAudioStart): void {
     buffered: [],
     bufferedSeconds: 0,
     delegated: null,
+    livetalking: false,
     activated: false,
     activatedAtMs: null,
     activation: null,
@@ -288,6 +297,8 @@ export function appendAssistantAudioChunk(audio: AssistantAudioChunk): void {
       if (!ok) {
         // LiveTalking 中途失败: 停止委托，剩余块回退本地播放
         stream.delegated = false;
+        stream.livetalking = false;
+        disconnectLivetalking();
         stream.context = new AudioContext({ sampleRate: stream.sampleRate });
         stream.nextStartTime = stream.context.currentTime + 0.03;
         scheduleLocalChunk(stream, pcm);

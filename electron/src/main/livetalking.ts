@@ -1,6 +1,9 @@
 // LiveTalking 本地数字人服务客户端（主进程）
 // 仅允许回环地址；渲染层经 preload IPC 调用，不得直连任意远程服务。
 import { ipcMain } from 'electron';
+import path from 'node:path';
+import { existsSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 import type { ElectronConfigStore } from '../psb/store';
 
@@ -25,6 +28,24 @@ export const DEFAULT_AVATAR_COMPANION_PREFS: AvatarCompanionPrefs = {
 };
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+const AVATAR_VIDEOS = {
+  idle: ['待机-呼吸.mp4', '待机-摸下巴.mp4', '待机-轻拂发丝.mp4', '待机-轻拂锁骨.mp4', '待机-整理衣领.mp4'],
+  working: ['工作-翻阅文件.mp4', '工作-记录书写.mp4', '工作-敲键盘.mp4', '工作-思考中.mp4'],
+} as const;
+
+function avatarVideoUrls(): Record<keyof typeof AVATAR_VIDEOS, string[]> {
+  const candidates = [
+    path.join(process.resourcesPath, 'avatar-videos'),
+    path.resolve(__dirname, '../../avatar-videos'),
+  ];
+  const root = candidates.find(existsSync) ?? candidates[0];
+  return Object.fromEntries(
+    Object.entries(AVATAR_VIDEOS).map(([mode, files]) => [
+      mode,
+      files.map((file) => pathToFileURL(path.join(root, file)).href),
+    ]),
+  ) as Record<keyof typeof AVATAR_VIDEOS, string[]>;
+}
 
 export function isLoopbackUrl(raw: string): boolean {
   try {
@@ -93,6 +114,8 @@ async function fetchJson(path: string, init?: RequestInit, timeoutOverrideMs?: n
 
 export function registerLivetalkingIpcHandlers(depsIn: LiveTalkingDeps): void {
   deps = depsIn;
+
+  ipcMain.handle('livetalking:local-videos', () => avatarVideoUrls());
 
   ipcMain.handle('livetalking:check-health', async () => {
     const prefs = readAvatarCompanionPrefs(requireDeps().store);

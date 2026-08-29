@@ -169,6 +169,26 @@ describe("assistant playback queue", () => {
     ]);
   });
 
+  it("stops a delegated PSB stream after its playback window", async () => {
+    vi.useFakeTimers();
+    const sendAction = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("electronAPI", { psb: { sendAction } });
+    startAssistantAudioStream({
+      audioId: "speech-stop",
+      sampleRate: 24000,
+      channels: 1,
+      encoding: "pcm_s16le",
+    });
+    appendAssistantAudioChunk({ audioId: "speech-stop", sequence: 0, data: "AAAAAA==" });
+    appendAssistantAudioChunk({ audioId: "speech-stop", sequence: 1, data: "AAAAAA==" });
+    await flushMicrotasks(10);
+    await finishAssistantAudioStream({ audioId: "speech-stop", sampleRate: 24000, durationMs: 1 });
+    await vi.advanceTimersByTimeAsync(101);
+
+    expect(sendAction.mock.calls.map((call) => call[0].type)).toContain("audio-stream-stop");
+    vi.useRealTimers();
+  });
+
   it("plays the buffered PCM locally when the desk pet is unavailable", async () => {
     const sendAction = vi.fn().mockResolvedValue({ ok: false });
     const started: number[] = [];

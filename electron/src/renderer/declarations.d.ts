@@ -90,6 +90,7 @@ interface ElectronAPI {
     tryAutoOpen(token?: string, url?: string): Promise<void>;
   };
   livetalking: {
+    localVideos(): Promise<{ idle: string[]; working: string[] }>;
     checkHealth(): Promise<{
       reachable: boolean;
       lastCheckedAtMs: number | null;

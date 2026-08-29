@@ -9,9 +9,17 @@ function api(): LivetalkingApi | null {
 
 /** 当前伴侣会话（面板建立后非空）。 */
 let sessionSource: (() => string | null) | null = null;
+let connectSource: (() => Promise<boolean>) | null = null;
+let disconnectSource: (() => void) | null = null;
 
-export function bindAvatarCompanionSession(source: () => string | null): void {
+export function bindAvatarCompanionSession(
+  source: () => string | null,
+  connect?: () => Promise<boolean>,
+  disconnect?: () => void,
+): void {
   sessionSource = source;
+  connectSource = connect ?? null;
+  disconnectSource = disconnect ?? null;
 }
 
 function sessionId(): string | null {
@@ -27,6 +35,7 @@ export function isAvatarCompanionAudioActive(): boolean {
 
 /** 音频流开始：通知采样率。失败返回 false（调用方回退其他播放路径）。 */
 export async function startLivetalkingStream(audioId: string, sampleRate: number): Promise<boolean> {
+  if (!sessionId() && (!connectSource || !await connectSource())) return false;
   const sid = sessionId();
   const lt = api();
   if (!sid || !lt) return false;
@@ -39,6 +48,11 @@ export async function startLivetalkingStream(audioId: string, sampleRate: number
     active = false;
     return false;
   }
+}
+
+export function disconnectLivetalking(): void {
+  disconnectSource?.();
+  setCompanionMode("idle");
 }
 
 /** 音频块：base64 PCM 转发。失败置 inactive（后续块走本地，由调用方处理回退）。 */
@@ -92,19 +106,6 @@ export async function isLivetalkingSpeaking(): Promise<boolean> {
   }
 }
 
-/** 状态切换：work(2)/idle(1)。 */
-export async function setLivetalkingAudiotype(audiotype: number): Promise<boolean> {
-  const sid = sessionId();
-  const lt = api();
-  if (!sid || !lt) return false;
-  try {
-    await lt.setAudiotype(sid, audiotype);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** 打断当前说话。 */
 export async function interruptLivetalking(): Promise<void> {
   const sid = sessionId();
@@ -134,9 +135,6 @@ function decodeBase64(data: string): Uint8Array {
 // turn 状态触发（useNanobotStream 调用）
 // ---------------------------------------------------------------------------
 
-const AUDIOTYPE_IDLE = 1;
-const AUDIOTYPE_WORK = 2;
-
 export type CompanionMode = "idle" | "working" | "speaking";
 
 let companionMode: CompanionMode = "idle";
@@ -157,7 +155,6 @@ export function subscribeCompanionMode(listener: (mode: CompanionMode) => void):
 /** 新回合开始: 切工作态池(任务类回复无音频时停留于此; 有音频时服务端自动退出)。 */
 export function avatarCompanionTurnStart(): void {
   setCompanionMode("working");
-  void setLivetalkingAudiotype(AUDIOTYPE_WORK);
 }
 
 /** 助手音频开始: 进入说话态（LiveTalking audiostream/start 自动退出工作态）。 */
@@ -167,13 +164,12 @@ export function avatarCompanionSpeaking(): void {
 
 /** 回合结束: 回待机池。 */
 export function avatarCompanionTurnEnd(): void {
-  setCompanionMode("idle");
-  void setLivetalkingAudiotype(AUDIOTYPE_IDLE);
+  if (!sessionId()) setCompanionMode("idle");
 }
 
 /** 手动停止: 打断说话并回待机。 */
 export function avatarCompanionInterrupt(): void {
   setCompanionMode("idle");
   void interruptLivetalking();
-  void setLivetalkingAudiotype(AUDIOTYPE_IDLE);
+  disconnectLivetalking();
 }

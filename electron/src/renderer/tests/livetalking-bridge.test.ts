@@ -78,20 +78,26 @@ describe("livetalking-bridge", () => {
     expect(isAvatarCompanionAudioActive()).toBe(false);
   });
 
-  it("turn triggers map to audiotype calls only with a session", async () => {
+  it("connects lazily for speech and keeps idle/work local", async () => {
     installApi();
-    avatarCompanionTurnStart();
-    avatarCompanionTurnEnd();
-    avatarCompanionInterrupt();
-    expect(setAudiotype).not.toHaveBeenCalled();
-    expect(interrupt).not.toHaveBeenCalled();
+    let sid: string | null = null;
+    const connect = vi.fn(async () => {
+      sid = "sid-3";
+      return true;
+    });
+    const disconnect = vi.fn();
+    bindAvatarCompanionSession(() => sid, connect, disconnect);
 
-    bindAvatarCompanionSession(() => "sid-3");
     avatarCompanionTurnStart();
-    await vi.waitFor(() => expect(setAudiotype).toHaveBeenCalledWith("sid-3", 2));
     avatarCompanionTurnEnd();
-    await vi.waitFor(() => expect(setAudiotype).toHaveBeenCalledWith("sid-3", 1));
+    expect(setAudiotype).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+
+    expect(await startLivetalkingStream("a1", 16000)).toBe(true);
+    expect(connect).toHaveBeenCalledOnce();
+    expect(audiostreamStart).toHaveBeenCalledWith("sid-3", 16000);
     avatarCompanionInterrupt();
     await vi.waitFor(() => expect(interrupt).toHaveBeenCalledWith("sid-3"));
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 });
