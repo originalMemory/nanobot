@@ -744,6 +744,7 @@ function MediaCell({
         <video
           src={resolvedUrl}
           controls
+          muted
           preload="metadata"
           className="block max-h-[26rem] w-full bg-black"
           aria-label={media.name ? `${t("message.videoAttachment", { defaultValue: "Video attachment" })}: ${media.name}` : t("message.videoAttachment", { defaultValue: "Video attachment" })}

@@ -5,7 +5,7 @@ import "@/i18n";
 import { AvatarCompanionPanel } from "@/components/ui/AvatarCompanionPanel";
 
 describe("AvatarCompanionPanel", () => {
-  it("shows retry immediately when LiveTalking is offline", async () => {
+  function installApi(reachable: boolean) {
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
       value: {
@@ -15,10 +15,14 @@ describe("AvatarCompanionPanel", () => {
         },
         livetalking: {
           localVideos: vi.fn(async () => ({ idle: ["file:///idle-1.mp4", "file:///idle-2.mp4"], working: ["file:///work.mp4"] })),
-          checkHealth: vi.fn(async () => ({ reachable: false, lastCheckedAtMs: Date.now(), lastError: "offline" })),
+          checkHealth: vi.fn(async () => ({ reachable, lastCheckedAtMs: Date.now(), lastError: reachable ? null : "offline" })),
         },
       },
     });
+  }
+
+  it("shows retry immediately when LiveTalking is offline", async () => {
+    installApi(false);
 
     const { container } = render(<AvatarCompanionPanel />);
 
@@ -31,6 +35,21 @@ describe("AvatarCompanionPanel", () => {
     });
     const firstSource = video.getAttribute("src");
     fireEvent.ended(video);
-    await waitFor(() => expect(video.getAttribute("src")).not.toBe(firstSource));
+    const nextVideo = await waitFor(() => {
+      const elements = [...container.querySelectorAll("video[src]")];
+      expect(elements).toHaveLength(2);
+      return elements.find((element) => element.getAttribute("src") !== firstSource) as HTMLVideoElement;
+    });
+    fireEvent.loadedData(nextVideo);
+    await waitFor(() => expect(nextVideo).toHaveClass("opacity-100"));
+    expect(video).toHaveClass("opacity-0");
+  });
+
+  it("shows a green status without opening WebRTC when LiveTalking is reachable", async () => {
+    installApi(true);
+    const { container } = render(<AvatarCompanionPanel />);
+
+    await waitFor(() => expect(container.querySelector(".bg-emerald-500")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: /retry|重试/i })).not.toBeInTheDocument();
   });
 });

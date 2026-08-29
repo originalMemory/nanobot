@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 
 import { bindAvatarCompanionSession, subscribeCompanionMode, type CompanionMode } from "@/lib/livetalking-bridge";
 
-type ConnectionState = "idle" | "connecting" | "connected" | "unavailable";
+type ConnectionState = "idle" | "ready" | "connecting" | "connected" | "unavailable";
 
 type AvatarCompanionPrefs = {
   enabled: boolean;
@@ -58,7 +58,10 @@ export function AvatarCompanionPanel() {
   const [localVideos, setLocalVideos] = useState<{ idle: string[]; working: string[] }>({ idle: [], working: [] });
   const [localSources, setLocalSources] = useState<[string, string]>(["", ""]);
   const [activeLocalLayer, setActiveLocalLayer] = useState<0 | 1>(0);
+  const [fadeLocalSwitch, setFadeLocalSwitch] = useState(false);
+  const [remoteReady, setRemoteReady] = useState(false);
   const localModeRef = useRef<"idle" | "working" | null>(null);
+  const pendingLocalSwitchRef = useRef<{ layer: 0 | 1; fade: boolean } | null>(null);
   const localFadeTimerRef = useRef<number | null>(null);
   const manualHideRef = useRef(false);
   const dragState = useRef<{ kind: "move" | "resize"; startX: number; startY: number; base: PanelState } | null>(null);
@@ -117,7 +120,8 @@ export function AvatarCompanionPanel() {
       void pc.close();
     }
     if (videoRef.current) videoRef.current.srcObject = null;
-    setState("idle");
+    setRemoteReady(false);
+    setState("ready");
   }, []);
 
   // 启用只控制面板显示；WebRTC 延迟到第一段说话音频。
@@ -138,7 +142,7 @@ export function AvatarCompanionPanel() {
     void api.checkHealth().then((health) => {
       if (cancelled || activeSession) return;
       if (health.reachable) {
-        setState("idle");
+        setState("ready");
         setError(null);
       } else {
         setState("unavailable");
@@ -182,30 +186,39 @@ export function AvatarCompanionPanel() {
     }
 
     const nextLayer = activeLocalLayer === 0 ? 1 : 0;
+    pendingLocalSwitchRef.current = { layer: nextLayer, fade: true };
     setLocalSources((current) => current.map((value, index) => (
       index === nextLayer ? source : value
     )) as [string, string]);
-    window.requestAnimationFrame(() => setActiveLocalLayer(nextLayer));
-    if (localFadeTimerRef.current !== null) window.clearTimeout(localFadeTimerRef.current);
-    localFadeTimerRef.current = window.setTimeout(() => {
-      setLocalSources((current) => current.map((value, index) => (
-        index === nextLayer ? value : ""
-      )) as [string, string]);
-      localFadeTimerRef.current = null;
-    }, 350);
   }, [companionMode, localVideos]);
 
   const rotateLocalVideo = useCallback((layer: number) => {
     if (layer !== activeLocalLayer) return;
-    setLocalSources((current) => {
-      const choices = localVideos[localModeRef.current ?? "idle"];
-      const candidates = choices.filter((source) => source !== current[layer]);
-      if (!candidates.length) return current;
-      const next = [...current] as [string, string];
-      next[layer] = candidates[Math.floor(Math.random() * candidates.length)];
-      return next;
-    });
-  }, [activeLocalLayer, localVideos]);
+    const nextLayer = (activeLocalLayer === 0 ? 1 : 0) as 0 | 1;
+    const choices = localVideos[localModeRef.current ?? "idle"];
+    const candidates = choices.filter((source) => source !== localSources[layer]);
+    if (!candidates.length) return;
+    pendingLocalSwitchRef.current = { layer: nextLayer, fade: false };
+    setLocalSources((current) => current.map((value, index) => (
+      index === nextLayer ? candidates[Math.floor(Math.random() * candidates.length)] : value
+    )) as [string, string]);
+  }, [activeLocalLayer, localSources, localVideos]);
+
+  const finishLocalSwitch = useCallback((layer: number) => {
+    const pending = pendingLocalSwitchRef.current;
+    if (!pending || pending.layer !== layer) return;
+    pendingLocalSwitchRef.current = null;
+    setFadeLocalSwitch(pending.fade);
+    setActiveLocalLayer(pending.layer);
+    if (localFadeTimerRef.current !== null) window.clearTimeout(localFadeTimerRef.current);
+    localFadeTimerRef.current = window.setTimeout(() => {
+      setLocalSources((current) => current.map((value, index) => (
+        index === pending.layer ? value : ""
+      )) as [string, string]);
+      setFadeLocalSwitch(false);
+      localFadeTimerRef.current = null;
+    }, pending.fade ? 350 : 0);
+  }, []);
 
   const connect = useCallback((): Promise<boolean> => {
     if (activeSession?.connected && pcRef.current) return Promise.resolve(true);
@@ -216,6 +229,7 @@ export function AvatarCompanionPanel() {
 
     setState("connecting");
     setError(null);
+    setRemoteReady(false);
 
     const task = (async () => {
       const health = await api.checkHealth();
@@ -364,7 +378,13 @@ export function AvatarCompanionPanel() {
           <span className="text-[12px] font-medium text-muted-foreground select-none">{stateLabel}</span>
           <span
             className={`h-2 w-2 rounded-full ${
-              state === "connected" ? "bg-emerald-500" : state === "connecting" ? "bg-amber-400" : "bg-red-400"
+              state === "connected" || state === "ready"
+                ? "bg-emerald-500"
+                : state === "connecting"
+                  ? "bg-amber-400"
+                  : state === "unavailable"
+                    ? "bg-red-400"
+                    : "bg-muted-foreground"
             }`}
             aria-hidden
           />
@@ -383,24 +403,26 @@ export function AvatarCompanionPanel() {
       </div>
       {!panel.collapsed ? (
         <div className="relative aspect-[4/3] w-full bg-black/85">
-          <div className={`absolute inset-0 transition-opacity duration-300 ${companionMode === "speaking" && state === "connected" ? "opacity-0" : "opacity-100"}`}>
+          <div className={`absolute inset-0 transition-opacity duration-300 ${companionMode === "speaking" && state === "connected" && remoteReady ? "opacity-0" : "opacity-100"}`}>
             {localSources.map((source, index) => source ? (
               <video
                 key={index}
-                className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-300 ${activeLocalLayer === index ? "opacity-100" : "opacity-0"}`}
+                className={`absolute inset-0 h-full w-full object-contain ${fadeLocalSwitch ? "transition-opacity duration-300" : ""} ${activeLocalLayer === index ? "opacity-100" : "opacity-0"}`}
                 src={source}
                 autoPlay
                 muted
                 playsInline
+                onLoadedData={() => finishLocalSwitch(index)}
                 onEnded={() => rotateLocalVideo(index)}
               />
             ) : null)}
           </div>
           <video
             ref={videoRef}
-            className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-300 ${companionMode === "speaking" && state === "connected" ? "opacity-100" : "opacity-0"}`}
+            className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-300 ${companionMode === "speaking" && state === "connected" && remoteReady ? "opacity-100" : "opacity-0"}`}
             autoPlay
             playsInline
+            onPlaying={() => setRemoteReady(true)}
           />
           {state === "unavailable" ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/55 p-4 text-center">
