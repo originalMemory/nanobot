@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from nanobot.agent.runner import AgentRunner, AgentRunSpec
 from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.config.schema import AgentDefaults
@@ -58,9 +59,57 @@ class _DelayTool(Tool):
 
 
 @pytest.mark.asyncio
-async def test_runner_batches_read_only_tools_before_exclusive_work():
-    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+async def test_runner_relays_tool_images_as_multimodal_context():
+    provider = MagicMock()
+    captured_messages: list[dict] = []
+    checkpoint_callback = AsyncMock()
+    call_count = 0
 
+    async def chat_with_retry(*, messages, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return LLMResponse(
+                content=None,
+                tool_calls=[ToolCallRequest(id="call_1", name="read_file", arguments={})],
+                usage={},
+            )
+        captured_messages[:] = messages
+        return LLMResponse(content="I can see the image.", tool_calls=[], usage={})
+
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+    tools.execute = AsyncMock(return_value=[
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        {"type": "text", "text": "(Image file: image.png)"},
+    ])
+
+    result = await AgentRunner(provider).run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "Read image.png"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=2,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        checkpoint_callback=checkpoint_callback,
+    ))
+
+    assert result.final_content == "I can see the image."
+    tool_result = next(message for message in captured_messages if message.get("role") == "tool")
+    assert tool_result["content"] == [{"type": "text", "text": "(Image file: image.png)"}]
+    image_context = captured_messages[-1]
+    assert image_context["_tool_image_context"] is True
+    assert image_context["content"][0]["type"] == "image_url"
+    checkpoint = next(
+        call.args[0]
+        for call in checkpoint_callback.await_args_list
+        if call.args[0].get("phase") == "tools_completed"
+    )
+    assert checkpoint["tool_image_context"][0]["type"] == "image_url"
+
+
+@pytest.mark.asyncio
+async def test_runner_batches_read_only_tools_before_exclusive_work():
     tools = ToolRegistry()
     shared_events: list[str] = []
     read_a = _DelayTool("read_a", delay=0.05, read_only=True, shared_events=shared_events)
@@ -98,8 +147,6 @@ async def test_runner_batches_read_only_tools_before_exclusive_work():
 
 @pytest.mark.asyncio
 async def test_runner_does_not_batch_exclusive_read_only_tools():
-    from nanobot.agent.runner import AgentRunSpec, AgentRunner
-
     tools = ToolRegistry()
     shared_events: list[str] = []
     read_a = _DelayTool("read_a", delay=0.03, read_only=True, shared_events=shared_events)
@@ -141,8 +188,6 @@ async def test_runner_does_not_batch_exclusive_read_only_tools():
 
 @pytest.mark.asyncio
 async def test_runner_blocks_repeated_external_fetches():
-    from nanobot.agent.runner import AgentRunSpec, AgentRunner
-
     provider = MagicMock()
     captured_final_call: list[dict] = []
     call_count = {"n": 0}

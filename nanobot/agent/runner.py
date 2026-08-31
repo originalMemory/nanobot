@@ -447,12 +447,15 @@ class AgentRunner:
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
                 completed_tool_results: list[dict[str, Any]] = []
+                tool_images: list[dict[str, Any]] = []
                 for tool_call, result, edits in zip(
                     response.tool_calls,
                     results,
                     file_edit_events,
                     strict=True,
                 ):
+                    result, images = self._separate_tool_images(result)
+                    tool_images.extend(images)
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
@@ -474,6 +477,15 @@ class AgentRunner:
                             "_file_edit_events": edits,
                         }
                     completed_tool_results.append(checkpoint_tool_message)
+                if tool_images:
+                    messages.append({
+                        "role": "user",
+                        "content": tool_images + [{
+                            "type": "text",
+                            "text": "Analyze the images returned by the preceding tool call(s).",
+                        }],
+                        "_tool_image_context": True,
+                    })
                 if fatal_error is not None:
                     error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
                     final_content = error
@@ -499,6 +511,7 @@ class AgentRunner:
                         "model": spec.model,
                         "assistant_message": assistant_message,
                         "completed_tool_results": completed_tool_results,
+                        "tool_image_context": tool_images,
                         "pending_tool_calls": [],
                     },
                 )
@@ -1278,6 +1291,28 @@ class AgentRunner:
         if isinstance(content, str) and len(content) > spec.max_tool_result_chars:
             return truncate_text(content, spec.max_tool_result_chars)
         return content
+
+    @staticmethod
+    def _separate_tool_images(result: Any) -> tuple[Any, list[dict[str, Any]]]:
+        """Move tool-returned images into a standard multimodal user message.
+
+        Function-result formats such as OpenAI Responses accept text only, so
+        placing an image in the tool result silently turns it into JSON. A
+        follow-up user message is supported by every vision-capable provider.
+        """
+        if not isinstance(result, list):
+            return result, []
+        images = [
+            block for block in result
+            if isinstance(block, dict) and block.get("type") == "image_url"
+        ]
+        if not images:
+            return result, []
+        text_blocks = [
+            block for block in result
+            if not (isinstance(block, dict) and block.get("type") == "image_url")
+        ]
+        return text_blocks or "(Image returned by tool)", images
 
     @staticmethod
     def _drop_orphan_tool_results(

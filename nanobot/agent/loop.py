@@ -183,6 +183,7 @@ class AgentLoop:
 
     _RUNTIME_CHECKPOINT_KEY = "runtime_checkpoint"
     _PENDING_USER_TURN_KEY = "pending_user_turn"
+    _PENDING_TOOL_IMAGE_CONTEXT_KEY = "pending_tool_image_context"
 
     # Event-driven state transition table.
     # Handlers return an event string; the driver looks up the next state here.
@@ -749,7 +750,7 @@ class AgentLoop:
     ) -> list[dict[str, Any]]:
         """Build the initial message list for the LLM turn."""
         scope = self.workspace_scopes.for_message(msg, session.metadata)
-        return self.context.build_messages(
+        messages = self.context.build_messages(
             history=history,
             current_message=image_generation_prompt(msg.content, msg.metadata),
             media=msg.media if msg.media else None,
@@ -763,6 +764,25 @@ class AgentLoop:
             inbound_message=msg,
             include_memory_recent_history=include_memory_recent_history,
         )
+        return self._append_pending_tool_images(session, messages)
+
+    def _append_pending_tool_images(
+        self,
+        session: Session,
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Re-inject visual tool output preserved across an interrupted turn."""
+        images = session.metadata.get(self._PENDING_TOOL_IMAGE_CONTEXT_KEY)
+        if not isinstance(images, list) or not images:
+            return messages
+        return messages + [{
+            "role": "user",
+            "content": images + [{
+                "type": "text",
+                "text": "Analyze the images returned by the preceding tool call(s).",
+            }],
+            "_tool_image_context": True,
+        }]
 
     async def _dispatch_command_inline(
         self,
@@ -1386,6 +1406,7 @@ class AgentLoop:
             inbound_message=msg,
             skip_runtime_lines=is_subagent,
         )
+        messages = self._append_pending_tool_images(session, messages)
         t_wall = time.time()
         final_content, _, all_msgs, stop_reason, _ = await self._run_agent_loop(
             messages, session=session, channel=channel, chat_id=chat_id,
@@ -1406,6 +1427,7 @@ class AgentLoop:
         self._runtime_events().record_turn_latency(key, latency_ms)
         session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
         self._clear_runtime_checkpoint(session)
+        self._clear_pending_tool_images(session)
         self.sessions.save(session)
         self._schedule_background(
             self.consolidator.maybe_consolidate_by_tokens(
@@ -2087,6 +2109,7 @@ class AgentLoop:
             )
         self._clear_pending_user_turn(ctx.session)
         self._clear_runtime_checkpoint(ctx.session)
+        self._clear_pending_tool_images(ctx.session)
         self.sessions.save(ctx.session)
         if speech is not None:
             self.speech_runtime.clear_speech(ctx.session_key, webui_turn_id)
@@ -2173,6 +2196,8 @@ class AgentLoop:
         for m in messages[skip:]:
             entry = dict(m)
             role, content = entry.get("role"), entry.get("content")
+            if entry.get("_tool_image_context"):
+                continue
             if role == "assistant" and not content and not entry.get("tool_calls"):
                 continue  # skip empty assistant messages — they poison session context
             if role == "tool":
@@ -2266,6 +2291,9 @@ class AgentLoop:
         if self._RUNTIME_CHECKPOINT_KEY in session.metadata:
             session.metadata.pop(self._RUNTIME_CHECKPOINT_KEY, None)
 
+    def _clear_pending_tool_images(self, session: Session) -> None:
+        session.metadata.pop(self._PENDING_TOOL_IMAGE_CONTEXT_KEY, None)
+
     @staticmethod
     def _checkpoint_message_key(message: dict[str, Any]) -> tuple[Any, ...]:
         return (
@@ -2289,7 +2317,14 @@ class AgentLoop:
 
         assistant_message = checkpoint.get("assistant_message")
         completed_tool_results = checkpoint.get("completed_tool_results") or []
+        tool_image_context = checkpoint.get("tool_image_context")
         pending_tool_calls = checkpoint.get("pending_tool_calls") or []
+
+        if isinstance(tool_image_context, list) and tool_image_context:
+            existing_images = session.metadata.get(self._PENDING_TOOL_IMAGE_CONTEXT_KEY)
+            session.metadata[self._PENDING_TOOL_IMAGE_CONTEXT_KEY] = (
+                list(existing_images) if isinstance(existing_images, list) else []
+            ) + tool_image_context
 
         def _now_iso() -> str:
             return datetime.now(timezone.utc).astimezone().isoformat()

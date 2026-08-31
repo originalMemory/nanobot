@@ -548,6 +548,32 @@ def test_restore_runtime_checkpoint_rehydrates_completed_and_pending_tools() -> 
     assert "interrupted before this tool finished" in session.messages[2]["content"].lower()
 
 
+def test_restore_runtime_checkpoint_keeps_tool_images_for_next_turn() -> None:
+    loop = _mk_loop()
+    session = Session(
+        key="test:checkpoint-image",
+        metadata={
+            AgentLoop._RUNTIME_CHECKPOINT_KEY: {
+                "assistant_message": None,
+                "completed_tool_results": [],
+                "tool_image_context": [{
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,AAAA"},
+                }],
+                "pending_tool_calls": [],
+            }
+        },
+    )
+
+    assert loop._restore_runtime_checkpoint(session) is True
+    assert session.messages == []
+    images = session.metadata[AgentLoop._PENDING_TOOL_IMAGE_CONTEXT_KEY]
+    assert images[0]["type"] == "image_url"
+    messages = loop._append_pending_tool_images(session, [{"role": "user", "content": "continue"}])
+    assert messages[-1]["_tool_image_context"] is True
+    assert messages[-1]["content"][0]["type"] == "image_url"
+
+
 def test_restore_runtime_checkpoint_dedupes_overlapping_tail() -> None:
     loop = _mk_loop()
     session = Session(
