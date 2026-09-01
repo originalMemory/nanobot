@@ -75,12 +75,23 @@ const LazyHighlightedCode = lazy(async () => {
   };
 });
 
-function PlainCodeFallback({ code, wrapLongLines = false }: { code: string; wrapLongLines?: boolean }) {
+function PlainCodeFallback({
+  code,
+  isDark,
+  wrapLongLines = false,
+}: {
+  code: string;
+  isDark: boolean;
+  wrapLongLines?: boolean;
+}) {
   return (
     <pre
       className={cn(
         "m-0 p-4 font-mono text-sm leading-[1.6]",
-        wrapLongLines ? "whitespace-pre-wrap break-words" : "overflow-x-auto whitespace-pre",
+        isDark ? "text-[#abb2bf]" : "text-[#383a42]",
+        wrapLongLines
+          ? "whitespace-pre-wrap break-words"
+          : "overflow-x-auto whitespace-pre",
       )}
     >
       <code>{code}</code>
@@ -146,9 +157,19 @@ export function CodeBlock({
           <span>{copied ? t("code.copied") : t("code.copy")}</span>
         </button>
       </div>
-      <div className={cn("bg-muted", wrapLongLines && "w-full min-w-0 max-w-full")}>
+      <div
+        className={cn("bg-muted", wrapLongLines && "w-full min-w-0 max-w-full")}
+      >
         {highlight ? (
-          <Suspense fallback={<PlainCodeFallback code={code} wrapLongLines={wrapLongLines} />}>
+          <Suspense
+            fallback={
+              <PlainCodeFallback
+                code={code}
+                isDark={isDark}
+                wrapLongLines={wrapLongLines}
+              />
+            }
+          >
             <LazyHighlightedCode
               language={language}
               code={code}
@@ -157,7 +178,11 @@ export function CodeBlock({
             />
           </Suspense>
         ) : (
-          <PlainCodeFallback code={code} wrapLongLines={wrapLongLines} />
+          <PlainCodeFallback
+            code={code}
+            isDark={isDark}
+            wrapLongLines={wrapLongLines}
+          />
         )}
       </div>
     </div>
