@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { notifyAvatarCompanionPrefsChanged } from "@/lib/avatar-companion-events";
 import {
   SettingsGroup,
   SettingsRow,
@@ -14,12 +15,14 @@ import {
 
 type AvatarCompanionPrefs = {
   enabled: boolean;
+  livetalking: boolean;
   serverUrl: string;
   timeoutMs: number;
 };
 
 const DEFAULT_PREFS: AvatarCompanionPrefs = {
   enabled: false,
+  livetalking: true,
   serverUrl: "http://127.0.0.1:8010",
   timeoutMs: 3000,
 };
@@ -49,6 +52,7 @@ export function AvatarCompanionSection() {
       const partial = (stored ?? {}) as Partial<AvatarCompanionPrefs>;
       setPrefs({
         enabled: partial.enabled ?? DEFAULT_PREFS.enabled,
+        livetalking: partial.livetalking ?? DEFAULT_PREFS.livetalking,
         serverUrl: partial.serverUrl ?? DEFAULT_PREFS.serverUrl,
         timeoutMs: partial.timeoutMs ?? DEFAULT_PREFS.timeoutMs,
       });
@@ -62,6 +66,7 @@ export function AvatarCompanionSection() {
     if (!api?.config?.set) return;
     const stored = (await api.config.get("avatarCompanion")) as Partial<AvatarCompanionPrefs> | undefined;
     await api.config.set("avatarCompanion", { ...DEFAULT_PREFS, ...stored, ...patch });
+    notifyAvatarCompanionPrefsChanged();
   }, []);
 
   async function checkHealth() {
@@ -91,13 +96,26 @@ export function AvatarCompanionSection() {
             title={tx("settings.avatarCompanion.enable", "Enable avatar companion")}
             description={tx(
               "settings.avatarCompanion.enableDescription",
-              "Requires a local LiveTalking service (loopback only). When disabled, chat and audio playback are unaffected.",
+              "Show the avatar companion window; idle/working animations stay independent of chat.",
             )}
           >
             <ToggleButton
               checked={prefs.enabled}
               label={toggleLabel(prefs.enabled)}
               onChange={(enabled) => void savePrefs({ enabled })}
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={tx("settings.avatarCompanion.livetalking", "LiveTalking speech")}
+            description={tx(
+              "settings.avatarCompanion.livetalkingDescription",
+              "Route only the speaking part to the LiveTalking avatar. When off, the companion still shows and voice plays normally.",
+            )}
+          >
+            <ToggleButton
+              checked={prefs.livetalking}
+              label={toggleLabel(prefs.livetalking)}
+              onChange={(livetalking) => void savePrefs({ livetalking })}
             />
           </SettingsRow>
           <SettingsRow

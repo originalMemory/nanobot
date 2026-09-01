@@ -5,11 +5,11 @@
     "expand": "展开",
     "hide": "隐藏",
     "unavailable": "LiveTalking 服务不可用",
-    "audioFallback": "语音回复正常播放。",
     "stateIdle": "待机",
     "stateWorking": "工作中",
     "stateSpeaking": "说话中",
-    "stateUnavailable": "离线"
+    "stateUnavailable": "离线",
+    "retry": "重试"
   },
   "app": {
     "brand": "nanobot",
@@ -106,6 +106,7 @@
       "mcp": "MCP",
       "runtime": "运行时",
       "deskPet": "桌宠",
+      "avatarCompanion": "数字伴侣",
       "advanced": "高级",
       "apps": "应用"
     },
@@ -471,7 +472,9 @@
     "avatarCompanion": {
       "serviceSection": "LiveTalking 服务",
       "enable": "启用数字伴侣",
-      "enableDescription": "需要本地 LiveTalking 服务（仅限回环地址）。关闭时不影响聊天与语音播放。",
+      "enableDescription": "显示数字伴侣小窗，待机/工作动画不受聊天影响。",
+      "livetalking": "LiveTalking 说话",
+      "livetalkingDescription": "仅把说话环节交给 LiveTalking 数字人。关闭后数字伴侣仍显示，语音走普通播放。",
       "serverUrl": "服务地址",
       "serverUrlDescription": "LiveTalking 本地服务地址，仅接受本机回环地址。",
       "nonLoopback": "仅限回环地址",
@@ -912,6 +915,11 @@
     "next": "下一张",
     "close": "关闭预览"
   },
+  "videoPreview": {
+    "title": "视频预览",
+    "open": "放大预览视频",
+    "close": "关闭视频预览"
+  },
   "code": {
     "fallbackLanguage": "代码",
     "copyAria": "复制代码",
@@ -1000,6 +1008,7 @@
     "refreshHistoryDisabledStreaming": "请等待当前回复结束",
     "refreshHistoryNotFound": "服务端暂无已保存的历史消息",
     "refreshHistoryFailed": "刷新历史消息失败",
+    "avatarCompanion": "数字伴侣",
     "sidebarNav": "侧边栏导航",
     "settings": "设置",
     "quit": "退出",

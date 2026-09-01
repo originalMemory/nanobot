@@ -1,16 +1,23 @@
-// 数字伴侣面板：WebRTC 连接 LiveTalking 并播放数字人音视频流
-// 启用且服务健康时显示；连接失败显示非阻塞不可用状态。
+// 数字伴侣面板：待机/工作动画本地播放；说话环节按 livetalking 开关交给 LiveTalking 数字人
+// 数字伴侣开关只控制面板显示；LiveTalking 不可用不遮盖画面，仅在头部状态旁提供重试。
 // 位置/大小/收起状态持久化到 avatarCompanion.panel（本地 electron-store）。
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { bindAvatarCompanionSession, subscribeCompanionMode, type CompanionMode } from "@/lib/livetalking-bridge";
+import { subscribeAvatarCompanionPrefs } from "@/lib/avatar-companion-events";
+import {
+  avatarCompanionInterrupt,
+  bindAvatarCompanionSession,
+  subscribeCompanionMode,
+  type CompanionMode,
+} from "@/lib/livetalking-bridge";
 
 type ConnectionState = "idle" | "ready" | "connecting" | "connected" | "unavailable";
 
 type AvatarCompanionPrefs = {
   enabled: boolean;
+  livetalking: boolean;
   serverUrl: string;
   timeoutMs: number;
 };
@@ -84,6 +91,7 @@ export function AvatarCompanionPanel() {
         const partial = (stored ?? {}) as Partial<AvatarCompanionPrefs> & { panel?: Partial<PanelState> };
         const next = {
           enabled: partial.enabled ?? false,
+          livetalking: partial.livetalking ?? true,
           serverUrl: partial.serverUrl ?? "http://127.0.0.1:8010",
           timeoutMs: partial.timeoutMs ?? 3000,
         };
@@ -105,8 +113,7 @@ export function AvatarCompanionPanel() {
       });
     };
     read();
-    const timer = window.setInterval(read, 2000);
-    return () => window.clearInterval(timer);
+    return subscribeAvatarCompanionPrefs(read);
   }, []);
 
   const teardown = useCallback(() => {
@@ -133,9 +140,23 @@ export function AvatarCompanionPanel() {
     }
   }, [enableSignal]);
 
-  // 只探测服务状态，不创建 WebRTC 会话；离线时立即给出重试入口。
+  // 关闭数字伴侣或 LiveTalking 即完全关闭：打断并拆除活动会话，避免隐性继续委托语音
+  useEffect(() => {
+    if ((prefs?.enabled ?? false) && (prefs?.livetalking ?? true)) return;
+    if (!activeSession) return;
+    avatarCompanionInterrupt();
+  }, [prefs?.enabled, prefs?.livetalking]);
+
+  // 只探测服务状态，不创建 WebRTC 会话；仅 livetalking 开启时探测，离线在头部给出重试入口。
   useEffect(() => {
     if (!prefs?.enabled) return;
+    if (!prefs?.livetalking) {
+      if (!activeSession) {
+        setState("ready");
+        setError(null);
+      }
+      return;
+    }
     const api = window.electronAPI?.livetalking;
     if (!api) return;
     let cancelled = false;
@@ -152,7 +173,7 @@ export function AvatarCompanionPanel() {
     return () => {
       cancelled = true;
     };
-  }, [prefs?.enabled, prefs?.serverUrl]);
+  }, [prefs?.enabled, prefs?.livetalking, prefs?.serverUrl]);
 
   // 订阅伴侣模式(idle/working/speaking)以驱动状态标签
   useEffect(() => subscribeCompanionMode(setCompanionMode), []);
@@ -223,7 +244,7 @@ export function AvatarCompanionPanel() {
   const connect = useCallback((): Promise<boolean> => {
     if (activeSession?.connected && pcRef.current) return Promise.resolve(true);
     if (connectRef.current) return connectRef.current;
-    if (!prefs?.enabled) return Promise.resolve(false);
+    if (!prefs?.enabled || !prefs?.livetalking) return Promise.resolve(false);
     const api = window.electronAPI?.livetalking;
     if (!api) return Promise.resolve(false);
 
@@ -281,7 +302,7 @@ export function AvatarCompanionPanel() {
     });
     connectRef.current = task;
     return task;
-  }, [prefs?.enabled, teardown]);
+  }, [prefs?.enabled, prefs?.livetalking, teardown]);
 
   useEffect(() => {
     bindAvatarCompanionSession(() => activeSession?.sessionid ?? null, connect, teardown);
@@ -388,6 +409,16 @@ export function AvatarCompanionPanel() {
             }`}
             aria-hidden
           />
+          {state === "unavailable" ? (
+            <button
+              type="button"
+              className="rounded border border-border px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title={`${tx("avatarCompanion.unavailable", "LiveTalking service unavailable")}${error ? ` · ${error}` : ""}`}
+              onClick={() => void connect()}
+            >
+              {tx("avatarCompanion.retry", "Retry")}
+            </button>
+          ) : null}
         </div>
         <button
           type="button"
@@ -424,24 +455,6 @@ export function AvatarCompanionPanel() {
             playsInline
             onPlaying={() => setRemoteReady(true)}
           />
-          {state === "unavailable" ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/55 p-4 text-center">
-              <span className="text-[12px] text-amber-500">
-                {tx("avatarCompanion.unavailable", "LiveTalking service unavailable")}
-              </span>
-              {error ? <span className="text-[10px] text-muted-foreground">{error}</span> : null}
-              <span className="text-[10px] text-muted-foreground">
-                {tx("avatarCompanion.audioFallback", "Voice replies play normally.")}
-              </span>
-              <button
-                type="button"
-                className="mt-2 rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-muted"
-                onClick={() => void connect()}
-              >
-                {tx("avatarCompanion.retry", "Retry")}
-              </button>
-            </div>
-          ) : null}
           <div
             className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize"
             onPointerDown={(e) => {

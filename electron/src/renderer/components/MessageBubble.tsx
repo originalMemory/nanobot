@@ -7,12 +7,13 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Check, ChevronRight, CirclePlay, CircleStop, Code2, Copy, FileIcon, ImageIcon, Sparkles, Wrench } from "lucide-react";
+import { Check, ChevronRight, CirclePlay, CircleStop, Code2, Copy, FileIcon, ImageIcon, Maximize2, Sparkles, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AssistantNameRow } from "@/components/AssistantNameRow";
 import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
+import { VideoPreviewDialog } from "@/components/VideoPreviewDialog";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { playThaAudio } from "@/lib/api";
@@ -726,6 +727,7 @@ function MediaCell({
   const { apiBase } = useClient();
   const hasUrl = typeof media.url === "string" && media.url.length > 0;
   const resolvedUrl = resolveMediaUrl(media.url, apiBase);
+  const [videoPreviewOpen, setVideoPreviewOpen] = useState(false);
 
   if (media.kind === "audio") {
     return (
@@ -740,21 +742,37 @@ function MediaCell({
 
   if (media.kind === "video" && hasUrl) {
     return (
-      <figure className="max-w-[min(100%,32rem)] overflow-hidden rounded-[14px] border border-border/60 bg-muted/40">
-        <video
-          src={resolvedUrl}
-          controls
-          muted
-          preload="metadata"
-          className="block max-h-[26rem] w-full bg-black"
-          aria-label={media.name ? `${t("message.videoAttachment", { defaultValue: "Video attachment" })}: ${media.name}` : t("message.videoAttachment", { defaultValue: "Video attachment" })}
+      <>
+        <figure className="relative max-w-[min(100%,32rem)] overflow-hidden rounded-[14px] border border-border/60 bg-muted/40">
+          <video
+            src={resolvedUrl}
+            controls
+            muted
+            preload="metadata"
+            className="block max-h-[26rem] w-full bg-black"
+            aria-label={media.name ? `${t("message.videoAttachment", { defaultValue: "Video attachment" })}: ${media.name}` : t("message.videoAttachment", { defaultValue: "Video attachment" })}
+          />
+          <button
+            type="button"
+            aria-label={t("videoPreview.open")}
+            onClick={() => setVideoPreviewOpen(true)}
+            className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white/90 hover:bg-black/70"
+          >
+            <Maximize2 className="h-4 w-4" aria-hidden />
+          </button>
+          {media.name ? (
+            <figcaption className="truncate px-3 py-1.5 text-[11.5px] text-muted-foreground">
+              {media.name}
+            </figcaption>
+          ) : null}
+        </figure>
+        <VideoPreviewDialog
+          open={videoPreviewOpen}
+          url={resolvedUrl ?? ""}
+          name={media.name}
+          onOpenChange={setVideoPreviewOpen}
         />
-        {media.name ? (
-          <figcaption className="truncate px-3 py-1.5 text-[11.5px] text-muted-foreground">
-            {media.name}
-          </figcaption>
-        ) : null}
-      </figure>
+      </>
     );
   }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNanobotStream, type SendImage, type SendOptions } from "@/hooks/useNanobotStream";
 import { usePsbTagEffects } from "@/hooks/usePsbTagEffects";
+import { notifyAvatarCompanionPrefsChanged, subscribeAvatarCompanionPrefs } from "@/lib/avatar-companion-events";
 import { ApiError, fetchCliApps, fetchInboxThread, fetchMcpPresets, listSlashCommands } from "@/lib/api";
 import { channelLabel } from "@/lib/channels";
 import type { ReasoningEffortValue } from "@/lib/reasoning-effort";
@@ -221,6 +222,31 @@ export function InboxView({
     ? t("inbox.refreshHistoryDisabledStreaming")
     : t("inbox.refreshHistory");
 
+  // 数字伴侣快捷开关：与设置页共享 avatarCompanion 配置，写入方广播变更时刷新
+  const [companionEnabled, setCompanionEnabled] = useState(false);
+  const readCompanionEnabled = useCallback(() => {
+    const api = window.electronAPI;
+    if (!api?.config?.get) return;
+    void api.config.get("avatarCompanion").then((stored) => {
+      setCompanionEnabled(Boolean((stored as { enabled?: boolean } | undefined)?.enabled));
+    });
+  }, []);
+  useEffect(() => {
+    readCompanionEnabled();
+    return subscribeAvatarCompanionPrefs(readCompanionEnabled);
+  }, [readCompanionEnabled]);
+
+  const handleToggleCompanion = useCallback(() => {
+    const api = window.electronAPI;
+    if (!api?.config?.get || !api?.config?.set) return;
+    void api.config.get("avatarCompanion").then((stored) => {
+      const next = !companionEnabled;
+      setCompanionEnabled(next);
+      void api.config.set("avatarCompanion", { ...((stored ?? {}) as Record<string, unknown>), enabled: next })
+        .then(() => notifyAvatarCompanionPrefsChanged());
+    });
+  }, [companionEnabled]);
+
   return (
     <div className="flex h-full flex-col">
       {toastMessage ? (
@@ -237,6 +263,24 @@ export function InboxView({
           {activeChannel ? channelLabel(activeChannel) : t("inbox.unified")}
         </span>
         <TooltipProvider delayDuration={400}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={cn("h-7 w-7", companionEnabled && "text-primary")}
+                aria-label={t("inbox.avatarCompanion")}
+                aria-pressed={companionEnabled}
+                onClick={handleToggleCompanion}
+              >
+                <UserRound className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              {t("inbox.avatarCompanion")}
+            </TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="inline-flex shrink-0">

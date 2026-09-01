@@ -5,12 +5,17 @@ import "@/i18n";
 import { AvatarCompanionPanel } from "@/components/ui/AvatarCompanionPanel";
 
 describe("AvatarCompanionPanel", () => {
-  function installApi(reachable: boolean) {
+  function installApi(reachable: boolean, overrides?: { livetalking?: boolean }) {
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
       value: {
         config: {
-          get: vi.fn(async () => ({ enabled: true, serverUrl: "http://127.0.0.1:8011", timeoutMs: 3000 })),
+          get: vi.fn(async () => ({
+            enabled: true,
+            livetalking: overrides?.livetalking ?? true,
+            serverUrl: "http://127.0.0.1:8011",
+            timeoutMs: 3000,
+          })),
           set: vi.fn(),
         },
         livetalking: {
@@ -21,13 +26,14 @@ describe("AvatarCompanionPanel", () => {
     });
   }
 
-  it("shows retry immediately when LiveTalking is offline", async () => {
+  it("shows retry in the header (no overlay) when LiveTalking is offline", async () => {
     installApi(false);
 
     const { container } = render(<AvatarCompanionPanel />);
 
-    expect(await screen.findByRole("button", { name: /retry|重试/i })).toBeInTheDocument();
-    expect(screen.getByText("offline")).toBeInTheDocument();
+    const retry = await screen.findByRole("button", { name: /retry|重试/i });
+    expect(retry.getAttribute("title")).toContain("offline");
+    expect(container.querySelector(".bg-black\\/55")).toBeNull();
     const video = await waitFor(() => {
       const element = container.querySelector("video[src]");
       expect(element).not.toBeNull();
@@ -51,5 +57,14 @@ describe("AvatarCompanionPanel", () => {
 
     await waitFor(() => expect(container.querySelector(".bg-emerald-500")).not.toBeNull());
     expect(screen.queryByRole("button", { name: /retry|重试/i })).not.toBeInTheDocument();
+  });
+
+  it("stays green and skips health checks when the livetalking switch is off", async () => {
+    installApi(false, { livetalking: false });
+    const { container } = render(<AvatarCompanionPanel />);
+
+    await waitFor(() => expect(container.querySelector(".bg-emerald-500")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: /retry|重试/i })).not.toBeInTheDocument();
+    expect(window.electronAPI.livetalking.checkHealth).not.toHaveBeenCalled();
   });
 });

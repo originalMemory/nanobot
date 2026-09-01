@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
@@ -100,5 +100,22 @@ describe("MessageMedia 音频自动播放", () => {
     const nonImageRow = container.querySelector('[data-testid="message-non-image-media"]');
     expect(mediaRoot?.children).toHaveLength(2);
     expect(nonImageRow?.parentElement).toBe(mediaRoot);
+  });
+
+  it("视频可打开有限尺寸的应用级静音预览", () => {
+    render(
+      <MessageMedia
+        media={[{ kind: "video", url: "/media/demo.mp4", name: "demo.mp4" }]}
+        align="left"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /enlarge video preview|放大预览视频/i }));
+    const dialog = screen.getByRole("dialog", { name: "demo.mp4" });
+    expect(dialog).toHaveClass("max-h-[92vh]", "max-w-[94vw]");
+    const videos = document.querySelectorAll("video");
+    expect(videos).toHaveLength(2);
+    expect(videos[1]).toHaveProperty("muted", true);
+    expect(document.querySelector('[class~="bg-black/80"]')).not.toBeNull();
   });
 });
