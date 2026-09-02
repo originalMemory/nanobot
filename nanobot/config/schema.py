@@ -1,6 +1,7 @@
 """Configuration schema using Pydantic."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -276,15 +277,61 @@ class TtsConfig(Base):
     response_format: str = "wav"
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     extra_body: dict[str, Any] = Field(default_factory=dict)
-    japanese_voice: str | None = None
+    japanese_voice: str | None = Field(default=None, exclude=True)
     rpm: int = Field(default=20, ge=1, le=20)
+    health_check_url: str | None = None
+    health_check_timeout_s: float = Field(default=0.5, gt=0, le=10)
     # GLM-TTS 去水印示例：extra_body = {"watermark_enabled": false}
 
 
-class TtsFallbackConfig(TtsConfig):
-    """TTS 主服务不可用时使用的固定音色配置。"""
+class TtsVoicePresetConfig(Base):
+    """TTS preset 中一个可选音色。"""
 
-    default_voice: str
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    language_voices: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_language_voices(self) -> "TtsVoicePresetConfig":
+        if not self.id.strip() or not self.label.strip():
+            raise ValueError("TTS 音色 id 和 label 不能为空")
+        if not self.language_voices.get("default", "").strip():
+            raise ValueError("TTS 音色必须配置 languageVoices.default")
+        if any(not key.strip() or not value.strip() for key, value in self.language_voices.items()):
+            raise ValueError("TTS languageVoices 的语言和 voice ID 不能为空")
+        return self
+
+
+class TtsPresetFallbackConfig(Base):
+    """活动 TTS preset 不可用时使用的另一 preset 音色。"""
+
+    preset: str
+    voice: str
+
+
+class TtsPresetConfig(Base):
+    """具名 TTS 服务及其音色列表。"""
+
+    label: str
+    config: TtsConfig
+    voices: list[TtsVoicePresetConfig] = Field(min_length=1)
+    fallback: TtsPresetFallbackConfig | None = None
+
+    @model_validator(mode="after")
+    def _validate_voice_ids(self) -> "TtsPresetConfig":
+        if len({voice.id for voice in self.voices}) != len(self.voices):
+            raise ValueError("同一 TTS preset 的音色 id 不能重复")
+        return self
+
+
+@dataclass(frozen=True)
+class ResolvedTtsConfig:
+    """活动 TTS preset 解析后的运行时参数。"""
+
+    config: TtsConfig
+    voice: str
+    fallback_config: TtsConfig | None = None
+    fallback_voice: str | None = None
 
 
 class THAConfig(Base):
@@ -409,6 +456,10 @@ class Config(BaseSettings):
         validation_alias=AliasChoices("deskPet", "desk_pet"),
     )
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    tts_presets: dict[str, TtsPresetConfig] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("ttsPresets", "tts_presets"),
+    )
     diary_root: str = Field(
         default="",
         validation_alias=AliasChoices("diaryRoot", "diary_root"),
@@ -454,7 +505,45 @@ class Config(BaseSettings):
         for preset in self.model_presets.values():
             if preset.vision_model and "vision_enabled" not in preset.model_fields_set:
                 preset.vision_enabled = True
+        if self.tools.tts.effective_mode != "off":
+            self.resolve_tts_config()
+        for preset in self.tts_presets.values():
+            if preset.fallback is not None:
+                self._resolve_tts_selection(preset.fallback.preset, preset.fallback.voice)
         return self
+
+    def _resolve_tts_selection(self, preset_name: str, voice_id: str) -> tuple[TtsConfig, str]:
+        preset = self.tts_presets.get(preset_name)
+        if preset is None:
+            raise ValueError(f"TTS preset {preset_name!r} not found in ttsPresets")
+        voice = next((item for item in preset.voices if item.id == voice_id), None)
+        if voice is None:
+            raise ValueError(f"TTS voice {voice_id!r} not found in preset {preset_name!r}")
+        default_voice = voice.language_voices["default"]
+        config = preset.config.model_copy(
+            update={"japanese_voice": voice.language_voices.get("ja", default_voice)}
+        )
+        return config, voice.language_voices.get("zh", default_voice)
+
+    def resolve_tts_config(self) -> ResolvedTtsConfig:
+        """解析活动 TTS preset、音色和可选 fallback。"""
+        selection = self.tools.tts
+        if not selection.preset or not selection.voice:
+            raise ValueError("tools.tts 启用时必须配置 preset 和 voice")
+        config, voice = self._resolve_tts_selection(selection.preset, selection.voice)
+        preset = self.tts_presets[selection.preset]
+        if preset.fallback is None:
+            return ResolvedTtsConfig(config=config, voice=voice)
+        fallback_config, fallback_voice = self._resolve_tts_selection(
+            preset.fallback.preset,
+            preset.fallback.voice,
+        )
+        return ResolvedTtsConfig(
+            config=config,
+            voice=voice,
+            fallback_config=fallback_config,
+            fallback_voice=fallback_voice,
+        )
 
     def resolve_default_preset(self) -> ModelPresetConfig:
         """Return the implicit `default` preset from agents.defaults fields."""

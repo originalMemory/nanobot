@@ -6,12 +6,12 @@ import re
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from nanobot.agent.psb_tags import strip_psb_tags
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
-from nanobot.config.schema import TtsConfig, TtsFallbackConfig
+from nanobot.config.schema import Base, ResolvedTtsConfig
 
 if TYPE_CHECKING:
     from nanobot.agent.speech import SpeechRuntime
@@ -30,47 +30,21 @@ def strip_spoken_tags(text: str) -> str:
     return strip_tha_tags(strip_psb_tags(text))
 
 
-class TtsToolConfig(TtsConfig):
-    """tools.tts 配置：TTS provider 参数 + 工具开关 + 固定音色。
+class TtsToolConfig(Base):
+    """tools.tts 配置：运行模式和活动 preset / 音色。"""
 
-    继承 TtsConfig（provider/api_base/api_key/model/response_format/speed/extra_body），
-    新增 enabled 和 default_voice。音色仅由系统配置决定，不向 agent 暴露。
-    与 imageGeneration 遵循相同模式，挂载在 ToolsConfig.tts 下。
-    """
+    model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    message_playback_enabled: bool = Field(
-        default=False,
-        description="自动为 assistant 回复按句合成并播放 TTS。",
-    )
-    default_voice: str = Field(
-        default="tongtong",
-        description="内置 TTS 中文固定使用的音色名称或 voice_id。"
-        "GLM 系统音色示例：tongtong / chuichui；"
-        "自定义克隆音色填写 UUID。",
-    )
-    fallback: TtsFallbackConfig | None = Field(
-        default=None,
-        description="主 TTS 在首个音频块前失败时使用的备用配置。",
-    )
-    health_check_url: str | None = Field(
-        default=None,
-        description="主 TTS 的快速健康检查地址；失败时直接使用 fallback。",
-    )
-    health_check_timeout_s: float = Field(default=0.5, gt=0, le=10)
-    mode: Literal["off", "agent", "always"] | None = Field(
-        default=None,
+    mode: Literal["off", "agent", "always"] = Field(
+        default="off",
         description="TTS 模式：关闭、由 AI 决定、每轮完整回复自动朗读。",
     )
+    preset: str | None = None
+    voice: str | None = None
 
     @property
     def effective_mode(self) -> Literal["off", "agent", "always"]:
-        """读取新 mode；旧配置按原开关无损映射。"""
-        if self.mode is not None:
-            return self.mode
-        if self.message_playback_enabled:
-            return "always"
-        return "agent" if self.enabled else "off"
+        return self.mode
 
 
 @tool_parameters(
@@ -99,22 +73,18 @@ class TtsTool(Tool):
 
     @classmethod
     def create(cls, ctx: ToolContext) -> TtsTool:
-        cfg = ctx.config.tts
         return cls(
-            tts_config=cfg,
-            default_voice=cfg.default_voice,
+            tts_config=getattr(ctx, "tts_runtime_config", None),
             speech_runtime=getattr(ctx, "speech_runtime", None),
         )
 
     def __init__(
         self,
         *,
-        tts_config: Any,
-        default_voice: str = "tongtong",
+        tts_config: ResolvedTtsConfig | None,
         speech_runtime: SpeechRuntime | None = None,
     ) -> None:
         self._tts_config = tts_config
-        self._default_voice = default_voice
         self._speech_runtime = speech_runtime
         self._request_context: ContextVar[RequestContext | None] = ContextVar(
             "tts_request_context",
@@ -140,14 +110,9 @@ class TtsTool(Tool):
         )
 
     async def execute(self, text: str, **_: Any) -> str:
-        """使用系统配置的固定音色合成语音。
-
-        ``**_`` 仅用于兼容旧会话可能残留的 ``voice`` 参数；任何遗留参数都会被忽略，
-        不得覆盖 ``tools.tts.defaultVoice``。
-        """
-        resolved_voice = self._default_voice
-        if not resolved_voice:
-            return "Error: 未配置 TTS 音色，请在 config.json 中设置 tools.tts.defaultVoice"
+        """使用活动 TTS preset 的固定音色合成语音。"""
+        if self._tts_config is None:
+            return "Error: 未解析活动 TTS preset"
 
         spoken_text = strip_spoken_tags(text)
         if not spoken_text:
@@ -160,7 +125,6 @@ class TtsTool(Tool):
             config=self._tts_config,
             context=context,
             text=text,
-            voice=resolved_voice,
         )
         if error:
             return f"Error: {error}"

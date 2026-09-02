@@ -828,12 +828,20 @@ def settings_payload(
         },
         "deskPet": desk_pet_payload(),
         "tts": {
-            "enabled": config.tools.tts.enabled,
-            "message_playback_enabled": config.tools.tts.message_playback_enabled,
             "mode": config.tools.tts.effective_mode,
-            "default_voice": config.tools.tts.default_voice,
-            "provider": config.tools.tts.provider,
-            "model": config.tools.tts.model,
+            "preset": config.tools.tts.preset,
+            "voice": config.tools.tts.voice,
+            "presets": [
+                {
+                    "id": name,
+                    "label": preset.label,
+                    "voices": [
+                        {"id": voice.id, "label": voice.label}
+                        for voice in preset.voices
+                    ],
+                }
+                for name, preset in config.tts_presets.items()
+            ],
         },
         "runtime": {
             "config_path": str(get_config_path().expanduser()),
@@ -1607,39 +1615,29 @@ def update_tts_settings(query: QueryParams) -> dict[str, Any]:
         if tts_config.mode != normalized_mode:
             tts_config.mode = normalized_mode
             changed = True
-        legacy_enabled = normalized_mode == "agent"
-        legacy_playback = normalized_mode == "always"
-        if tts_config.enabled != legacy_enabled:
-            tts_config.enabled = legacy_enabled
+
+    preset = _query_first(query, "preset")
+    voice = _query_first(query, "voice")
+    selected_preset = preset.strip() if preset is not None else tts_config.preset
+    selected_voice = voice.strip() if voice is not None else tts_config.voice
+    if preset is not None or voice is not None:
+        preset_config = config.tts_presets.get(selected_preset or "")
+        if preset_config is None:
+            raise WebUISettingsError("unknown TTS preset")
+        if not any(item.id == selected_voice for item in preset_config.voices):
+            raise WebUISettingsError("unknown TTS voice")
+        if tts_config.preset != selected_preset:
+            tts_config.preset = selected_preset
             changed = True
-        if tts_config.message_playback_enabled != legacy_playback:
-            tts_config.message_playback_enabled = legacy_playback
+        if tts_config.voice != selected_voice:
+            tts_config.voice = selected_voice
             changed = True
 
-    enabled = _query_first(query, "enabled")
-    if enabled is not None:
-        parsed = _parse_bool(enabled, "enabled")
-        if tts_config.enabled != parsed:
-            tts_config.enabled = parsed
-            tts_config.mode = None
-            changed = True
-
-    message_playback = _query_first_alias(query, "message_playback_enabled", "messagePlaybackEnabled")
-    if message_playback is not None:
-        parsed = _parse_bool(message_playback, "message_playback_enabled")
-        if tts_config.message_playback_enabled != parsed:
-            tts_config.message_playback_enabled = parsed
-            tts_config.mode = None
-            changed = True
-
-    default_voice = _query_first_alias(query, "default_voice", "defaultVoice")
-    if default_voice is not None:
-        default_voice = default_voice.strip()
-        if len(default_voice) > 200:
-            raise WebUISettingsError("default_voice is too long")
-        if tts_config.default_voice != default_voice:
-            tts_config.default_voice = default_voice
-            changed = True
+    if tts_config.effective_mode != "off":
+        try:
+            config.resolve_tts_config()
+        except ValueError as exc:
+            raise WebUISettingsError(str(exc)) from exc
 
     if changed:
         save_config(config)

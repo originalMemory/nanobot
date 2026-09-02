@@ -20,8 +20,10 @@ export function TtsSection({ settings, token, apiBase, onSaved }: TtsSectionProp
   const tts = settings.tts;
 
   const [mode, setMode] = useState(tts.mode);
-  const [defaultVoice, setDefaultVoice] = useState(tts.default_voice);
+  const [preset, setPreset] = useState(tts.preset ?? "");
+  const [voice, setVoice] = useState(tts.voice ?? "");
   const [saving, setSaving] = useState(false);
+  const activePreset = tts.presets.find((item) => item.id === preset);
 
   const handleSave = async (update: Record<string, unknown>) => {
     setSaving(true);
@@ -60,18 +62,41 @@ export function TtsSection({ settings, token, apiBase, onSaved }: TtsSectionProp
         </SettingsRow>
 
         <SettingsRow
-          title={t("settings.tts.defaultVoice", "默认音色")}
-          description={t("settings.tts.defaultVoiceDesc", "音色名称或 voice_id（如：坎蒂丝 / tongtong）")}
+          title={t("settings.tts.preset", "TTS 服务")}
+          description={t("settings.tts.presetDesc", "选择语音服务；连接参数由预设配置管理")}
         >
-          <input
-            type="text"
-            value={defaultVoice}
-            disabled={saving}
+          <select
+            value={preset}
+            disabled={saving || tts.presets.length === 0}
             className="w-48 rounded-md border border-border bg-input px-3 py-1.5 text-sm"
-            placeholder="坎蒂丝"
-            onChange={(e) => setDefaultVoice(e.target.value)}
-            onBlur={() => void handleSave({ default_voice: defaultVoice })}
-          />
+            onChange={(event) => {
+              const nextPreset = event.target.value;
+              const nextVoice = tts.presets.find((item) => item.id === nextPreset)?.voices[0]?.id ?? "";
+              setPreset(nextPreset);
+              setVoice(nextVoice);
+              void handleSave({ preset: nextPreset, voice: nextVoice });
+            }}
+          >
+            {tts.presets.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        </SettingsRow>
+
+        <SettingsRow
+          title={t("settings.tts.voice", "音色")}
+          description={t("settings.tts.voiceDesc", "同一音色可按语言使用预设中的不同声线")}
+        >
+          <select
+            value={voice}
+            disabled={saving || !activePreset}
+            className="w-48 rounded-md border border-border bg-input px-3 py-1.5 text-sm"
+            onChange={(event) => {
+              const nextVoice = event.target.value;
+              setVoice(nextVoice);
+              void handleSave({ preset, voice: nextVoice });
+            }}
+          >
+            {activePreset?.voices.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
         </SettingsRow>
       </SettingsGroup>
     </div>

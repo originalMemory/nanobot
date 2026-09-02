@@ -466,8 +466,10 @@
       "modeOff": "Off",
       "modeAgent": "Let AI decide",
       "modeAlways": "Always read aloud",
-      "defaultVoice": "Default voice",
-      "defaultVoiceDesc": "Voice name or voice_id, such as Candace or tongtong."
+      "preset": "TTS service",
+      "presetDesc": "Choose a speech service; connection settings are managed by the preset.",
+      "voice": "Voice",
+      "voiceDesc": "A voice can use different preset speakers by language."
     },
     "avatarCompanion": {
       "serviceSection": "LiveTalking service",

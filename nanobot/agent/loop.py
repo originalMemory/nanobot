@@ -225,6 +225,7 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
         tools_config: ToolsConfig | None = None,
+        tts_runtime_config: Any | None = None,
         image_generation_provider_config: ProviderConfig | None = None,
         image_generation_provider_configs: dict[str, ProviderConfig] | None = None,
         provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None,
@@ -279,6 +280,7 @@ class AgentLoop:
             else defaults.tool_hint_max_length
         )
         self.tools_config = _tc
+        self.tts_runtime_config = tts_runtime_config
         self.web_config = _tc.web
         self.exec_config = _tc.exec
         self._image_generation_provider_configs = dict(image_generation_provider_configs or {})
@@ -443,6 +445,11 @@ class AgentLoop:
             consolidation_ratio=defaults.consolidation_ratio,
             max_messages=defaults.max_messages,
             tools_config=config.tools,
+            tts_runtime_config=(
+                config.resolve_tts_config()
+                if config.tools.tts.effective_mode != "off"
+                else None
+            ),
             model_presets=preset_helpers.configured_model_presets(config),
             model_preset=defaults.model_preset,
             provider_snapshot_loader=provider_snapshot_loader,
@@ -611,6 +618,7 @@ class AgentLoop:
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
             speech_runtime=self.speech_runtime,
+            tts_runtime_config=self.tts_runtime_config,
         )
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)
@@ -2068,15 +2076,15 @@ class AgentLoop:
         tts_config = self.tools_config.tts
         if (
             tts_config.effective_mode == "always"
+            and self.tts_runtime_config is not None
             and ctx.final_content
             and not ctx.suppress_response
             and not self.speech_runtime.has_speech(speech_context)
         ):
             await self.speech_runtime.synthesize(
-                config=tts_config,
+                config=self.tts_runtime_config,
                 context=speech_context,
                 text=ctx.final_content,
-                voice=tts_config.default_voice,
             )
         ctx.turn_latency_ms = max(0, int((time.time() - latency_started_at) * 1000))
         speech = self.speech_runtime.speech_for(ctx.session_key, webui_turn_id)

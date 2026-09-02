@@ -466,8 +466,10 @@
       "modeOff": "关闭",
       "modeAgent": "由 AI 决定",
       "modeAlways": "始终朗读",
-      "defaultVoice": "默认音色",
-      "defaultVoiceDesc": "音色名称或 voice_id（如：坎蒂丝 / tongtong）。"
+      "preset": "TTS 服务",
+      "presetDesc": "选择语音服务；连接参数由预设配置管理。",
+      "voice": "音色",
+      "voiceDesc": "同一音色可按语言使用预设中的不同声线。"
     },
     "avatarCompanion": {
       "serviceSection": "LiveTalking 服务",

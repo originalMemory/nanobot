@@ -6,7 +6,13 @@ import httpx
 import pytest
 
 from nanobot.config.loader import load_config, save_config
-from nanobot.config.schema import Config, ModelPresetConfig
+from nanobot.config.schema import (
+    Config,
+    ModelPresetConfig,
+    TtsConfig,
+    TtsPresetConfig,
+    TtsVoicePresetConfig,
+)
 from nanobot.providers.registry import find_by_name
 from nanobot.webui.settings_api import (
     WebUISettingsError,
@@ -22,6 +28,22 @@ from nanobot.webui.settings_api import (
     update_tha_settings,
     update_tts_settings,
 )
+
+
+def _configure_tts_preset(config: Config) -> None:
+    config.tts_presets["minimax"] = TtsPresetConfig(
+        label="MiniMax",
+        config=TtsConfig(provider="minimax", model="speech-2.8-hd"),
+        voices=[
+            TtsVoicePresetConfig(
+                id="candice-source",
+                label="坎蒂丝（原声）",
+                language_voices={"default": "candice"},
+            )
+        ],
+    )
+    config.tools.tts.preset = "minimax"
+    config.tools.tts.voice = "candice-source"
 
 
 def test_model_call_order_migrates_and_updates_named_presets(
@@ -147,7 +169,8 @@ def test_create_model_configuration_rejects_unconfigured_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_path = tmp_path / "config.json"
-    save_config(Config(), config_path)
+    config = Config()
+    save_config(config, config_path)
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
 
     with pytest.raises(WebUISettingsError, match="provider is not configured"):
@@ -252,7 +275,9 @@ def test_update_tts_settings_writes_mode_and_legacy_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_path = tmp_path / "config.json"
-    save_config(Config(), config_path)
+    config = Config()
+    _configure_tts_preset(config)
+    save_config(config, config_path)
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
 
     payload = update_tts_settings({"mode": ["always"]})
@@ -260,8 +285,41 @@ def test_update_tts_settings_writes_mode_and_legacy_flags(
     assert payload["tts"]["mode"] == "always"
     saved = load_config(config_path)
     assert saved.tools.tts.mode == "always"
-    assert saved.tools.tts.enabled is False
-    assert saved.tools.tts.message_playback_enabled is True
+    assert saved.tools.tts.preset == "minimax"
+    assert saved.tools.tts.voice == "candice-source"
+
+
+def test_update_tts_settings_switches_preset_and_voice(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    _configure_tts_preset(config)
+    config.tts_presets["index"] = TtsPresetConfig(
+        label="IndexTTS",
+        config=TtsConfig(provider="index-tts-2.5", model="index-tts-2.5"),
+        voices=[
+            TtsVoicePresetConfig(
+                id="candice-glm",
+                label="坎蒂丝（GLM）",
+                language_voices={"default": "candice-glm"},
+            ),
+            TtsVoicePresetConfig(
+                id="candice-source",
+                label="坎蒂丝（原声）",
+                language_voices={"default": "candice-source"},
+            ),
+        ],
+    )
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = update_tts_settings({"preset": ["index"], "voice": ["candice-source"]})
+
+    assert payload["tts"]["preset"] == "index"
+    assert payload["tts"]["voice"] == "candice-source"
+    assert payload["tts"]["presets"][1]["voices"][1]["label"] == "坎蒂丝（原声）"
 
 
 def test_update_model_configuration_edits_named_preset_and_selects(

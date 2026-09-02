@@ -86,8 +86,7 @@ class SpeechRuntime:
         self._semaphore = asyncio.Semaphore(1)
         self._active: set[tuple[str, str]] = set()
         self._pending: dict[tuple[str, str], SpeechResult] = {}
-        self._provider_config: Any | None = None
-        self._provider: Any | None = None
+        self._providers: dict[int, tuple[Any, Any]] = {}
 
     @staticmethod
     def _key(context: RequestContext) -> tuple[str, str] | None:
@@ -109,10 +108,13 @@ class SpeechRuntime:
 
     def _provider_for(self, config: Any) -> Any:
         """复用 provider，使 MiniMax RPM 窗口跨 turn 生效。"""
-        if self._provider_config is not config:
-            self._provider = build_tts_provider(config)
-            self._provider_config = config
-        return self._provider
+        key = id(config)
+        cached = self._providers.get(key)
+        if cached is not None and cached[0] is config:
+            return cached[1]
+        provider = build_tts_provider(config)
+        self._providers[key] = (config, provider)
+        return provider
 
     def submit(
         self,
@@ -120,7 +122,6 @@ class SpeechRuntime:
         config: Any,
         context: RequestContext,
         text: str,
-        voice: str,
     ) -> str | None:
         """提交后台合成；返回错误时任务未启动。"""
         key = self._key(context)
@@ -138,7 +139,6 @@ class SpeechRuntime:
             config=config,
             context=context,
             text=text,
-            voice=voice,
         )
         self._active.add(key)
         try:
@@ -157,13 +157,11 @@ class SpeechRuntime:
         config: Any,
         context: RequestContext,
         text: str,
-        voice: str,
     ) -> None:
         result, _ = await self.synthesize(
             config=config,
             context=context,
             text=text,
-            voice=voice,
             _reserved=True,
         )
         if result is not None and self._on_complete is not None:
@@ -198,7 +196,6 @@ class SpeechRuntime:
         config: Any,
         context: RequestContext,
         text: str,
-        voice: str,
         _reserved: bool = False,
     ) -> tuple[SpeechResult | None, str | None]:
         """Generate one logical audio stream for the active turn."""
@@ -217,14 +214,14 @@ class SpeechRuntime:
         output_path = media_dir / f"speech_{audio_id}.wav"
         pcm_tmp = media_dir / f".{audio_id}.pcm.tmp"
         wav_tmp = media_dir / f".{audio_id}.wav.tmp"
-        effective_config = config
-        effective_voice = voice
+        effective_config = config.config
+        effective_voice = config.voice
         started = False
 
         if not _reserved:
             self._active.add(key)
         try:
-            provider = self._provider_for(config)
+            provider = self._provider_for(config.config)
             async with self._semaphore:
                 media_dir.mkdir(parents=True, exist_ok=True)
                 with pcm_tmp.open("wb") as pcm_file:
@@ -255,16 +252,20 @@ class SpeechRuntime:
                             },
                         )
 
-                    fallback = getattr(config, "fallback", None)
-                    fallback_voice = getattr(fallback, "default_voice", "") if fallback else ""
-                    fallback_text = strip_tts_language_tags(spoken_text)
-                    if fallback and not await _tts_health_check(config):
+                    fallback = config.fallback_config
+                    fallback_voice = config.fallback_voice or ""
+                    fallback_text = (
+                        spoken_text
+                        if fallback is not None and fallback.provider.lower() == "minimax"
+                        else strip_tts_language_tags(spoken_text)
+                    )
+                    if fallback and not await _tts_health_check(config.config):
                         logger.warning("主 TTS 健康检查失败，直接切换备用 provider")
                         stream_result = None
                     else:
                         stream_result = await provider.synthesize_stream(
                             spoken_text,
-                            voice,
+                            config.voice,
                             _on_chunk,
                         )
                     if stream_result is None and not started and fallback_voice and fallback_text:
@@ -274,7 +275,7 @@ class SpeechRuntime:
                         )
                         effective_config = fallback
                         effective_voice = fallback_voice
-                        stream_result = await build_tts_provider(fallback).synthesize_stream(
+                        stream_result = await self._provider_for(fallback).synthesize_stream(
                             fallback_text,
                             fallback_voice,
                             _on_chunk,
@@ -286,7 +287,7 @@ class SpeechRuntime:
                         "error",
                         {"audioId": audio_id, "error": "tts_synthesis_failed"},
                     )
-                    return None, f"TTS 合成失败，provider='{config.provider}'"
+                    return None, f"TTS 合成失败，provider='{config.config.provider}'"
 
                 with wave.open(str(wav_tmp), "wb") as wav_file:
                     wav_file.setnchannels(1)

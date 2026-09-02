@@ -386,12 +386,14 @@ export interface SettingsPayload {
     };
   };
   tts: {
-    enabled: boolean;
-    message_playback_enabled: boolean;
     mode: "off" | "agent" | "always";
-    default_voice: string;
-    provider: string;
-    model: string;
+    preset: string | null;
+    voice: string | null;
+    presets: Array<{
+      id: string;
+      label: string;
+      voices: Array<{ id: string; label: string }>;
+    }>;
   };
   runtime: {
     config_path: string;

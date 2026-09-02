@@ -21,14 +21,27 @@ def _context() -> RequestContext:
     )
 
 
-def _config() -> MagicMock:
-    config = MagicMock()
+def _provider_config() -> SimpleNamespace:
+    config = SimpleNamespace()
     config.provider = "glm-tts"
     config.model = "glm-tts"
-    config.fallback = None
     config.health_check_url = None
     config.health_check_timeout_s = 0.5
     return config
+
+
+def _config(
+    voice: str = "voice-1",
+    *,
+    fallback_config: SimpleNamespace | None = None,
+    fallback_voice: str | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        config=_provider_config(),
+        voice=voice,
+        fallback_config=fallback_config,
+        fallback_voice=fallback_voice,
+    )
 
 
 def _fallback_config() -> SimpleNamespace:
@@ -37,6 +50,22 @@ def _fallback_config() -> SimpleNamespace:
         model="glm-tts",
         default_voice="glm-voice",
     )
+
+
+def test_provider_cache_keeps_primary_and_fallback_instances(monkeypatch) -> None:
+    primary_config = _provider_config()
+    fallback_config = _fallback_config()
+    primary = MagicMock()
+    fallback = MagicMock()
+    factory = MagicMock(side_effect=[primary, fallback])
+    monkeypatch.setattr("nanobot.agent.speech.build_tts_provider", factory)
+    runtime = SpeechRuntime(None)
+
+    assert runtime._provider_for(primary_config) is primary
+    assert runtime._provider_for(fallback_config) is fallback
+    assert runtime._provider_for(primary_config) is primary
+    assert runtime._provider_for(fallback_config) is fallback
+    assert factory.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -61,7 +90,6 @@ async def test_streams_pcm_writes_wav_and_retains_turn_record(monkeypatch, tmp_p
         config=_config(),
         context=_context(),
         text='<psb:expression name="笑" />你好',
-        voice="voice-1",
     )
 
     assert error is None
@@ -98,16 +126,16 @@ async def test_reuses_provider_across_turns(monkeypatch, tmp_path) -> None:
     runtime = SpeechRuntime(bus)
     config = _config()
 
-    await runtime.synthesize(config=config, context=_context(), text="第一轮", voice="v")
+    await runtime.synthesize(config=config, context=_context(), text="第一轮")
     second_context = RequestContext(
         channel="websocket",
         chat_id="chat-1",
         session_key="unified:default",
         metadata={"webui_turn_id": "turn-2"},
     )
-    await runtime.synthesize(config=config, context=second_context, text="第二轮", voice="v")
+    await runtime.synthesize(config=config, context=second_context, text="第二轮")
 
-    factory.assert_called_once_with(config)
+    factory.assert_called_once_with(config.config)
     assert provider.synthesize_stream.await_count == 2
 
 
@@ -141,7 +169,6 @@ async def test_submit_returns_before_first_chunk_and_finishes_in_background(
         config=_config(),
         context=_context(),
         text="慢速语音",
-        voice="voice-1",
     )
 
     assert error is None
@@ -151,7 +178,6 @@ async def test_submit_returns_before_first_chunk_and_finishes_in_background(
         config=_config(),
         context=_context(),
         text="重复语音",
-        voice="voice-1",
     ) == "本轮已经生成过语音"
 
     release.set()
@@ -186,7 +212,6 @@ async def test_submit_provider_build_failure_emits_error_and_releases_turn(
         config=_config(),
         context=_context(),
         text="构造失败",
-        voice="voice-1",
     )
     await tasks[0]
 
@@ -211,10 +236,10 @@ async def test_rejects_second_audio_in_same_turn(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("nanobot.agent.speech.build_tts_provider", lambda _: provider)
     monkeypatch.setattr("nanobot.agent.speech.get_media_dir", lambda: tmp_path)
     runtime = SpeechRuntime(bus)
-    await runtime.synthesize(config=_config(), context=_context(), text="一次", voice="v")
+    await runtime.synthesize(config=_config("v"), context=_context(), text="一次")
 
     result, error = await runtime.synthesize(
-        config=_config(), context=_context(), text="二次", voice="v"
+        config=_config("v"), context=_context(), text="二次"
     )
 
     assert result is None
@@ -239,7 +264,7 @@ async def test_cancel_removes_partial_files_and_emits_error(monkeypatch, tmp_pat
     monkeypatch.setattr("nanobot.agent.speech.get_media_dir", lambda: tmp_path)
     runtime = SpeechRuntime(bus)
     task = asyncio.create_task(
-        runtime.synthesize(config=_config(), context=_context(), text="取消", voice="v")
+        runtime.synthesize(config=_config("v"), context=_context(), text="取消")
     )
     await chunk_sent.wait()
 
@@ -271,14 +296,19 @@ async def test_falls_back_before_first_chunk_and_strips_language_tags(monkeypatc
         return TTSStreamResult(sample_rate=24000, chunks=1, pcm_bytes=200)
 
     fallback.synthesize_stream = AsyncMock(side_effect=fallback_stream)
-    config = SimpleNamespace(provider="index-tts-2.5", model="index-tts-2.5", fallback=_fallback_config())
+    config = _config(
+        "candice-glm",
+        fallback_config=_fallback_config(),
+        fallback_voice="glm-voice",
+    )
+    config.config.provider = "index-tts-2.5"
+    config.config.model = "index-tts-2.5"
     monkeypatch.setattr("nanobot.agent.speech.build_tts_provider", MagicMock(side_effect=[primary, fallback]))
     monkeypatch.setattr("nanobot.agent.speech.get_media_dir", lambda: tmp_path)
     result, error = await SpeechRuntime(bus).synthesize(
         config=config,
         context=_context(),
         text="[zh]你好[/zh][ja]こんにちは[/ja]",
-        voice="candice-glm",
     )
 
     assert error is None
@@ -300,7 +330,13 @@ async def test_does_not_fallback_after_first_chunk(monkeypatch, tmp_path) -> Non
 
     primary.synthesize_stream = AsyncMock(side_effect=primary_stream)
     fallback = MagicMock()
-    config = SimpleNamespace(provider="index-tts-2.5", model="index-tts-2.5", fallback=_fallback_config())
+    config = _config(
+        "candice-glm",
+        fallback_config=_fallback_config(),
+        fallback_voice="glm-voice",
+    )
+    config.config.provider = "index-tts-2.5"
+    config.config.model = "index-tts-2.5"
     factory = MagicMock(side_effect=[primary, fallback])
     monkeypatch.setattr("nanobot.agent.speech.build_tts_provider", factory)
     monkeypatch.setattr("nanobot.agent.speech.get_media_dir", lambda: tmp_path)
@@ -308,7 +344,6 @@ async def test_does_not_fallback_after_first_chunk(monkeypatch, tmp_path) -> Non
         config=config,
         context=_context(),
         text="[zh]你好[/zh]",
-        voice="candice-glm",
     )
 
     assert result is None
@@ -329,13 +364,14 @@ async def test_health_check_failure_skips_primary_and_falls_back(monkeypatch, tm
         return TTSStreamResult(sample_rate=24000, chunks=1, pcm_bytes=200)
 
     fallback.synthesize_stream = AsyncMock(side_effect=fallback_stream)
-    config = SimpleNamespace(
-        provider="index-tts-2.5",
-        model="index-tts-2.5",
-        fallback=_fallback_config(),
-        health_check_url="http://index-tts/health",
-        health_check_timeout_s=0.5,
+    config = _config(
+        "candice-glm",
+        fallback_config=_fallback_config(),
+        fallback_voice="glm-voice",
     )
+    config.config.provider = "index-tts-2.5"
+    config.config.model = "index-tts-2.5"
+    config.config.health_check_url = "http://index-tts/health"
     factory = MagicMock(side_effect=[primary, fallback])
     monkeypatch.setattr("nanobot.agent.speech.build_tts_provider", factory)
     monkeypatch.setattr("nanobot.agent.speech._tts_health_check", AsyncMock(return_value=False))
@@ -344,10 +380,46 @@ async def test_health_check_failure_skips_primary_and_falls_back(monkeypatch, tm
         config=config,
         context=_context(),
         text="[zh]你好[/zh]",
-        voice="candice-glm",
     )
 
     assert error is None
     assert result is not None
     primary.synthesize_stream.assert_not_awaited()
     fallback.synthesize_stream.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_minimax_fallback_keeps_language_tags(monkeypatch, tmp_path) -> None:
+    bus = MagicMock()
+    bus.publish_outbound = AsyncMock()
+    primary = MagicMock()
+    primary.synthesize_stream = AsyncMock(return_value=None)
+    fallback = MagicMock()
+
+    async def fallback_stream(text, voice, on_chunk):
+        assert text == "[zh]你好[/zh][ja]こんにちは[/ja]"
+        await on_chunk(TTSStreamChunk(0, b"\x00\x00" * 100, 24000))
+        return TTSStreamResult(sample_rate=24000, chunks=1, pcm_bytes=200)
+
+    fallback.synthesize_stream = AsyncMock(side_effect=fallback_stream)
+    fallback_config = _fallback_config()
+    fallback_config.provider = "minimax"
+    config = _config(
+        "candice-glm",
+        fallback_config=fallback_config,
+        fallback_voice="minimax-voice",
+    )
+    config.config.provider = "index-tts-2.5"
+    config.config.model = "index-tts-2.5"
+    monkeypatch.setattr("nanobot.agent.speech.build_tts_provider", MagicMock(side_effect=[primary, fallback]))
+    monkeypatch.setattr("nanobot.agent.speech.get_media_dir", lambda: tmp_path)
+
+    result, error = await SpeechRuntime(bus).synthesize(
+        config=config,
+        context=_context(),
+        text="[zh]你好[/zh][ja]こんにちは[/ja]",
+    )
+
+    assert error is None
+    assert result is not None
+    assert result.provider == "minimax"
