@@ -90,7 +90,12 @@ interface ElectronAPI {
     tryAutoOpen(token?: string, url?: string): Promise<void>;
   };
   livetalking: {
-    localVideos(): Promise<{ idle: string[]; working: string[] }>;
+    localVideos(): Promise<{
+      idle: string[];
+      working: string[];
+      segment: "sunrise" | "day" | "sunset" | "night";
+      directoryError: "not_found" | "invalid_structure" | "multiple_scene_packs" | null;
+    }>;
     checkHealth(): Promise<{
       reachable: boolean;
       lastCheckedAtMs: number | null;

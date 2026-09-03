@@ -485,7 +485,21 @@
       "reachable": "可连接",
       "unreachable": "无法连接",
       "timeout": "超时（毫秒）",
-      "timeoutDescription": "健康检查与音频提交超时时间。"
+      "timeoutDescription": "健康检查与音频提交超时时间。",
+      "videoDirectory": "视频目录",
+      "videoDirectoryDescription": "选择包含 idle/ 与 working/ 目录的场景包。",
+      "chooseDirectory": "选择目录",
+      "videoDirectoryError": {
+        "not_found": "目录不存在",
+        "invalid_structure": "未找到场景包结构",
+        "multiple_scene_packs": "请选择具体场景包"
+      },
+      "timeSchedule": "时间段",
+      "timeScheduleDescription": "设置各时间段的本地生效起始时间（HH:mm）。",
+      "sunrise": "清晨日出",
+      "day": "白天",
+      "sunset": "傍晚日落",
+      "night": "夜晚"
     },
     "deskPet": {
       "tabs": {

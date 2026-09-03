@@ -5,7 +5,7 @@ import "@/i18n";
 import { AvatarCompanionPanel } from "@/components/ui/AvatarCompanionPanel";
 
 describe("AvatarCompanionPanel", () => {
-  function installApi(reachable: boolean, overrides?: { livetalking?: boolean }) {
+  function installApi(reachable: boolean, overrides?: { livetalking?: boolean; idleVideos?: string[] }) {
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
       value: {
@@ -19,7 +19,12 @@ describe("AvatarCompanionPanel", () => {
           set: vi.fn(),
         },
         livetalking: {
-          localVideos: vi.fn(async () => ({ idle: ["file:///idle-1.mp4", "file:///idle-2.mp4"], working: ["file:///work.mp4"] })),
+          localVideos: vi.fn(async () => ({
+            idle: overrides?.idleVideos ?? ["file:///idle-1.mp4", "file:///idle-2.mp4"],
+            working: ["file:///work.mp4"],
+            segment: "day" as const,
+            directoryError: null,
+          })),
           checkHealth: vi.fn(async () => ({ reachable, lastCheckedAtMs: Date.now(), lastError: reachable ? null : "offline" })),
         },
       },
@@ -66,5 +71,16 @@ describe("AvatarCompanionPanel", () => {
     await waitFor(() => expect(container.querySelector(".bg-emerald-500")).not.toBeNull());
     expect(screen.queryByRole("button", { name: /retry|重试/i })).not.toBeInTheDocument();
     expect(window.electronAPI.livetalking.checkHealth).not.toHaveBeenCalled();
+  });
+
+  it("loops a single local video", async () => {
+    installApi(true, { idleVideos: ["file:///idle.mp4"] });
+    const { container } = render(<AvatarCompanionPanel />);
+    const video = await waitFor(() => {
+      const element = container.querySelector("video[src]");
+      expect(element).not.toBeNull();
+      return element as HTMLVideoElement;
+    });
+    expect(video.loop).toBe(true);
   });
 });

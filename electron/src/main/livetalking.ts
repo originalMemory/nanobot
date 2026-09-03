@@ -2,7 +2,7 @@
 // 仅允许回环地址；渲染层经 preload IPC 调用，不得直连任意远程服务。
 import { ipcMain } from 'electron';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import type { ElectronConfigStore } from '../psb/store';
@@ -13,6 +13,19 @@ export type AvatarCompanionPrefs = {
   serverUrl: string;
   /** 音频提交/健康检查超时（毫秒） */
   timeoutMs: number;
+  /** 新格式场景包根目录；为空时回退打包内旧素材目录。 */
+  videoDirectory: string;
+  /** 四个时间段的起始时间，格式 HH:mm。 */
+  timeSchedule: Record<AvatarTimeSegment, string>;
+};
+
+export type AvatarTimeSegment = 'sunrise' | 'day' | 'sunset' | 'night';
+
+export const DEFAULT_AVATAR_TIME_SCHEDULE: Record<AvatarTimeSegment, string> = {
+  sunrise: '05:00',
+  day: '10:00',
+  sunset: '18:00',
+  night: '22:00',
 };
 
 export type AvatarCompanionStatus = {
@@ -25,26 +38,117 @@ export const DEFAULT_AVATAR_COMPANION_PREFS: AvatarCompanionPrefs = {
   enabled: false,
   serverUrl: 'http://127.0.0.1:8010',
   timeoutMs: 3000,
+  videoDirectory: '',
+  timeSchedule: DEFAULT_AVATAR_TIME_SCHEDULE,
 };
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
-const AVATAR_VIDEOS = {
+const LEGACY_AVATAR_VIDEOS = {
   idle: ['待机-呼吸.mp4', '待机-摸下巴.mp4', '待机-轻拂发丝.mp4', '待机-轻拂锁骨.mp4', '待机-整理衣领.mp4'],
   working: ['工作-翻阅文件.mp4', '工作-记录书写.mp4', '工作-敲键盘.mp4', '工作-思考中.mp4'],
 } as const;
 
-function avatarVideoUrls(): Record<keyof typeof AVATAR_VIDEOS, string[]> {
+function parseTime(value: unknown, fallback: string): string {
+  if (typeof value !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return fallback;
+  return value;
+}
+
+function normalizeTimeSchedule(value: unknown): Record<AvatarTimeSegment, string> {
+  const raw = value && typeof value === 'object' ? value as Partial<Record<AvatarTimeSegment, unknown>> : {};
+  return {
+    sunrise: parseTime(raw.sunrise, DEFAULT_AVATAR_TIME_SCHEDULE.sunrise),
+    day: parseTime(raw.day, DEFAULT_AVATAR_TIME_SCHEDULE.day),
+    sunset: parseTime(raw.sunset, DEFAULT_AVATAR_TIME_SCHEDULE.sunset),
+    night: parseTime(raw.night, DEFAULT_AVATAR_TIME_SCHEDULE.night),
+  };
+}
+
+export function currentAvatarTimeSegment(
+  now = new Date(),
+  schedule: Record<AvatarTimeSegment, string> = DEFAULT_AVATAR_TIME_SCHEDULE,
+): AvatarTimeSegment {
+  const current = now.getHours() * 60 + now.getMinutes();
+  const entries = (Object.entries(schedule) as [AvatarTimeSegment, string][])
+    .map(([segment, value]) => {
+      const [hours, minutes] = value.split(':').map(Number);
+      return [segment, hours * 60 + minutes] as const;
+    })
+    .sort((a, b) => a[1] - b[1]);
+  const active = entries.filter(([, start]) => start <= current).at(-1);
+  return active?.[0] ?? entries.at(-1)?.[0] ?? 'night';
+}
+
+type VideoDirectoryError = 'not_found' | 'invalid_structure' | 'multiple_scene_packs' | null;
+
+function isScenePack(directory: string): boolean {
+  return existsSync(path.join(directory, 'idle')) && existsSync(path.join(directory, 'working'));
+}
+
+function videoRoot(configured: string): { root: string; error: VideoDirectoryError } {
+  const bundledRoot = process.resourcesPath
+    ? path.join(process.resourcesPath, 'avatar-videos')
+    : path.resolve(__dirname, '../../avatar-videos');
+  const fallback = [
+    bundledRoot,
+    path.resolve(__dirname, '../../avatar-videos'),
+  ].find(existsSync) ?? path.join(process.resourcesPath, 'avatar-videos');
+  const preferred = configured.trim();
+  if (!preferred) return { root: fallback, error: null };
+  if (!existsSync(preferred)) return { root: fallback, error: 'not_found' };
+  if (isScenePack(preferred)) return { root: preferred, error: null };
+  const scenePacks = readdirSync(preferred, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && isScenePack(path.join(preferred, entry.name)))
+    .map((entry) => path.join(preferred, entry.name));
+  if (scenePacks.length === 1) return { root: scenePacks[0], error: null };
+  return { root: fallback, error: scenePacks.length > 1 ? 'multiple_scene_packs' : 'invalid_structure' };
+}
+
+function legacyVideoRoot(preferred: string): string {
+  const bundledRoot = process.resourcesPath
+    ? path.join(process.resourcesPath, 'avatar-videos')
+    : path.resolve(__dirname, '../../avatar-videos');
   const candidates = [
-    path.join(process.resourcesPath, 'avatar-videos'),
+    preferred,
+    bundledRoot,
     path.resolve(__dirname, '../../avatar-videos'),
   ];
-  const root = candidates.find(existsSync) ?? candidates[0];
-  return Object.fromEntries(
-    Object.entries(AVATAR_VIDEOS).map(([mode, files]) => [
-      mode,
-      files.map((file) => pathToFileURL(path.join(root, file)).href),
-    ]),
-  ) as Record<keyof typeof AVATAR_VIDEOS, string[]>;
+  return candidates.find((candidate) =>
+    Object.values(LEGACY_AVATAR_VIDEOS).flat().some((file) => existsSync(path.join(candidate, file))),
+  ) ?? candidates[0];
+}
+
+function listVideos(directory: string): string[] {
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory)
+    .filter((file) => /\.(mp4|webm|mov)$/i.test(file))
+    .sort()
+    .map((file) => pathToFileURL(path.join(directory, file)).href);
+}
+
+function legacyVideoUrls(mode: keyof typeof LEGACY_AVATAR_VIDEOS, preferred: string): string[] {
+  const root = legacyVideoRoot(preferred);
+  return LEGACY_AVATAR_VIDEOS[mode]
+    .filter((file) => existsSync(path.join(root, file)))
+    .map((file) => pathToFileURL(path.join(root, file)).href);
+}
+
+export function avatarVideoUrls(now = new Date()): {
+  idle: string[];
+  working: string[];
+  segment: AvatarTimeSegment;
+  directoryError: VideoDirectoryError;
+} {
+  const prefs = readAvatarCompanionPrefs(requireDeps().store);
+  const { root, error: directoryError } = videoRoot(prefs.videoDirectory);
+  const segment = currentAvatarTimeSegment(now, prefs.timeSchedule);
+  const idle = listVideos(path.join(root, 'idle', segment));
+  const working = listVideos(path.join(root, 'working', segment));
+  return {
+    idle: idle.length ? idle : legacyVideoUrls('idle', root),
+    working: working.length ? working : legacyVideoUrls('working', root),
+    segment,
+    directoryError,
+  };
 }
 
 export function isLoopbackUrl(raw: string): boolean {
@@ -63,6 +167,8 @@ export function readAvatarCompanionPrefs(store: ElectronConfigStore): AvatarComp
     enabled: stored?.enabled ?? DEFAULT_AVATAR_COMPANION_PREFS.enabled,
     serverUrl: stored?.serverUrl ?? DEFAULT_AVATAR_COMPANION_PREFS.serverUrl,
     timeoutMs: stored?.timeoutMs ?? DEFAULT_AVATAR_COMPANION_PREFS.timeoutMs,
+    videoDirectory: typeof stored?.videoDirectory === 'string' ? stored.videoDirectory : '',
+    timeSchedule: normalizeTimeSchedule(stored?.timeSchedule),
   };
 }
 

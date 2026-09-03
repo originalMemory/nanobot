@@ -485,7 +485,21 @@
       "reachable": "Reachable",
       "unreachable": "Unreachable",
       "timeout": "Timeout (ms)",
-      "timeoutDescription": "Health check and audio submission timeout."
+      "timeoutDescription": "Health check and audio submission timeout.",
+      "videoDirectory": "Video directory",
+      "videoDirectoryDescription": "Choose a scene-pack directory containing idle/ and working/ folders.",
+      "chooseDirectory": "Browse",
+      "videoDirectoryError": {
+        "not_found": "Directory not found",
+        "invalid_structure": "No scene-pack structure found",
+        "multiple_scene_packs": "Choose a specific scene pack"
+      },
+      "timeSchedule": "Time periods",
+      "timeScheduleDescription": "Set the local start time for each period (HH:mm).",
+      "sunrise": "Sunrise",
+      "day": "Day",
+      "sunset": "Sunset",
+      "night": "Night"
     },
     "deskPet": {
       "tabs": {

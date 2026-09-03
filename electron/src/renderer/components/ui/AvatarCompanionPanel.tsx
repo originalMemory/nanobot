@@ -70,6 +70,7 @@ export function AvatarCompanionPanel() {
   const localModeRef = useRef<"idle" | "working" | null>(null);
   const pendingLocalSwitchRef = useRef<{ layer: 0 | 1; fade: boolean } | null>(null);
   const localFadeTimerRef = useRef<number | null>(null);
+  const recentLocalSourcesRef = useRef<Record<"idle" | "working", string[]>>({ idle: [], working: [] });
   const manualHideRef = useRef(false);
   const dragState = useRef<{ kind: "move" | "resize"; startX: number; startY: number; base: PanelState } | null>(null);
 
@@ -185,17 +186,42 @@ export function AvatarCompanionPanel() {
   useEffect(() => {
     const api = window.electronAPI?.livetalking;
     if (!api) return;
-    void api.localVideos().then((videos) => {
-      setLocalVideos(videos);
-    });
-  }, []);
+    let cancelled = false;
+    const refresh = () => {
+      void api.localVideos().then((videos) => {
+        if (cancelled) return;
+        setLocalVideos((current) => (
+          current.idle.join("\n") === videos.idle.join("\n")
+          && current.working.join("\n") === videos.working.join("\n")
+            ? current
+            : { idle: videos.idle, working: videos.working }
+        ));
+      });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    prefs?.videoDirectory,
+    prefs?.timeSchedule?.sunrise,
+    prefs?.timeSchedule?.day,
+    prefs?.timeSchedule?.sunset,
+    prefs?.timeSchedule?.night,
+  ]);
 
   useEffect(() => {
     if (companionMode === "speaking") return;
     const mode = companionMode === "working" ? "working" : "idle";
     const choices = localVideos[mode];
     if (!choices.length) return;
-    const source = choices[Math.floor(Math.random() * choices.length)];
+    const recent = recentLocalSourcesRef.current[mode];
+    const available = choices.filter((source) => !recent.includes(source));
+    const source = (available.length ? available : choices)[Math.floor(Math.random() * (available.length || choices.length))];
+    recent.push(source);
+    if (recent.length > 3) recent.shift();
     const previousMode = localModeRef.current;
     localModeRef.current = mode;
 
@@ -219,9 +245,15 @@ export function AvatarCompanionPanel() {
     const choices = localVideos[localModeRef.current ?? "idle"];
     const candidates = choices.filter((source) => source !== localSources[layer]);
     if (!candidates.length) return;
+    const mode = localModeRef.current ?? "idle";
+    const recent = recentLocalSourcesRef.current[mode];
+    const available = candidates.filter((source) => !recent.includes(source));
+    const source = (available.length ? available : candidates)[Math.floor(Math.random() * (available.length || candidates.length))];
+    recent.push(source);
+    if (recent.length > 3) recent.shift();
     pendingLocalSwitchRef.current = { layer: nextLayer, fade: false };
     setLocalSources((current) => current.map((value, index) => (
-      index === nextLayer ? candidates[Math.floor(Math.random() * candidates.length)] : value
+      index === nextLayer ? source : value
     )) as [string, string]);
   }, [activeLocalLayer, localSources, localVideos]);
 
@@ -442,6 +474,7 @@ export function AvatarCompanionPanel() {
                 src={source}
                 autoPlay
                 muted
+                loop={localVideos[companionMode === "working" ? "working" : "idle"].length === 1}
                 playsInline
                 onLoadedData={() => finishLocalSwitch(index)}
                 onEnded={() => rotateLocalVideo(index)}
