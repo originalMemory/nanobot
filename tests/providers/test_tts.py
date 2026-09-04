@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
+import wave
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -13,6 +15,7 @@ import pytest
 from nanobot.providers.tts import (
     MiniMaxTTSProvider,
     OpenAICompatTTSProvider,
+    QwenTTSProvider,
     _RequestRateLimiter,
     _resolve_speech_url,
     _split_language_segments,
@@ -490,4 +493,126 @@ def test_builds_minimax_provider() -> None:
     ))
     assert isinstance(provider, MiniMaxTTSProvider)
     assert provider.api_url == "https://api.minimaxi.com/v1/t2a_v2"
+    assert provider.rpm == 20
+
+
+@pytest.mark.asyncio
+async def test_qwen_streams_wav_as_ordered_pcm_and_ignores_event_lines() -> None:
+    chinese = b"\x01\x00\x02\x00\x03\x00\x04\x00"
+    japanese = b"\x05\x00\x06\x00\x07\x00\x08\x00"
+    requests: list[dict] = []
+
+    def wav_bytes(pcm: bytes) -> bytes:
+        output = io.BytesIO()
+        with wave.open(output, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(24000)
+            wav_file.writeframes(pcm)
+        return output.getvalue()
+
+    class FakeResponse:
+        status_code = 200
+
+        def __init__(self, pcm: bytes) -> None:
+            wav = wav_bytes(pcm)
+            self.lines = [
+                "event:result",
+                "data: " + json.dumps({
+                    "output": {
+                        "finish_reason": None,
+                        "audio": {"data": base64.b64encode(wav[:48]).decode("ascii")},
+                    },
+                }),
+                "data: " + json.dumps({
+                    "output": {
+                        "finish_reason": None,
+                        "audio": {"data": base64.b64encode(wav[48:]).decode("ascii")},
+                    },
+                }),
+                "data: " + json.dumps({
+                    "output": {
+                        "finish_reason": "stop",
+                        "audio": {"data": "", "url": "https://example.test/audio.wav"},
+                    },
+                }),
+            ]
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            for line in self.lines:
+                yield line
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        def stream(self, *_, **kwargs):
+            requests.append({"headers": kwargs["headers"], "json": kwargs["json"]})
+            language = kwargs["json"]["input"]["language_type"]
+            return FakeResponse(japanese if language == "Japanese" else chinese)
+
+    provider = QwenTTSProvider(
+        api_key="sk-test",
+        api_base="https://workspace.example/api/v1",
+        model="qwen3-tts-vc-2026-01-22",
+        japanese_voice="qwen-scarlett",
+        extra_body={},
+        rpm=20,
+    )
+    chunks = []
+
+    async def collect(chunk):
+        chunks.append(chunk)
+
+    with patch("nanobot.providers.tts.httpx.AsyncClient", return_value=FakeClient()):
+        result = await provider.synthesize_stream(
+            "[zh]谢谢可以说[/zh][ja]ありがとうございます[/ja]",
+            "qwen-candice",
+            collect,
+        )
+
+    assert result is not None
+    assert result.sample_rate == 24000
+    assert result.pcm_bytes == len(chinese) + len(japanese)
+    assert [chunk.sequence for chunk in chunks] == list(range(len(chunks)))
+    assert b"".join(chunk.pcm for chunk in chunks) == chinese + japanese
+    assert not chunks[0].pcm.startswith(b"RIFF")
+    assert {request["json"]["input"]["voice"] for request in requests} == {
+        "qwen-candice",
+        "qwen-scarlett",
+    }
+    assert {request["json"]["input"]["language_type"] for request in requests} == {
+        "Chinese",
+        "Japanese",
+    }
+    assert all(request["headers"]["X-DashScope-SSE"] == "enable" for request in requests)
+
+
+def test_builds_qwen_provider() -> None:
+    from nanobot.config.schema import TtsConfig
+
+    provider = build_tts_provider(TtsConfig(
+        provider="qwen",
+        api_base="https://workspace.example/api/v1",
+        api_key="test-key",
+        model="qwen3-tts-vc-2026-01-22",
+        japanese_voice="qwen-scarlett",
+        rpm=20,
+    ))
+    assert isinstance(provider, QwenTTSProvider)
+    assert provider.api_url == (
+        "https://workspace.example/api/v1/services/aigc/multimodal-generation/generation"
+    )
     assert provider.rpm == 20

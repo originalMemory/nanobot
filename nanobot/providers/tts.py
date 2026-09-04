@@ -1,4 +1,4 @@
-"""文本转语音 provider（OpenAI 兼容 POST /audio/speech）。"""
+"""文本转语音 provider。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import base64
 import json
 import os
 import re
+import struct
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 
 _SPEECH_PATH = "audio/speech"
 _MINIMAX_T2A_PATH = "v1/t2a_v2"
+_QWEN_TTS_PATH = "services/aigc/multimodal-generation/generation"
 _LANGUAGE_SEGMENT_RE = re.compile(r"\[(zh|ja)\](.*?)\[/\1\]", re.IGNORECASE | re.DOTALL)
 
 # 沿用与 transcription.py 相同的重试常量
@@ -39,7 +41,7 @@ _RETRYABLE_EXCEPTIONS = (
 
 @dataclass(frozen=True, slots=True)
 class TTSStreamChunk:
-    """GLM-TTS 返回的一块裸 PCM 音频。"""
+    """TTS provider 返回的一块裸 PCM 音频。"""
 
     sequence: int
     pcm: bytes
@@ -103,6 +105,37 @@ class _RequestRateLimiter:
                     return
                 wait_until = self._timestamps[count - available - 1] + self.window_s
             await asyncio.sleep(max(0.01, wait_until - now))
+
+
+def _qwen_wav_payload(chunk: bytes) -> tuple[int, bytes]:
+    """校验 Qwen 首个 WAV chunk，并返回采样率与裸 PCM。"""
+    if len(chunk) < 12 or chunk[:4] != b"RIFF" or chunk[8:12] != b"WAVE":
+        raise ValueError("Qwen TTS 首 chunk 不是 WAV")
+    offset = 12
+    audio_format = channels = sample_rate = bits_per_sample = None
+    while offset + 8 <= len(chunk):
+        chunk_id = chunk[offset:offset + 4]
+        chunk_size = struct.unpack_from("<I", chunk, offset + 4)[0]
+        payload_start = offset + 8
+        if chunk_id == b"fmt ":
+            if chunk_size < 16 or payload_start + 16 > len(chunk):
+                raise ValueError("Qwen TTS WAV fmt chunk 无效")
+            audio_format, channels, sample_rate, _, _, bits_per_sample = struct.unpack_from(
+                "<HHIIHH",
+                chunk,
+                payload_start,
+            )
+        elif chunk_id == b"data":
+            if (audio_format, channels, bits_per_sample) != (1, 1, 16):
+                raise ValueError("Qwen TTS WAV 必须是 16-bit mono PCM")
+            if not isinstance(sample_rate, int) or sample_rate <= 0:
+                raise ValueError("Qwen TTS WAV sample rate 无效")
+            return sample_rate, chunk[payload_start:]
+        next_offset = payload_start + chunk_size + (chunk_size % 2)
+        if next_offset > len(chunk):
+            raise ValueError("Qwen TTS WAV header 不完整")
+        offset = next_offset
+    raise ValueError("Qwen TTS WAV 缺少 data chunk")
 
 
 def _resolve_speech_url(api_base: str | None, default_url: str) -> str:
@@ -554,7 +587,177 @@ class MiniMaxTTSProvider:
             return None
 
 
-def build_tts_provider(config: TtsConfig) -> OpenAICompatTTSProvider | MiniMaxTTSProvider:
+class QwenTTSProvider:
+    """Qwen HTTP SSE：中日分段并发生成，对外输出一个有序 PCM 流。"""
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        api_base: str | None,
+        model: str,
+        japanese_voice: str | None,
+        extra_body: dict[str, Any],
+        rpm: int,
+    ) -> None:
+        base = (api_base or "https://dashscope.aliyuncs.com/api/v1").rstrip("/")
+        self.api_url = base if base.endswith(_QWEN_TTS_PATH) else f"{base}/{_QWEN_TTS_PATH}"
+        self.api_key = api_key
+        self.model = model
+        self.japanese_voice = japanese_voice
+        self.extra_body = extra_body
+        self.rpm = rpm
+        self._rate_limiter = _RequestRateLimiter(rpm)
+
+    async def _stream_segment(
+        self,
+        *,
+        text: str,
+        language: str,
+        voice: str,
+        output: asyncio.Queue[bytes | None],
+    ) -> TTSStreamResult | None:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "X-DashScope-SSE": "enable",
+        }
+        body = {
+            "model": self.model,
+            "input": {
+                "text": text,
+                "voice": voice,
+                "language_type": "Japanese" if language == "ja" else "Chinese",
+            },
+            **self.extra_body,
+        }
+        chunks = 0
+        pcm_bytes = 0
+        sample_rate: int | None = None
+        finished = False
+        try:
+            async with httpx.AsyncClient() as client:
+                async with client.stream(
+                    "POST",
+                    self.api_url,
+                    headers=headers,
+                    json=body,
+                    timeout=60.0,
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if not raw or raw == "[DONE]":
+                            continue
+                        event = json.loads(raw)
+                        if event.get("code"):
+                            raise ValueError(
+                                f"{event.get('code')}: {event.get('message') or 'Qwen TTS 失败'}"
+                            )
+                        event_output = event.get("output") or {}
+                        audio = event_output.get("audio") or {}
+                        encoded = audio.get("data")
+                        if isinstance(encoded, str) and encoded:
+                            pcm = base64.b64decode(encoded, validate=True)
+                            if sample_rate is None:
+                                sample_rate, pcm = _qwen_wav_payload(pcm)
+                                if sample_rate != 24000:
+                                    raise ValueError(
+                                        f"Qwen TTS sample rate 必须是 24000，实际为 {sample_rate}"
+                                    )
+                            if pcm:
+                                if len(pcm) % 2:
+                                    raise ValueError("Qwen TTS PCM chunk 无效")
+                                await output.put(pcm)
+                                chunks += 1
+                                pcm_bytes += len(pcm)
+                        if event_output.get("finish_reason") == "stop":
+                            finished = True
+            if not chunks or sample_rate is None or not finished:
+                raise ValueError("Qwen TTS SSE 未正常结束")
+            return TTSStreamResult(
+                sample_rate=sample_rate,
+                chunks=chunks,
+                pcm_bytes=pcm_bytes,
+            )
+        except asyncio.CancelledError:
+            raise
+        except (httpx.HTTPError, ValueError, json.JSONDecodeError):
+            logger.warning("Qwen 流式 TTS 片段失败", exc_info=True)
+            return None
+        finally:
+            await output.put(None)
+
+    async def synthesize_stream(
+        self,
+        text: str,
+        voice: str,
+        on_chunk: Callable[[TTSStreamChunk], Awaitable[None]],
+    ) -> TTSStreamResult | None:
+        if not self.api_key:
+            logger.warning("Qwen TTS 未配置 API key")
+            return None
+        try:
+            segments = _split_language_segments(text)
+            if not segments:
+                return None
+            if any(language == "ja" for language, _ in segments) and not self.japanese_voice:
+                raise ValueError("Qwen TTS 未配置 japaneseVoice")
+            await self._rate_limiter.acquire(len(segments))
+        except ValueError as exc:
+            logger.warning("Qwen TTS 分段失败: {}", exc)
+            return None
+
+        queues = [asyncio.Queue() for _ in segments]
+        tasks = [
+            asyncio.create_task(
+                self._stream_segment(
+                    text=content,
+                    language=language,
+                    voice=self.japanese_voice if language == "ja" else voice,
+                    output=queues[index],
+                )
+            )
+            for index, (language, content) in enumerate(segments)
+        ]
+        sequence = 0
+        pcm_bytes = 0
+        try:
+            for index, output in enumerate(queues):
+                while (pcm := await output.get()) is not None:
+                    await on_chunk(TTSStreamChunk(sequence, pcm, 24000))
+                    sequence += 1
+                    pcm_bytes += len(pcm)
+                result = await tasks[index]
+                if result is None:
+                    for task in tasks[index + 1:]:
+                        task.cancel()
+                    await asyncio.gather(*tasks[index + 1:], return_exceptions=True)
+                    return None
+            return TTSStreamResult(
+                sample_rate=24000,
+                chunks=sequence,
+                pcm_bytes=pcm_bytes,
+            )
+        except asyncio.CancelledError:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        except Exception:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            logger.exception("Qwen TTS 有序汇流失败")
+            return None
+
+
+def build_tts_provider(
+    config: TtsConfig,
+) -> OpenAICompatTTSProvider | MiniMaxTTSProvider | QwenTTSProvider:
     """按配置构造 TTS provider。
 
     生命周期由调用方持有；SpeechRuntime 会跨 turn 复用以保留 RPM 窗口。
@@ -566,6 +769,15 @@ def build_tts_provider(config: TtsConfig) -> OpenAICompatTTSProvider | MiniMaxTT
             model=config.model,
             japanese_voice=config.japanese_voice,
             speed=config.speed,
+            extra_body=config.extra_body,
+            rpm=config.rpm,
+        )
+    if config.provider.lower() == "qwen":
+        return QwenTTSProvider(
+            api_key=config.api_key,
+            api_base=config.api_base,
+            model=config.model,
+            japanese_voice=config.japanese_voice,
             extra_body=config.extra_body,
             rpm=config.rpm,
         )
