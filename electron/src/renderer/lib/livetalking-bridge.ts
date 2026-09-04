@@ -94,15 +94,31 @@ export function getLivetalkingStreamAudioId(): string | null {
 }
 
 /** 说话状态查询（轮询 UI 用）。 */
-export async function isLivetalkingSpeaking(): Promise<boolean> {
+export async function isLivetalkingSpeaking(): Promise<boolean | null> {
   const sid = sessionId();
   const lt = api();
-  if (!sid || !lt) return false;
+  if (!sid || !lt) return null;
   try {
     const res = (await lt.isSpeaking(sid)) as { data?: boolean };
     return res?.data === true;
   } catch {
-    return false;
+    return null;
+  }
+}
+
+/** 等待服务端确认数字人已播完，避免用音频时长猜测远端播放结束。 */
+export async function waitForLivetalkingSilence(timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let silentChecks = 0;
+  while (Date.now() < deadline) {
+    const speaking = await isLivetalkingSpeaking();
+    if (speaking === false) {
+      silentChecks += 1;
+      if (silentChecks >= 2) return;
+    } else if (speaking === true) {
+      silentChecks = 0;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
   }
 }
 

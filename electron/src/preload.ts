@@ -83,6 +83,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('config:set', key, value),
   },
 
+  systemMedia: {
+    getEnabled: (): Promise<boolean> =>
+      ipcRenderer.invoke('system-media:get-enabled'),
+    getSupport: (): Promise<'system' | 'limited' | 'unavailable'> =>
+      ipcRenderer.invoke('system-media:get-support'),
+    setEnabled: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('system-media:set-enabled', enabled),
+    setTtsActive: (active: boolean): Promise<void> =>
+      ipcRenderer.invoke('system-media:set-tts-active', active),
+  },
+
   app: {
     /** 完全退出应用（与托盘菜单「退出」一致） */
     quit: (): Promise<void> => ipcRenderer.invoke('app:quit'),

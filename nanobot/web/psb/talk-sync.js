@@ -22,7 +22,8 @@
     onUpdate: null,
     streamEnded: false,
     streamPending: 0,
-    nextStartTime: 0
+    nextStartTime: 0,
+    onStreamEnd: null
   };
 
   function getAudioCtx() {
@@ -68,6 +69,8 @@
   }
 
   function stop() {
+    var onStreamEnd = state.onStreamEnd;
+    state.onStreamEnd = null;
     state.playing = false;
     if (state.source) {
       try {
@@ -87,6 +90,7 @@
     state.nextStartTime = 0;
     stopTracking(true);
     state.player = null;
+    if (typeof onStreamEnd === 'function') onStreamEnd();
   }
 
   function measureAmplitude(analyser, sampleRate, now) {
@@ -176,12 +180,13 @@
     });
   }
 
-  function startPcmStream(sampleRate, player, onUpdate) {
+  function startPcmStream(sampleRate, player, onUpdate, onStreamEnd) {
     if (!player || !player.initialized) return false;
     if (!hasFaceTalk(player)) return false;
     stop();
     state.player = player;
     state.onUpdate = onUpdate || null;
+    state.onStreamEnd = onStreamEnd || null;
     state.playing = true;
     state.streamEnded = false;
     var ctx = getAudioCtx();

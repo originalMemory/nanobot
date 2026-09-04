@@ -36,6 +36,10 @@ const config: ForgeConfig = {
     asar: true,
     appBundleId: APP_ID,
     executableName: APP_EXECUTABLE,
+    extendInfo: {
+      NSAppleEventsUsageDescription:
+        'Nanobot pauses Music or Spotify while reading replies aloud and resumes them afterward.',
+    },
     // 优先使用独立的本地证书，保持钥匙串访问身份跨构建稳定；
     // 其他机器找不到证书时回退 ad-hoc，避免阻断开发打包。
     osxSign: {

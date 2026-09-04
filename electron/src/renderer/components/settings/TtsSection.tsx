@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SettingsPayload } from "@/lib/types";
 import { updateTtsSettings } from "@/lib/api";
@@ -6,6 +6,7 @@ import {
   SettingsGroup,
   SettingsRow,
   SettingsSectionTitle,
+  ToggleButton,
 } from "./shared";
 
 interface TtsSectionProps {
@@ -23,7 +24,26 @@ export function TtsSection({ settings, token, apiBase, onSaved }: TtsSectionProp
   const [preset, setPreset] = useState(tts.preset ?? "");
   const [voice, setVoice] = useState(tts.voice ?? "");
   const [saving, setSaving] = useState(false);
+  const [pauseSystemMedia, setPauseSystemMedia] = useState(false);
+  const [savingSystemMedia, setSavingSystemMedia] = useState(false);
+  const [systemMediaSupport, setSystemMediaSupport] = useState<"system" | "limited" | "unavailable" | null>(null);
   const activePreset = tts.presets.find((item) => item.id === preset);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      window.electronAPI.systemMedia.getEnabled(),
+      window.electronAPI.systemMedia.getSupport(),
+    ]).then(([enabled, support]) => {
+      if (!cancelled) {
+        setPauseSystemMedia(enabled);
+        setSystemMediaSupport(support);
+      }
+    }).catch((): void => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSave = async (update: Record<string, unknown>) => {
     setSaving(true);
@@ -97,6 +117,39 @@ export function TtsSection({ settings, token, apiBase, onSaved }: TtsSectionProp
           >
             {activePreset?.voices.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
+        </SettingsRow>
+
+        <SettingsRow
+          title={t("settings.tts.pauseSystemMedia", "朗读时暂停支持的媒体播放器")}
+          description={t(
+            systemMediaSupport === "limited"
+              ? "settings.tts.pauseSystemMediaLimitedDesc"
+              : systemMediaSupport === "unavailable"
+                ? "settings.tts.pauseSystemMediaUnavailableDesc"
+                : "settings.tts.pauseSystemMediaDesc",
+            systemMediaSupport === "limited"
+              ? "未检测到 media-control；当前仅支持 Music 和 Spotify。"
+              : systemMediaSupport === "unavailable"
+                ? "当前系统不支持此功能。"
+                : "Windows 支持系统媒体会话；macOS 已启用当前系统播放器控制。",
+          )}
+        >
+          <ToggleButton
+            checked={pauseSystemMedia}
+            disabled={savingSystemMedia || systemMediaSupport === null || systemMediaSupport === "unavailable"}
+            ariaLabel={t("settings.tts.pauseSystemMedia", "朗读时暂停支持的媒体播放器")}
+            onChange={(enabled) => {
+              setPauseSystemMedia(enabled);
+              setSavingSystemMedia(true);
+              void window.electronAPI.systemMedia.setEnabled(enabled)
+                .then(setPauseSystemMedia)
+                .catch(() => setPauseSystemMedia(!enabled))
+                .finally(() => setSavingSystemMedia(false));
+            }}
+            label={pauseSystemMedia
+              ? t("settings.tts.pauseSystemMediaOn", "已开启")
+              : t("settings.tts.pauseSystemMediaOff", "已关闭")}
+          />
         </SettingsRow>
       </SettingsGroup>
     </div>

@@ -9,6 +9,7 @@ import {
   disconnectLivetalking,
   interruptLivetalking,
   isAvatarCompanionAudioActive,
+  waitForLivetalkingSilence,
   sendLivetalkingChunk,
   startLivetalkingStream,
 } from "./livetalking-bridge";
@@ -17,6 +18,7 @@ type QueueKey = string;
 type PsbAction = { type: string; payload?: Record<string, unknown> };
 type QueuedSegment = { segment: AssistantPlaybackSegment };
 type ActiveAudioPlayback = { audio: HTMLAudioElement; stop: () => void };
+type ExternallyOwnedStream = { startedAtMs: number; cleanupTimer: number | null };
 type StreamingAudio = {
   audioId: string;
   sampleRate: number;
@@ -37,6 +39,8 @@ type StreamingAudio = {
 
 const queues = new Map<QueueKey, QueuedSegment[]>();
 const playing = new Set<QueueKey>();
+const queueGenerations = new Map<QueueKey, number>();
+const localPlaybackDrains = new Set<QueueKey>();
 const nextExpectedIndex = new Map<QueueKey, number>();
 const activeAudios = new Map<QueueKey, ActiveAudioPlayback>();
 const delegatedUntil = new Map<QueueKey, number>();
@@ -44,12 +48,28 @@ const delegatedStartedAt = new Map<QueueKey, number>();
 const delegatedTimers = new Map<QueueKey, number>();
 const listeners = new Set<() => void>();
 const streams = new Map<string, StreamingAudio>();
-const externallyOwnedStreams = new Set<string>();
+const externallyOwnedStreams = new Map<string, ExternallyOwnedStream>();
 let stateVersion = 0;
+let systemMediaActive = false;
+let systemMediaTransition = Promise.resolve();
+
+function setSystemMediaPlaybackActive(active: boolean): Promise<void> {
+  if (active === systemMediaActive) return systemMediaTransition;
+  systemMediaActive = active;
+  const api = window.electronAPI?.systemMedia;
+  if (!api?.setTtsActive) return systemMediaTransition;
+  systemMediaTransition = systemMediaTransition
+    .then(() => api.setTtsActive(active))
+    .catch((): void => undefined);
+  return systemMediaTransition;
+}
 
 function notifyPlaybackStateChanged(): void {
   stateVersion += 1;
   listeners.forEach((listener) => listener());
+  const active = hasAudibleAssistantPlayback();
+  if (active === systemMediaActive) return;
+  void setSystemMediaPlaybackActive(active);
 }
 
 export function subscribeAssistantPlayback(listener: () => void): () => void {
@@ -193,6 +213,17 @@ function activateStream(stream: StreamingAudio): Promise<void> {
         }
         return;
       }
+      if (!stream.delegated || stream.livetalking) {
+        await setSystemMediaPlaybackActive(true);
+        if (streams.get(stream.audioId) !== stream) {
+          if (stream.livetalking) {
+            await finishLivetalkingStream();
+            disconnectLivetalking();
+          }
+          notifyPlaybackStateChanged();
+          return;
+        }
+      }
       if (!stream.delegated) {
         stream.context = new AudioContext({ sampleRate: stream.sampleRate });
         if (stream.context.state === "suspended") await stream.context.resume();
@@ -244,7 +275,10 @@ export function startAssistantAudioStream(audio: AssistantAudioStart): void {
   clearAssistantPlaybackQueues();
   if (hadPlayback) void sendPsbAction({ type: "playback-stop", payload: {} });
   if (audio.owner === "tha") {
-    externallyOwnedStreams.add(audio.audioId);
+    externallyOwnedStreams.set(audio.audioId, {
+      startedAtMs: Date.now(),
+      cleanupTimer: null,
+    });
     notifyPlaybackStateChanged();
     return;
   }
@@ -312,8 +346,18 @@ export function appendAssistantAudioChunk(audio: AssistantAudioChunk): void {
 }
 
 export async function finishAssistantAudioStream(audio: AssistantSpeech): Promise<void> {
-  if (externallyOwnedStreams.delete(audio.audioId)) {
-    notifyPlaybackStateChanged();
+  const external = externallyOwnedStreams.get(audio.audioId);
+  if (external) {
+    const remainingMs = Math.max(0, (audio.durationMs ?? 0) - (Date.now() - external.startedAtMs));
+    if (remainingMs > 0) {
+      external.cleanupTimer = window.setTimeout(() => {
+        externallyOwnedStreams.delete(audio.audioId);
+        notifyPlaybackStateChanged();
+      }, remainingMs + 100);
+    } else {
+      externallyOwnedStreams.delete(audio.audioId);
+      notifyPlaybackStateChanged();
+    }
     return;
   }
   const stream = streams.get(audio.audioId);
@@ -323,13 +367,16 @@ export async function finishAssistantAudioStream(audio: AssistantSpeech): Promis
   if (stream.delegated) {
     await stream.deliveryChain;
     if (!streams.has(audio.audioId)) return;
-    if (isAvatarCompanionAudioActive()) {
+    if (stream.livetalking) {
       await finishLivetalkingStream();
+      await waitForLivetalkingSilence(Math.max(30_000, (audio.durationMs ?? 0) + 10_000));
     } else {
       await sendPsbAction({ type: "audio-stream-end", payload: { audioId: stream.audioId } });
     }
   }
-  const remainingMs = stream.context
+  const remainingMs = stream.livetalking
+    ? 0
+    : stream.context
     ? Math.max(0, (stream.nextStartTime - stream.context.currentTime) * 1000)
     : Math.max(
         0,
@@ -339,6 +386,10 @@ export async function finishAssistantAudioStream(audio: AssistantSpeech): Promis
 }
 
 export function failAssistantAudioStream(audioId: string): void {
+  const external = externallyOwnedStreams.get(audioId);
+  if (external?.cleanupTimer !== null && external?.cleanupTimer !== undefined) {
+    window.clearTimeout(external.cleanupTimer);
+  }
   if (externallyOwnedStreams.delete(audioId)) notifyPlaybackStateChanged();
   stopStreamingAudio(audioId);
 }
@@ -416,8 +467,10 @@ function setActiveAudio(key: QueueKey, playback: ActiveAudioPlayback): void {
   notifyPlaybackStateChanged();
 }
 
-function playAudio(url: string, key: QueueKey): Promise<void> {
-  return new Promise((resolve, reject) => {
+async function playAudio(url: string, key: QueueKey): Promise<void> {
+  await setSystemMediaPlaybackActive(true);
+  try {
+    await new Promise<void>((resolve, reject) => {
     const audio = new Audio(url);
     let settled = false;
 
@@ -451,10 +504,16 @@ function playAudio(url: string, key: QueueKey): Promise<void> {
         finalize(new Error("audio_playback_failed"));
       }
     });
-  });
+    });
+  } finally {
+    notifyPlaybackStateChanged();
+  }
 }
 
-async function consumeSegment(segment: AssistantPlaybackSegment): Promise<void> {
+async function consumeSegment(
+  segment: AssistantPlaybackSegment,
+  isCurrent: () => boolean,
+): Promise<void> {
   if (segment.audio?.status === "failed") {
     await sendPsbAction({
       type: "segment-end",
@@ -466,6 +525,7 @@ async function consumeSegment(segment: AssistantPlaybackSegment): Promise<void> 
   if (!url) return;
 
   const delegatedToPsb = await sendPsbAction(toPsbSegmentAudioAction(segment));
+  if (!isCurrent()) return;
   if (delegatedToPsb) {
     markDelegatedPlaybackActive(segment.messageId, estimateSegmentDurationMs(segment));
     return;
@@ -473,7 +533,15 @@ async function consumeSegment(segment: AssistantPlaybackSegment): Promise<void> 
 
   for (const control of segment.controls ?? []) {
     await sendPsbAction(toPsbAction(control));
+    if (!isCurrent()) return;
   }
+  await setSystemMediaPlaybackActive(true);
+  if (!isCurrent()) {
+    notifyPlaybackStateChanged();
+    return;
+  }
+  localPlaybackDrains.add(segment.messageId);
+  notifyPlaybackStateChanged();
   try {
     await playAudio(url, segment.messageId);
     await sendPsbAction({
@@ -490,22 +558,31 @@ async function consumeSegment(segment: AssistantPlaybackSegment): Promise<void> 
 
 async function drainQueue(key: QueueKey): Promise<void> {
   if (playing.has(key)) return;
+  const queue = queues.get(key);
+  queue?.sort((a, b) => a.segment.segmentIndex - b.segment.segmentIndex);
+  const firstExpected = nextExpectedIndex.get(key) ?? 0;
+  if (queue?.[0]?.segment.segmentIndex !== firstExpected) return;
+  const generation = queueGenerations.get(key) ?? 0;
   playing.add(key);
   notifyPlaybackStateChanged();
   try {
-    const queue = queues.get(key);
-    while (queue && queue.length > 0) {
+    while (queue && queue.length > 0 && (queueGenerations.get(key) ?? 0) === generation) {
       queue.sort((a, b) => a.segment.segmentIndex - b.segment.segmentIndex);
       const expected = nextExpectedIndex.get(key) ?? 0;
       if (queue[0]?.segment.segmentIndex !== expected) break;
       const item = queue.shift();
       if (!item) break;
-      await consumeSegment(item.segment);
+      await consumeSegment(
+        item.segment,
+        () => (queueGenerations.get(key) ?? 0) === generation,
+      );
+      if ((queueGenerations.get(key) ?? 0) !== generation) break;
       nextExpectedIndex.set(key, expected + 1);
     }
     if (queue && queue.length === 0) queues.delete(key);
   } finally {
     playing.delete(key);
+    localPlaybackDrains.delete(key);
     notifyPlaybackStateChanged();
     const queue = queues.get(key);
     const expected = nextExpectedIndex.get(key) ?? 0;
@@ -528,19 +605,36 @@ export function enqueueAssistantPlaybackSegment(segment: AssistantPlaybackSegmen
 export function clearAssistantPlaybackQueues(messageId?: string): void {
   if (messageId) {
     stopStreamingAudio(messageId);
+    const queue = queues.get(messageId);
+    if (queue) queue.length = 0;
     queues.delete(messageId);
-    playing.delete(messageId);
+    queueGenerations.set(messageId, (queueGenerations.get(messageId) ?? 0) + 1);
+    localPlaybackDrains.delete(messageId);
     nextExpectedIndex.delete(messageId);
     stopActiveAudio(messageId);
     clearDelegatedPlayback(messageId);
+    const external = externallyOwnedStreams.get(messageId);
+    if (external?.cleanupTimer !== null && external?.cleanupTimer !== undefined) {
+      window.clearTimeout(external.cleanupTimer);
+    }
     externallyOwnedStreams.delete(messageId);
     notifyPlaybackStateChanged();
     return;
   }
   for (const audioId of [...streams.keys()]) stopStreamingAudio(audioId);
+  for (const external of externallyOwnedStreams.values()) {
+    if (external.cleanupTimer !== null) window.clearTimeout(external.cleanupTimer);
+  }
   externallyOwnedStreams.clear();
+  for (const [key, queue] of queues) {
+    queue.length = 0;
+    queueGenerations.set(key, (queueGenerations.get(key) ?? 0) + 1);
+  }
+  for (const key of playing) {
+    queueGenerations.set(key, (queueGenerations.get(key) ?? 0) + 1);
+  }
   queues.clear();
-  playing.clear();
+  localPlaybackDrains.clear();
   nextExpectedIndex.clear();
   stopAllActiveAudios();
   for (const key of delegatedUntil.keys()) {
@@ -556,6 +650,14 @@ function hasAnyAssistantPlayback(): boolean {
     || playing.size > 0
     || activeAudios.size > 0
     || delegatedUntil.size > 0;
+}
+
+function hasAudibleAssistantPlayback(): boolean {
+  return [...streams.values()].some(
+    (stream) => stream.activated && (!stream.delegated || stream.livetalking),
+  )
+    || localPlaybackDrains.size > 0
+    || activeAudios.size > 0;
 }
 
 export function stopAssistantPlayback(messageId?: string): void {

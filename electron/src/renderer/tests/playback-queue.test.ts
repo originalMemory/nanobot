@@ -56,7 +56,7 @@ describe("assistant playback queue", () => {
     expect(sendAction).not.toHaveBeenCalled();
 
     enqueueAssistantPlaybackSegment(segment(0));
-    await flushMicrotasks();
+    await vi.waitFor(() => expect(sendAction).toHaveBeenCalledTimes(2));
 
     expect(sendAction).toHaveBeenCalledTimes(2);
     expect(sendAction.mock.calls.map((call) => call[0].type)).toEqual(["segment-audio", "segment-audio"]);
@@ -83,6 +83,35 @@ describe("assistant playback queue", () => {
       "segment-audio",
     ]);
     expect(sendAction.mock.calls[1][0].payload.segmentIndex).toBe(0);
+  });
+
+  it("does not continue a stale local drain after playback is stopped", async () => {
+    const audios: Array<{ pause: ReturnType<typeof vi.fn> }> = [];
+    vi.stubGlobal("Audio", class {
+      currentTime = 0;
+      onended: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      pause = vi.fn();
+      play = vi.fn().mockResolvedValue(undefined);
+      constructor() {
+        audios.push(this);
+      }
+    });
+    vi.stubGlobal("electronAPI", {
+      psb: { sendAction: vi.fn().mockResolvedValue({ ok: false }) },
+      systemMedia: { setTtsActive: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    enqueueAssistantPlaybackSegment(segment(0));
+    enqueueAssistantPlaybackSegment(segment(1));
+    await flushMicrotasks(10);
+    expect(audios).toHaveLength(1);
+
+    stopAssistantPlayback();
+    await flushMicrotasks(10);
+
+    expect(audios).toHaveLength(1);
+    expect(audios[0].pause).toHaveBeenCalledOnce();
   });
 
   it("resets a completed message before replaying its segments", async () => {
@@ -130,13 +159,25 @@ describe("assistant playback queue", () => {
     vi.stubGlobal("electronAPI", { psb: { sendAction } });
 
     enqueueAssistantPlaybackSegment(segment(0));
-    await flushMicrotasks();
+    await vi.waitFor(() => expect(sendAction).toHaveBeenCalledTimes(3));
 
     expect(sendAction.mock.calls.map((call) => call[0].type)).toEqual([
       "segment-audio",
       "expression",
       "segment-end",
     ]);
+  });
+
+  it("reports one active window for contiguous TTS segments", async () => {
+    const setTtsActive = vi.fn().mockResolvedValue(undefined);
+    const sendAction = vi.fn().mockResolvedValue({ ok: false });
+    vi.stubGlobal("electronAPI", { psb: { sendAction }, systemMedia: { setTtsActive } });
+
+    enqueueAssistantPlaybackSegment(segment(0));
+    enqueueAssistantPlaybackSegment(segment(1));
+    await vi.waitFor(() => expect(setTtsActive).toHaveBeenCalledTimes(2));
+
+    expect(setTtsActive.mock.calls.map((call) => call[0])).toEqual([true, false]);
   });
 
   it("prebuffers two PCM chunks before delegating one logical stream", async () => {
@@ -169,10 +210,11 @@ describe("assistant playback queue", () => {
     ]);
   });
 
-  it("stops a delegated PSB stream after its playback window", async () => {
+  it("leaves delegated PSB system-media reporting to the PSB window", async () => {
     vi.useFakeTimers();
     const sendAction = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("electronAPI", { psb: { sendAction } });
+    const setTtsActive = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("electronAPI", { psb: { sendAction }, systemMedia: { setTtsActive } });
     startAssistantAudioStream({
       audioId: "speech-stop",
       sampleRate: 24000,
@@ -186,6 +228,7 @@ describe("assistant playback queue", () => {
     await vi.advanceTimersByTimeAsync(101);
 
     expect(sendAction.mock.calls.map((call) => call[0].type)).toContain("audio-stream-stop");
+    expect(setTtsActive).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
 
@@ -291,5 +334,31 @@ describe("assistant playback queue", () => {
 
     expect(sendAction).not.toHaveBeenCalled();
     expect(isAssistantPlaybackActive("speech-tha")).toBe(false);
+  });
+
+  it("leaves THA system-media reporting to the THA window", async () => {
+    vi.useFakeTimers();
+    const setTtsActive = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("electronAPI", {
+      psb: { sendAction: vi.fn().mockResolvedValue({ ok: true }) },
+      systemMedia: { setTtsActive },
+    });
+    startAssistantAudioStream({
+      audioId: "speech-tha-duration",
+      sampleRate: 24000,
+      channels: 1,
+      encoding: "pcm_s16le",
+      owner: "tha",
+    });
+    await finishAssistantAudioStream({
+      audioId: "speech-tha-duration",
+      sampleRate: 24000,
+      durationMs: 1_000,
+    });
+
+    expect(setTtsActive).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_101);
+    expect(setTtsActive).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });

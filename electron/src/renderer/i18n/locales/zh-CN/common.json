@@ -469,7 +469,13 @@
       "preset": "TTS 服务",
       "presetDesc": "选择语音服务；连接参数由预设配置管理。",
       "voice": "音色",
-      "voiceDesc": "同一音色可按语言使用预设中的不同声线。"
+      "voiceDesc": "同一音色可按语言使用预设中的不同声线。",
+      "pauseSystemMedia": "朗读时暂停支持的媒体播放器",
+      "pauseSystemMediaDesc": "Windows 支持系统媒体会话；macOS 已启用当前系统播放器控制。",
+      "pauseSystemMediaLimitedDesc": "未检测到 media-control；当前仅支持 Music 和 Spotify。",
+      "pauseSystemMediaUnavailableDesc": "当前系统不支持此功能。",
+      "pauseSystemMediaOn": "已开启",
+      "pauseSystemMediaOff": "已关闭"
     },
     "avatarCompanion": {
       "serviceSection": "LiveTalking 服务",

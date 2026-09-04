@@ -26,6 +26,7 @@ const WINDOWS_TOAST_ACTIVATOR_CLSID = '{D405C197-DC97-4A6C-ACD8-3D10BCBD5365}';
 import { DEFAULT_PSB_LOCAL_PREFS, type DeskPetLocalPrefs } from './psb/types';
 import { cleanupPsbOnQuit, registerPsbIpcHandlers } from './main/psb-manager';
 import { registerLivetalkingIpcHandlers } from './main/livetalking';
+import { registerSystemMediaIpcHandlers } from './main/system-media';
 import Store from 'electron-store';
 import { APP_ID, APP_NAME } from '../app.meta';
 import {
@@ -124,6 +125,9 @@ interface AppConfig {
   shortcuts: {
     raiseInbox: string;
   };
+  tts: {
+    pauseSystemMedia: boolean;
+  };
   deskPet: DeskPetLocalPrefs;
 }
 
@@ -161,6 +165,9 @@ const store = new Store<AppConfig>({
     shortcuts: {
       raiseInbox: DEFAULT_RAISE_INBOX_ACCELERATOR,
     },
+    tts: {
+      pauseSystemMedia: false,
+    },
     deskPet: DEFAULT_PSB_LOCAL_PREFS,
   },
 });
@@ -177,6 +184,7 @@ registerPsbIpcHandlers({
 });
 
 registerLivetalkingIpcHandlers({ store });
+const systemMediaController = registerSystemMediaIpcHandlers(store);
 
 // ---------------------------------------------------------------------------
 // IPC handlers (6.4)
@@ -1067,6 +1075,8 @@ function createTray(): void {
 // ---------------------------------------------------------------------------
 
 app.isQuitting = false;
+let quitCleanupStarted = false;
+let quitCleanupFinished = false;
 
 if (gotSingleInstanceLock) {
   app.whenReady().then(() => {
@@ -1102,8 +1112,19 @@ if (gotSingleInstanceLock) {
     }
   });
 
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
     app.isQuitting = true;
+    if (!quitCleanupFinished) {
+      event.preventDefault();
+      if (!quitCleanupStarted) {
+        quitCleanupStarted = true;
+        void systemMediaController.dispose().finally(() => {
+          quitCleanupFinished = true;
+          app.quit();
+        });
+      }
+      return;
+    }
     disposeTrayStatus();
     stopWallpaperScheduler();
     unregisterRaiseInboxShortcut();

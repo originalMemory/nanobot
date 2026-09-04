@@ -56,6 +56,12 @@ interface ElectronAPI {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
   };
+  systemMedia: {
+    getEnabled(): Promise<boolean>;
+    getSupport(): Promise<"system" | "limited" | "unavailable">;
+    setEnabled(enabled: boolean): Promise<boolean>;
+    setTtsActive(active: boolean): Promise<void>;
+  };
   app: {
     quit(): Promise<void>;
     openSettings(section?: string): Promise<{ ok: boolean }>;

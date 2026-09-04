@@ -57,11 +57,26 @@
   var metadataSyncPromise = null;
   var timelineWatchTimer = null;
   var electronApi = window.electronAPI && window.electronAPI.psb;
+  var systemMediaApi = window.electronAPI && window.electronAPI.systemMedia;
   var eventsWs = null;
   var audioQueue = [];
   var isPlayingAudio = false;
+  var audioGeneration = 0;
   var pendingStreamEnd = false;
   var pendingRuntimeActions = [];
+  var audioOwners = { segments: false, stream: false };
+  var systemMediaActive = false;
+
+  function setAudioOwner(owner, active) {
+    audioOwners[owner] = active;
+    var next = audioOwners.segments || audioOwners.stream;
+    if (next === systemMediaActive) return Promise.resolve();
+    systemMediaActive = next;
+    if (systemMediaApi && typeof systemMediaApi.setTtsActive === 'function') {
+      return systemMediaApi.setTtsActive(next).catch(function () { return undefined; });
+    }
+    return Promise.resolve();
+  }
 
   function setStatus(text, isError) {
     if (!statusEl) return;
@@ -183,10 +198,11 @@
     drainAudioQueue();
   }
 
-  async function playQueuedAudio(item) {
+  async function playQueuedAudio(item, generation) {
     if (!window.EmoteTalkSync || !player || !player.initialized) return;
     if (!EmoteTalkSync.hasFaceTalk(player)) return;
     var data = await fetchAudioArrayBuffer(item.url);
+    if (generation !== audioGeneration) return;
     if (Array.isArray(item.controls)) {
       item.controls.forEach(function (control) {
         handleRuntimeAction(control);
@@ -196,28 +212,36 @@
         applyExpressionByName(name);
       });
     }
+    await setAudioOwner('segments', true);
+    if (generation !== audioGeneration) {
+      setAudioOwner('segments', false);
+      return;
+    }
     await EmoteTalkSync.playArrayBuffer(data, player);
     restoreTransientState();
   }
 
   async function drainAudioQueue() {
     if (isPlayingAudio) return;
+    var generation = audioGeneration;
     isPlayingAudio = true;
     try {
-      while (audioQueue.length) {
+      while (audioQueue.length && generation === audioGeneration) {
         var item = audioQueue.shift();
         try {
-          await playQueuedAudio(item);
+          await playQueuedAudio(item, generation);
         } catch (err) {
           console.error('[psb] audio playback failed:', err);
         }
       }
     } finally {
       isPlayingAudio = false;
+      setAudioOwner('segments', false);
       if (pendingStreamEnd && audioQueue.length === 0) {
         pendingStreamEnd = false;
         restoreAfterStreamEnd();
       }
+      if (audioQueue.length > 0) drainAudioQueue();
     }
   }
 
@@ -419,13 +443,17 @@
 
     if (type === 'audio-stream-start') {
       if (!window.EmoteTalkSync || !player || !player.initialized) return;
-      EmoteTalkSync.startPcmStream(payload.sampleRate, player);
+      EmoteTalkSync.startPcmStream(payload.sampleRate, player, null, function () {
+        setAudioOwner('stream', false);
+      });
       return;
     }
 
     if (type === 'audio-stream-chunk') {
       if (!window.EmoteTalkSync) return;
-      EmoteTalkSync.appendPcmChunk(payload.data, payload.sampleRate || 24000);
+      if (EmoteTalkSync.appendPcmChunk(payload.data, payload.sampleRate || 24000)) {
+        setAudioOwner('stream', true);
+      }
       return;
     }
 
@@ -436,15 +464,19 @@
 
     if (type === 'audio-stream-stop') {
       if (window.EmoteTalkSync) EmoteTalkSync.stop();
+      setAudioOwner('stream', false);
       restoreTransientState();
       return;
     }
 
     if (type === 'playback-stop') {
       audioQueue = [];
+      audioGeneration += 1;
       if (window.EmoteTalkSync && typeof EmoteTalkSync.stop === 'function') {
         EmoteTalkSync.stop();
       }
+      setAudioOwner('segments', false);
+      setAudioOwner('stream', false);
       restoreTransientState();
       return;
     }
@@ -1068,6 +1100,9 @@
 
   window.addEventListener('resize', resizeCanvas);
   window.addEventListener('beforeunload', function () {
+    audioGeneration += 1;
+    setAudioOwner('segments', false);
+    setAudioOwner('stream', false);
     reportRuntimeAudioReady(false);
     disconnectEvents();
   });

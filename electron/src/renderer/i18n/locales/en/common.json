@@ -469,7 +469,13 @@
       "preset": "TTS service",
       "presetDesc": "Choose a speech service; connection settings are managed by the preset.",
       "voice": "Voice",
-      "voiceDesc": "A voice can use different preset speakers by language."
+      "voiceDesc": "A voice can use different preset speakers by language.",
+      "pauseSystemMedia": "Pause supported media players while speaking",
+      "pauseSystemMediaDesc": "Uses system media sessions on Windows and the current system player on macOS.",
+      "pauseSystemMediaLimitedDesc": "media-control was not found; only Music and Spotify are currently supported.",
+      "pauseSystemMediaUnavailableDesc": "This feature is unavailable on the current system.",
+      "pauseSystemMediaOn": "On",
+      "pauseSystemMediaOff": "Off"
     },
     "avatarCompanion": {
       "serviceSection": "LiveTalking service",

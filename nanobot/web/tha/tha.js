@@ -34,10 +34,22 @@
   let mouthTimer = null;
   let audioDelayMs = 150;
   let isPlayingAudio = false;
+  let audioGeneration = 0;
   let currentAudioSource = null;
   let pcmStream = null;
+  const systemMediaApi = window.electronAPI?.systemMedia;
+  let systemMediaActive = false;
   const audioQueue = [];
   const motionTags = new Set(["nod", "shakeHead", "tiltHead", "bow", "sway", "lookAround"]);
+
+  function setSystemMediaActive(active) {
+    if (active === systemMediaActive) return Promise.resolve();
+    systemMediaActive = active;
+    if (systemMediaApi?.setTtsActive) {
+      return systemMediaApi.setTtsActive(active).catch(() => undefined);
+    }
+    return Promise.resolve();
+  }
 
   const LABELS = {
     lockWindow: "锁定窗口",
@@ -557,8 +569,8 @@ void main(void) {
   }
 
   function haltCurrentAudio() {
+    audioGeneration += 1;
     audioQueue.length = 0;
-    isPlayingAudio = false;
     if (currentAudioSource) {
       try { currentAudioSource.stop(); } catch (_) { /* 已结束 */ }
       currentAudioSource = null;
@@ -577,6 +589,7 @@ void main(void) {
     stopMouthTracking();
     resetEmotionToNeutral();
     clearSubtitle();
+    setSystemMediaActive(false);
   }
 
   function decodeBase64Pcm(data) {
@@ -603,6 +616,7 @@ void main(void) {
     stopMouthTracking();
     resetEmotionToNeutral();
     clearSubtitle();
+    setSystemMediaActive(false);
   }
 
   function startPcmStream(audio) {
@@ -651,6 +665,7 @@ void main(void) {
         finishPcmPlayback(stream);
       };
       source.start(startsAt);
+      setSystemMediaActive(true);
     } catch (error) {
       console.error("[THA] PCM playback failed:", error);
       haltCurrentAudio();
@@ -669,10 +684,12 @@ void main(void) {
     haltCurrentAudio();
   }
 
-  async function playQueuedAudio(item) {
+  async function playQueuedAudio(item, generation) {
     const context = getAudioCtx();
     const data = await fetchAudioArrayBuffer(item.url);
+    if (generation !== audioGeneration) return;
     const buffer = await context.decodeAudioData(data.slice(0));
+    if (generation !== audioGeneration) return;
     const source = context.createBufferSource();
     currentAudioSource = source;
     const delay = context.createDelay(2.5);
@@ -683,6 +700,8 @@ void main(void) {
     applyExpressions(item.expressions);
     if (item.text) renderSubtitle(item.text);
     startMouthTracking(source);
+    await setSystemMediaActive(true);
+    if (generation !== audioGeneration) return;
     await new Promise((resolve) => {
       source.onended = () => {
         if (currentAudioSource === source) currentAudioSource = null;
@@ -697,18 +716,25 @@ void main(void) {
 
   async function drainAudioQueue() {
     if (isPlayingAudio) return;
+    const generation = audioGeneration;
     isPlayingAudio = true;
     try {
-      while (audioQueue.length) {
+      while (audioQueue.length && generation === audioGeneration) {
         const item = audioQueue.shift();
         try {
-          await playQueuedAudio(item);
+          await playQueuedAudio(item, generation);
         } catch (error) {
           console.error("[THA] audio playback failed:", error);
         }
       }
     } finally {
       isPlayingAudio = false;
+      setTimeout(() => {
+        if (!isPlayingAudio && audioQueue.length === 0 && !pcmStream) {
+          setSystemMediaActive(false);
+        }
+      }, Math.max(0, audioDelayMs));
+      if (audioQueue.length > 0) drainAudioQueue();
     }
   }
 

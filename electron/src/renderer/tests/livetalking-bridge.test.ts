@@ -36,6 +36,7 @@ import {
   isAvatarCompanionAudioActive,
   sendLivetalkingChunk,
   startLivetalkingStream,
+  waitForLivetalkingSilence,
 } from "../lib/livetalking-bridge";
 
 describe("livetalking-bridge", () => {
@@ -99,5 +100,24 @@ describe("livetalking-bridge", () => {
     avatarCompanionInterrupt();
     await vi.waitFor(() => expect(interrupt).toHaveBeenCalledWith("sid-3"));
     expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("waits until LiveTalking reports playback silence", async () => {
+    vi.useFakeTimers();
+    const speaking = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce({ data: false })
+      .mockResolvedValueOnce({ data: false });
+    installApi({ isSpeaking: speaking });
+    bindAvatarCompanionSession(() => "sid-4");
+
+    const waiting = waitForLivetalkingSilence();
+    await Promise.resolve();
+    expect(speaking).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(200);
+    await waiting;
+
+    expect(speaking).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
   });
 });
