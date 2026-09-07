@@ -94,6 +94,9 @@ describe("workspaceViewer", () => {
     expect(todayDiaryPath("America/Los_Angeles", instant)).toBe(
       "2026/07/2026-07-11 周六.md",
     );
+    expect(todayDiaryPath("Asia/Shanghai", instant, "日记")).toBe(
+      "日记/2026/07/2026-07-12 周日.md",
+    );
   });
 
   it("extracts and rewrites Obsidian image embeds", () => {

@@ -288,6 +288,7 @@ class ForkGatewayHTTPHandler:
             if diary_path is not None
             else None
         )
+        self._notes_path = self._diary_path.parent if self._diary_path is not None else None
         self._runtime_model_name = runtime_model_name
         self._runtime_model_setter = runtime_model_setter
         self._runtime_surface = runtime_surface
@@ -1241,12 +1242,12 @@ class ForkGatewayHTTPHandler:
     def _handle_diary_list(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
-        if self._diary_path is None:
+        if self._notes_path is None:
             return _http_error(404, "diary root is not configured")
         query = _parse_query(request.path)
         rel_path = _query_first(query, "path") or ""
         try:
-            payload = list_workspace_dir(self._diary_path, rel_path)
+            payload = list_workspace_dir(self._notes_path, rel_path)
         except WorkspaceFilesError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(payload)
@@ -1254,14 +1255,14 @@ class ForkGatewayHTTPHandler:
     def _handle_diary_read(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
-        if self._diary_path is None:
+        if self._notes_path is None:
             return _http_error(404, "diary root is not configured")
         query = _parse_query(request.path)
         rel_path = _query_first(query, "path")
         if rel_path is None:
             return _http_error(400, "missing path")
         try:
-            payload = read_diary_file(self._diary_path, rel_path)
+            payload = read_diary_file(self._notes_path, rel_path)
         except WorkspaceFilesError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(payload)
@@ -1269,12 +1270,12 @@ class ForkGatewayHTTPHandler:
     def _handle_diary_image(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
-        if self._diary_path is None:
+        if self._notes_path is None:
             return _http_error(404, "diary root is not configured")
         query = _parse_query(request.path)
         try:
             payload = read_diary_image(
-                self._diary_path,
+                self._notes_path,
                 _query_first(query, "note"),
                 _query_first(query, "name"),
             )

@@ -11,6 +11,7 @@ import os
 import re
 import time
 from contextlib import suppress
+from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -847,6 +848,16 @@ def settings_payload(
             "config_path": str(get_config_path().expanduser()),
             "workspace_path": str(config.workspace_path),
             "diary_root": config.diary_root or None,
+            "notes_root": (
+                str(Path(config.diary_root).expanduser().parent)
+                if config.diary_root
+                else None
+            ),
+            "diary_directory": (
+                Path(config.diary_root).expanduser().name
+                if config.diary_root
+                else None
+            ),
             "gateway_host": config.gateway.host,
             "gateway_port": config.gateway.port,
             "heartbeat": {

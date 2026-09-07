@@ -11,6 +11,7 @@ def _handler(diary_path: Path | None) -> ForkGatewayHTTPHandler:
     handler = object.__new__(ForkGatewayHTTPHandler)
     handler.check_api_token = lambda _request: True
     handler._diary_path = diary_path
+    handler._notes_path = diary_path.parent if diary_path is not None else None
     return handler
 
 
@@ -29,14 +30,18 @@ def test_diary_routes_list_and_read_configured_root(tmp_path: Path) -> None:
     (assets / "moon.jpg").write_bytes(b"jpeg")
     handler = _handler(diary)
 
-    listed = handler._handle_diary_list(MagicMock(path="/api/diary/list?path=2026/07"))
+    (tmp_path / "灵感.md").write_text("# 灵感\n", encoding="utf-8")
+
+    listed = handler._handle_diary_list(MagicMock(path="/api/diary/list"))
     read = handler._handle_diary_read(
-        MagicMock(path="/api/diary/read?path=2026/07/2026-07-12%20%E5%91%A8%E6%97%A5.md")
+        MagicMock(path="/api/diary/read?path=diary/2026/07/2026-07-12%20%E5%91%A8%E6%97%A5.md")
     )
 
     assert listed.status_code == 200
     assert json.loads(listed.body)["entries"] == [
-        {"name": "2026-07-12 周日.md", "kind": "file"},
+        {"name": "assets", "kind": "dir"},
+        {"name": "diary", "kind": "dir"},
+        {"name": "灵感.md", "kind": "file"},
     ]
     assert read.status_code == 200
     body = json.loads(read.body)
@@ -49,7 +54,7 @@ def test_diary_routes_list_and_read_configured_root(tmp_path: Path) -> None:
     }
 
     image = handler._handle_diary_image(
-        MagicMock(path="/api/diary/image?note=2026/07/2026-07-12%20%E5%91%A8%E6%97%A5.md&name=moon.jpg")
+        MagicMock(path="/api/diary/image?note=diary/2026/07/2026-07-12%20%E5%91%A8%E6%97%A5.md&name=moon.jpg")
     )
     assert image.status_code == 200
     assert json.loads(image.body)["kind"] == "image"
@@ -69,7 +74,7 @@ def test_diary_image_rejects_path_escape(tmp_path: Path) -> None:
     note.write_text("ok", encoding="utf-8")
 
     response = _handler(diary)._handle_diary_image(
-        MagicMock(path="/api/diary/image?note=2026/07/2026-07-12%20%E5%91%A8%E6%97%A5.md&name=../secret.png")
+        MagicMock(path="/api/diary/image?note=diary/2026/07/2026-07-12%20%E5%91%A8%E6%97%A5.md&name=../secret.png")
     )
 
     assert response.status_code == 400

@@ -204,7 +204,11 @@ export function workspaceAncestorDirs(filePath: string): string[] {
   return result;
 }
 
-export function todayDiaryPath(timeZone?: string | null, now = new Date()): string {
+export function todayDiaryPath(
+  timeZone?: string | null,
+  now = new Date(),
+  diaryDirectory?: string | null,
+): string {
   const format = (zone?: string) => new Intl.DateTimeFormat("en-CA", {
     ...(zone ? { timeZone: zone } : {}),
     year: "numeric",
@@ -226,5 +230,6 @@ export function todayDiaryPath(timeZone?: string | null, now = new Date()): stri
   const weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][
     new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay()
   ];
-  return `${year}/${month}/${year}-${month}-${day} ${weekday}.md`;
+  const datePath = `${year}/${month}/${year}-${month}-${day} ${weekday}.md`;
+  return diaryDirectory ? joinWorkspacePath(diaryDirectory, datePath) : datePath;
 }

@@ -39,7 +39,7 @@ _FRONTMATTER_RE = re.compile(
     r"\A---[ \t]*\r?\n(?P<yaml>.*?)\r?\n---[ \t]*(?:\r?\n|\Z)",
     re.DOTALL,
 )
-_DIARY_DATE_DIR_RE = re.compile(r"^\d{4}/\d{2}/")
+_DIARY_DATE_DIR_RE = re.compile(r"(?:^|/)(?P<year>\d{4})/(?P<month>\d{2})/")
 
 
 class WorkspaceFilesError(Exception):
@@ -218,16 +218,17 @@ def read_diary_file(diary_root: Path, rel_path: str | None) -> dict[str, Any]:
 
 
 def read_diary_image(
-    diary_root: Path,
+    notes_root: Path,
     note_path: str | None,
     image_name: str | None,
 ) -> dict[str, Any]:
     """按日记年月从同级 ``assets/images/YYYY/MM`` 读取一个图片附件。"""
     normalized_note = _normalize_rel_path(note_path)
     _reject_unsafe_rel_path(normalized_note)
-    if not normalized_note or not _DIARY_DATE_DIR_RE.match(normalized_note):
-        raise WorkspaceFilesError("diary note path must start with YYYY/MM", status=400)
-    note = resolve_workspace_relative_path(diary_root, normalized_note)
+    date_match = _DIARY_DATE_DIR_RE.search(normalized_note)
+    if not normalized_note or date_match is None:
+        raise WorkspaceFilesError("diary note path must contain YYYY/MM", status=400)
+    note = resolve_workspace_relative_path(notes_root, normalized_note)
     if not note.is_file() or note.suffix.lower() not in {".md", ".markdown"}:
         raise WorkspaceFilesError("diary note not found", status=404)
 
@@ -237,6 +238,11 @@ def read_diary_image(
     if Path(raw_name).suffix.lower() not in _IMAGE_EXTENSIONS:
         raise WorkspaceFilesError("unsupported diary image type", status=415)
 
-    year, month = normalized_note.split("/", 2)[:2]
-    asset_root = diary_root.expanduser().resolve(strict=False).parent / "assets" / "images" / year / month
+    asset_root = (
+        notes_root.expanduser().resolve(strict=False)
+        / "assets"
+        / "images"
+        / date_match.group("year")
+        / date_match.group("month")
+    )
     return read_workspace_file(asset_root, raw_name)

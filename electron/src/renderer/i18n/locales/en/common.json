@@ -975,7 +975,7 @@
     }
   },
   "diary": {
-    "title": "Journal",
+    "title": "Notes",
     "openToday": "Open today's journal",
     "todayMissing": "Today's journal was not found: {{path}}"
   },

@@ -975,7 +975,7 @@
     }
   },
   "diary": {
-    "title": "日记库",
+    "title": "笔记库",
     "openToday": "打开今日日记",
     "todayMissing": "未找到今日日记：{{path}}"
   },
