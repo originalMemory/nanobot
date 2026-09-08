@@ -400,7 +400,6 @@ export interface SettingsPayload {
     workspace_path: string;
     diary_root: string | null;
     notes_root: string | null;
-    diary_directory: string | null;
     gateway_host: string;
     gateway_port: number;
     heartbeat: {

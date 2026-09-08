@@ -89,13 +89,10 @@ describe("workspaceViewer", () => {
   it("builds the fixed diary path for the configured timezone", () => {
     const instant = new Date("2026-07-12T01:30:00Z");
     expect(todayDiaryPath("Asia/Shanghai", instant)).toBe(
-      "2026/07/2026-07-12 周日.md",
+      "日记/2026/07/2026-07-12 周日.md",
     );
     expect(todayDiaryPath("America/Los_Angeles", instant)).toBe(
-      "2026/07/2026-07-11 周六.md",
-    );
-    expect(todayDiaryPath("Asia/Shanghai", instant, "日记")).toBe(
-      "日记/2026/07/2026-07-12 周日.md",
+      "日记/2026/07/2026-07-11 周六.md",
     );
   });
 

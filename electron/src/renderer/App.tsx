@@ -448,7 +448,6 @@ function Shell({
                   gatewayUrl={gatewayUrl}
                   rootPath={settings?.runtime.notes_root ?? null}
                   source="diary"
-                  diaryDirectory={settings?.runtime.diary_directory ?? null}
                   timezone={settings?.agent.timezone ?? null}
                   onBack={() => setView("chat")}
                 />

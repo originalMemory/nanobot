@@ -853,11 +853,6 @@ def settings_payload(
                 if config.diary_root
                 else None
             ),
-            "diary_directory": (
-                Path(config.diary_root).expanduser().name
-                if config.diary_root
-                else None
-            ),
             "gateway_host": config.gateway.host,
             "gateway_port": config.gateway.port,
             "heartbeat": {

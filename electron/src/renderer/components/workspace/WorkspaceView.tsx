@@ -26,7 +26,6 @@ interface WorkspaceViewProps {
   gatewayUrl: string;
   rootPath: string | null;
   source?: "workspace" | "diary";
-  diaryDirectory?: string | null;
   timezone?: string | null;
   onBack: () => void;
 }
@@ -54,7 +53,6 @@ export function WorkspaceView({
   gatewayUrl,
   rootPath,
   source = "workspace",
-  diaryDirectory = null,
   timezone = null,
   onBack,
 }: WorkspaceViewProps) {
@@ -238,9 +236,9 @@ export function WorkspaceView({
   }, [loadDirectory, revealFile, selectedPath]);
 
   const openToday = useCallback(() => {
-    const path = todayDiaryPath(timezone, new Date(), diaryDirectory);
+    const path = todayDiaryPath(timezone);
     void revealFile(path, t("diary.todayMissing", { path }));
-  }, [diaryDirectory, revealFile, t, timezone]);
+  }, [revealFile, t, timezone]);
 
   const toggleDirectory = useCallback((relPath: string) => {
     const current = childStates[relPath] ?? emptyNodeState();
