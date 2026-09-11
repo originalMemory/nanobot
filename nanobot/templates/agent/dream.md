@@ -6,7 +6,7 @@ Do NOT guess paths. Route each fact to its canonical file:
 | File | Path | Content |
 |------|------|---------|
 | SOUL.md | `SOUL.md` | Agent behavior rules, guardrails, interaction patterns, tool-use strategy |
-| USER.md | `USER.md` | Personal attributes: identity, preferences, habits, communication style (language, length, tone) |
+| USER.md | `USER.md` | Personal attributes, user-stated reasons and boundaries; a few important current states with absolute dates |
 | MEMORY.md | `memory/MEMORY.md` | Project context: goals, architecture, strategic decisions, infrastructure overview, integrated services |
 | SKILL.md | `skills/<name>/SKILL.md` | Reusable workflow templates with concrete steps, commands, and examples ([SKILL] entries only) |
 
@@ -35,7 +35,7 @@ Cross-boundary rule: no technical configs in USER.md, no user facts in SOUL.md, 
 Conversation History may contain Consolidator tags. Treat them as routing and retention hints, not file content:
 
 - [skip]: audit-only or non-SNIP content. Do not write it to SOUL.md, USER.md, MEMORY.md, or SKILL.md.
-- [correction]: replace the older conflicting fact in place; do not append both versions.
+- [correction]: replace a fact established as wrong. A genuine change over time is not a factual error: retain the dated turning point when it explains the current state.
 - [permanent]: keep unless explicitly corrected, especially user preferences and stable identity facts.
 - [durable]: keep while still true; prefer updating in place when newer evidence changes it.
 - [ephemeral]: keep only when still active or recently useful; remove or ignore stale task-state details.
@@ -70,8 +70,8 @@ Always strip these bracketed tags from saved memory content.
 - Service-specific configuration patterns
 - After migrating content to a skill, delete it from the source file (MEMORY.md or USER.md) to maintain MECE
 
-**Never delete:**
-- User preferences and personality traits (permanent regardless of age)
+**Retain unless corrected or explicitly changed:**
+- Confirmed stable user preferences and identity, including their stated reasons and boundaries; a temporary mood or assistant inference is not a permanent trait
 - Active project context still referenced in conversations
 - Behavioral rules in SOUL.md
 
@@ -86,8 +86,17 @@ When removing: prefer deleting individual items over entire sections.
 ## Fact extraction
 - Atomic facts: "has a cat named Luna" not "discussed pet care"
 - Corrections: edit the existing entry, don't append a new one
-- Conflicts: if new information contradicts an existing entry, replace the old entry in place; do not keep both versions
+- Conflicts: distinguish incorrect facts from events at different times. Update the current state, but preserve a brief dated transition if the old experience explains it. Do not flatten a later return into an unconditional permanent departure.
 - Capture confirmed approaches the user validated
+
+## Event continuity and current state
+
+- Keep detailed daily events in history and diaries. In the relevant USER.md section, retain only one or two concise lines for an important current concern, confirmed plan, or ongoing matter; do not add a full daily timeline or another recent-summary file.
+- Use absolute event dates and an `as of` date for changing states. Resolve relative dates from the original message timestamp, not the Dream run date. Unknown dates remain unknown.
+- When an ordinary matter is confirmed closed, remove its active-plan wording. Passing a deadline alone does not prove completion, repayment, recovery or cancellation.
+- Preserve who said, proposed, decided or completed something. Assistant recommendations and interpretations must not become user decisions, motives or fixed personality facts.
+- Current conversation evidence takes precedence over an older summary for the current state. Do not copy a whole topic card into USER.md or erase historically true turning points to enforce superficial consistency.
+- Do not infer notification time, intent or relationship judgments from the time the user reports an event. Record only established facts and the user's explicit interpretation.
 
 ## Skill discovery & creation
 Flag [SKILL] only when ALL are true: repeatable workflow appeared 2+ times, involves clear steps (not vague preferences), substantial enough for its own instruction set. Check existing skills to avoid redundancy.

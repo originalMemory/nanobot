@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,87 @@ from nanobot.agent.tools.base import Tool
 
 _DEFAULT_LIMIT = 10
 _MAX_LIMIT = 20
+
+
+def canonical_diary_files(files: set[str]) -> set[str]:
+    """冲突副本不作记忆证据，同一文件的链接只保留一份。"""
+    canonical: dict[Path, str] = {}
+    for filename in sorted(files):
+        path = Path(filename)
+        if ".sync-conflict-" not in path.name:
+            canonical.setdefault(path.resolve(), filename)
+    return set(canonical.values())
+
+
+def diary_body(content: str) -> str:
+    """去掉日记元数据、引言、天气与导航，保留生活正文。"""
+    content = re.sub(r"\A---\s*\n.*?\n---[^\n]*(?:\n|$)", "", content, count=1, flags=re.S)
+    content = re.split(r"(?m)^# 天气\s*$", content, maxsplit=1)[0]
+    lines = []
+    quote = False
+    for line in content.splitlines():
+        if re.match(r">\s*\[!quote\]", line):
+            quote = True
+        if quote and not line.startswith(">"):
+            quote = False
+        if quote or line.startswith(("概要:", "<< ", "<div ")):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def contains_diary_term(text: str, term: str) -> bool:
+    """英文/数值词匹配完整标识，避免 115 命中 1150 或附件哈希。"""
+    if not term:
+        return False
+    pattern = re.escape(term)
+    if term[0].isascii() and term[0].isalnum():
+        pattern = r"(?<![0-9A-Za-z_])" + pattern
+    if term[-1].isascii() and term[-1].isalnum():
+        pattern += r"(?![0-9A-Za-z_])"
+    return re.search(pattern, text, re.IGNORECASE) is not None
+
+
+def diary_excerpt(content: str, words: list[str], *, limit: int = 400) -> str:
+    """按命中词覆盖选择完整段落，长段落截取命中附近。"""
+    paragraphs = re.split(r"\n\s*\n", diary_body(content))
+    ranked = sorted(
+        ((sum(contains_diary_term(p, w) for w in words), i, p)
+         for i, p in enumerate(paragraphs)),
+        key=lambda item: (-item[0], item[1]),
+    )
+    selected = []
+    for count, _, paragraph in ranked:
+        if not count:
+            break
+        paragraph = " ".join(paragraph.split())
+        if len(paragraph) > limit:
+            folded = paragraph.casefold()
+            offset = min((folded.find(w.casefold()) for w in words
+                          if w.casefold() in folded), default=0)
+            paragraph = paragraph[max(0, offset - 60):max(0, offset - 60) + limit]
+        selected.append(paragraph)
+        if sum(map(len, selected)) >= limit:
+            break
+    return "\n".join(selected)[:limit]
+
+
+def search_diary_files(
+    root: str | Path, word: str, *, include_conflicts: bool = False,
+) -> set[str]:
+    """完整字面扫描；读取/搜索失败抛出，不能冒充空证据。"""
+    if not Path(root).is_dir():
+        raise OSError("日记目录不可读")
+    rg = shutil.which("rg")
+    command = (
+        [rg, "-l", "-i", "-F", "-g", "*.md", "--", word, str(root)]
+        if rg else ["grep", "-rilF", "--include=*.md", "--", word, str(root)]
+    )
+    result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+    if result.returncode not in (0, 1):
+        raise subprocess.CalledProcessError(result.returncode, command, output=result.stdout)
+    files = set(result.stdout.splitlines())
+    return files if include_conflicts else canonical_diary_files(files)
 
 
 class DiarySearchTool(Tool):
@@ -118,7 +200,7 @@ def _grep_diary(
 ) -> list[dict[str, str]]:
     """grep AND→OR 搜日记 markdown 文件。"""
     words = [w for w in query.split() if w]
-    if not words:
+    if not words or limit <= 0:
         return []
 
     # 搜文件
@@ -128,16 +210,13 @@ def _grep_diary(
 
     and_files = set(all_files)
 
-    # AND 不足 → OR 补充
-    if len(all_files) < limit:
-        or_files: set[str] = set()
-        for w in words:
-            or_files.update(_grep_files(root, w))
-        extra = [f for f in or_files if f not in all_files]
-        all_files.update(extra)
+    # 日期/正文过滤后才知道有效 AND 数量，先准备 OR 候选供补位。
+    for word in words:
+        all_files.update(_grep_files(root, word))
 
     # 按日期倒序
-    sorted_files = sorted(all_files, reverse=True)[:limit]
+    sorted_files = sorted(all_files, reverse=True)
+    sorted_files.sort(key=lambda path: path not in and_files)
 
     results = []
     for f in sorted_files:
@@ -153,27 +232,25 @@ def _grep_diary(
             continue
         match_type = "and" if f in and_files else "or"
         results.append({"date": date, "snippet": snippet, "match_type": match_type})
+        if len(results) >= limit:
+            break
 
     return results
 
 
 def _grep_files(root: Path, word: str) -> set[str]:
     try:
-        r = subprocess.run(
-            ["grep", "-rl", "--include=*.md", word, str(root)],
-            capture_output=True, text=True, timeout=10,
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            return {f for f in r.stdout.strip().split("\n") if f.strip()}
-    except Exception:
-        pass
-    return set()
+        return search_diary_files(root, word)
+    except subprocess.CalledProcessError as exc:
+        return canonical_diary_files(set((exc.output or "").splitlines()))
+    except (OSError, subprocess.SubprocessError):
+        return set()
 
 
 def _file_contains(filepath: str, word: str) -> bool:
     try:
         r = subprocess.run(
-            ["grep", "-l", word, filepath],
+            ["grep", "-liF", "--", word, filepath],
             capture_output=True, text=True, timeout=10,
         )
         return r.returncode == 0
@@ -182,20 +259,7 @@ def _file_contains(filepath: str, word: str) -> bool:
 
 
 def _extract_snippet(filepath: str, words: list[str]) -> str:
-    pattern = "|".join(re.escape(w) for w in words)
     try:
-        r = subprocess.run(
-            ["grep", "-m", "3", "-B", "1", "-A", "1", "-E", pattern, filepath],
-            capture_output=True, text=True, timeout=10,
-        )
-        if r.returncode != 0 or not r.stdout:
-            return ""
-        lines = r.stdout.strip().split("\n")
-        cleaned = [
-            l for l in lines
-            if not l.strip().startswith("概要:")
-            and l.strip() not in ("---", "--", "")
-        ]
-        return " ".join(cleaned)[:200]
-    except Exception:
+        return diary_excerpt(Path(filepath).read_text(encoding="utf-8"), words)
+    except (OSError, UnicodeError):
         return ""

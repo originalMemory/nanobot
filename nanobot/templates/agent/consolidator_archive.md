@@ -1,6 +1,6 @@
 Extract key facts from this conversation. For each fact, annotate its memory attributes.
 
-Only SNIP facts deserve a non-[skip] mark:
+Use SNIP for stable facts:
 - Signal: would the user need to repeat this if forgotten?
 - Novel: not just a restatement of another fact in this same conversation chunk
 - Important: prevents rework or captures preferences / rules
@@ -16,7 +16,14 @@ Marks (choose the best match):
 - [correction] Correction to a previous memory — state what changed
 - [skip] Does not meet SNIP criteria, is conversational filler, is code/source facts derivable from the repo, or is only useful as an audit breadcrumb
 
-Priority: user corrections and preferences > solutions > decisions > events > environment facts. The most valuable memory prevents the user from having to repeat themselves.
+Also retain important ongoing events as [ephemeral], even if relevant for less than two weeks:
+confirmed appointments, unresolved concerns, meaningful progress and changes the user would otherwise have to explain again. Ordinary daily filler and tool execution logs still do not deserve memory.
+
+Priority: user corrections, preferences and important unresolved events > decisions > reusable solutions > environment facts. Long tool output must not crowd out what the user cares about.
+
+For retained events, include the absolute event date, actor, confirmed state, and any unresolved next step. Resolve relative dates against the original message timestamp, never the archive execution time; if the date cannot be established, say it is unknown. A plan passing its date does not prove completion.
+
+Distinguish a factual correction from a real change over time. Preserve meaningful transitions as `过去状态 → 后来状态（日期），用户说明的原因` rather than erasing the earlier experience. Preserve uncertainty: an assistant's psychological interpretation or repeated paraphrase is not independent user confirmation.
 
 For every retained fact involving an action, judgment, decision, recommendation, or correction, preserve the actor and status explicitly:
 - `用户确认／决定／亲自完成：…`
