@@ -290,9 +290,6 @@ export interface SettingsPayload {
     bot_icon: string;
     bot_avatar_url: string | null;
     tool_hint_max_length: number;
-    vision_model?: string | null;
-    vision_provider?: string | null;
-    vision_enabled?: boolean;
     max_messages?: number;
   };
   model_presets: Array<{
@@ -306,9 +303,6 @@ export interface SettingsPayload {
     context_window_tokens: number;
     temperature: number;
     reasoning_effort: string | null;
-    vision_model: string | null;
-    vision_provider: string | null;
-    vision_enabled: boolean;
   }>;
   model_call_order: string[];
   model_call_order_editable: boolean;
@@ -592,9 +586,6 @@ export interface SettingsUpdate {
   botName?: string;
   botIcon?: string;
   toolHintMaxLength?: number;
-  visionModel?: string | null;
-  visionProvider?: string | null;
-  visionEnabled?: boolean;
   maxTokens?: number;
   contextWindowTokens?: number;
   maxMessages?: number;

@@ -3,7 +3,7 @@
 When the LLM returns a non-transient error on a message that contains
 image_url blocks, _run_with_retry should:
   1. Strip the images and retry.
-  2. Call on_retry_wait with a hint mentioning ``vision_model`` configuration.
+  2. Call on_retry_wait with an image retry hint.
                                                                 (task 4.3)
 """
 from __future__ import annotations
@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from nanobot.providers.base import GenerationSettings, LLMProvider, LLMResponse
-
 
 # ── minimal concrete provider ─────────────────────────────────────────────────
 
@@ -53,8 +52,8 @@ def _image_messages() -> list[dict]:
 # ── task 4.3 ──────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_strip_retry_calls_on_retry_wait_with_vision_model_hint() -> None:
-    """去图重试触发时，on_retry_wait 应收到含 vision_model 配置提示的文本。"""
+async def test_strip_retry_calls_on_retry_wait_with_image_error_hint() -> None:
+    """去图重试时应提示图片处理失败，不再引导配置辅助模型。"""
     provider = _FakeProvider()
     messages = _image_messages()
 
@@ -88,45 +87,11 @@ async def test_strip_retry_calls_on_retry_wait_with_vision_model_hint() -> None:
     assert result.finish_reason == "stop"
     assert result.content == "好的，我来帮你分析"
 
-    # on_retry_wait 应被调用一次，且内容包含 vision_model 配置提示
+    # 重试提示不应包含已删除的辅助模型配置。
     assert len(retry_wait_calls) == 1
     hint = retry_wait_calls[0]
-    assert "vision_model" in hint
-    assert "vision_provider" in hint
-
-
-@pytest.mark.asyncio
-async def test_strip_retry_hint_contains_example_config() -> None:
-    """on_retry_wait 提示文本应包含 JSON 示例，方便用户配置。"""
-    provider = _FakeProvider()
-    messages = _image_messages()
-
-    error_response = LLMResponse(
-        content="image not supported",
-        finish_reason="error",
-        tool_calls=[],
-    )
-    success_response = LLMResponse(
-        content="ok", finish_reason="stop", tool_calls=[],
-    )
-    call_mock = AsyncMock(side_effect=[error_response, success_response])
-
-    retry_wait_calls: list[str] = []
-
-    async def on_retry_wait(text: str) -> None:
-        retry_wait_calls.append(text)
-
-    await provider._run_with_retry(
-        call=call_mock,
-        kw={"messages": messages},
-        original_messages=messages,
-        retry_mode="standard",
-        on_retry_wait=on_retry_wait,
-    )
-
-    # 提示中应包含示例（JSON 格式或关键字段名）
-    hint = retry_wait_calls[0]
-    assert "gemini" in hint.lower() or "vision" in hint.lower()
+    assert "vision_model" not in hint
+    assert "vision_provider" not in hint
 
 
 @pytest.mark.asyncio

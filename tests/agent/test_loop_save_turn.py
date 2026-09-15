@@ -708,6 +708,12 @@ async def test_process_message_persists_media_paths_on_user_turn(tmp_path: Path)
     with pytest.raises(RuntimeError, match="interrupt"):
         await loop._process_message(msg)
 
+    # 图片直接进入主模型请求，原始消息和历史附件都应保留。
+    request = loop._run_agent_loop.await_args.args[0]
+    user_content = request[-1]["content"]
+    assert sum(block.get("type") == "image_url" for block in user_content) == 2
+    assert msg.media == [str(img_a), str(img_b)]
+
     loop.sessions.invalidate("websocket:c-media")
     persisted = loop.sessions.get_or_create("websocket:c-media")
     assert [m["role"] for m in persisted.messages] == ["user"]

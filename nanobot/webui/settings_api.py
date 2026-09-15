@@ -738,9 +738,6 @@ def settings_payload(
             "context_window_tokens": defaults.context_window_tokens,
             "temperature": defaults.temperature,
             "reasoning_effort": defaults.reasoning_effort,
-            "vision_model": defaults.vision_model,
-            "vision_provider": defaults.vision_provider,
-            "vision_enabled": defaults.vision_enabled,
         }
     ]
     for name, preset in config.model_presets.items():
@@ -756,15 +753,11 @@ def settings_payload(
                 "context_window_tokens": preset.context_window_tokens,
                 "temperature": preset.temperature,
                 "reasoning_effort": preset.reasoning_effort,
-                "vision_model": defaults.vision_model,
-                "vision_provider": defaults.vision_provider,
-                "vision_enabled": preset.vision_enabled,
             }
         )
 
     model_call_order, model_call_order_editable = _model_call_order_state(config)
     exec_config = config.tools.exec
-    vision_model, vision_provider = defaults.vision_model, defaults.vision_provider
     sandbox_status = workspace_sandbox_status(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         workspace=config.workspace_path,
@@ -785,9 +778,6 @@ def settings_payload(
             "bot_icon": defaults.bot_icon,
             "bot_avatar_url": _get_bot_avatar_url(),
             "tool_hint_max_length": defaults.tool_hint_max_length,
-            "vision_model": vision_model,
-            "vision_provider": vision_provider,
-            "vision_enabled": effective_preset.vision_enabled,
             "max_messages": defaults.max_messages,
         },
         "model_presets": model_presets,
@@ -974,27 +964,6 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             defaults.tool_hint_max_length = parsed
             changed = True
             restart_required = True
-
-    vision_model = _query_first_alias(query, "vision_model", "visionModel")
-    if vision_model is not None:
-        vision_model_value = vision_model.strip() or None
-        if defaults.vision_model != vision_model_value:
-            defaults.vision_model = vision_model_value
-            changed = True
-
-    vision_provider = _query_first_alias(query, "vision_provider", "visionProvider")
-    if vision_provider is not None:
-        vision_provider_value = vision_provider.strip() or None
-        if defaults.vision_provider != vision_provider_value:
-            defaults.vision_provider = vision_provider_value
-            changed = True
-
-    vision_enabled = _query_first_alias(query, "vision_enabled", "visionEnabled")
-    if vision_enabled is not None:
-        vision_enabled_value = _parse_bool(vision_enabled, "vision_enabled")
-        if generation_target.vision_enabled != vision_enabled_value:
-            generation_target.vision_enabled = vision_enabled_value
-            changed = True
 
     max_tokens_raw = _query_first_alias(query, "max_tokens", "maxTokens")
     if max_tokens_raw is not None:
@@ -1204,7 +1173,6 @@ def migrate_model_configurations(_query: QueryParams | None = None) -> dict[str,
             context_window_tokens=primary.context_window_tokens,
             temperature=primary.temperature,
             reasoning_effort=primary.reasoning_effort,
-            vision_enabled=primary.vision_enabled,
         )
         defaults.model_preset = name
         changed = True

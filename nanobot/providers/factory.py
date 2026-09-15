@@ -166,58 +166,6 @@ def make_provider(
     return provider
 
 
-def resolve_vision_config(config: Config) -> tuple[str | None, str | None]:
-    """返回当前 preset 是否启用的全局辅助视觉配置。"""
-    preset = config.resolve_preset()
-    if not preset.vision_enabled:
-        return None, None
-    defaults = config.agents.defaults
-    return defaults.vision_model, defaults.vision_provider
-
-
-def get_vision_model(config: Config) -> str | None:
-    """返回当前生效的辅助视觉模型名称；未配置时返回 None。"""
-    model, _ = resolve_vision_config(config)
-    return model
-
-
-def make_vision_provider(config: Config) -> LLMProvider | None:
-    """根据配置创建辅助视觉 provider；未配置 vision_model 时返回 None。"""
-    vision_model, vision_provider_name = resolve_vision_config(config)
-    if not vision_model:
-        return None
-
-    from nanobot.config.schema import ModelPresetConfig
-
-    vision_preset = ModelPresetConfig(
-        model=vision_model,
-        provider=vision_provider_name or "auto",
-        max_tokens=4096,
-        context_window_tokens=65_536,
-        temperature=0.1,
-    )
-    return _make_provider_core(config, preset=vision_preset)
-
-
-def make_vision_provider_for_model(
-    config: Config, vision_model: str, vision_provider_name: str | None = None,
-) -> LLMProvider:
-    """根据指定的 vision_model/provider 创建辅助视觉 provider 实例。
-
-    供 preset 切换时动态重建 vision provider 使用。
-    """
-    from nanobot.config.schema import ModelPresetConfig
-
-    vision_preset = ModelPresetConfig(
-        model=vision_model,
-        provider=vision_provider_name or "auto",
-        max_tokens=4096,
-        context_window_tokens=65_536,
-        temperature=0.1,
-    )
-    return _make_provider_core(config, preset=vision_preset)
-
-
 def provider_signature(
     config: Config,
     *,

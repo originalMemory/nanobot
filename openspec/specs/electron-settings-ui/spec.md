@@ -70,21 +70,6 @@ InboxSidebar 中的设置按钮 SHALL 处于启用状态且可点击，点击后
 - **WHEN** 用户输入非数字或超出范围的值
 - **THEN** 保存按钮 SHALL 保持禁用或显示校验提示
 
-### Requirement: 模型分区暴露辅助视觉模型配置
-模型分区 SHALL 在主模型组下方展示「视觉模型」组，包含模型名称输入框和提供商选择器（含「自动」选项，表示 null/自动检测）。这两个字段 SHALL 与主模型通过同一次 `/api/settings/update` 调用一起保存。
-
-#### Scenario: 配置视觉模型
-- **WHEN** 用户输入模型名称（如 `gemini-2.5-flash`）并选择提供商后点击保存
-- **THEN** 系统调用 `/api/settings/update?vision_model=<model>&vision_provider=<provider>`，输入框反映已保存的值
-
-#### Scenario: 清除视觉模型
-- **WHEN** 用户清空视觉模型输入框并点击保存
-- **THEN** 系统调用 `/api/settings/update?vision_model=`（空字符串），后端存储 `null`，禁用图像描述功能
-
-#### Scenario: 自动检测视觉提供商
-- **WHEN** 用户在视觉提供商选择器中选择「自动」（值为 ""）
-- **THEN** `vision_provider` 以空字符串发送，后端存储 `null`，运行时从模型名称推断提供商
-
 ### Requirement: 图像生成分区管理图像设置
 图像分区 SHALL 允许切换图像生成开关、选择提供商/模型，以及配置默认值（宽高比、尺寸）。
 

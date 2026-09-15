@@ -84,16 +84,10 @@ if TYPE_CHECKING:
     from nanobot.cron.service import CronService
 
 
-
-# 用于前端识别并折叠展示 caption 段的分隔符；零宽空格确保用户输入不可能包含此字符串
-_VISION_CAPTION_SENTINEL = "\n\u200b[vision-caption]\u200b\n"
-
-
 class TurnState(Enum):
     RESTORE = auto()
     COMPACT = auto()
     COMMAND = auto()
-    CAPTION = auto()
     BUILD = auto()
     RUN = auto()
     SAVE = auto()
@@ -150,9 +144,6 @@ class TurnContext:
     turn_latency_ms: int | None = None
     turn_usage: dict[str, int] = field(default_factory=dict)
 
-    # 记录 caption 处理前的原始图片路径，供持久化到 session 时使用
-    caption_original_media: list[str] = field(default_factory=list)
-
     trace: list[StateTraceEntry] = field(default_factory=list)
 
 
@@ -190,9 +181,8 @@ class AgentLoop:
     _TRANSITIONS: dict[tuple[TurnState, str], TurnState] = {
         (TurnState.RESTORE, "ok"): TurnState.COMPACT,
         (TurnState.COMPACT, "ok"): TurnState.COMMAND,
-        (TurnState.COMMAND, "dispatch"): TurnState.CAPTION,
+        (TurnState.COMMAND, "dispatch"): TurnState.BUILD,
         (TurnState.COMMAND, "shortcut"): TurnState.DONE,
-        (TurnState.CAPTION, "ok"): TurnState.BUILD,
         (TurnState.BUILD, "ok"): TurnState.RUN,
         (TurnState.RUN, "ok"): TurnState.SAVE,
         (TurnState.SAVE, "ok"): TurnState.RESPOND,
@@ -235,10 +225,6 @@ class AgentLoop:
         preset_snapshot_loader: preset_helpers.PresetSnapshotLoader | None = None,
         runtime_events: RuntimeEventBus | None = None,
         runtime_model_publisher: Callable[[str, str | None], None] | None = None,
-        vision_provider: LLMProvider | None = None,
-        vision_model: str | None = None,
-        vision_provider_name: str | None = None,
-        vision_provider_factory: Callable[[str, str | None], LLMProvider] | None = None,
         diary_root: str = "",
     ):
         from nanobot.config.schema import ToolsConfig
@@ -367,16 +353,8 @@ class AgentLoop:
         )
         self.model_presets: dict[str, ModelPresetConfig] = model_presets or {}
         self._active_preset: str | None = None
-        self._vision_provider: LLMProvider | None = vision_provider
-        self._vision_model: str | None = vision_model
-        self._vision_provider_name: str | None = vision_provider_name
-        self._configured_vision_model: str | None = vision_model
-        self._configured_vision_provider_name: str | None = vision_provider_name
-        self._vision_provider_factory = vision_provider_factory
         if model_preset:
             self.set_model_preset(model_preset, publish_update=False)
-        elif "default" in self.model_presets:
-            self._refresh_vision_for_preset("default")
         self._register_default_tools()
         self._runtime_vars: dict[str, Any] = {}
         self._current_iteration: int = 0
@@ -403,10 +381,7 @@ class AgentLoop:
         allowing callers to override or extend the standard config-derived
         parameters (e.g. ``cron_service``, ``session_manager``).
         """
-        from nanobot.providers.factory import (
-            make_provider,
-            make_vision_provider_for_model,
-        )
+        from nanobot.providers.factory import make_provider
 
         if bus is None:
             bus = MessageBus()
@@ -420,9 +395,6 @@ class AgentLoop:
             config,
             provider_snapshot_loader,
         )
-        _vision_model = extra.pop("vision_model", None) or defaults.vision_model
-        _vision_provider_name = defaults.vision_provider
-        _vision_provider = extra.pop("vision_provider", None)
         return cls(
             bus=bus,
             provider=provider,
@@ -455,10 +427,6 @@ class AgentLoop:
             provider_snapshot_loader=provider_snapshot_loader,
             preset_snapshot_loader=preset_snapshot_loader,
             diary_root=config.diary_root,
-            vision_provider=_vision_provider,
-            vision_model=_vision_model,
-            vision_provider_name=_vision_provider_name,
-            vision_provider_factory=lambda m, p: make_vision_provider_for_model(config, m, p),
             **extra,
         )
 
@@ -549,55 +517,6 @@ class AgentLoop:
         snapshot = self._build_model_preset_snapshot(name)
         self._apply_provider_snapshot(snapshot, publish_update=publish_update, model_preset=name)
         self._active_preset = name
-        self._refresh_vision_for_preset(name)
-
-    def _refresh_vision_for_preset(self, preset_name: str | None) -> None:
-        """按 preset 开关启停统一的辅助视觉 provider。"""
-        effective_name = preset_name or "default"
-        preset = self.model_presets.get(effective_name)
-        enabled = preset.vision_enabled if preset else True
-        new_model = self._configured_vision_model if enabled else None
-        new_provider_name = self._configured_vision_provider_name if enabled else None
-        if not new_model:
-            self._vision_provider = None
-            self._vision_model = None
-            self._vision_provider_name = None
-            return
-        model_changed = new_model != self._vision_model
-        provider_changed = new_provider_name != self._vision_provider_name
-        if not (model_changed or provider_changed or self._vision_provider is None):
-            return
-        if not self._vision_provider_factory:
-            self._vision_provider = None
-            self._vision_model = None
-            self._vision_provider_name = None
-            return
-        try:
-            new_provider = self._vision_provider_factory(new_model, new_provider_name)
-        except Exception:
-            self._vision_provider = None
-            self._vision_model = None
-            self._vision_provider_name = None
-            logger.warning("刷新辅助视觉 provider 失败，已禁用辅助识图", exc_info=True)
-            return
-        self._vision_provider = new_provider
-        self._vision_model = new_model
-        self._vision_provider_name = new_provider_name
-
-    def set_vision_assistance_config(
-        self,
-        model: str | None,
-        provider_name: str | None,
-        *,
-        provider_factory: Callable[[str, str | None], LLMProvider] | None = None,
-    ) -> None:
-        """更新全局辅助视觉配置，并按当前 preset 开关立即刷新。"""
-        self._configured_vision_model = model
-        self._configured_vision_provider_name = provider_name
-        if provider_factory is not None:
-            self._vision_provider_factory = provider_factory
-            self._vision_provider = None
-        self._refresh_vision_for_preset(self._active_preset)
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools via plugin loader."""
@@ -728,14 +647,7 @@ class AgentLoop:
         """
         if not turn_continuation.should_persist_user_message(msg.metadata):
             return False
-        # 若 caption 步骤已处理图片，用原始路径持久化（保留图片引用供历史展示），
-        # 而不是用已清空的 msg.media。
-        persist_media = (
-            ctx.caption_original_media
-            if ctx is not None and ctx.caption_original_media
-            else (msg.media or [])
-        )
-        media_paths = [p for p in persist_media if isinstance(p, str) and p]
+        media_paths = [p for p in (msg.media or []) if isinstance(p, str) and p]
         has_text = isinstance(msg.content, str) and msg.content.strip()
         if has_text or media_paths:
             extra: dict[str, Any] = ({"media": list(media_paths)} if media_paths else {}) | agent_context.session_extra(msg.metadata)
@@ -1654,146 +1566,6 @@ class AgentLoop:
                 self._clear_pending_user_turn(ctx.session)
             return "shortcut"
         return "dispatch"
-
-    async def _state_caption(self, ctx: TurnContext) -> str:
-        """对消息中的图片调用辅助视觉模型生成文字描述，追加到消息文本后清空 media。
-
-        未配置 vision_model 或消息无图片时直接跳过。
-        """
-        from nanobot.agent.vision_caption import caption_images, format_captions
-
-        vision_provider = self._vision_provider
-        vision_model = self._vision_model
-        fallback_provider = self.provider if isinstance(self.provider, FallbackProvider) else None
-        fallback_requires_caption = (
-            not vision_provider
-            and fallback_provider is not None
-            and fallback_provider.has_vision_enabled_fallback
-        )
-        vision_provider_error: str | None = None
-        if fallback_requires_caption and self._configured_vision_model and self._vision_provider_factory:
-            try:
-                vision_provider = self._vision_provider_factory(
-                    self._configured_vision_model,
-                    self._configured_vision_provider_name,
-                )
-                if not vision_provider:
-                    raise RuntimeError("provider 未创建")
-                vision_model = self._configured_vision_model
-            except Exception as exc:
-                vision_provider_error = f"辅助视觉模型初始化失败：{exc}"
-                logger.warning("为启用视觉的 fallback 创建辅助视觉 provider 失败", exc_info=True)
-        elif fallback_requires_caption:
-            vision_provider_error = "辅助视觉模型未配置"
-        if not vision_provider or not vision_model:
-            if vision_provider_error is None:
-                return "ok"
-        if not ctx.msg.media:
-            return "ok"
-
-        ctx.caption_original_media = list(ctx.msg.media)
-        n = len(ctx.msg.media)
-        t0 = time.monotonic()
-
-        stream_caption = (
-            ctx.msg.channel == "websocket"
-            and bool(ctx.msg.metadata.get("_wants_stream"))
-        ) or (
-            self._unified_session
-            and ctx.msg.channel not in ("websocket", "cli")
-        )
-        caption_kwargs: dict[str, Any] = {}
-        if stream_caption:
-            from nanobot.agent.vision_caption import CaptionResult
-
-            async def _on_caption_delta(index: int, text: str) -> None:
-                stream_id = f"{ctx.session_key}:caption:{index}"
-                await self.bus.publish_outbound(OutboundMessage(
-                    channel=ctx.msg.channel,
-                    chat_id=ctx.msg.chat_id,
-                    content=text,
-                    metadata={
-                        **ctx.msg.metadata,
-                        "_vision_caption_delta": True,
-                        "image_index": index,
-                        "_stream_id": stream_id,
-                    },
-                ))
-
-            async def _on_caption_image_end(index: int, result: CaptionResult) -> None:
-                stream_id = f"{ctx.session_key}:caption:{index}"
-                meta: dict[str, Any] = {
-                    **ctx.msg.metadata,
-                    "_vision_caption_end": True,
-                    "image_index": index,
-                    "_stream_id": stream_id,
-                }
-                if not result.success and result.error:
-                    meta["_vision_caption_error"] = result.error
-                await self.bus.publish_outbound(OutboundMessage(
-                    channel=ctx.msg.channel,
-                    chat_id=ctx.msg.chat_id,
-                    content=result.text or "",
-                    metadata=meta,
-                ))
-
-            caption_kwargs = {
-                "on_delta": _on_caption_delta,
-                "on_image_end": _on_caption_image_end,
-            }
-
-        if vision_provider_error is not None:
-            from nanobot.agent.vision_caption import CaptionResult
-
-            results = [
-                CaptionResult(index=i, path=path, error=vision_provider_error)
-                for i, path in enumerate(ctx.msg.media)
-            ]
-        else:
-            results = await caption_images(
-                image_paths=ctx.msg.media,
-                provider=vision_provider,
-                model=vision_model,
-                **caption_kwargs,
-            )
-        elapsed = time.monotonic() - t0
-
-        failed = [r for r in results if not r.success]
-        succeeded = [r for r in results if r.success]
-
-        if not failed:
-            logger.debug("caption 成功：{} 张图，耗时 {:.1f}s", n, elapsed)
-        elif succeeded:
-            for r in failed:
-                logger.warning("caption 部分失败：第 {} 张 ({}) - {}", r.index + 1, r.path, r.error)
-        else:
-            logger.error("caption 全部失败：{} 张图均未获取到描述", n)
-
-        caption_text = format_captions(results)
-        if caption_text:
-            # sentinel 让前端可以可靠地将 caption 块从用户消息正文中分离出来单独渲染
-            new_content = ctx.msg.content.rstrip() + _VISION_CAPTION_SENTINEL + caption_text
-        else:
-            new_content = ctx.msg.content
-        ctx.msg = dataclasses.replace(ctx.msg, content=new_content, media=[])
-
-        if failed:
-            failed_indices = ", ".join(str(r.index + 1) for r in failed)
-            warning_text = (
-                f"⚠️ 辅助视觉模型处理图片时遇到问题：第 {failed_indices} 张图片描述获取失败，"
-                "turn 继续执行但这些图片将以占位文本代替。"
-            )
-            try:
-                await self.bus.publish_outbound(OutboundMessage(
-                    channel=ctx.msg.channel,
-                    chat_id=ctx.msg.chat_id,
-                    content=warning_text,
-                    metadata={**ctx.msg.metadata, "_caption_warning": True},
-                ))
-            except Exception:
-                logger.debug("发送 caption warning 失败", exc_info=True)
-
-        return "ok"
 
     async def _state_build(self, ctx: TurnContext) -> str:
         if not ctx.ephemeral:

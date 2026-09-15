@@ -402,9 +402,6 @@ class ChannelManager:
         image_index = meta.get("image_index")
         if isinstance(image_index, int):
             payload["image_index"] = image_index
-        error = meta.get("_vision_caption_error")
-        if isinstance(error, str) and error:
-            payload["error"] = error
         try:
             await fan_out(payload, msg.channel, msg.chat_id, msg.metadata)
         except Exception:
@@ -499,19 +496,6 @@ class ChannelManager:
             return
 
         if self._is_unified_inbox_system_meta(msg):
-            return
-
-        if meta.get("_vision_caption_delta"):
-            if msg.content:
-                await self._fan_out_unified_inbox_stream(
-                    ws_channel, msg, event="vision_caption_delta", text=msg.content,
-                )
-            return
-
-        if meta.get("_vision_caption_end"):
-            await self._fan_out_unified_inbox_stream(
-                ws_channel, msg, event="vision_caption_end", text=msg.content or "",
-            )
             return
 
         # 仅有 _stream_delta 而无 _stream_end：中间分片，实时推 delta。
@@ -639,10 +623,6 @@ class ChannelManager:
             await channel.send_reasoning_end(msg.chat_id, msg.metadata)
         elif msg.metadata.get("_reasoning_delta"):
             await channel.send_reasoning_delta(msg.chat_id, msg.content, msg.metadata)
-        elif msg.metadata.get("_vision_caption_end"):
-            await channel.send_vision_caption_end(msg.chat_id, msg.metadata, msg.content or "")
-        elif msg.metadata.get("_vision_caption_delta"):
-            await channel.send_vision_caption_delta(msg.chat_id, msg.content, msg.metadata)
         elif msg.metadata.get("_reasoning"):
             # Back-compat: one-shot reasoning. BaseChannel translates this
             # to a single delta + end pair so plugins only implement the

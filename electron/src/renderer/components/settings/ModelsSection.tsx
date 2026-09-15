@@ -66,9 +66,6 @@ export interface AgentSettingsDraft {
   model: string;
   provider: string;
   modelPreset: string;
-  visionModel: string;
-  visionProvider: string;
-  visionEnabled: boolean;
   maxTokens: string;
   contextWindowTokens: string;
   maxMessages: string;
@@ -159,9 +156,6 @@ function agentDraftForPreset(payload: SettingsPayload, presetName: string): Agen
         ? editableDefaultProvider(payload)
         : (preset?.provider ?? payload.agent.provider),
     modelPreset: presetName,
-    visionModel: payload.agent.vision_model ?? "",
-    visionProvider: payload.agent.vision_provider ?? "",
-    visionEnabled: preset?.vision_enabled ?? true,
     maxTokens: String(preset?.max_tokens ?? payload.agent.max_tokens),
     contextWindowTokens: String(preset?.context_window_tokens ?? payload.agent.context_window_tokens),
     maxMessages: String(payload.agent.max_messages ?? 120),
@@ -465,9 +459,6 @@ export function ModelsSection({
             preset.max_tokens,
             preset.context_window_tokens,
             preset.reasoning_effort ?? "",
-            preset.vision_model ?? "",
-            preset.vision_provider ?? "",
-            preset.vision_enabled,
           ].join("\u0000"),
         )
         .join("\u0001"),
@@ -481,8 +472,6 @@ export function ModelsSection({
     settings.agent.model,
     settings.agent.provider,
     settings.agent.resolved_provider,
-    settings.agent.vision_model,
-    settings.agent.vision_provider,
     settings.agent.max_tokens,
     settings.agent.context_window_tokens,
     settings.agent.max_messages,
@@ -507,10 +496,6 @@ export function ModelsSection({
   const modelDirty = useMemo(() => {
     const preset = modelPresetValue(settings);
     const base = defaultPreset(settings);
-    const selectedPreset = settings.model_presets.find((p) => p.name === form.modelPreset);
-    const visionModelDirty = form.visionModel !== (settings.agent.vision_model ?? "");
-    const visionProviderDirty = form.visionProvider !== (settings.agent.vision_provider ?? "");
-    const visionEnabledDirty = form.visionEnabled !== (selectedPreset?.vision_enabled ?? true);
     const maxTokensDirty = Number(form.maxTokens) !== settings.agent.max_tokens;
     const contextWindowTokensDirty = Number(form.contextWindowTokens) !== settings.agent.context_window_tokens;
     const maxMessagesDirty = Number(form.maxMessages) !== (settings.agent.max_messages ?? 120);
@@ -526,9 +511,6 @@ export function ModelsSection({
       (form.modelPreset === "default" &&
         (form.model !== (base?.model ?? settings.agent.model) ||
           form.provider !== editableDefaultProvider(settings))) ||
-      visionModelDirty ||
-      visionProviderDirty ||
-      visionEnabledDirty ||
       maxTokensDirty ||
       contextWindowTokensDirty ||
       maxMessagesDirty ||
@@ -1032,47 +1014,6 @@ export function ModelsSection({
               <ReasoningEffortPicker
                 value={form.reasoningEffort}
                 onChange={(reasoningEffort) => setForm((prev) => ({ ...prev, reasoningEffort }))}
-              />
-            </SettingsRow>
-            <SettingsRow
-              title={tx("settings.rows.visionEnabled", "Vision assistance")}
-              description={tx(
-                "settings.help.visionEnabled",
-                "Enable the global auxiliary vision model for this preset.",
-              )}
-            >
-              <ToggleButton
-                checked={form.visionEnabled}
-                onChange={(visionEnabled) => setForm((prev) => ({ ...prev, visionEnabled }))}
-                label={tx("settings.rows.visionEnabled", "Vision assistance")}
-              />
-            </SettingsRow>
-          </SettingsGroup>
-          <SettingsGroup>
-            <SettingsRow
-              title={t("settings.rows.visionModel")}
-              description={t("settings.help.visionModel")}
-            >
-              <Input
-                value={form.visionModel}
-                onChange={(e) => setForm((prev) => ({ ...prev, visionModel: e.target.value }))}
-                placeholder={tx("settings.models.visionModelPlaceholder", "e.g. gemini-2.5-flash")}
-                className="h-8 w-[min(280px,70vw)] rounded-full text-[13px]"
-              />
-            </SettingsRow>
-            <SettingsRow
-              title={t("settings.rows.visionProvider")}
-              description={t("settings.help.visionProvider")}
-            >
-              <ProviderPicker
-                providers={[
-                  { name: "", label: tx("settings.values.auto", "Auto") },
-                  ...configuredProviders,
-                ]}
-                value={form.visionProvider}
-                emptyLabel={tx("settings.values.auto", "Auto")}
-                showProviderLogos={showBrandLogos}
-                onChange={(visionProvider) => setForm((prev) => ({ ...prev, visionProvider }))}
               />
             </SettingsRow>
           </SettingsGroup>

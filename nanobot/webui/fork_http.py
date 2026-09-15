@@ -830,8 +830,6 @@ class ForkGatewayHTTPHandler:
         model_keys = {
             "model_preset", "modelPreset", "model", "provider",
             "max_tokens", "maxTokens", "context_window_tokens", "contextWindowTokens",
-            "vision_model", "visionModel", "vision_provider", "visionProvider",
-            "vision_enabled", "visionEnabled",
             "reasoning_effort", "reasoningEffort",
         }
         if self._runtime_model_setter is not None and any(key in query for key in model_keys):

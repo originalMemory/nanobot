@@ -100,10 +100,6 @@ class ModelPresetConfig(Base):
     context_window_tokens: int = 65_536
     temperature: float = 0.1
     reasoning_effort: str | None = None
-    vision_enabled: bool = False  # 是否为该 preset 启用全局辅助视觉模型
-    # 兼容读取旧配置；保存时移除，由 Config validator 提升到 agents.defaults。
-    vision_model: str | None = Field(default=None, exclude=True)
-    vision_provider: str | None = Field(default=None, exclude=True)
 
     def to_generation_settings(self) -> Any:
         from nanobot.providers.base import GenerationSettings
@@ -144,9 +140,6 @@ class AgentDefaults(Base):
     bot_name: str = "nanobot"  # Display name shown in CLI prompts (e.g. "{name} is thinking...")
     bot_icon: str = "🐈"  # Short icon (emoji or text) shown next to the bot name in CLI; "" to omit
     unified_session: bool = False  # Share one session across all channels (single-user multi-device)
-    vision_model: str | None = None  # 辅助视觉模型名称（如 "gemini-2.5-flash"）；None 表示不启用 caption 步骤
-    vision_provider: str | None = None  # 辅助视觉 provider 名称（如 "gemini"）；None 表示自动检测
-    vision_enabled: bool = True  # implicit default preset 是否启用全局辅助视觉
     disabled_skills: list[str] = Field(default_factory=list)  # Skill names to exclude from loading (e.g. ["summarize", "skill-creator"])
     session_ttl_minutes: int = Field(
         default=0,
@@ -485,26 +478,6 @@ class Config(BaseSettings):
         for fallback in self.agents.defaults.fallback_models:
             if isinstance(fallback, str) and fallback not in self.model_presets:
                 raise ValueError(f"fallback_models entry {fallback!r} not found in model_presets")
-        legacy_vision_presets = [
-            (preset_name, preset)
-            for preset_name, preset in self.model_presets.items()
-            if preset.vision_model
-        ]
-        if self.agents.defaults.vision_model is None and legacy_vision_presets:
-            active = self.agents.defaults.model_preset
-            _, source = next(
-                (
-                    item
-                    for item in legacy_vision_presets
-                    if item[0] == active
-                ),
-                legacy_vision_presets[0],
-            )
-            self.agents.defaults.vision_model = source.vision_model
-            self.agents.defaults.vision_provider = source.vision_provider
-        for preset in self.model_presets.values():
-            if preset.vision_model and "vision_enabled" not in preset.model_fields_set:
-                preset.vision_enabled = True
         if self.tools.tts.effective_mode != "off":
             self.resolve_tts_config()
         for preset in self.tts_presets.values():
@@ -552,7 +525,6 @@ class Config(BaseSettings):
             model=d.model, provider=d.provider, max_tokens=d.max_tokens,
             context_window_tokens=d.context_window_tokens,
             temperature=d.temperature, reasoning_effort=d.reasoning_effort,
-            vision_enabled=d.vision_enabled,
         )
 
     def resolve_preset(self, name: str | None = None) -> ModelPresetConfig:

@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
@@ -11,11 +10,7 @@ import type { SettingsPayload } from "@/lib/types";
 
 const MODEL = "openai-codex/gpt-5.6-terra";
 
-function makeSettings(
-  visionModel: string | null = null,
-  visionProvider: string | null = null,
-  visionEnabled = true,
-): SettingsPayload {
+function makeSettings(): SettingsPayload {
   return {
     agent: {
       model: MODEL,
@@ -32,9 +27,6 @@ function makeSettings(
       bot_icon: "🐈",
       bot_avatar_url: null,
       tool_hint_max_length: 40,
-      vision_model: visionModel,
-      vision_provider: visionProvider,
-      vision_enabled: visionEnabled,
       max_messages: 120,
     },
     model_presets: [
@@ -49,9 +41,6 @@ function makeSettings(
         context_window_tokens: 1_000_000,
         temperature: 0.1,
         reasoning_effort: null,
-        vision_model: null,
-        vision_provider: null,
-        vision_enabled: true,
       },
       {
         name: "codex-terra",
@@ -64,9 +53,6 @@ function makeSettings(
         context_window_tokens: 1_000_000,
         temperature: 0.1,
         reasoning_effort: null,
-        vision_model: visionModel,
-        vision_provider: visionProvider,
-        vision_enabled: visionEnabled,
       },
     ],
     providers: [
@@ -101,29 +87,12 @@ function renderModels(
   );
 }
 
-describe("global vision assistance and Codex reasoning settings", () => {
-  it("shows the shared vision settings and current preset switch", () => {
-    renderModels(makeSettings("gemini-2.5-pro", "gemini", false));
+describe("model settings", () => {
+  it("does not expose auxiliary vision settings", () => {
+    renderModels(makeSettings());
 
-    expect(screen.getByRole("switch", { name: "Vision assistance" })).not.toBeChecked();
-    expect(screen.getByDisplayValue("gemini-2.5-pro")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Gemini" })).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Vision assistance" })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("e.g. gemini-2.5-flash")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
-
-  it("saves the global auxiliary model and preset switch", async () => {
-    const user = userEvent.setup();
-    const onSaveModel = vi.fn(async () => {});
-    renderModels(makeSettings(), onSaveModel);
-
-    await user.type(screen.getByPlaceholderText("e.g. gemini-2.5-flash"), "gemini-2.5-pro");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    expect(onSaveModel).toHaveBeenCalledWith(expect.objectContaining({
-      modelPreset: "codex-terra",
-      visionModel: "gemini-2.5-pro",
-      visionProvider: "",
-      visionEnabled: true,
-    }));
-  });
-
 });

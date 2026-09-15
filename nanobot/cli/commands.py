@@ -1404,19 +1404,9 @@ def _run_gateway(
     def _webui_runtime_model_setter(preset: str | None) -> None:
         from nanobot.agent import model_presets as preset_helpers
         from nanobot.config.loader import load_config, resolve_config_env_vars
-        from nanobot.providers.factory import make_vision_provider_for_model
 
         latest_config = resolve_config_env_vars(load_config())
         agent.model_presets = preset_helpers.configured_model_presets(latest_config)
-        agent.set_vision_assistance_config(
-            latest_config.agents.defaults.vision_model,
-            latest_config.agents.defaults.vision_provider,
-            provider_factory=lambda model, provider: make_vision_provider_for_model(
-                latest_config,
-                model,
-                provider,
-            ),
-        )
         agent.set_model_preset(preset or "default")
 
     # Create channel manager (forwards SessionManager so the WebSocket channel
@@ -1453,7 +1443,6 @@ def _run_gateway(
         agent.tools.register(DesktopContextTool(
             _ws_channel,
             config=desktop_cfg,
-            vision_provider_getter=lambda: (agent._vision_provider, agent._vision_model),
         ))
         desktop_context_registered = True
 

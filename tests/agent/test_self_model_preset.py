@@ -38,7 +38,7 @@ def test_model_preset_getter_none_when_not_set(tmp_path) -> None:
 
 
 def test_model_preset_init_applies_active_preset_before_tools_register(tmp_path) -> None:
-    """config 启动时带 model_preset 不应在 vision 字段初始化前调用 set_model_preset。"""
+    """启动时应在注册工具前应用选中的模型预设。"""
     presets = {
         "fast": ModelPresetConfig(
             model="openai/gpt-4.1",
@@ -242,68 +242,6 @@ def test_model_preset_setter_raises_on_empty_string(tmp_path) -> None:
         loop.model_preset = ""
 
 
-def test_model_preset_switch_only_toggles_global_vision_provider(tmp_path) -> None:
-    default_vision_provider = _provider("gemini-2.5-flash")
-    created: list[tuple[str, str | None, MagicMock]] = []
-
-    def make_vision_provider(model: str, provider_name: str | None) -> MagicMock:
-        provider = _provider(model)
-        created.append((model, provider_name, provider))
-        return provider
-
-    presets = {
-        "default": ModelPresetConfig(
-            model="base-model",
-            vision_enabled=True,
-        ),
-        "direct": ModelPresetConfig(model="base-model"),
-        "auxiliary": ModelPresetConfig(
-            model="base-model",
-            vision_enabled=True,
-        ),
-    }
-    loop = AgentLoop(
-        bus=MessageBus(),
-        provider=_provider("base-model"),
-        workspace=tmp_path,
-        model="base-model",
-        model_presets=presets,
-        vision_provider=default_vision_provider,
-        vision_model="gemini-2.5-flash",
-        vision_provider_name="gemini",
-        vision_provider_factory=make_vision_provider,
-    )
-
-    loop.set_model_preset("direct")
-    assert loop._vision_provider is None
-    assert loop._vision_model is None
-
-    loop.set_model_preset("auxiliary")
-    assert loop._vision_model == "gemini-2.5-flash"
-    assert loop._vision_provider is created[-1][2]
-    assert loop._vision_provider_name == "gemini"
-
-    loop.set_model_preset("default")
-    assert loop._vision_model == "gemini-2.5-flash"
-    assert loop._vision_provider is created[-1][2]
-    assert [(model, provider_name) for model, provider_name, _ in created] == [
-        ("gemini-2.5-flash", "gemini"),
-    ]
-
-    loop.set_vision_assistance_config("gemini-2.5-pro", None)
-    assert loop._vision_model == "gemini-2.5-pro"
-    assert loop._vision_provider_name is None
-    assert created[-1][:2] == ("gemini-2.5-pro", None)
-
-    refreshed_provider = _provider("gemini-2.5-pro")
-    loop.set_vision_assistance_config(
-        "gemini-2.5-pro",
-        None,
-        provider_factory=lambda _model, _provider: refreshed_provider,
-    )
-    assert loop._vision_provider is refreshed_provider
-
-
 def test_self_tool_inspect_shows_model_preset(tmp_path) -> None:
     presets = {
         "fast": ModelPresetConfig(model="openai/gpt-4.1"),
@@ -352,35 +290,6 @@ def test_from_config_injects_default_preset(tmp_path) -> None:
     assert loop.model_preset is None
     assert "default" in loop.model_presets
     assert loop.model_presets["default"].model == "openai/gpt-4.1"
-
-
-def test_from_config_respects_disabled_default_vision_assistance(tmp_path) -> None:
-    from unittest.mock import patch
-
-    from nanobot.config.schema import Config
-
-    config = Config.model_validate({
-        "agents": {
-            "defaults": {
-                "model": "openai/gpt-4.1",
-                "workspace": str(tmp_path),
-                "visionModel": "gemini/gemini-2.5-flash",
-                "visionProvider": "gemini",
-                "visionEnabled": False,
-            }
-        },
-    })
-    fake_provider = _provider("openai/gpt-4.1")
-    with (
-        patch("nanobot.providers.factory.make_provider", return_value=fake_provider),
-        patch("nanobot.providers.factory.make_vision_provider_for_model") as make_vision,
-    ):
-        loop = AgentLoop.from_config(config)
-
-    make_vision.assert_not_called()
-    assert loop._configured_vision_model == "gemini/gemini-2.5-flash"
-    assert loop._vision_provider is None
-    assert loop._vision_model is None
 
 
 def test_from_config_static_preset_loader_does_not_enable_hot_reload(tmp_path) -> None:

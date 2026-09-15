@@ -1,7 +1,6 @@
 import pytest
 
 from nanobot.config.schema import Config
-from nanobot.providers.factory import resolve_vision_config
 
 
 def test_resolve_preset_returns_defaults_when_no_preset() -> None:
@@ -231,115 +230,6 @@ def test_match_provider_uses_preset_provider_when_forced() -> None:
     assert name == "anthropic"
 
 
-# ── task 4.4: vision_model / vision_provider config parsing ──────────────────
-
-def test_vision_model_defaults_to_none() -> None:
-    """未配置时 vision_model/vision_provider 均为 None。"""
-    config = Config()
-    assert config.agents.defaults.vision_model is None
-    assert config.agents.defaults.vision_provider is None
-
-
-def test_vision_model_parsed_from_snake_case() -> None:
-    """snake_case 键名可正确解析 vision_model/vision_provider。"""
-    config = Config.model_validate({
-        "agents": {
-            "defaults": {
-                "vision_model": "gemini-2.5-flash",
-                "vision_provider": "gemini",
-            }
-        }
-    })
-    assert config.agents.defaults.vision_model == "gemini-2.5-flash"
-    assert config.agents.defaults.vision_provider == "gemini"
-
-
-def test_vision_model_parsed_from_camel_case() -> None:
-    """camelCase 键名（JSON 配置风格）同样可以解析。"""
-    config = Config.model_validate({
-        "agents": {
-            "defaults": {
-                "visionModel": "gemini-2.5-flash",
-                "visionProvider": "gemini",
-            }
-        }
-    })
-    assert config.agents.defaults.vision_model == "gemini-2.5-flash"
-    assert config.agents.defaults.vision_provider == "gemini"
-
-
-def test_vision_model_preset_override() -> None:
-    """preset 级 vision_model/vision_provider 字段可独立设置。"""
-    config = Config.model_validate({
-        "model_presets": {
-            "vision": {
-                "model": "openai/gpt-4.1",
-                "provider": "openai",
-                "vision_model": "gemini-2.5-pro",
-                "vision_provider": "gemini",
-            }
-        }
-    })
-    preset = config.model_presets["vision"]
-    assert preset.vision_model == "gemini-2.5-pro"
-    assert preset.vision_provider == "gemini"
-
-
-def test_vision_model_preset_defaults_to_none() -> None:
-    """preset 未指定 vision_model 时默认为 None（不强制 agent-level 配置）。"""
-    config = Config.model_validate({
-        "model_presets": {
-            "basic": {"model": "openai/gpt-4.1", "provider": "openai"},
-        }
-    })
-    preset = config.model_presets["basic"]
-    assert preset.vision_model is None
-    assert preset.vision_provider is None
-
-
-def test_named_preset_vision_switch_uses_global_config() -> None:
-    config = Config.model_validate({
-        "agents": {
-            "defaults": {
-                "visionModel": "gemini-2.5-flash",
-                "visionProvider": "gemini",
-                "modelPreset": "direct",
-            }
-        },
-        "modelPresets": {
-            "direct": {"model": "openai/gpt-4.1"},
-            "auxiliary": {
-                "model": "openai/gpt-4.1",
-                "visionModel": "gemini-2.5-pro",
-            },
-        },
-    })
-    assert resolve_vision_config(config) == (None, None)
-
-    config.agents.defaults.model_preset = "auxiliary"
-    assert resolve_vision_config(config) == ("gemini-2.5-flash", "gemini")
-
-    config.agents.defaults.model_preset = None
-    assert resolve_vision_config(config) == ("gemini-2.5-flash", "gemini")
-
-
-def test_explicit_vision_switch_wins_over_legacy_preset_fields() -> None:
-    config = Config.model_validate({
-        "agents": {"defaults": {"modelPreset": "disabled"}},
-        "modelPresets": {
-            "disabled": {
-                "model": "openai/gpt-4.1",
-                "visionModel": "gemini-2.5-pro",
-                "visionEnabled": False,
-            },
-        },
-    })
-
-    assert config.agents.defaults.vision_model == "gemini-2.5-pro"
-    assert config.model_presets["disabled"].vision_enabled is False
-    assert resolve_vision_config(config) == (None, None)
-
-
 def test_match_provider_routes_forced_novita_model_api_models() -> None:
     config = Config.model_validate({
         "providers": {
@@ -355,3 +245,21 @@ def test_match_provider_routes_forced_novita_model_api_models() -> None:
 
     assert config.get_provider_name() == "novita"
     assert config.get_api_base() == "https://api.novita.ai/openai"
+
+
+@pytest.mark.parametrize("camel_case", [False, True])
+def test_legacy_vision_settings_are_ignored(camel_case: bool) -> None:
+    """旧辅助视觉配置可加载，但不再生效或写入配置。"""
+    keys = ("visionModel", "visionProvider", "visionEnabled") if camel_case else (
+        "vision_model", "vision_provider", "vision_enabled",
+    )
+    legacy = dict(zip(keys, ("aux-model", "gemini", True)))
+    config = Config.model_validate({
+        "agents": {"defaults": {"model": "main-model", **legacy}},
+        "modelPresets": {"main": {"model": "preset-model", **legacy}},
+    })
+    dumped = config.model_dump(by_alias=camel_case)
+    for settings in (dumped["agents"]["defaults"], dumped["model_presets"]["main"]):
+        assert not any(key in settings for key in keys)
+    assert config.resolve_preset().model == "main-model"
+    assert config.resolve_preset("main").model == "preset-model"

@@ -151,7 +151,6 @@ def test_create_model_configuration_writes_label_and_selects(
     assert saved.model_presets["fast-writing"].label == "Fast writing"
     assert saved.model_presets["fast-writing"].model == "openai/gpt-4.1-mini"
     assert saved.model_presets["fast-writing"].provider == "openai"
-    assert saved.model_presets["fast-writing"].vision_enabled is False
 
     with pytest.raises(WebUISettingsError) as duplicate:
         create_model_configuration(
@@ -622,103 +621,6 @@ def test_update_agent_settings_writes_reasoning_effort_to_active_preset(
     assert saved.model_presets["think"].reasoning_effort == "high"
 
 
-def test_settings_payload_exposes_global_vision_with_preset_switch(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config_path = tmp_path / "config.json"
-    config = Config()
-    config.agents.defaults.vision_model = "gemini-2.5-flash"
-    config.agents.defaults.vision_provider = "gemini"
-    config.model_presets["vision"] = ModelPresetConfig(
-        model="openai/gpt-4.1",
-        provider="openai",
-        vision_model="gemini-2.5-pro",
-        vision_enabled=True,
-    )
-    config.model_presets["direct"] = ModelPresetConfig(
-        model="openai/gpt-4.1",
-        provider="openai",
-    )
-    config.agents.defaults.model_preset = "vision"
-    save_config(config, config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
-
-    payload = settings_payload()
-    rows = {row["name"]: row for row in payload["model_presets"]}
-
-    assert payload["agent"]["vision_model"] == "gemini-2.5-flash"
-    assert payload["agent"]["vision_provider"] == "gemini"
-    assert payload["agent"]["vision_enabled"] is True
-    assert rows["default"]["vision_model"] == "gemini-2.5-flash"
-    assert rows["vision"]["vision_model"] == "gemini-2.5-flash"
-    assert rows["vision"]["vision_provider"] == "gemini"
-    assert rows["vision"]["vision_enabled"] is True
-    assert rows["direct"]["vision_model"] == "gemini-2.5-flash"
-    assert rows["direct"]["vision_enabled"] is False
-
-
-def test_update_agent_settings_writes_global_vision_and_preset_switch(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config_path = tmp_path / "config.json"
-    config = Config()
-    config.agents.defaults.vision_model = "gemini-2.5-flash"
-    config.agents.defaults.vision_provider = "gemini"
-    config.model_presets["vision"] = ModelPresetConfig(
-        model="openai/gpt-4.1",
-        provider="openai",
-        vision_enabled=True,
-    )
-    config.agents.defaults.model_preset = "vision"
-    save_config(config, config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
-
-    direct = update_agent_settings({
-        "vision_model": [""],
-        "vision_provider": [""],
-    })
-    assert direct["agent"]["vision_model"] is None
-    assert direct["agent"]["vision_provider"] is None
-
-    auxiliary = update_agent_settings({
-        "vision_model": ["gemini-2.5-pro"],
-        "vision_provider": [""],
-        "vision_enabled": ["false"],
-    })
-    assert auxiliary["agent"]["vision_model"] == "gemini-2.5-pro"
-    assert auxiliary["agent"]["vision_provider"] is None
-    assert auxiliary["agent"]["vision_enabled"] is False
-    saved = load_config(config_path)
-    assert saved.agents.defaults.vision_model == "gemini-2.5-pro"
-    assert saved.agents.defaults.vision_provider is None
-    assert saved.model_presets["vision"].vision_enabled is False
-    assert saved.model_presets["vision"].vision_model is None
-
-
-def test_legacy_preset_vision_is_promoted_to_global_config() -> None:
-    config = Config.model_validate({
-        "agents": {"defaults": {"modelPreset": "vision"}},
-        "modelPresets": {
-            "vision": {
-                "model": "openai/gpt-4.1",
-                "visionModel": "gemini-2.5-pro",
-                "visionProvider": "gemini",
-            },
-            "direct": {"model": "openai/gpt-4.1"},
-        },
-    })
-
-    assert config.agents.defaults.vision_model == "gemini-2.5-pro"
-    assert config.agents.defaults.vision_provider == "gemini"
-    assert config.model_presets["vision"].vision_enabled is True
-    assert config.model_presets["direct"].vision_enabled is False
-    dumped = config.model_dump(by_alias=True)
-    assert "visionModel" not in dumped["model_presets"]["vision"]
-    assert "visionProvider" not in dumped["model_presets"]["vision"]
-
-
 def test_provider_models_payload_fetches_openai_compatible_models(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -984,3 +886,16 @@ def test_azure_openai_spec_no_longer_requires_api_key() -> None:
     spec = find_by_name("azure_openai")
     assert spec is not None
     assert _provider_requires_api_key(spec) is False
+
+
+def test_settings_payload_omits_auxiliary_vision(tmp_path, monkeypatch) -> None:
+    """设置接口不再暴露辅助视觉字段。"""
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.model_presets["main"] = ModelPresetConfig(model="main-model")
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = settings_payload()
+    for row in (payload["agent"], *payload["model_presets"]):
+        assert not {"vision_model", "vision_provider", "vision_enabled"}.intersection(row)

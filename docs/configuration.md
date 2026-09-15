@@ -1815,7 +1815,7 @@ For custom cloned voices, pass the voice UUID as `defaultVoice`.
 2. If `## Active Tasks` contains tasks, heartbeat starts an agent turn with recent unified context.
 3. The agent may call `desktop_context` from any session. The tool targets the Electron window that sent the most recent user message.
 4. Screenshots are only requested when that window is still connected, unfocused, and not locked.
-5. If a screenshot is captured and `agents.defaults.visionModel` is configured, the auxiliary vision model describes it in the tool result. Otherwise the screenshot is attached for the main model, like a user image upload.
+5. If a screenshot is captured, it is attached for the main model, like a user image upload.
 6. The agent can call `message` directly. If it does, heartbeat does not append a second final response.
 
 ### Requirements
@@ -1823,4 +1823,3 @@ For custom cloned voices, pass the voice UUID as `defaultVoice`.
 - Electron desktop client (WebSocket channel must be enabled and connected).
 - `tools.desktopContext.enabled = true` for screenshot access.
 - Optional: a configured TTS provider with a valid API key.
-- Optional: `agents.defaults.visionModel` for screenshot captioning.

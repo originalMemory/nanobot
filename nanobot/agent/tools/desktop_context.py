@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,9 +15,6 @@ from nanobot.utils.helpers import build_image_content_blocks, detect_image_mime
 
 if TYPE_CHECKING:
     from nanobot.channels.websocket import WebSocketChannel
-    from nanobot.providers.base import LLMProvider
-
-VisionProviderGetter = Callable[[], tuple["LLMProvider | None", str | None]]
 
 
 class DesktopContextToolConfig(Base):
@@ -42,7 +38,7 @@ class DesktopContextToolConfig(Base):
     )
 )
 class DesktopContextTool(Tool):
-    """读取 Electron 桌面状态，并按需请求截图和视觉描述。"""
+    """读取 Electron 桌面状态，并按需请求截图。"""
 
     _plugin_discoverable = False
 
@@ -51,11 +47,9 @@ class DesktopContextTool(Tool):
         ws_channel: "WebSocketChannel",
         *,
         config: DesktopContextToolConfig | None = None,
-        vision_provider_getter: VisionProviderGetter | None = None,
     ) -> None:
         self._ws = ws_channel
         self._config = config or DesktopContextToolConfig()
-        self._vision_provider_getter = vision_provider_getter
 
     @property
     def name(self) -> str:
@@ -66,8 +60,7 @@ class DesktopContextTool(Tool):
         return (
             "Get Electron desktop context for the last user window. "
             "Returns focus/lock eligibility and optional screenshot context. "
-            "When agents.defaults.visionModel is configured, screenshots are described via that model; "
-            "otherwise the screenshot is attached for the main model like a user image upload. "
+            "The screenshot is attached for the main model like a user image upload. "
             "Use this before proactive desktop-aware messages or when the user asks what is on screen."
         )
 
@@ -102,43 +95,14 @@ class DesktopContextTool(Tool):
             "focused": focused,
             "locked": locked,
             "screenshot_path": None,
-            "caption": None,
-            "caption_error": None,
         }
-
-    async def _caption(self, screenshot_path: Path) -> tuple[str | None, str | None]:
-        if self._vision_provider_getter is None:
-            return None, None
-        provider, model = self._vision_provider_getter()
-        if provider is None or not model:
-            return None, None
-        try:
-            from nanobot.agent.vision_caption import caption_images
-
-            results = await caption_images(
-                [str(screenshot_path)],
-                provider=provider,
-                model=model,
-            )
-        except Exception as exc:
-            return None, str(exc)
-        if not results:
-            return None, "caption_empty"
-        result = results[0]
-        return result.text, result.error
-
-    def _vision_configured(self) -> bool:
-        if self._vision_provider_getter is None:
-            return False
-        provider, model = self._vision_provider_getter()
-        return provider is not None and bool(model)
 
     def _format_screenshot_for_model(
         self,
         screenshot_path: Path,
         state: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        """未配置辅助视觉模型时，像用户发图一样附带截图给主模型。"""
+        """像用户发图一样附带截图给主模型。"""
         raw = screenshot_path.read_bytes()
         mime = detect_image_mime(raw) or "image/jpeg"
         return build_image_content_blocks(
@@ -147,19 +111,6 @@ class DesktopContextTool(Tool):
             str(screenshot_path),
             json.dumps(state, ensure_ascii=False),
         )
-
-    async def _attach_screenshot_understanding(
-        self,
-        screenshot_path: Path,
-        state: dict[str, Any],
-    ) -> list[dict[str, Any]] | str:
-        if self._vision_configured():
-            caption, error = await self._caption(screenshot_path)
-            state["caption"] = caption
-            state["caption_error"] = error
-            return json.dumps(state, ensure_ascii=False)
-
-        return self._format_screenshot_for_model(screenshot_path, state)
 
     async def execute(
         self,
@@ -184,8 +135,6 @@ class DesktopContextTool(Tool):
             "focused": self._ws.is_connection_focused(conn),
             "locked": self._ws.is_connection_locked(conn),
             "screenshot_path": None,
-            "caption": None,
-            "caption_error": None,
         }
         if not capture_screenshot:
             state["reason"] = "capture_disabled"
@@ -197,4 +146,4 @@ class DesktopContextTool(Tool):
             return json.dumps(state, ensure_ascii=False)
 
         state["screenshot_path"] = str(screenshot_path)
-        return await self._attach_screenshot_understanding(screenshot_path, state)
+        return self._format_screenshot_for_model(screenshot_path, state)
