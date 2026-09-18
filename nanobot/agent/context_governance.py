@@ -535,10 +535,40 @@ class ContextGovernor:
         )
         try:
             delta_messages = compaction.delta_after_accepted(messages)
+            retained: list[dict[str, Any]] = []
+            boundary = compaction.raw_accepted_boundary
+            session_index: int | None = None
             consolidation_prefix = self.prepare_messages_for_model(
                 state.config,
                 compaction.accepted_messages,
             )
+            # 沿用 lover：压力触发后优先压缩旧前缀，为近期原文保留约半个输入预算。
+            start = compaction.summary_checkpoint.transcript_boundary if compaction.summary_checkpoint else 1
+            history = compaction.raw_messages[start:boundary]
+            prefix = self._summary_transcript(compaction, compaction.active_summary) if compaction.active_summary else compaction.raw_messages[:1]
+            first_real = next((index for index, message in enumerate(history)
+                               if message.get("content") != SUMMARY_CONTINUATION_TEXT), len(history))
+            suffix_budget = max(0, self.input_budget(state.config) // 2
+                                - sum(estimate_message_tokens(message) for message in [*prefix, *delta_messages]))
+            used = 0
+            for index in range(len(history) - 1, 0, -1):
+                used += estimate_message_tokens(history[index])
+                if used > suffix_budget:
+                    break
+                candidate = history[index]
+                meta = candidate.get("_meta")
+                saved_index = cast(dict[str, Any], meta).get("session_message_index") if isinstance(meta, dict) else None
+                if (index <= first_real or candidate.get("role") != "user" or is_hidden_history_message(candidate)
+                        or not isinstance(saved_index, int) or isinstance(saved_index, bool)
+                        or find_legal_message_start([*history[index:], *delta_messages])):
+                    continue
+                retained = history[index:]
+                boundary = start + index
+                session_index = saved_index
+            if retained:
+                consolidation_prefix = self.prepare_messages_for_model(
+                    state.config, [*prefix, *compaction.raw_messages[start:boundary]],
+                )
             summary = await compaction.consolidate_history(
                 deepcopy(consolidation_prefix),
                 compaction.active_summary,
@@ -557,6 +587,7 @@ class ContextGovernor:
                 [
                     *self._summary_transcript(compaction, summary),
                     {"role": "user", "content": SUMMARY_CONTINUATION_TEXT},
+                    *retained,
                     *delta_messages,
                 ],
             )
@@ -572,7 +603,8 @@ class ContextGovernor:
             )
             compaction.summary_checkpoint = SessionSummaryCheckpoint(
                 summary=summary,
-                transcript_boundary=compaction.raw_accepted_boundary,
+                transcript_boundary=boundary,
+                session_message_index=session_index,
             )
         except (Exception, asyncio.CancelledError) as exc:
             await state.events.emit(

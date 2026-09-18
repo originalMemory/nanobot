@@ -90,8 +90,9 @@ def test_last_archived_field_migrates_with_legacy_alias(tmp_path: Path):
     assert session.last_consolidated == 1
     manager.save(session)
     metadata = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
-    assert metadata["last_archived"] == 1
-    assert metadata["last_consolidated"] == 1
+    assert metadata["last_archived"] == 0
+    assert metadata["last_consolidated"] == 0
+    assert metadata["metadata"]["_archive_offset"] == 1
 
 
 def test_loaded_null_metadata_becomes_empty_dict(tmp_path: Path):

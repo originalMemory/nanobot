@@ -12,7 +12,7 @@ import stat
 from collections import OrderedDict
 from contextlib import contextmanager, suppress
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Collection, Generator, Protocol, TypedDict, cast
@@ -27,6 +27,7 @@ from nanobot.runtime_context import (
     RUNTIME_CONTEXT_HISTORY_META,
     public_history_message,
 )
+from nanobot.session.history_store import SessionHistoryStore
 from nanobot.session.history_visibility import HIDDEN_HISTORY_META, is_hidden_history_message
 from nanobot.session.model_selection import SESSION_MODEL_PRESET_METADATA_KEY
 from nanobot.session.summary import SUMMARY_CONTINUATION_TEXT
@@ -348,6 +349,7 @@ class Session:
         max_tokens: int = 0,
         extend_to_user: bool = False,
         include_runtime_context: bool = True,
+        include_indices: bool = False,
     ) -> list[dict[str, Any]]:
         """Return recent replayable messages for LLM input.
 
@@ -381,8 +383,10 @@ class Session:
         if start:
             sliced = sliced[start:]
 
+        indices = {id(message): index for index, message in enumerate(self.messages)} if include_indices else {}
         out: list[dict[str, Any]] = []
         for message in sliced:
+            source_index = indices.get(id(message), 0)
             if message.get("_command"):
                 continue
             has_persisted_runtime_context = isinstance(
@@ -436,6 +440,8 @@ class Session:
                 if not any(key in message for key in ("tool_calls", "reasoning_content", "thinking_blocks")):
                     continue
             entry: dict[str, Any] = {"role": message["role"], "content": content}
+            if include_indices:
+                entry["_meta"] = {"session_message_index": self.metadata.get("_archive_offset", 0) + source_index}
             for key in ("tool_calls", "tool_call_id", "name", "reasoning_content", "thinking_blocks"):
                 if key in message:
                     entry[key] = message[key]
@@ -481,6 +487,7 @@ class Session:
         self.provider_state = None
         self.updated_at = datetime.now()
         self.metadata.pop("_last_summary", None)
+        self.metadata.pop("_archive_offset", None)
 
 class SessionPayload(TypedDict):
     key: str
@@ -565,6 +572,7 @@ class JsonlSessionStore:
         with suppress(OSError):
             os.chmod(root, 0o700)
         self.workspace = canonical_workspace
+        self.history_store = SessionHistoryStore(canonical_workspace / "sessions")
         self._migration_lock = FileLock(
             str(root / ".workspace-migration.lock"),
             timeout=_SESSION_MIGRATION_LOCK_TIMEOUT_SECONDS,
@@ -761,7 +769,7 @@ class JsonlSessionStore:
         raise RuntimeError(f"could not allocate an isolated session namespace for {workspace}")
 
     @staticmethod
-    def _session_file_snapshot(path: Path) -> _SessionFileSnapshot | None:
+    def _session_file_snapshot(path: Path, *, validate_jsonl: bool = True) -> _SessionFileSnapshot | None:
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
             fd = os.open(path, flags)
@@ -777,6 +785,9 @@ class JsonlSessionStore:
             with os.fdopen(fd, "rb", closefd=False) as handle:
                 for raw_line in handle:
                     digest.update(raw_line)
+                    if not validate_jsonl:
+                        saw_record = True
+                        continue
                     if not raw_line.strip():
                         continue
                     value: object = json.loads(raw_line.decode("utf-8"))
@@ -788,7 +799,7 @@ class JsonlSessionStore:
                             updated_at = datetime.fromisoformat(raw_updated_at).timestamp()
             after = os.fstat(fd)
             if (
-                not saw_record
+                (not saw_record and validate_jsonl)
                 or before.st_dev != after.st_dev
                 or before.st_ino != after.st_ino
                 or before.st_size != after.st_size
@@ -860,12 +871,13 @@ class JsonlSessionStore:
         src: Path,
         dst: Path,
         snapshot: _SessionFileSnapshot,
+        *, validate_jsonl: bool = True,
     ) -> None:
         tmp = cls._prepare_copy(src, dst.parent, snapshot)
         try:
             os.replace(tmp, dst)
             cls._fsync_directory(dst.parent)
-            installed = cls._session_file_snapshot(dst)
+            installed = cls._session_file_snapshot(dst, validate_jsonl=validate_jsonl)
             if installed is None or installed.digest != snapshot.digest:
                 raise OSError(f"session migration verification failed: {dst}")
         finally:
@@ -1210,7 +1222,70 @@ class JsonlSessionStore:
 
     def save(self, session: Session, *, fsync: bool = False) -> None:
         with self._session_files_lock:
-            self._save_unlocked(session, fsync=fsync)
+            compacted = self._archive_prefix_unlocked(session)
+            self._save_unlocked(compacted, fsync=fsync or compacted is not session)
+            if compacted is not session:
+                session.messages = compacted.messages
+                session.metadata = compacted.metadata
+                session.last_archived = compacted.last_archived
+                session.provider_state = None
+
+    def _history_archive_dir(self, key: str) -> Path:
+        directory = self.history_store.archive_dir / "snapshots" / self.storage_key(key)
+        if not directory.resolve().is_relative_to(self.workspace.resolve()):
+            raise OSError("会话归档目录不能越出工作区")
+        directory.mkdir(parents=True, exist_ok=True)
+        self._fsync_directory(directory.parent)
+        self._fsync_directory(self.history_store.archive_dir)
+        return directory
+
+    def _archive_prefix_unlocked(self, session: Session) -> Session:
+        boundary = session.last_archived
+        if boundary <= 0:
+            return session
+        if boundary > len(session.messages):
+            raise ValueError("无效会话裁剪边界")
+        self.history_store.insert_messages(session.key, session.messages[:boundary], "compaction")
+        return replace(session, messages=session.messages[boundary:], last_consolidated=0,
+                       provider_state=None, metadata={**session.metadata,
+                           "_archive_offset": session.metadata.get("_archive_offset", 0) + boundary})
+
+    def archive_snapshot(self, session: Session, *, reason: str) -> Path:
+        """重置前保存完整状态；原文与月度归档保存在同一根目录。"""
+        with self._session_files_lock:
+            if reason != "reset":
+                raise ValueError("无效会话快照原因")
+            self.history_store.insert_messages(session.key, session.messages, reason)
+            directory = self._history_archive_dir(session.key)
+            target = directory / f"{reason}-{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(8)}.jsonl"
+            payload = {**self.session_payload(session), "last_archived": session.last_archived}
+            text = json.dumps(payload, ensure_ascii=False) + "\n"
+            self._write_text_atomic(target, text)
+            if target.read_text(encoding="utf-8") != text:
+                raise OSError("会话快照校验失败")
+            self._archive_reset_files(session.key, [self.get_session_path(session.key),
+                                                   self.get_runtime_checkpoint_path(session.key)])
+            return target
+
+    def _archive_reset_files(self, key: str, paths: list[Path]) -> Path | None:
+        """复用迁移的校验复制流程保存重置前的原始文件。"""
+        with self._session_files_lock:
+            existing = list(dict.fromkeys(path for path in paths if path.exists()))
+            if not existing:
+                return None
+            directory = self._history_archive_dir(key) / f"reset-files-{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(8)}"
+            directory.mkdir()
+            self._fsync_directory(directory.parent)
+            sources: dict[str, str] = {}
+            for index, source in enumerate(existing):
+                snapshot = self._session_file_snapshot(source, validate_jsonl=False)
+                if snapshot is None:
+                    raise OSError(f"无法校验待归档文件：{source}")
+                name = f"{index}-{source.name}"
+                self._install_snapshot(source, directory / name, snapshot, validate_jsonl=False)
+                sources[name] = str(source)
+            self._write_text_atomic(directory / "sources.json", json.dumps(sources, ensure_ascii=False))
+            return directory
 
     def save_runtime_checkpoint(self, session: Session) -> None:
         """Atomically persist only the volatile in-flight turn state.
@@ -1875,6 +1950,11 @@ class SessionManager:
             self._delete_observer(key)
         return deleted
 
+    def archive_session_snapshot(self, session: Session, *, reason: str) -> Path | None:
+        if not session.policy.persist:
+            return None
+        return self._jsonl_store.archive_snapshot(session, reason=reason)
+
     def restore_sessions_to_workspace(self) -> SessionRestoreResult:
         """Restore session files to the pre-relocation path for an explicit rollback."""
         return self._jsonl_store.restore_to_workspace()
@@ -1915,6 +1995,7 @@ class SessionManager:
             return None
 
         metadata = deepcopy(source.metadata)
+        metadata.pop("_archive_offset", None)
         for key in _FORK_VOLATILE_METADATA_KEYS:
             metadata.pop(key, None)
 

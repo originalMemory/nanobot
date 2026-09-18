@@ -327,6 +327,7 @@ async def cmd_new(ctx: CommandContext) -> OutboundMessage:
             metadata=dict(session.metadata),
             provider_state=None,
         )
+    loop.sessions.archive_session_snapshot(session, reason="reset")
     session.clear()
     loop.sessions.save(session)
     loop.sessions.invalidate(session.key)

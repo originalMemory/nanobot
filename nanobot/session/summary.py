@@ -32,6 +32,7 @@ class SessionSummaryCheckpoint:
 
     summary: str
     transcript_boundary: int
+    session_message_index: int | None = None
 
 
 def session_summary_from_metadata(

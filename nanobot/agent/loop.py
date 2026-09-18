@@ -1894,7 +1894,7 @@ class AgentLoop:
             session = ctx.require_session()
         is_subagent = ctx.kind is TurnKind.SYSTEM and ctx.msg.sender_id == "subagent"
 
-        ctx.history = session.get_history(extend_to_user=is_subagent)
+        ctx.history = session.get_history(extend_to_user=is_subagent, include_indices=True)
         stored_state = session.provider_state
         subagent_followup_persisted = False
         if is_subagent:
@@ -2174,12 +2174,19 @@ class AgentLoop:
         }
         last_assistant_idx: int | None = None
         saved_followup_ids: set[str] = set()
-        checkpoint_boundary = self._validated_checkpoint_boundary(
-            summary_checkpoint,
-            skip=skip,
-            message_count=len(messages),
-            session_key=session.key,
-        )
+        checkpoint_boundary = None
+        if summary_checkpoint is not None and summary_checkpoint.session_message_index is not None:
+            boundary = summary_checkpoint.session_message_index - session.metadata.get("_archive_offset", 0)
+            if not 0 <= boundary <= len(session.messages):
+                raise ValueError("部分压缩的会话边界已失效")
+            session.commit_summary_checkpoint(summary_checkpoint.summary, insert_at=boundary)
+        else:
+            checkpoint_boundary = self._validated_checkpoint_boundary(
+                summary_checkpoint,
+                skip=skip,
+                message_count=len(messages),
+                session_key=session.key,
+            )
 
         # The trigger input may already be the session tail while still being
         # the first message after the replacement checkpoint.

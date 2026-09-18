@@ -23,6 +23,14 @@ from nanobot.session.recovery import (
 from nanobot.webui import session_list_index, transcript
 
 
+@pytest.fixture(autouse=True)
+def isolate_display_history(tmp_path, monkeypatch):
+    """恢复扫描只读取测试实例，避免真实 WebUI 历史影响恢复判定。"""
+    data = tmp_path / "runtime"
+    data.mkdir()
+    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: data)
+
+
 def _persist(manager: SessionManager, session: Session) -> None:
     session.metadata["webui"] = True
     manager.save(session)

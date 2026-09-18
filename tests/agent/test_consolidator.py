@@ -1,5 +1,6 @@
 """Tests for Memory checkpoint consolidation and history journaling."""
 
+import json
 from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -30,6 +31,19 @@ from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.prompt_templates import render_template
 
 _ARCHIVE_PROMPT = render_template("agent/consolidator_archive.md", strip=True)
+
+
+def _archived_messages(sessions, session):
+    """验证月度原文加活跃消息的保全性，不改变产品历史读取行为。"""
+    batches = {}
+    for path in sorted((sessions.workspace / "sessions" / "archive").glob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            if row.get("_archive_meta", {}).get("session_key") == session.key:
+                info = row.pop("_archive_meta")
+                batches.setdefault(info["batch"], []).append((info["index"], row))
+    archived = [row for batch in batches.values() for _, row in sorted(batch, key=lambda item: item[0])]
+    return archived + session.messages
 
 
 @pytest.fixture
@@ -596,9 +610,9 @@ class TestCompactIdleSession:
 
         sessions.invalidate("cli:test")
         reloaded = sessions.get_or_create("cli:test")
-        assert len(reloaded.messages) == 41
-        assert reloaded.messages[0]["content"] == "user msg 0"
-        assert reloaded.last_archived == 40
+        assert len(_archived_messages(sessions, reloaded)) == 41
+        assert _archived_messages(sessions, reloaded)[0]["content"] == "user msg 0"
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 40
         assert reloaded.provider_state is None
         visible = reloaded.get_history(max_messages=40)
         assert [m["content"] for m in visible] == [SUMMARY_CONTINUATION_TEXT]
@@ -657,7 +671,7 @@ class TestCompactIdleSession:
 
         assert result == "Summary."
         reloaded = real_consolidator.sessions.get_or_create("cli:event-callback-failure")
-        assert reloaded.last_archived == 1
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 1
 
     @pytest.mark.asyncio
     async def test_short_idle_session_archives_once(
@@ -680,7 +694,7 @@ class TestCompactIdleSession:
         mock_provider.chat_stream_with_retry.assert_awaited_once()
         assert len(store.read_unprocessed_history(since_cursor=0)) == 1
         reloaded = sessions.get_or_create("cli:short")
-        assert reloaded.last_archived == 2
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 2
         assert [message["content"] for message in reloaded.get_history()] == [SUMMARY_CONTINUATION_TEXT]
 
     @pytest.mark.asyncio
@@ -704,9 +718,9 @@ class TestCompactIdleSession:
         assert result == ""
         mock_provider.chat_stream_with_retry.assert_not_awaited()
         reloaded = sessions.get_or_create("cli:archived-idle")
-        assert reloaded.last_archived == 2
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 2
         assert "_last_summary" not in reloaded.metadata
-        assert reloaded.provider_state == _provider_state()
+        assert reloaded.provider_state is None
         assert store.read_unprocessed_history(since_cursor=0) == []
 
     @pytest.mark.asyncio
@@ -764,7 +778,7 @@ class TestCompactIdleSession:
         sessions.invalidate(session.key)
         reloaded = sessions.get_or_create(session.key)
         assert reloaded.provider_state == _provider_state()
-        assert reloaded.last_archived == 0
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 0
         assert "_last_summary" not in reloaded.metadata
 
     @pytest.mark.asyncio
@@ -790,7 +804,7 @@ class TestCompactIdleSession:
         sessions.invalidate(session.key)
         reloaded = sessions.get_or_create(session.key)
         assert reloaded.provider_state == _provider_state()
-        assert reloaded.last_archived == 0
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 0
         assert reloaded.get_history() == [{"role": "user", "content": "Keep this context"}]
 
     @pytest.mark.asyncio
@@ -834,7 +848,7 @@ class TestCompactIdleSession:
         assert latest_messages[-1]["content"] == _ARCHIVE_PROMPT
         sessions.invalidate("cli:incremental")
         reloaded = sessions.get_or_create("cli:incremental")
-        assert reloaded.last_archived == 5
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 5
         assert reloaded.metadata["_last_summary"]["text"] == second
 
     @pytest.mark.asyncio
@@ -914,7 +928,7 @@ class TestCompactIdleSession:
         assert result == "(nothing)"
         sessions.invalidate("cli:nothing-after-summary")
         reloaded = sessions.get_or_create("cli:nothing-after-summary")
-        assert reloaded.last_archived == 5
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 5
         assert reloaded.metadata["_last_summary"]["text"] == result
 
     @pytest.mark.asyncio
@@ -943,8 +957,8 @@ class TestCompactIdleSession:
 
         sessions.invalidate("cli:concurrent")
         reloaded = sessions.get_or_create("cli:concurrent")
-        assert len(reloaded.messages) == 5
-        assert reloaded.last_archived == 2
+        assert len(_archived_messages(sessions, reloaded)) == 5
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 2
         assert reloaded.provider_state is None
         assert reloaded.get_history()[-1]["content"] == "late assistant"
         assert [m["content"] for m in reloaded.get_history()] == [
@@ -1007,8 +1021,8 @@ class TestCompactIdleSession:
         assert "user msg 0" in raw
         assert "RETAINED_SUFFIX_marker" in raw
         reloaded = sessions.get_or_create("cli:rawdrop")
-        assert len(reloaded.messages) == 39
-        assert reloaded.messages[-2]["content"] == "RETAINED_SUFFIX_marker"
+        assert len(_archived_messages(sessions, reloaded)) == 39
+        assert _archived_messages(sessions, reloaded)[-2]["content"] == "RETAINED_SUFFIX_marker"
         assert reloaded.provider_state is None
 
     @pytest.mark.asyncio
@@ -1084,7 +1098,7 @@ class TestCompactIdleSession:
         reloaded = sessions.get_or_create("cli:nothing")
         assert reloaded.metadata["_last_summary"]["text"] == result
         assert real_consolidator.store.read_unprocessed_history(0) == []
-        assert reloaded.last_archived == 20
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 20
         assert [m["content"] for m in reloaded.get_history()] == [SUMMARY_CONTINUATION_TEXT]
         mock_provider.chat_stream_with_retry.assert_awaited_once()
 
@@ -1113,8 +1127,8 @@ class TestCompactIdleSession:
         assert entries[0]["content"].startswith("[RAW] 20 messages")
 
         reloaded = sessions.get_or_create("cli:fail")
-        assert reloaded.messages[:-1] == session.messages
-        assert reloaded.last_archived == 22
+        assert _archived_messages(sessions, reloaded)[:-1] == session.messages
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 22
         assert reloaded.metadata["_last_summary"]["text"] == result
         assert [m["content"] for m in reloaded.get_history(max_messages=20)] == [SUMMARY_CONTINUATION_TEXT]
 
@@ -1139,8 +1153,8 @@ class TestCompactIdleSession:
         )
         assert result == "Tail summary."
         reloaded = sessions.get_or_create("cli:offset")
-        assert len(reloaded.messages) == 61
-        assert reloaded.last_archived == 60
+        assert len(_archived_messages(sessions, reloaded)) == 61
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 60
 
         # Verify only the unarchived tail was processed:
         # All 10 unarchived messages (50-59) are archived exactly once.
@@ -1176,8 +1190,8 @@ class TestCompactIdleSession:
         assert result == "Tail summary."
 
         reloaded = sessions.get_or_create("cli:noncontiguous")
-        assert len(reloaded.messages) == 26
-        assert reloaded.last_archived == 25
+        assert len(_archived_messages(sessions, reloaded)) == 26
+        assert reloaded.metadata.get("_archive_offset", 0) + reloaded.last_archived == 25
         assert [m["content"] for m in reloaded.get_history(max_messages=25)] == [SUMMARY_CONTINUATION_TEXT]
 
         # Both the first question and the final tool-heavy exchange are summarized.
@@ -1230,11 +1244,11 @@ class TestCompactIdleSession:
         assert "tool_choice" not in call
 
         reloaded = sessions.get_or_create("cli:tool-history")
-        assert len(reloaded.messages) == 5
-        assert reloaded.messages[-2]["content"] == "final answer"
+        assert len(_archived_messages(sessions, reloaded)) == 5
+        assert _archived_messages(sessions, reloaded)[-2]["content"] == "final answer"
         assert all(
             "memory overview" not in str(message.get("content", "")).lower()
-            for message in reloaded.messages
+            for message in _archived_messages(sessions, reloaded)
         )
         entries = store.read_unprocessed_history(since_cursor=0)
         assert [entry["content"] for entry in entries] == [
@@ -1301,7 +1315,7 @@ class TestCompactIdleSession:
         )
         entries = store.read_unprocessed_history(since_cursor=0)
         assert [entry["content"] for entry in entries] == ["Recovered archive summary."]
-        assert sessions.get_or_create("cli:unexpected-tool").last_archived == 2
+        assert sessions.get_or_create("cli:unexpected-tool").metadata["_archive_offset"] == 2
 
     @pytest.mark.asyncio
     async def test_repeated_tool_call_response_uses_raw_fallback(
@@ -1335,7 +1349,7 @@ class TestCompactIdleSession:
         assert len(entries) == 1
         assert entries[0]["content"].startswith("[RAW] ")
         assert "important answer" in entries[0]["content"]
-        assert sessions.get_or_create("cli:repeated-tool").last_archived == 2
+        assert sessions.get_or_create("cli:repeated-tool").metadata["_archive_offset"] == 2
 
     @pytest.mark.asyncio
     async def test_empty_response_uses_raw_fallback(
@@ -1366,7 +1380,7 @@ class TestCompactIdleSession:
         assert len(entries) == 1
         assert entries[0]["content"].startswith("[RAW] ")
         assert "important answer" in entries[0]["content"]
-        assert sessions.get_or_create("cli:empty-summary").last_archived == 2
+        assert sessions.get_or_create("cli:empty-summary").metadata["_archive_offset"] == 2
 
     @pytest.mark.asyncio
     async def test_oversized_prefix_raw_archives_without_flattened_llm_retry(
@@ -1393,7 +1407,7 @@ class TestCompactIdleSession:
         entries = store.read_unprocessed_history(since_cursor=0)
         assert len(entries) == 1
         assert entries[0]["content"].startswith("[RAW] ")
-        assert sessions.get_or_create("sdk:oversized").last_archived == 1
+        assert sessions.get_or_create("sdk:oversized").metadata["_archive_offset"] == 1
 
     @pytest.mark.asyncio
     async def test_archive_context_contains_only_model_visible_messages(
