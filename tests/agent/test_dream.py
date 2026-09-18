@@ -112,15 +112,19 @@ class TestBuildDreamPrompt:
         prompt, _ = result
         assert prompt.startswith(store.default_dream_prompt() + "\n\n## Conversation History\n")
 
-    def test_truncates_long_entries_at_1000_chars(self, store):
-        long_content = "x" * 2000
-        store.append_history(long_content)
-        result = store.build_dream_prompt()
+    def test_complete_entry_keeps_late_corrections_before_cursor_advances(self, store):
+        long_content = "x" * 2000 + "\n用户确认：2026-09-18 已取消见面；此前仅为助手建议。"
+        first_cursor = store.append_history(long_content)
+        store.append_history("下一批尚未处理")
+        result = store.build_dream_prompt(max_entries=1)
         assert result is not None
-        prompt, _ = result
-        assert long_content not in prompt
-        assert "x" * 1000 in prompt
-        assert "x" * 1001 not in prompt
+        prompt, cursor = result
+        assert long_content in prompt
+        assert "下一批尚未处理" not in prompt
+        assert cursor == first_cursor
+        assert store.get_last_dream_cursor() == 0
+        store.set_last_dream_cursor(cursor)
+        assert "下一批尚未处理" in store.build_dream_prompt()[0]
 
     def test_batches_oldest_unprocessed_entries_first(self, store):
         for i in range(25):
@@ -169,6 +173,24 @@ class TestBuildDreamPrompt:
         assert "[skip]: audit-only" in prompt
         assert "[correction]: replace the older conflicting fact" in prompt
         assert "Always strip these bracketed tags from saved memory content" in prompt
+
+    def test_personal_memory_contract_survives_both_prompt_stages(self):
+        archive = render_template("agent/consolidator_archive.md", strip=True)
+        dream = MemoryStore.default_dream_prompt()
+        assert "replacement checkpoint" in archive
+        assert "working-state handoff" in archive
+        assert "less than two weeks" in archive
+        for prompt in (archive, dream):
+            assert "original message timestamp" in prompt
+            assert "Do not turn the assistant's suggestion" in prompt
+            assert "unknown dates" in prompt
+        assert "genuine change over time" in dream
+        assert "Passing a deadline alone does not prove" in dream
+        assert "archive recording time, not proof of the event date" in dream
+        assert "notification time" in dream
+        assert "identity, personality, voice and relationship boundaries" in dream
+        assert '"Managed by Dream"' in dream
+        assert "not this Dream run" in dream
 
 
 class TestDreamRunCompletion:

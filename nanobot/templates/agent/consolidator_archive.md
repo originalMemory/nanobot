@@ -34,6 +34,14 @@ Assign each retained fact its best current mark:
 
 When space is limited, prioritize user corrections and preferences, then solutions, decisions, events, and environment facts.
 
+## Personal events and attribution
+
+- Also retain important ongoing events as `[ephemeral]`, even when relevant for less than two weeks: confirmed appointments, unresolved concerns, meaningful progress and changes the user would otherwise need to explain again. Ordinary daily filler and tool execution logs do not qualify.
+- For retained events, preserve the absolute event date, actor, confirmed state and unresolved next step. Resolve relative dates against the original message timestamp, never the archive execution time; unknown dates remain unknown. Passing a plan's date does not prove completion.
+- Distinguish a factual correction from a real change over time. Preserve meaningful transitions as `过去状态 → 后来状态（日期），用户说明的原因`; do not erase a historically true experience just because the current state changed.
+- Preserve who confirmed, decided, recommended or completed an action: `用户确认／决定／亲自完成`, `助手执行／建议／判断／修复`, or `系统／cron：仅提醒／自动执行／未执行`. Do not turn the assistant's suggestion, inference, query or action into a user decision, opinion or completed action.
+- Retain user-stated reasons and boundaries without inventing motives. Repeated assistant paraphrases or psychological interpretations are not independent user confirmation. Important personal corrections and unresolved concerns must not be crowded out by long technical output.
+
 ## Output
 
 Return one concise retained fact per line in this form:
