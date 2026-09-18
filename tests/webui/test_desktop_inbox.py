@@ -33,6 +33,7 @@ async def test_external_injection_in_desktop_turn_triggers_history_refresh(tmp_p
     assert bus.outbound_size == 1
     notice = await bus.consume_outbound()
     assert notice.chat_id == "desktop" and isinstance(notice.event, SessionUpdatedEvent)
+    assert notice.event.notification_id is None
     assert session.messages[0]["source_channel"] == "websocket"
     assert session.messages[1]["source_channel"] == "feishu"
     assert session.messages[2].get("source_channel") != "feishu"
@@ -60,6 +61,8 @@ async def test_external_turn_notifies_desktop_and_preserves_original_delivery(tm
     second = await bus.consume_outbound()
     assert all(m.channel == "websocket" and m.chat_id == "desktop" for m in (first, second))
     assert all(isinstance(m.event, SessionUpdatedEvent) and not m.content for m in (first, second))
+    assert first.event.notification_id is None
+    assert second.event.notification_id == "turn-1"
     assert await bus.consume_outbound() is original
     assert bus.outbound.empty()
     saved = sessions.read_session_file(session.key)

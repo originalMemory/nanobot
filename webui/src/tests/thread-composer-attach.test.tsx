@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import type { EncodeResponse } from "@/lib/imageEncode";
@@ -84,7 +84,56 @@ beforeEach(() => {
   }
 });
 
+afterEach(() => {
+  delete window.nanobotHost;
+  vi.unstubAllGlobals();
+});
+
 describe("ThreadComposer — attachments", () => {
+  it("previews a desktop screenshot and waits for manual send", async () => {
+    let capture: ((url: string) => void) | undefined;
+    window.nanobotHost = { onScreenshot: (listener) => {
+      capture = listener;
+      return () => { capture = undefined; };
+    } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ blob: async () => pngFile() }));
+    encodeImage.mockImplementation(async (file) => resolveReady(file));
+    const onSend = vi.fn();
+    const view = render(<ThreadComposer onSend={onSend} />);
+    await act(async () => { capture?.("data:image/png;base64,ZmFrZQ=="); });
+    await waitFor(() => expect(screen.getByTestId("composer-chip")).toBeInTheDocument());
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByLabelText(/message input/i), { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    view.unmount();
+    expect(capture).toBeUndefined();
+  });
+
+  it("keeps a screenshot pending until the composer is enabled", async () => {
+    let listener: ((url: string) => void) | undefined;
+    let pending: string | undefined;
+    window.nanobotHost = { onScreenshot: (next) => {
+      listener = next;
+      if (pending) { next(pending); pending = undefined; }
+      return () => { listener = undefined; };
+    } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ blob: async () => pngFile() }));
+    encodeImage.mockImplementation(async (file) => resolveReady(file));
+    const onSend = vi.fn();
+    const view = render(<ThreadComposer onSend={onSend} />);
+    view.rerender(<ThreadComposer onSend={onSend} disabled />);
+    await act(async () => {
+      pending = "data:image/png;base64,ZmFrZQ==";
+      if (listener) { listener(pending); pending = undefined; }
+    });
+    expect(encodeImage).not.toHaveBeenCalled();
+    view.rerender(<ThreadComposer onSend={onSend} />);
+    await waitFor(() => expect(screen.getByTestId("composer-chip")).toBeInTheDocument());
+    expect(encodeImage).toHaveBeenCalledTimes(1);
+    expect(onSend).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it("attaches a picked image and includes its data url on send", async () => {
     const file = pngFile("a.png");
     encodeImage.mockResolvedValueOnce(resolveReady(file));

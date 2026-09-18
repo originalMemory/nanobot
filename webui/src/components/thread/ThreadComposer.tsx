@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
+import { getRuntimeHost } from "@/lib/runtime";
 import {
   CapabilityMentionToken,
   cliAppInitials,
@@ -1079,6 +1080,18 @@ export function ThreadComposer({
     },
     [enqueue, formatRejection, interactionDisabled],
   );
+
+  useEffect(() => {
+    // 禁用期间不消费宿主缓存，恢复输入后再接收截图。
+    if (interactionDisabled) return;
+    return getRuntimeHost().onScreenshot?.((dataUrl) => {
+      // 截图复用普通附件的大小限制和预览，用户确认后才发送。
+      if (!/^data:image\/(jpeg|png);base64,/.test(dataUrl)) return;
+      void fetch(dataUrl).then((response) => response.blob()).then((blob) => {
+        addFiles([new File([blob], `screenshot-${Date.now()}.jpg`, { type: blob.type })]);
+      }).catch(() => setInlineError("截图加载失败，请重试。"));
+    });
+  }, [addFiles, interactionDisabled]);
 
   const {
     isDragging,

@@ -3896,7 +3896,8 @@ async def test_hydrate_replays_running_turn() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_session_updated_emits_session_updated_event() -> None:
+@pytest.mark.parametrize("notification_id", [None, "external-turn-1"])
+async def test_send_session_updated_emits_session_updated_event(notification_id: str | None) -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
     mock_ws = AsyncMock()
@@ -3906,12 +3907,15 @@ async def test_send_session_updated_emits_session_updated_event() -> None:
         channel="websocket",
         chat_id="chat-1",
         content="",
-        event=SessionUpdatedEvent(),
+        event=SessionUpdatedEvent(notification_id=notification_id),
     ))
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
-    assert body == {"event": "session_updated", "chat_id": "chat-1"}
+    expected = {"event": "session_updated", "chat_id": "chat-1"}
+    if notification_id:
+        expected["notification_id"] = notification_id
+    assert body == expected
 
 
 @pytest.mark.asyncio

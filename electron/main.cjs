@@ -4,6 +4,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createHash, randomUUID } = require('node:crypto');
 const { APP_ORIGIN, normalizeGateway, isExternalLink, isMediaUrl, createHandler } = require('./gateway.cjs');
+const { installDesktop } = require('./desktop.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'nanobot', privileges: {
   standard: true, secure: true, supportFetchAPI: true, corsEnabled: true,
@@ -13,6 +14,7 @@ app.setName('Nanobot');
 app.setPath('userData', process.env.NANOBOT_DESKTOP_DATA_DIR || path.join(app.getPath('appData'), 'Nanobot-next'));
 
 let window;
+let desktop;
 let gateway = 'http://127.0.0.1:8765';
 let loadError = '';
 const setupFile = path.join(__dirname, 'setup.html');
@@ -46,6 +48,13 @@ function openExternal(url) {
   if (isExternalLink(url)) void shell.openExternal(url).catch(() => {});
 }
 
+function showWindow() {
+  if (!window || window.isDestroyed()) { void showChat(); return; }
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+
 function openMedia(owner, url) {
   // 只在图片标签中展示附件，不让附件 HTML 获得聊天页的 origin 或 preload。
   const preview = new BrowserWindow({
@@ -71,6 +80,7 @@ function makeWindow(webSession) {
       contextIsolation: true, sandbox: true, webSecurity: true },
   });
   next.once('ready-to-show', () => next.show());
+  desktop?.bindWindow(next);
   next.on('closed', () => { if (window === next) window = null; });
   next.webContents.setWindowOpenHandler(({ url }) => {
     if (isMediaUrl(url)) openMedia(next, url);
@@ -150,6 +160,7 @@ function installMenu() {
       { type: 'separator' }, { role: 'quit', label: '退出' },
     ] },
     { role: 'editMenu', label: '编辑' },
+    ...(desktop ? [desktop.menu] : []),
     { label: '视图', submenu: [
       { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
       { role: 'togglefullscreen' },
@@ -163,9 +174,10 @@ function installMenu() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => { if (window) { window.restore(); window.show(); window.focus(); } });
+  app.on('second-instance', showWindow);
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.whenReady().then(async () => {
+    desktop = installDesktop({ getWindow: () => window, showWindow });
     installMenu();
     // 使用上游 HostSocketBridge，支持 NAS 的 ws://，不降低 renderer 的混合内容保护。
     ipcMain.handle('desktop:socket-open', (event, value) => {
@@ -183,7 +195,10 @@ if (!app.requestSingleInstanceLock()) {
       const emit = (payload) => { if (!owner.isDestroyed()) owner.send('desktop:socket-event', { id, ...payload }); };
       socket.addEventListener('open', () => emit({ type: 'open' }));
       socket.addEventListener('message', (message) => {
-        if (typeof message.data === 'string') emit({ type: 'message', data: message.data });
+        if (typeof message.data === 'string') {
+          try { if (window?.webContents === owner) desktop.notify(JSON.parse(message.data)); } catch { /* 非 JSON 帧交给原客户端处理。 */ }
+          emit({ type: 'message', data: message.data });
+        }
       });
       socket.addEventListener('error', () => emit({ type: 'error', message: 'WebSocket 连接失败' }));
       socket.addEventListener('close', (close) => {
@@ -221,6 +236,6 @@ if (!app.requestSingleInstanceLock()) {
     } catch (error) {
       await showSetup(error.code === 'ENOENT' ? '' : '后端地址配置无效，请重新填写。');
     }
-    app.on('activate', () => { if (!window) void showChat(); });
+    app.on('activate', showWindow);
   }).catch((error) => { dialog.showErrorBox('Nanobot 启动失败', error.message); app.quit(); });
 }

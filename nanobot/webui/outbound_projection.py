@@ -91,7 +91,9 @@ class WebUIOutboundTransport(Protocol):
         turn_id: str | None = None,
     ) -> None: ...
 
-    async def send_session_updated(self, chat_id: str, *, scope: str | None = None) -> None: ...
+    async def send_session_updated(
+        self, chat_id: str, *, scope: str | None = None, notification_id: str | None = None,
+    ) -> None: ...
 
     async def send_file_edit_events(
         self,
@@ -244,7 +246,12 @@ class WebUIOutboundProjector:
             return
         if isinstance(event, SessionUpdatedEvent):
             if conns:
-                await self._transport.send_session_updated(msg.chat_id, scope=event.scope)
+                if event.notification_id:
+                    await self._transport.send_session_updated(
+                        msg.chat_id, scope=event.scope, notification_id=event.notification_id,
+                    )
+                else:
+                    await self._transport.send_session_updated(msg.chat_id, scope=event.scope)
             return
         if progress_event and progress_event.file_edit_events:
             await self._transport.send_file_edit_events(

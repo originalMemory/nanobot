@@ -84,6 +84,7 @@ class GoalStateSyncEvent(AgentEvent):
 @dataclass(frozen=True)
 class SessionUpdatedEvent(AgentEvent):
     scope: str | None = None
+    notification_id: str | None = None
 
 
 @dataclass(frozen=True)

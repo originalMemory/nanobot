@@ -46,9 +46,10 @@ class DesktopInboxCoordinator:
     def _unified(context: RuntimeEventContext) -> bool:
         return context.session_key == UNIFIED_SESSION_KEY and context.channel not in {"system", "cli"}
 
-    async def _notify(self) -> None:
+    async def _notify(self, notification_id: str | None = None) -> None:
         await self.bus.publish_event(
-            SessionUpdatedEvent(scope="thread"), channel="websocket", chat_id=DESKTOP_CHAT_ID,
+            SessionUpdatedEvent(scope="thread", notification_id=notification_id),
+            channel="websocket", chat_id=DESKTOP_CHAT_ID,
         )
 
     async def _running(self, event: TurnRunStatusChanged) -> None:
@@ -90,7 +91,8 @@ class DesktopInboxCoordinator:
                     message.setdefault("source_chat_id", context.chat_id)
             self.sessions.save(session)
         if external or self._external_inputs(new_messages):
-            await self._notify()
+            # 桌面轮次已有 turn_end 通知，包含外部插入时不重复发系统提醒。
+            await self._notify(event.turn_id if external else None)
 
     @contextmanager
     def connected(self) -> Generator[None, None, None]:

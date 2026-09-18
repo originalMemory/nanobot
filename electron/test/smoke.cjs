@@ -118,7 +118,8 @@ async function main() {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const gateway = `http://127.0.0.1:${server.address().port}`;
   let stderr = '';
-  const env = { ...process.env, NANOBOT_DESKTOP_DATA_DIR: data };
+  const env = { ...process.env, NANOBOT_DESKTOP_DATA_DIR: data,
+    NANOBOT_RAISE_SHORTCUT: '', NANOBOT_DESKTOP_NOTIFICATIONS: '0' };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.NANOBOT_GATEWAY_URL;
   const electronBinary = process.env.NANOBOT_ELECTRON_BINARY || require('electron');

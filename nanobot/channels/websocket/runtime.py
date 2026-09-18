@@ -1460,7 +1460,9 @@ class WebSocketChannel(BaseChannel):
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" goal_status ")
 
-    async def send_session_updated(self, chat_id: str, *, scope: str | None = None) -> None:
+    async def send_session_updated(
+        self, chat_id: str, *, scope: str | None = None, notification_id: str | None = None,
+    ) -> None:
         """Notify WebUI clients that a session row should refresh."""
         conns = list(self._conn_chats)
         if not conns:
@@ -1468,6 +1470,8 @@ class WebSocketChannel(BaseChannel):
         body: dict[str, Any] = {"event": "session_updated", "chat_id": chat_id}
         if scope:
             body["scope"] = scope
+        if notification_id:
+            body["notification_id"] = notification_id
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" session_updated ")

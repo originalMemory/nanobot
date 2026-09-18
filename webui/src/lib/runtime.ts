@@ -1,6 +1,7 @@
 import type { RuntimeCapabilities, RuntimeSurface } from "./types";
 
 export interface RuntimeHost {
+  onScreenshot?: (listener: (dataUrl: string) => void) => () => void;
   /** 桌面伴侣的固定通信入口；普通浏览器不设置。 */
   fixedChatId?: string;
   surface: RuntimeSurface;
@@ -26,6 +27,7 @@ interface HostRuntimeInfo {
 }
 
 interface NanobotHostApi {
+  onScreenshot?(listener: (dataUrl: string) => void): () => void;
   fixedChatId?: string;
   getRuntimeInfo?(): Promise<HostRuntimeInfo>;
   restartEngine?(): Promise<void>;
@@ -114,6 +116,7 @@ export function createRuntimeHost(
   return {
     surface,
     fixedChatId: api?.fixedChatId,
+    onScreenshot: api?.onScreenshot?.bind(api),
     capabilities: mergedCapabilities,
     socketFactory: bridge ? createHostWebSocket : undefined,
     pickFolder: api?.pickFolder?.bind(api),
