@@ -492,7 +492,7 @@ class AgentLoop:
             config,
             provider_snapshot_loader,
         )
-        return cls(
+        agent = cls(
             bus=bus,
             provider=provider,
             workspace=config.workspace_path,
@@ -520,6 +520,11 @@ class AgentLoop:
             tool_registry=tool_registry,
             **extra,
         )
+        from nanobot.agent.active_memory import create_active_memory_hook_factory
+
+        if factory := create_active_memory_hook_factory(agent, config):
+            agent._hook_factories.append(factory)
+        return agent
 
     def _sync_subagent_runtime_limits(self) -> None:
         """Keep subagent runtime limits aligned with mutable loop settings."""
