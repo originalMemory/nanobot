@@ -50,6 +50,7 @@ async function main() {
   const libraryOnly = process.argv.includes("--library");
   const windowOnly = process.argv.includes('--window-state');
   const quitOnly = process.argv.includes('--quit');
+  const desktopContextOnly = process.argv.includes('--desktop-context');
   const authOnly = process.argv.includes("--auth");
   const surfacesOnly = process.argv.includes("--wallpaper-surfaces");
   const data = await mkdtemp(path.join(os.tmpdir(), 'nanobot-electron-smoke-'));
@@ -170,7 +171,9 @@ async function main() {
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.NANOBOT_GATEWAY_URL;
   const electronBinary = process.env.NANOBOT_ELECTRON_BINARY || require('electron');
-  const args = process.env.NANOBOT_ELECTRON_BINARY ? [] : [path.resolve(__dirname, '..')];
+  if (desktopContextOnly && process.env.NANOBOT_ELECTRON_BINARY) throw new Error('桌面感知冒烟必须使用模拟采集入口，不能指定打包版');
+  const args = process.env.NANOBOT_ELECTRON_BINARY ? [] : [desktopContextOnly
+    ? path.join(__dirname, 'desktop-context-smoke-entry.cjs') : path.resolve(__dirname, '..')];
   // 只模拟采集设备，不使用自动授权开关，确保应用权限处理仍然受测。
   const child = spawn(electronBinary, [...args, '--remote-debugging-port=0', '--use-fake-device-for-media-stream'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stderr.on('data', (chunk) => { stderr += chunk; });
@@ -205,6 +208,19 @@ async function main() {
     await setup.evaluate(`document.querySelector('#gateway').value=${JSON.stringify(gateway)};document.querySelector('form').requestSubmit()`);
     const chat = await page('nanobot://desktop/');
     activePage = chat;
+    if (desktopContextOnly) {
+      await until(() => frames.some(frame => frame.type === 'desktop_context_state' && frame.focused === false && frame.locked === false), '自动上报桌面状态');
+      await sleep(250);
+      const requestId = '1'.repeat(32);
+      for (const client of wss.clients) client.send(JSON.stringify({ event: 'desktop_context_request', request_id: requestId }));
+      const result = await until(() => frames.find(frame => frame.type === 'desktop_context_result' && frame.request_id === requestId), '按需截图响应');
+      assert.equal(result.reason, 'captured');
+      assert.match(result.image, /^data:image\/jpeg;base64,/);
+      assert.ok(Buffer.from(result.image.split(',')[1], 'base64').length < 10000);
+      assert.equal(frames.some(frame => frame.type === 'message'), false);
+      console.log('PASS: Electron 自动上报状态，经既有 socket 按需返回模拟 JPEG，不触发聊天或读取真实屏幕');
+      return;
+    }
     if (quitOnly) {
       await until(() => chat.evaluate(`Boolean(document.querySelector('button[aria-label="Quit app"]'))`), '侧栏完全退出按钮');
       await chat.evaluate(`document.querySelector('button[aria-label="Quit app"]').click()`);

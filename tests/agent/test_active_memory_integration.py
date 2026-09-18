@@ -75,6 +75,8 @@ async def test_turn_local_pending_and_shared_topic_single_flight(tmp_path, monke
         assert factory(AgentTurnHookContext(workspace=tmp_path, ephemeral=True)) is None
         assert factory(AgentTurnHookContext(workspace=tmp_path / "other")) is None
         assert factory(AgentTurnHookContext(workspace=tmp_path, metadata={"_cron_trigger": {"job_id": "x"}})) is None
+        for key in ("heartbeat", "dream:run", "cron:job", "system:check", "subagent:task"):
+            assert factory(AgentTurnHookContext(workspace=tmp_path, channel="websocket", session_key=key)) is None
     scheduled = []
     for hook in (first, second):
         hook.configure_topic_summary(AsyncMock(), scheduled.append)

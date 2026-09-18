@@ -7,6 +7,7 @@ const { APP_ORIGIN, normalizeGateway, isExternalLink, isMediaUrl, createHandler 
 const { installDesktop } = require('./desktop.cjs');
 const { createAppearance } = require('./appearance.cjs');
 const { readWindowState, trackWindowState } = require('./window-state.cjs');
+const { createDesktopContext } = require('./desktop-context.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'nanobot', privileges: {
   standard: true, secure: true, supportFetchAPI: true, corsEnabled: true,
@@ -190,6 +191,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.whenReady().then(async () => {
     desktop = installDesktop({ getWindow: () => window, showWindow });
+    const desktopContext = createDesktopContext();
+    app.on('will-quit', () => desktopContext.dispose());
     installMenu();
     ipcMain.handle('desktop:quit', (event) => {
       trustedChat(event);
@@ -227,15 +230,33 @@ if (!app.requestSingleInstanceLock()) {
       const socket = new WebSocket(url);
       sockets.set(id, { socket, owner });
       const emit = (payload) => { if (!owner.isDestroyed()) owner.send('desktop:socket-event', { id, ...payload }); };
-      socket.addEventListener('open', () => emit({ type: 'open' }));
+      const sendDesktopState = (state) => {
+        if (socket.readyState === WebSocket.OPEN && window?.webContents === owner) {
+          socket.send(JSON.stringify({ type: 'desktop_context_state', ...state }));
+        }
+      };
+      const unsubscribeDesktop = desktopContext.subscribe(sendDesktopState);
+      socket.addEventListener('open', () => { sendDesktopState(desktopContext.status()); emit({ type: 'open' }); });
       socket.addEventListener('message', (message) => {
         if (typeof message.data === 'string') {
+          let frame;
+          try { frame = JSON.parse(message.data); } catch { /* 非 JSON 帧仍交给原客户端。 */ }
+          if (frame?.event === 'desktop_context_request') {
+            if (window?.webContents !== owner || typeof frame.request_id !== 'string' || !/^[a-f0-9]{32}$/.test(frame.request_id)) return;
+            void desktopContext.capture().then((result) => {
+              if (window?.webContents === owner && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: 'desktop_context_result', request_id: frame.request_id, ...result }));
+              }
+            });
+            return;
+          }
           try { if (window?.webContents === owner) desktop.notify(JSON.parse(message.data)); } catch { /* 非 JSON 帧交给原客户端处理。 */ }
           emit({ type: 'message', data: message.data });
         }
       });
       socket.addEventListener('error', () => emit({ type: 'error', message: 'WebSocket 连接失败' }));
       socket.addEventListener('close', (close) => {
+        unsubscribeDesktop();
         sockets.delete(id); emit({ type: 'close', code: close.code, reason: close.reason });
       });
       return id;

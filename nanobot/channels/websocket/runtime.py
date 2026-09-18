@@ -21,6 +21,7 @@ from websockets.asyncio.server import Server, ServerConnection, serve, unix_serv
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as WsRequest
 
+from nanobot.agent.tools.desktop_context import DesktopContextBroker
 from nanobot.bus.events import (
     OUTBOUND_META_AGENT_UI,
     OutboundMessage,
@@ -391,6 +392,7 @@ class WebSocketChannel(BaseChannel):
         self._connection_outbound: dict[ServerConnection, _ConnectionOutbound] = {}
         self._outbound_retire_tasks: set[asyncio.Task[None]] = set()
         self._retired_connections: WeakSet[ServerConnection] = WeakSet()
+        self.desktop_context = DesktopContextBroker(self._send_event)
 
         self.gateway = gateway
         self._media = gateway.media
@@ -509,6 +511,7 @@ class WebSocketChannel(BaseChannel):
     async def _cleanup_connection(self, connection: ServerConnection) -> None:
         """Remove *connection* from every subscription set; safe to call multiple times."""
         self._retired_connections.add(connection)
+        self.desktop_context.disconnect(connection)
         state = self._connection_outbound.get(connection)
         if state is not None:
             state.closing = True
@@ -875,6 +878,12 @@ class WebSocketChannel(BaseChannel):
     ) -> None:
         if not self._register_connection_outbound(connection):
             return
+        if envelope.get("type") in {"desktop_context_state", "desktop_context_result"}:
+            if connection in self._conn_default and self.is_allowed(client_id):
+                self.desktop_context.receive(connection, envelope)
+            return
+        if envelope.get("type") == "message" and self.is_allowed(client_id):
+            self.desktop_context.user_message(connection)
         await self._commands.dispatch(connection, client_id, envelope)
 
     def _prune_webui_request_operations(self) -> None:

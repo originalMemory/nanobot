@@ -405,6 +405,8 @@ def create_active_memory_hook_factory(agent: AgentLoop, config: Config) -> Agent
         request = current_request_context()
         _, automation = automation_history_overrides(turn.metadata)
         if (turn.ephemeral or automation or turn.channel in {"system", "cron", "heartbeat", "subagent"}
+                or turn.session_key == "heartbeat"
+                or (turn.session_key or "").startswith(("dream:", "cron:", "system:", "subagent:"))
                 or turn.workspace is None or turn.workspace.resolve() != workspace
                 or request is None or not request.original_user_text or request.sender_id == "subagent"):
             return None

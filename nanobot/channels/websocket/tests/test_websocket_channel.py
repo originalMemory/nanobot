@@ -5789,16 +5789,29 @@ def test_desktop_history_reads_unified_session_without_merging_old_transcripts(t
     latest = read("?limit=2&direction=latest")
     assert latest["completed_turn_ids"] == ["desktop-completed"]
     assert [m["content"] for m in latest["messages"]] == ["shared question 2", "shared answer 2"]
-    older = read("?before=" + latest["page"]["before_cursor"])
-    assert [m["content"] for m in older["messages"]] == [
-        "shared question 0", "shared answer 0", "shared question 1", "shared answer 1",
-    ]
-    assert len(manager.read_session_file("unified:default")["messages"]) == 6
+    assert latest["page"]["before_cursor"] is None
+    assert not latest["page"]["has_more_before"]
+    assert len(manager.read_session_file("unified:default")["messages"]) == 2
     config.agents.defaults.unified_session = False
     assert [m["content"] for m in read()["messages"]] == ["old display only"]
 
     unauthorized = Request(path, Headers())
     assert gateway.http._handle_webui_thread_get(unauthorized, "websocket%3Adesktop").status_code == 401
+
+
+async def test_desktop_context_frames_require_registered_allowed_connection():
+    channel = _ch(MessageBus(), allowFrom=["allowed"])
+    connection = MagicMock()
+    envelope = {"type": "desktop_context_state", "focused": False, "locked": False, "suspended": False, "unknown": False}
+    await channel._dispatch_active_envelope(connection, "allowed", envelope)
+    assert (await channel.desktop_context.request(False))["reason"] == "disconnected"
+    channel._conn_default[connection] = "desktop"
+    await channel._dispatch_active_envelope(connection, "denied", envelope)
+    assert (await channel.desktop_context.request(False))["reason"] == "disconnected"
+    await channel._dispatch_active_envelope(connection, "allowed", envelope)
+    assert (await channel.desktop_context.request(False))["eligible"]
+    await channel._cleanup_connection(connection)
+    assert (await channel.desktop_context.request(False))["reason"] == "disconnected"
 
 
 def test_handle_webui_thread_get_reports_registered_turn_as_pending(

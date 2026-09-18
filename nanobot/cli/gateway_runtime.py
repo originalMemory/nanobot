@@ -734,6 +734,13 @@ def _run_gateway(
         webui_recovery_action=recovery.handle_action,
         config_path=Path(config_path),
     )
+    from nanobot.agent.tools.desktop_context import DesktopContextTool
+    from nanobot.channels.websocket.runtime import WebSocketChannel
+
+    if "websocket" in channels.enabled_channels:
+        websocket_channel = channels.get_channel("websocket")
+        if isinstance(websocket_channel, WebSocketChannel):
+            tools.register(DesktopContextTool(websocket_channel.desktop_context))  # pyright: ignore[reportAbstractUsage]
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""
