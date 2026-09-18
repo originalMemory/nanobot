@@ -1,6 +1,24 @@
 import type { RuntimeCapabilities, RuntimeSurface } from "./types";
 
+export interface DesktopAppearance {
+  name: string;
+  icon: string;
+  source: "none" | "url" | "directory";
+  url: string;
+  directory: string;
+  order: "sequential" | "random";
+  intervalMinutes: number;
+  opacity: number;
+}
+export interface DesktopAppearanceApi {
+  read(): Promise<DesktopAppearance>;
+  save(value: DesktopAppearance): Promise<DesktopAppearance>;
+  choose(kind: "directory"): Promise<string | null>;
+  wallpaper(): Promise<string | null>;
+}
+
 export interface RuntimeHost {
+  appearance?: DesktopAppearanceApi;
   onScreenshot?: (listener: (dataUrl: string) => void) => () => void;
   /** 桌面伴侣的固定通信入口；普通浏览器不设置。 */
   fixedChatId?: string;
@@ -27,6 +45,7 @@ interface HostRuntimeInfo {
 }
 
 interface NanobotHostApi {
+  appearance?: DesktopAppearanceApi;
   onScreenshot?(listener: (dataUrl: string) => void): () => void;
   fixedChatId?: string;
   getRuntimeInfo?(): Promise<HostRuntimeInfo>;
@@ -115,6 +134,7 @@ export function createRuntimeHost(
   const bridge = getHostSocketBridge();
   return {
     surface,
+    appearance: api?.appearance,
     fixedChatId: api?.fixedChatId,
     onScreenshot: api?.onScreenshot?.bind(api),
     capabilities: mergedCapabilities,

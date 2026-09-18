@@ -47,6 +47,8 @@ async function connectCDP(url) {
 }
 
 async function main() {
+  const authOnly = process.argv.includes("--auth");
+  const surfacesOnly = process.argv.includes("--wallpaper-surfaces");
   const data = await mkdtemp(path.join(os.tmpdir(), 'nanobot-electron-smoke-'));
   const calls = [];
   const frames = [];
@@ -59,11 +61,13 @@ async function main() {
     calls.push(req.url);
     res.setHeader('content-type', 'application/json');
     const route = req.url.split('?')[0];
-    if (route === '/api/media/smoke/image') {
+    if (route === '/api/media/smoke/image' || route === '/wallpaper-fixture') {
+      if (route === '/wallpaper-fixture') { assert.equal(req.headers.authorization, undefined); assert.equal(req.headers.cookie, undefined); }
       res.setHeader('content-type', 'image/png');
-      res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN1sAAAAASUVORK5CYII=', 'base64'));
+      res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAmElEQVR4nO3PsQ2AQBDEwO+/FNogpghimqABLiDyW7K0oYOd9VzH547z/txu/drtUAD6UAD6UAD60G+A5ejUB6D7AHQfgO79AMvRqQ9A9wHoPgDd+wGWo1MfgO4D0H0AuvcDLEenPgDdB6D7AHTvB1iOTn0Aug9A9wHo3g+wHJ36AHQfgO4D0L0fYDk69QHoPgDdB6B7PeAFhauCLAGKqwYAAAAASUVORK5CYII=', 'base64'));
       return;
     }
+    if (authOnly && route === '/webui/bootstrap') { res.statusCode = 401; res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
     let body = {};
     if (route === '/webui/bootstrap') body = { token: 'smoke', api_token: 'smoke', ws_path: '/socket', model_name: 'smoke-model' };
     else if (route === '/api/sessions') body = { sessions: [
@@ -74,11 +78,24 @@ async function main() {
       has_pending_tool_calls: false, completed_turn_ids: [], active_turn_id: null,
       page: { before_cursor: null, has_more_before: false, loaded_message_count: history.length, user_message_offset: 0 },
     };
+    else if (route === '/api/settings/api-service') body = { installed: false, running: false, managed: false, host: '127.0.0.1', port: 8900, timeout: 120, endpoint: 'http://127.0.0.1:8900/v1', command: 'nanobot serve' };
+    else if (route === '/api/settings/usage') body = { days: [], total_tokens: 0, models: [], sources: {} };
     else if (route === '/api/settings') body = {
       agent: { model: 'smoke-model', provider: 'custom', model_preset: 'default', has_api_key: true, max_tokens: 4096, context_window_tokens: 200000 },
       providers: [{ name: 'custom', label: 'Mock', configured: true }],
       model_presets: [{ name: 'default', model: 'smoke-model', provider: 'custom', active: true, is_default: true }],
       model_call_order: ['default'], channels: {},
+      web_search: { provider: 'duckduckgo', providers: [], max_results: 5, timeout: 30 },
+      web: { enable: true, search: { max_results: 5, timeout: 30 }, fetch: { use_jina_reader: true } },
+      image_generation: { enabled: false, provider: 'openrouter', providers: [], model: '',
+        default_aspect_ratio: '1:1', default_image_size: '1K', max_images_per_turn: 4, save_dir: 'generated' },
+      api: { host: '127.0.0.1', port: 8900, timeout: 120 },
+      observability: { provider: 'langfuse', configured: false },
+      runtime: { config_path: '/tmp/smoke/config.json', workspace_path: '/tmp/smoke',
+        heartbeat: { enabled: true, interval_s: 1800 }, dream: { schedule: 'every 2h' }, unified_session: true },
+      advanced: { restrict_to_workspace: false, webui_allow_local_service_access: false,
+        webui_default_access_mode: 'default', mcp_server_count: 0, ssrf_whitelist_count: 0 },
+      requires_restart: false,
     };
     else if (route === '/api/webui/sidebar-state') body = { pinned_keys: [], archived_keys: [], session_order: [], title_overrides: {}, tags_by_key: {}, collapsed_groups: {} };
     else if (route === '/api/commands') body = { commands: [] };
@@ -117,6 +134,7 @@ async function main() {
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const gateway = `http://127.0.0.1:${server.address().port}`;
+  if (authOnly || surfacesOnly) await writeFile(path.join(data, 'appearance.json'), JSON.stringify({ source: 'url', url: `${gateway}/wallpaper-fixture`, opacity: 0.65 }));
   let stderr = '';
   const env = { ...process.env, NANOBOT_DESKTOP_DATA_DIR: data,
     NANOBOT_RAISE_SHORTCUT: '', NANOBOT_DESKTOP_NOTIFICATIONS: '0' };
@@ -147,6 +165,44 @@ async function main() {
     await setup.evaluate(`document.querySelector('#gateway').value=${JSON.stringify(gateway)};document.querySelector('form').requestSubmit()`);
     const chat = await page('nanobot://desktop/');
     activePage = chat;
+    if (authOnly) {
+      await until(() => chat.evaluate('Boolean(document.querySelector("#webui-auth-title"))'), '认证页');
+      assert.equal(await chat.evaluate('Boolean(document.querySelector(".desktop-wallpaper"))'), false);
+      assert.equal(calls.includes('/wallpaper-fixture'), false);
+      const shot = await chat.send('Page.captureScreenshot');
+      const file = path.join(os.tmpdir(), 'nanobot-f05-review-auth-fixed.png');
+      await writeFile(file, Buffer.from(shot.data, 'base64'));
+      console.log(`PASS: 认证页不渲染或加载已配置壁纸；截图 ${file}`);
+      return;
+    }
+    if (surfacesOnly) {
+      await until(() => chat.evaluate('document.documentElement.dataset.wallpaper === "on" && Boolean(document.querySelector(".desktop-user-bubble")) && Boolean(document.querySelector(".thread-composer-surface"))'), '壁纸与聊天表层');
+      for (const theme of ['light', 'dark']) {
+        await chat.evaluate(`document.documentElement.dataset.theme = '${theme}'; document.documentElement.classList.toggle('dark', ${theme === 'dark'})`);
+        for (const focused of [false, true]) {
+          await chat.evaluate(focused ? 'document.querySelector("textarea").focus()' : 'document.activeElement.blur()');
+          await sleep(250);
+          const surfaces = await chat.evaluate(`['.desktop-user-bubble', '.thread-composer-surface'].map(selector => {
+            const style = getComputedStyle(document.querySelector(selector));
+            return { background: style.backgroundColor, opacity: style.opacity };
+          })`);
+          for (const surface of surfaces) {
+            assert.match(surface.background, /rgba\(.*[,]\s*0\.65\)/);
+            assert.equal(surface.opacity, '1');
+          }
+          assert.equal(await chat.evaluate('getComputedStyle(document.querySelector(".thread-composer-dock")).backgroundColor'), 'rgba(0, 0, 0, 0)');
+        }
+      }
+      const shot = await chat.send('Page.captureScreenshot');
+      const file = path.join(os.tmpdir(), 'nanobot-wallpaper-surfaces.png');
+      await writeFile(file, Buffer.from(shot.data, 'base64'));
+      await chat.evaluate('delete document.documentElement.dataset.wallpaper');
+      await sleep(250);
+      assert.match(await chat.evaluate('getComputedStyle(document.querySelector(".desktop-user-bubble")).backgroundColor'), /^rgb\(/);
+      assert.match(await chat.evaluate('getComputedStyle(document.querySelector(".thread-composer-dock")).backgroundColor'), /^rgb\(/);
+      console.log(`PASS: 明暗主题与聚焦状态下背景半透明、内容保持不透明，关闭壁纸恢复背景；截图 ${file}`);
+      return;
+    }
     await until(() => calls.includes('/webui/bootstrap'), 'bootstrap');
     await until(() => chat.evaluate('Boolean(document.querySelector("textarea"))'), '上游聊天输入框');
     await until(() => chat.evaluate('document.body.innerText.includes("统一历史已加载")'), '加载统一历史');
@@ -195,6 +251,37 @@ async function main() {
     await sleep(500);
     assert.equal(await chat.evaluate('document.body.innerText.split("外部渠道回复已自动同步。").length - 1'), 1);
     assert.equal(JSON.parse(await readFile(path.join(data, 'connection.json'), 'utf8')).gateway, gateway);
+    await chat.evaluate("location.hash = '#/settings?section=appearance&chat=websocket%3Adesktop'");
+    await until(() => chat.evaluate('document.querySelectorAll("[data-theme-choice]").length === 9'), '桌面九套主题');
+    for (const theme of ['light', 'dark', 'midnight', 'desert', 'neon', 'marshmallow', 'ink', 'party', 'rainbow']) {
+      await chat.evaluate(`document.querySelector('[data-theme-choice="${theme}"]').click()`);
+      await until(() => chat.evaluate(`document.documentElement.dataset.theme === '${theme}'`), `主题 ${theme}`);
+      await sleep(350); // Wait for theme/route transitions before visual inspection.
+      assert.equal(await chat.evaluate('Array.from(document.querySelectorAll("[data-theme-choice]")).every(button => button.scrollWidth <= button.clientWidth)'), true, '主题名称不溢出');
+      const settingsShot = await chat.send('Page.captureScreenshot');
+      await writeFile(path.join(os.tmpdir(), `nanobot-theme-${theme}-settings.png`), Buffer.from(settingsShot.data, 'base64'));
+      await chat.evaluate("location.hash = '#/chat/websocket%3Adesktop'");
+      await until(() => chat.evaluate('Boolean(document.querySelector("textarea")?.offsetParent)'), '回到聊天');
+      assert.equal(await chat.evaluate(`(() => {
+        const bubble = document.querySelector('.desktop-user-bubble');
+        const probe = document.createElement('div');
+        probe.style.backgroundColor = 'hsl(var(--primary))';
+        probe.style.color = 'hsl(var(--primary-foreground))';
+        document.body.append(probe);
+        const actual = getComputedStyle(bubble), expected = getComputedStyle(probe);
+        const matches = actual.backgroundColor === expected.backgroundColor && actual.color === expected.color;
+        probe.remove(); return matches;
+      })()`), true, `${theme} 用户气泡使用成对主色`);
+      const shot = await chat.send('Page.captureScreenshot');
+      await writeFile(path.join(os.tmpdir(), `nanobot-theme-${theme}-chat.png`), Buffer.from(shot.data, 'base64'));
+      await chat.evaluate("location.hash = '#/settings?section=appearance&chat=websocket%3Adesktop'");
+      await until(() => chat.evaluate('Boolean(document.querySelector("[data-theme-choice=midnight]")?.offsetParent)'), '主题设置');
+    }
+    await chat.evaluate('document.querySelector("[data-theme-choice=midnight]").click()');
+    await until(() => chat.evaluate('document.documentElement.dataset.theme === "midnight" && document.documentElement.classList.contains("dark")'), '深夜主题暗色模式');
+    assert.equal(await chat.evaluate('localStorage.getItem("nanobot-webui.theme")'), 'midnight');
+    await chat.evaluate("location.hash = '#/chat/websocket%3Adesktop'");
+    await until(() => chat.evaluate('Boolean(document.querySelector("textarea")?.offsetParent)'), '回到聊天');
     const screenshot = await chat.send('Page.captureScreenshot');
     const screenshotPath = path.join(os.tmpdir(), 'nanobot-electron-smoke.png');
     await writeFile(screenshotPath, Buffer.from(screenshot.data, 'base64'));
@@ -207,6 +294,55 @@ async function main() {
     assert.equal(frames.some((frame) => frame.type === 'new_chat'), false);
     await until(() => chat.evaluate('document.body.innerText.includes("统一历史已加载") && document.body.innerText.includes("桌面链路已接通")'), '刷新后保留完整历史');
     assert.equal(await chat.evaluate('document.body.innerText.split("桌面链路已接通。").length - 1'), 1);
+    // 检查共享设置页的表面色，而不只检查聊天背景。
+    for (const theme of ['desert', 'neon']) {
+      await chat.evaluate("location.hash = '#/settings?section=appearance&chat=websocket%3Adesktop'");
+      await until(() => chat.evaluate('Boolean(document.querySelector("[data-theme-choice]")?.offsetParent)'), '外观页');
+      await chat.evaluate(`document.querySelector('[data-theme-choice="${theme}"]').click()`);
+      for (const section of ['overview', 'models', 'runtime']) {
+        await chat.evaluate(`location.hash = '#/settings?section=${section}&chat=websocket%3Adesktop'`);
+        await sleep(350);
+        assert.ok(await chat.evaluate('document.body.innerText.length > 100'), `${theme} ${section} 页面可渲染`);
+        const shot = await chat.send('Page.captureScreenshot');
+        await writeFile(path.join(os.tmpdir(), `nanobot-theme-${theme}-${section}.png`), Buffer.from(shot.data, 'base64'));
+      }
+    }
+    await chat.evaluate("localStorage.setItem('nanobot.locale', 'zh-CN'); location.hash = '#/settings?section=appearance&chat=websocket%3Adesktop'");
+    await chat.send('Page.reload');
+    await until(() => chat.evaluate('document.querySelector("[data-theme-choice=midnight]")?.textContent === "深海蓝"'), '中文主题名称');
+    await chat.evaluate('document.querySelector("[data-theme-choice=midnight]").click()');
+    assert.equal(await chat.evaluate('document.documentElement.dataset.theme'), 'midnight');
+    assert.equal(await chat.evaluate('document.documentElement.classList.contains("dark")'), true);
+    await until(() => chat.evaluate('Boolean(document.querySelector("[data-testid=desktop-appearance-settings]"))'), '桌面外观偏好');
+    await chat.evaluate(`(() => {
+      const input = document.querySelector('input[aria-label="显示名称"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Homura smoke');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await until(() => chat.evaluate(`(() => {
+      const button = Array.from(document.querySelectorAll('[data-testid=desktop-appearance-settings] button')).find(item => item.textContent === '保存');
+      if (!button || button.disabled) return false;
+      button.click(); return true;
+    })()`), '保存显示名称');
+    await until(() => chat.evaluate('window.nanobotHost.appearance.read().then(value => value.name === "Homura smoke")'), '本机身份保存');
+    await chat.evaluate(`window.nanobotHost.appearance.read().then(value => window.nanobotHost.appearance.save({ ...value, source: 'url', url: '${gateway}/wallpaper-fixture', opacity: 0.65 }))`);
+    await chat.send('Page.reload');
+    await until(() => chat.evaluate('Boolean(document.querySelector("[data-testid=desktop-wallpaper]"))'), '壁纸恢复');
+    assert.equal(await chat.evaluate('document.documentElement.style.getPropertyValue("--desktop-panel-opacity")'), '0.65');
+    await chat.evaluate('document.querySelector("[data-testid=desktop-appearance-settings]").scrollIntoView({ block: "start" })');
+    await sleep(350);
+    const appearanceShot = await chat.send('Page.captureScreenshot');
+    await writeFile(path.join(os.tmpdir(), 'nanobot-appearance-settings-smoke.png'), Buffer.from(appearanceShot.data, 'base64'));
+
+    await chat.evaluate("location.hash = '#/chat/websocket%3Adesktop'");
+    await until(() => chat.evaluate('Array.from(document.querySelectorAll("[data-testid=desktop-identity]")).some(item => item.textContent.includes("Homura smoke"))'), '聊天显示头像名称');
+    assert.equal(await chat.evaluate('getComputedStyle(document.querySelector(".thread-workspace")).backgroundColor'), 'rgba(0, 0, 0, 0)');
+    const wallpaperShot = await chat.send('Page.captureScreenshot');
+    await writeFile(path.join(os.tmpdir(), 'nanobot-wallpaper-smoke.png'), Buffer.from(wallpaperShot.data, 'base64'));
+    await chat.evaluate('window.nanobotHost.appearance.read().then(value => window.nanobotHost.appearance.save({ ...value, source: "none" }))');
+    await chat.send('Page.reload');
+    await until(() => chat.evaluate('Boolean(document.querySelector("[data-testid=desktop-identity]"))'), '身份重载');
+    assert.equal(await chat.evaluate('document.documentElement.dataset.wallpaper'), undefined);
     console.log('PASS: 连接页、认证隔离边界、图片预览、音频授权/视频拒绝、WebUI 与 WebSocket 消息收发');
     console.log(`截图: ${screenshotPath}`);
   } catch (error) {

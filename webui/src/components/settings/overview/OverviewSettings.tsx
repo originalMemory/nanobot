@@ -1,3 +1,6 @@
+import { DesktopAppearanceSettings } from "@/components/settings/DesktopAppearanceSettings";
+import { THEME_CHOICES, type ThemeChoice } from "@/hooks/useTheme";
+import { getRuntimeHost } from "@/lib/runtime";
 import { useState, type Dispatch, type SetStateAction } from "react";
 import {
   ArrowUpCircle,
@@ -258,11 +261,15 @@ function VersionCheckRow({ currentVersion }: { currentVersion?: string }) {
 export function AppearanceSettings({
   theme,
   onToggleTheme,
+  selectedTheme,
+  onSelectTheme,
   localPrefs,
   onChangeLocalPrefs,
 }: {
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  selectedTheme?: ThemeChoice;
+  onSelectTheme?: (theme: ThemeChoice) => void;
   localPrefs: LocalPreferences;
   onChangeLocalPrefs: Dispatch<SetStateAction<LocalPreferences>>;
 }) {
@@ -274,6 +281,18 @@ export function AppearanceSettings({
         <SettingsSectionTitle>{t("settings.sections.interface")}</SettingsSectionTitle>
         <SettingsGroup>
           <SettingsRow title={t("settings.rows.theme")}>
+            {getRuntimeHost().fixedChatId && onSelectTheme ? (
+              <div className="grid grid-cols-3 gap-2" role="group" aria-label={t("settings.rows.theme")}>
+                {THEME_CHOICES.map((choice) => (
+                  <Button key={choice} data-theme-choice={choice} className="h-auto min-h-10 min-w-0 whitespace-normal px-2"
+                    variant={(selectedTheme ?? theme) === choice ? "default" : "outline"}
+                    aria-pressed={(selectedTheme ?? theme) === choice}
+                    onClick={() => onSelectTheme(choice)}>
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{t(`settings.values.${choice === "light" ? "alabaster" : choice === "dark" ? "graphite" : choice}`)}</span>
+                  </Button>
+                ))}
+              </div>
+            ) : (
             <SegmentedControl
               value={theme}
               ariaLabel={t("settings.rows.theme")}
@@ -287,6 +306,7 @@ export function AppearanceSettings({
                 if (nextTheme !== theme) onToggleTheme();
               }}
             />
+            )}
           </SettingsRow>
 
           <SettingsRow title={t("settings.rows.language")}>
@@ -381,6 +401,7 @@ export function AppearanceSettings({
           </SettingsRow>
         </SettingsGroup>
       </section>
+      <DesktopAppearanceSettings />
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import type { ThemeChoice } from "@/hooks/useTheme";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogLayoutContext, DialogTitle } from "@/components/ui/dialog";
@@ -51,6 +52,8 @@ interface SettingsPageProps {
   showSidebar: boolean;
   mainNavigationExpanded: boolean;
   onToggleTheme: () => void;
+  selectedTheme?: ThemeChoice;
+  onSelectTheme?: (theme: ThemeChoice) => void;
   onBackToChat: () => void;
   skills: SkillSummary[];
   onStartAutomationChat?: (
@@ -72,6 +75,8 @@ export function SettingsPage({
   showSidebar,
   mainNavigationExpanded,
   onToggleTheme,
+  selectedTheme,
+  onSelectTheme,
   onBackToChat,
   skills,
   onStartAutomationChat,
@@ -331,6 +336,8 @@ export function SettingsPage({
           <AppearanceSettings
             theme={theme}
             onToggleTheme={onToggleTheme}
+            selectedTheme={selectedTheme}
+            onSelectTheme={onSelectTheme}
             localPrefs={localPrefs}
             onChangeLocalPrefs={setLocalPrefs}
           />

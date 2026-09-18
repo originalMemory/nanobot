@@ -1,3 +1,4 @@
+import { DesktopIdentity } from "@/providers/DesktopAppearanceProvider";
 import {
   useCallback,
   useEffect,
@@ -418,7 +419,7 @@ export function MessageBubble({
               "text-left text-[16px]/[1.75] whitespace-pre-wrap [overflow-wrap:anywhere]",
               temporary
                 ? "border border-dashed border-muted-foreground/40 bg-transparent"
-                : "bg-secondary/70",
+                : "bg-secondary/70 desktop-user-bubble",
             )}
           >
             {messageText}
@@ -503,6 +504,7 @@ export function MessageBubble({
     && (!empty || hasReasoning || media.length > 0);
   return (
     <div className="w-full text-[15px]" style={{ lineHeight: "var(--cjk-line-height)" }}>
+      <DesktopIdentity />
       {hasReasoning ? (
         <ReasoningBubble
           text={reasoning}

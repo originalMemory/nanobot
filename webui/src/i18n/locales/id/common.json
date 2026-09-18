@@ -66,6 +66,7 @@
     "closeAction": "Tutup obrolan sementara: {{title}}"
   },
   "sidebar": {
+    "unifiedInbox": "Kotak masuk terpadu",
     "resize": "Ubah lebar bilah samping",
     "navigation": "Navigasi bilah samping",
     "collapse": "Ciutkan sidebar",
@@ -87,6 +88,26 @@
     }
   },
   "settings": {
+    "desktop": {
+      "identity": "Identitas desktop",
+      "name": "Nama tampilan",
+      "icon": "Emoji atau inisial",
+      "choose": "Pilih…",
+      "wallpaper": "Wallpaper",
+      "source": "Sumber",
+      "none": "Nonaktif",
+      "url": "URL gambar",
+      "directory": "Folder lokal",
+      "order": "Urutan",
+      "sequential": "Berurutan",
+      "random": "Acak",
+      "interval": "Interval penyegaran (menit)",
+      "opacity": "Opasitas panel",
+      "next": "Berikutnya / segarkan",
+      "error": "Tidak dapat menyimpan atau memuat tampilan. Periksa gambar, folder, dan nilai yang dimasukkan.",
+      "loading": "Memuat tampilan…",
+      "retry": "Coba lagi"
+    },
     "timezoneNoMatches": "Tidak ada zona waktu yang cocok.",
     "configure": "Konfigurasi",
     "exit": {
@@ -308,6 +329,15 @@
     "values": {
       "light": "Terang",
       "dark": "Gelap",
+      "alabaster": "Alabaster",
+      "graphite": "Grafit",
+      "midnight": "Tengah malam",
+      "desert": "Gurun",
+      "neon": "Neon",
+      "marshmallow": "Marshmallow",
+      "ink": "Tinta",
+      "party": "Pesta",
+      "rainbow": "Pelangi",
       "notAvailable": "Tidak tersedia",
       "enabled": "Aktif",
       "disabled": "Nonaktif",

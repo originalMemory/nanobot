@@ -1,3 +1,4 @@
+import { DesktopIdentity, useDesktopAppearance } from "@/providers/DesktopAppearanceProvider";
 import {
   type ReactNode,
   type RefObject,
@@ -108,6 +109,7 @@ function isApplePlatform(): boolean {
 }
 
 export function Sidebar(props: SidebarProps) {
+  const desktopAppearance = useDesktopAppearance();
   const { t } = useTranslation();
   const [menuPortalContainer, setMenuPortalContainer] =
     useState<HTMLElement | null>(null);
@@ -183,12 +185,14 @@ export function Sidebar(props: SidebarProps) {
               : "pointer-events-none",
           )}
         >
-          <img
-            src="/brand/nanobot_mark.svg"
-            alt=""
-            className="h-8 w-8 select-none object-contain"
-            draggable={false}
-          />
+          {desktopAppearance?.config ? <DesktopIdentity compact /> : (
+            <img
+              src="/brand/nanobot_mark.svg"
+              alt=""
+              className="h-8 w-8 select-none object-contain"
+              draggable={false}
+            />
+          )}
         </button>
         {!collapsed && (
           <div className={cn("flex min-w-0 flex-1 items-center justify-end gap-1", props.hostChromeInset && "mt-5")}>

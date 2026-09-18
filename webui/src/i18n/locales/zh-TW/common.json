@@ -88,6 +88,26 @@
     }
   },
   "settings": {
+    "desktop": {
+      "identity": "桌面身分",
+      "name": "顯示名稱",
+      "icon": "表情或簡稱",
+      "choose": "選擇…",
+      "wallpaper": "桌布",
+      "source": "來源",
+      "none": "關閉",
+      "url": "圖片網址",
+      "directory": "本機資料夾",
+      "order": "播放順序",
+      "sequential": "依序",
+      "random": "隨機",
+      "interval": "更新間隔（分鐘）",
+      "opacity": "面板不透明度",
+      "next": "下一張 / 更新",
+      "error": "無法儲存或載入外觀，請檢查圖片、資料夾和填寫的值。",
+      "loading": "正在載入外觀…",
+      "retry": "重試"
+    },
     "timezoneNoMatches": "沒有符合的時區。",
     "configure": "設定",
     "exit": {
@@ -309,6 +329,15 @@
     "values": {
       "light": "淺色",
       "dark": "深色",
+      "alabaster": "雲石白",
+      "graphite": "石墨灰",
+      "midnight": "深海藍",
+      "desert": "沙漠橙",
+      "neon": "螢光",
+      "marshmallow": "棉花糖",
+      "ink": "水墨",
+      "party": "派對橙",
+      "rainbow": "彩虹",
       "notAvailable": "不可用",
       "enabled": "已啟用",
       "disabled": "已停用",

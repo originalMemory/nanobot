@@ -66,6 +66,7 @@
     "closeAction": "Cerrar chat temporal: {{title}}"
   },
   "sidebar": {
+    "unifiedInbox": "Bandeja de entrada unificada",
     "resize": "Cambiar el ancho de la barra lateral",
     "navigation": "Navegación de la barra lateral",
     "collapse": "Contraer barra lateral",
@@ -87,6 +88,26 @@
     }
   },
   "settings": {
+    "desktop": {
+      "identity": "Identidad de escritorio",
+      "name": "Nombre visible",
+      "icon": "Emoji o iniciales",
+      "choose": "Elegir…",
+      "wallpaper": "Fondo de pantalla",
+      "source": "Origen",
+      "none": "Desactivado",
+      "url": "URL de imagen",
+      "directory": "Carpeta local",
+      "order": "Orden",
+      "sequential": "Secuencial",
+      "random": "Aleatorio",
+      "interval": "Intervalo (minutos)",
+      "opacity": "Opacidad del panel",
+      "next": "Siguiente / actualizar",
+      "error": "No se pudo guardar o cargar la apariencia. Revisa la imagen, la carpeta y los valores.",
+      "loading": "Cargando apariencia…",
+      "retry": "Reintentar"
+    },
     "timezoneNoMatches": "No hay zonas horarias que coincidan.",
     "configure": "Configurar",
     "exit": {
@@ -308,6 +329,15 @@
     "values": {
       "light": "Claro",
       "dark": "Oscuro",
+      "alabaster": "Alabastro",
+      "graphite": "Grafito",
+      "midnight": "Medianoche",
+      "desert": "Desierto",
+      "neon": "Neón",
+      "marshmallow": "Malvavisco",
+      "ink": "Tinta",
+      "party": "Fiesta",
+      "rainbow": "Arcoíris",
       "notAvailable": "No disponible",
       "enabled": "Activado",
       "disabled": "Desactivado",

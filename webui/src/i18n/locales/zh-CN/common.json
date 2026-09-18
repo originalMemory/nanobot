@@ -88,6 +88,26 @@
     }
   },
   "settings": {
+    "desktop": {
+      "identity": "桌面身份",
+      "name": "显示名称",
+      "icon": "表情或简称",
+      "choose": "选择…",
+      "wallpaper": "壁纸",
+      "source": "来源",
+      "none": "关闭",
+      "url": "图片网址",
+      "directory": "本地目录",
+      "order": "播放顺序",
+      "sequential": "顺序",
+      "random": "随机",
+      "interval": "刷新间隔（分钟）",
+      "opacity": "面板不透明度",
+      "next": "下一张 / 刷新",
+      "error": "无法保存或加载外观，请检查图片、目录和填写的值。",
+      "loading": "正在加载外观…",
+      "retry": "重试"
+    },
     "timezoneNoMatches": "没有匹配的时区。",
     "configure": "配置",
     "exit": {
@@ -717,6 +737,15 @@
     "values": {
       "light": "浅色",
       "dark": "深色",
+      "alabaster": "云石白",
+      "graphite": "石墨灰",
+      "midnight": "深海蓝",
+      "desert": "沙漠橙",
+      "neon": "荧光",
+      "marshmallow": "棉花糖",
+      "ink": "水墨",
+      "party": "派对橙",
+      "rainbow": "彩虹",
       "notAvailable": "不可用",
       "enabled": "已启用",
       "disabled": "已停用",

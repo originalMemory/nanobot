@@ -104,11 +104,14 @@
           try {
             stored = localStorage.getItem("nanobot-webui.theme");
           } catch {}
-          var dark =
-            stored === "dark" ||
-            (stored !== "light" &&
-              window.matchMedia &&
-              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var choices = ["light", "dark", "midnight", "desert", "neon", "marshmallow", "ink", "party", "rainbow"];
+          var selected = choices.indexOf(stored) >= 0 ? stored :
+            (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          var dark = ["dark", "midnight", "neon"].indexOf(selected) >= 0;
+          document.documentElement.dataset.theme = selected;
+          if (location.protocol === "nanobot:" && location.host === "desktop") {
+            document.documentElement.classList.add("native-host");
+          }
           if (dark) document.documentElement.classList.add("dark");
           var themeColor = document.querySelector('meta[name="theme-color"]');
           if (themeColor) {

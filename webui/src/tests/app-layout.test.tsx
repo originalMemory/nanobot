@@ -351,6 +351,43 @@ describe("App layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("mounts wallpaper only after authentication and cleans it up when leaving the ready app", async () => {
+    const appearance = {
+      read: vi.fn().mockResolvedValue({ name: "nanobot", icon: "", source: "url", url: "https://example.com/image", directory: "", order: "sequential", intervalMinutes: 5, opacity: 0.8 }),
+      save: vi.fn(), choose: vi.fn(), wallpaper: vi.fn().mockResolvedValue("data:image/jpeg;base64,ZmFrZQ=="),
+    };
+    window.nanobotHost = { appearance };
+    const descriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    vi.mocked(fetchBootstrap).mockRejectedValueOnce(new BootstrapAuthRequiredError());
+    const view = render(<App />);
+    try {
+      const password = await screen.findByLabelText("WebUI password");
+      expect(appearance.read).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("desktop-wallpaper")).toBeNull();
+      fireEvent.change(password, { target: { value: "test-password" } });
+      fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+      await screen.findByTestId("desktop-wallpaper");
+      expect(appearance.wallpaper).toHaveBeenCalledOnce();
+      view.unmount();
+      expect(document.documentElement.dataset.wallpaper).toBeUndefined();
+    } finally {
+      view.unmount();
+      if (descriptor) Object.defineProperty(document, "visibilityState", descriptor);
+      else Reflect.deleteProperty(document, "visibilityState");
+    }
+  });
+
+  it("does not load wallpaper over a connection error", async () => {
+    const read = vi.fn();
+    window.nanobotHost = { appearance: { read, save: vi.fn(), choose: vi.fn(), wallpaper: vi.fn() } };
+    vi.mocked(fetchBootstrap).mockRejectedValueOnce(new Error("review-connection-failure"));
+    render(<App />);
+    await screen.findByText("review-connection-failure");
+    expect(read).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("desktop-wallpaper")).toBeNull();
+  });
+
   it("shows the auth form without an invalid-password error on first load", async () => {
     vi.mocked(fetchBootstrap).mockRejectedValueOnce(
       new Error("bootstrap failed: HTTP 401"),

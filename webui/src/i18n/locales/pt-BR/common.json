@@ -66,6 +66,7 @@
     "closeAction": "Fechar chat temporário: {{title}}"
   },
   "sidebar": {
+    "unifiedInbox": "Caixa de entrada unificada",
     "resize": "Redimensionar a barra lateral",
     "navigation": "Navegação da barra lateral",
     "collapse": "Recolher barra lateral",
@@ -87,6 +88,26 @@
     }
   },
   "settings": {
+    "desktop": {
+      "identity": "Identidade do desktop",
+      "name": "Nome de exibição",
+      "icon": "Emoji ou iniciais",
+      "choose": "Escolher…",
+      "wallpaper": "Papel de parede",
+      "source": "Origem",
+      "none": "Desativado",
+      "url": "URL da imagem",
+      "directory": "Pasta local",
+      "order": "Ordem",
+      "sequential": "Sequencial",
+      "random": "Aleatória",
+      "interval": "Intervalo (minutos)",
+      "opacity": "Opacidade do painel",
+      "next": "Próxima / atualizar",
+      "error": "Não foi possível salvar ou carregar a aparência. Verifique a imagem, a pasta e os valores.",
+      "loading": "Carregando aparência…",
+      "retry": "Tentar novamente"
+    },
     "timezoneNoMatches": "Nenhum fuso horário encontrado.",
     "configure": "Configurar",
     "exit": {
@@ -530,6 +551,15 @@
     "values": {
       "light": "Claro",
       "dark": "Escuro",
+      "alabaster": "Alabastro",
+      "graphite": "Grafite",
+      "midnight": "Meia-noite",
+      "desert": "Deserto",
+      "neon": "Neon",
+      "marshmallow": "Marshmallow",
+      "ink": "Tinta",
+      "party": "Festa",
+      "rainbow": "Arco-íris",
       "notAvailable": "Indisponível",
       "enabled": "Habilitado",
       "disabled": "Desabilitado",

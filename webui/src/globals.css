@@ -1339,3 +1339,251 @@
 @media (prefers-reduced-motion: reduce) {
   .sidebar-scrollbar::-webkit-scrollbar-thumb { transition: none; }
 }
+
+/* F05: desktop palettes, with tokens used by the current upstream surfaces. */
+html.native-host[data-theme] {
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--secondary);
+  --input: var(--border);
+  --ring: var(--primary);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-content: var(--foreground);
+  --sidebar-muted-foreground: var(--muted-foreground);
+  --sidebar-selected: var(--sidebar-accent);
+  --settings-canvas: var(--background);
+  --settings-surface: var(--muted);
+  --automation-view-track: hsl(var(--muted));
+  --inline-token-highlight: hsl(var(--primary));
+}
+
+html.native-host[data-theme] .settings-toggle[aria-checked="true"],
+html.native-host[data-theme] .settings-accent-dot {
+  background-color: hsl(var(--primary));
+}
+
+html.native-host[data-theme] .settings-accent-label {
+  color: hsl(var(--primary));
+}
+
+html.native-host[data-theme] .desktop-user-bubble {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+html.native-host[data-theme="light"] {
+  --background: 60 20% 99%;
+  --foreground: 60 2% 17%;
+  --card: 60 20% 99%;
+  --popover: 60 20% 99%;
+  --primary: 191 54% 36%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 48 20% 95%;
+  --muted-foreground: 48 2% 42.7%;
+  --accent: 190 32% 93%;
+  --accent-foreground: 60 2% 17%;
+  --destructive: 0 65% 53%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 50 11% 89%;
+  --sidebar: 48 20% 95%;
+  --sidebar-accent: 190 32% 93%;
+  --sidebar-accent-foreground: 60 2% 17%;
+}
+
+html.native-host[data-theme="dark"] {
+  --background: 240 2% 18%;
+  --foreground: 240 6% 83%;
+  --card: 240 2% 20%;
+  --popover: 240 2% 20%;
+  --primary: 32 95% 45.3%;
+  --primary-foreground: 240 3% 11%;
+  --secondary: 240 3% 11%;
+  --muted-foreground: 240 4% 62.1%;
+  --accent: 32 30% 22%;
+  --accent-foreground: 240 6% 83%;
+  --destructive: 0 55% 66.5%;
+  --destructive-foreground: 240 2% 18%;
+  --border: 240 2% 23%;
+  --sidebar: 240 3% 11%;
+  --sidebar-accent: 32 30% 22%;
+  --sidebar-accent-foreground: 240 6% 83%;
+}
+
+html.native-host[data-theme="midnight"] {
+  --background: 222 47% 11%;
+  --foreground: 214 32% 91%;
+  --card: 217 33% 15%;
+  --popover: 217 33% 15%;
+  --primary: 32 100% 47%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 217 33% 17%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 217 25% 25%;
+  --accent-foreground: 214 32% 91%;
+  --destructive: 0 70% 59.4%;
+  --destructive-foreground: 222 47% 11%;
+  --border: 215 25% 27%;
+  --sidebar: 222 47% 11%;
+  --sidebar-accent: 217 25% 25%;
+  --sidebar-accent-foreground: 214 32% 91%;
+}
+
+html.native-host[data-theme="desert"] {
+  --background: 37 60% 94%;
+  --foreground: 20 33% 27%;
+  --card: 37 60% 96%;
+  --popover: 37 60% 96%;
+  --primary: 28 68% 37.8%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 42 69% 87%;
+  --muted-foreground: 30 25% 38.7%;
+  --accent: 29 71% 63%;
+  --accent-foreground: 20 33% 25%;
+  --destructive: 5 60% 48.2%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 35 48% 70%;
+  --sidebar: 42 69% 90%;
+  --sidebar-accent: 29 71% 63%;
+  --sidebar-accent-foreground: 20 33% 25%;
+}
+
+html.native-host[data-theme="neon"] {
+  --background: 264 70% 12%;
+  --foreground: 240 100% 97%;
+  --card: 262 66% 15%;
+  --popover: 262 66% 18%;
+  --primary: 330 100% 59%;
+  --primary-foreground: 264 70% 12%;
+  --secondary: 262 66% 18%;
+  --muted-foreground: 254 100% 78%;
+  --accent: 257 54% 23%;
+  --accent-foreground: 240 100% 97%;
+  --destructive: 355 90% 60%;
+  --destructive-foreground: 264 70% 12%;
+  --border: 256 60% 55%;
+  --sidebar: 264 70% 12%;
+  --sidebar-accent: 257 54% 23%;
+  --sidebar-accent-foreground: 240 100% 97%;
+}
+
+html.native-host[data-theme="marshmallow"] {
+  --background: 199 100% 95%;
+  --foreground: 260 13% 19%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 338 80% 46.6%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 187 62% 90%;
+  --muted-foreground: 274 13% 44.8%;
+  --accent: 337 80% 90%;
+  --accent-foreground: 260 13% 19%;
+  --destructive: 0 70% 49.2%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 328 31% 82%;
+  --sidebar: 187 62% 92%;
+  --sidebar-accent: 337 80% 90%;
+  --sidebar-accent-foreground: 260 13% 19%;
+}
+
+html.native-host[data-theme="ink"] {
+  --background: 216 33% 97%;
+  --foreground: 210 29% 24%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 210 29% 24%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 31% 95%;
+  --muted-foreground: 184 6% 41.5%;
+  --accent: 210 20% 90%;
+  --accent-foreground: 210 29% 24%;
+  --destructive: 4 79% 47.5%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 180 8% 85%;
+  --sidebar: 216 33% 97%;
+  --sidebar-accent: 210 20% 90%;
+  --sidebar-accent-foreground: 210 29% 24%;
+}
+
+html.native-host[data-theme="party"] {
+  --background: 44 100% 97%;
+  --foreground: 217 19% 27%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 32 100% 34.3%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 42 92% 95%;
+  --muted-foreground: 220 9% 45.6%;
+  --accent: 48 97% 77%;
+  --accent-foreground: 217 19% 27%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 13% 91%;
+  --sidebar: 44 100% 97%;
+  --sidebar-accent: 48 97% 77%;
+  --sidebar-accent-foreground: 217 19% 27%;
+}
+
+html.native-host[data-theme="rainbow"] {
+  --background: 230 75% 98%;
+  --foreground: 240 23% 34%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 263 45% 56%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 216 29% 97%;
+  --muted-foreground: 240 14% 49.7%;
+  --accent: 271 61% 90%;
+  --accent-foreground: 240 23% 34%;
+  --destructive: 1 100% 44.5%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 228 25% 92%;
+  --sidebar: 230 75% 98%;
+  --sidebar-accent: 271 61% 90%;
+  --sidebar-accent-foreground: 240 23% 34%;
+}
+
+/* Wallpaper is a local desktop layer; opaque controls keep their readable palette. */
+.desktop-wallpaper {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+}
+html.native-host[data-wallpaper="on"] .desktop-app-window {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html.native-host[data-wallpaper="on"] .desktop-main {
+  background-color: hsl(var(--background) / var(--desktop-panel-opacity));
+}
+html.native-host[data-wallpaper="on"] .host-sidebar-glass {
+  background-color: hsl(var(--sidebar) / var(--desktop-panel-opacity));
+}
+html.native-host[data-wallpaper="on"] .bg-settings-canvas {
+  background-color: transparent;
+}
+html.native-host[data-wallpaper="on"] .bg-settings-surface {
+  background-color: hsl(var(--settings-surface) / var(--desktop-panel-opacity));
+}
+html.native-host[data-wallpaper="on"] .thread-workspace,
+html.native-host[data-wallpaper="on"] .desktop-pane-canvas,
+html.native-host[data-wallpaper="on"] .workbench-pane,
+html.native-host[data-wallpaper="on"] .thread-workspace > footer {
+  background-color: transparent;
+}
+
+/* Only the surfaces blend with wallpaper; text and controls retain full opacity. */
+html.native-host[data-wallpaper="on"] .desktop-user-bubble {
+  background-color: hsl(var(--primary) / var(--desktop-panel-opacity));
+}
+html.native-host[data-wallpaper="on"] .thread-composer-dock {
+  background: transparent;
+}
+html.native-host[data-wallpaper="on"] .thread-composer-surface,
+html.native-host[data-wallpaper="on"] .thread-composer-surface:focus-within {
+  background-color: hsl(var(--card) / var(--desktop-panel-opacity));
+}

@@ -1,10 +1,11 @@
-const { app, BrowserWindow, Menu, ipcMain, protocol, session, shell, dialog } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, protocol, session, shell, dialog, nativeImage } = require('electron');
 const { readFile, writeFile, rename, mkdir } = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createHash, randomUUID } = require('node:crypto');
 const { APP_ORIGIN, normalizeGateway, isExternalLink, isMediaUrl, createHandler } = require('./gateway.cjs');
 const { installDesktop } = require('./desktop.cjs');
+const { createAppearance } = require('./appearance.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'nanobot', privileges: {
   standard: true, secure: true, supportFetchAPI: true, corsEnabled: true,
@@ -179,6 +180,11 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     desktop = installDesktop({ getWindow: () => window, showWindow });
     installMenu();
+    const appearance = createAppearance({ directory: app.getPath('userData'), nativeImage, dialog });
+    ipcMain.handle('desktop:appearance-read', (event) => { trustedChat(event); return appearance.read(); });
+    ipcMain.handle('desktop:appearance-save', (event, value) => { trustedChat(event); return appearance.save(value); });
+    ipcMain.handle('desktop:appearance-choose', (event, kind) => { trustedChat(event); return appearance.choose(kind, window); });
+    ipcMain.handle('desktop:wallpaper', (event) => { trustedChat(event); return appearance.wallpaper(); });
     // 使用上游 HostSocketBridge，支持 NAS 的 ws://，不降低 renderer 的混合内容保护。
     ipcMain.handle('desktop:socket-open', (event, value) => {
       trustedChat(event);

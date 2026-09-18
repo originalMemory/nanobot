@@ -1,3 +1,4 @@
+import type { ThemeChoice } from "@/hooks/useTheme";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import type { SettingsExitGuard, SettingsSectionKey } from "@/components/settings/contracts";
 import { useSettingsController } from "@/components/settings/useSettingsController";
@@ -14,6 +15,8 @@ interface SettingsViewProps {
   showSidebar?: boolean;
   mainNavigationExpanded?: boolean;
   onToggleTheme: () => void;
+  selectedTheme?: ThemeChoice;
+  onSelectTheme?: (theme: ThemeChoice) => void;
   onBackToChat: () => void;
   onModelNameChange: (modelName: string | null) => void;
   onSettingsChange?: (payload: SettingsPayload) => void;
@@ -41,6 +44,8 @@ export function SettingsView({
   showSidebar = true,
   mainNavigationExpanded = false,
   onToggleTheme,
+  selectedTheme,
+  onSelectTheme,
   onBackToChat,
   onModelNameChange,
   onSettingsChange,
@@ -72,6 +77,8 @@ export function SettingsView({
       showSidebar={showSidebar}
       mainNavigationExpanded={mainNavigationExpanded}
       onToggleTheme={onToggleTheme}
+      selectedTheme={selectedTheme}
+      onSelectTheme={onSelectTheme}
       onBackToChat={onBackToChat}
       skills={skills}
       onStartAutomationChat={onStartAutomationChat}

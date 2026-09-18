@@ -17,6 +17,12 @@ if (location.protocol === 'file:') {
   // 复用上游 native 外观，不宣称有远端工作区的本地目录选择能力。
   contextBridge.exposeInMainWorld('nanobotHost', {
     fixedChatId: 'desktop',
+    appearance: {
+      read: () => ipcRenderer.invoke('desktop:appearance-read'),
+      save: (value) => ipcRenderer.invoke('desktop:appearance-save', value),
+      choose: (kind) => ipcRenderer.invoke('desktop:appearance-choose', kind),
+      wallpaper: () => ipcRenderer.invoke('desktop:wallpaper'),
+    },
     onScreenshot: (listener) => {
       screenshotListener = listener;
       if (pendingScreenshot) { listener(pendingScreenshot); pendingScreenshot = null; }

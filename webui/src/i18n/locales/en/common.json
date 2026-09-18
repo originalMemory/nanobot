@@ -88,6 +88,26 @@
     }
   },
   "settings": {
+    "desktop": {
+      "identity": "Desktop identity",
+      "name": "Display name",
+      "icon": "Emoji or initials",
+      "choose": "Choose…",
+      "wallpaper": "Wallpaper",
+      "source": "Source",
+      "none": "Off",
+      "url": "Image URL",
+      "directory": "Local folder",
+      "order": "Order",
+      "sequential": "Sequential",
+      "random": "Random",
+      "interval": "Refresh interval (minutes)",
+      "opacity": "Panel opacity",
+      "next": "Next / refresh",
+      "error": "Could not save or load appearance. Check the image, folder and entered values.",
+      "loading": "Loading appearance…",
+      "retry": "Retry"
+    },
     "timezoneNoMatches": "No matching timezones.",
     "configure": "Configure",
     "exit": {
@@ -717,6 +737,15 @@
     "values": {
       "light": "Light",
       "dark": "Dark",
+      "alabaster": "Alabaster",
+      "graphite": "Graphite",
+      "midnight": "Midnight",
+      "desert": "Desert",
+      "neon": "Neon",
+      "marshmallow": "Marshmallow",
+      "ink": "Ink",
+      "party": "Party",
+      "rainbow": "Rainbow",
       "notAvailable": "Not available",
       "enabled": "Enabled",
       "disabled": "Disabled",

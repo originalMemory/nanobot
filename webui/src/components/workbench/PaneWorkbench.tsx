@@ -700,7 +700,7 @@ export function PaneWorkbench({
             />
           </header>
         ) : null}
-        <div className="relative min-h-0 flex-1 bg-background">
+        <div className="desktop-pane-canvas relative min-h-0 flex-1 bg-background">
           <div
             ref={gridRef}
             data-testid="pane-grid"

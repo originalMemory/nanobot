@@ -1446,6 +1446,8 @@ class GatewayHTTPHandler:
     # -- Media routes -------------------------------------------------------
 
     def _dispatch_media_routes(self, request: WsRequest, got: str) -> Response | None:
+        if got == "/api/avatar":
+            return self.media.serve_avatar()
         m = re.match(r"^/api/media/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)$", got)
         if m:
             return self._handle_media_fetch(m.group(1), m.group(2), request)

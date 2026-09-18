@@ -66,6 +66,7 @@
     "closeAction": "Fermer la discussion temporaire : {{title}}"
   },
   "sidebar": {
+    "unifiedInbox": "Boîte de réception unifiée",
     "resize": "Redimensionner la barre latérale",
     "navigation": "Navigation de la barre latérale",
     "collapse": "Réduire la barre latérale",
@@ -87,6 +88,26 @@
     }
   },
   "settings": {
+    "desktop": {
+      "identity": "Identité du bureau",
+      "name": "Nom affiché",
+      "icon": "Émoji ou initiales",
+      "choose": "Choisir…",
+      "wallpaper": "Fond d’écran",
+      "source": "Source",
+      "none": "Désactivé",
+      "url": "URL de l’image",
+      "directory": "Dossier local",
+      "order": "Ordre",
+      "sequential": "Séquentiel",
+      "random": "Aléatoire",
+      "interval": "Intervalle (minutes)",
+      "opacity": "Opacité des panneaux",
+      "next": "Suivant / actualiser",
+      "error": "Impossible d’enregistrer ou de charger l’apparence. Vérifiez l’image, le dossier et les valeurs.",
+      "loading": "Chargement de l’apparence…",
+      "retry": "Réessayer"
+    },
     "timezoneNoMatches": "Aucun fuseau horaire correspondant.",
     "configure": "Configurer",
     "exit": {
@@ -308,6 +329,15 @@
     "values": {
       "light": "Clair",
       "dark": "Sombre",
+      "alabaster": "Albâtre",
+      "graphite": "Graphite",
+      "midnight": "Minuit",
+      "desert": "Désert",
+      "neon": "Néon",
+      "marshmallow": "Guimauve",
+      "ink": "Encre",
+      "party": "Fête",
+      "rainbow": "Arc-en-ciel",
       "notAvailable": "Indisponible",
       "enabled": "Activé",
       "disabled": "Désactivé",

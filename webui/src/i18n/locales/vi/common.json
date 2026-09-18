@@ -66,6 +66,7 @@
     "closeAction": "Đóng trò chuyện tạm thời: {{title}}"
   },
   "sidebar": {
+    "unifiedInbox": "Hộp thư hợp nhất",
     "resize": "Điều chỉnh độ rộng thanh bên",
     "navigation": "Điều hướng thanh bên",
     "collapse": "Thu gọn thanh bên",
@@ -87,6 +88,26 @@
     }
   },
   "settings": {
+    "desktop": {
+      "identity": "Thông tin hiển thị",
+      "name": "Tên hiển thị",
+      "icon": "Biểu tượng hoặc tên viết tắt",
+      "choose": "Chọn…",
+      "wallpaper": "Hình nền",
+      "source": "Nguồn",
+      "none": "Tắt",
+      "url": "URL hình ảnh",
+      "directory": "Thư mục cục bộ",
+      "order": "Thứ tự",
+      "sequential": "Tuần tự",
+      "random": "Ngẫu nhiên",
+      "interval": "Khoảng làm mới (phút)",
+      "opacity": "Độ đục của bảng",
+      "next": "Tiếp / làm mới",
+      "error": "Không thể lưu hoặc tải giao diện. Kiểm tra ảnh, thư mục và các giá trị đã nhập.",
+      "loading": "Đang tải giao diện…",
+      "retry": "Thử lại"
+    },
     "timezoneNoMatches": "Không tìm thấy múi giờ phù hợp.",
     "configure": "Cấu hình",
     "exit": {
@@ -308,6 +329,15 @@
     "values": {
       "light": "Sáng",
       "dark": "Tối",
+      "alabaster": "Trắng thạch cao",
+      "graphite": "Xám than chì",
+      "midnight": "Nửa đêm",
+      "desert": "Sa mạc",
+      "neon": "Neon",
+      "marshmallow": "Kẹo dẻo",
+      "ink": "Mực",
+      "party": "Lễ hội",
+      "rainbow": "Cầu vồng",
       "notAvailable": "Không khả dụng",
       "enabled": "Đã bật",
       "disabled": "Đã tắt",

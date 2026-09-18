@@ -27,7 +27,7 @@ export function ToggleButton({
         if (!disabled) onChange(!checked);
       }}
       className={cn(
-        "relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full p-[2px]",
+        "settings-toggle relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full p-[2px]",
         "transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         checked
           ? "bg-[#2997FF]"

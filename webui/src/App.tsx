@@ -1,3 +1,4 @@
+import { DesktopAppearanceProvider } from "@/providers/DesktopAppearanceProvider";
 import {
   lazy,
   Suspense,
@@ -1066,19 +1067,21 @@ export default function App() {
   };
 
   return (
-    <ClientProvider
-      client={state.client}
-      token={state.token}
-      modelName={state.modelName}
-      ingressLimits={state.ingressLimits}
-    >
-      <Shell
-        runtimeSurface={state.runtimeSurface}
-        onModelNameChange={handleModelNameChange}
-        onLogout={handleLogout}
-        onNativeEngineRestart={handleNativeEngineRestart}
-      />
-    </ClientProvider>
+    <DesktopAppearanceProvider>
+      <ClientProvider
+        client={state.client}
+        token={state.token}
+        modelName={state.modelName}
+        ingressLimits={state.ingressLimits}
+      >
+        <Shell
+          runtimeSurface={state.runtimeSurface}
+          onModelNameChange={handleModelNameChange}
+          onLogout={handleLogout}
+          onNativeEngineRestart={handleNativeEngineRestart}
+        />
+      </ClientProvider>
+    </DesktopAppearanceProvider>
   );
 }
 
@@ -1095,7 +1098,7 @@ function Shell({
 }) {
   const { t, i18n } = useTranslation();
   const { client, getToken } = useClient();
-  const { theme, toggle } = useTheme();
+  const { theme, selectedTheme, toggle, setTheme } = useTheme();
   const {
     sessions,
     loading,
@@ -2674,7 +2677,7 @@ function Shell({
     <ThemeProvider theme={theme}>
       <div
         className={cn(
-          "relative h-full w-full overflow-hidden",
+          "desktop-app-window relative h-full w-full overflow-hidden",
           showHostChrome && "host-window-shell",
         )}
       >
@@ -2783,7 +2786,7 @@ function Shell({
           ) : null}
         <main
           className={cn(
-            "relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background",
+            "desktop-main relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background",
           )}
         >
             <div
@@ -2934,6 +2937,8 @@ function Shell({
                   <SettingsView
                     registerExitGuard={registerSettingsExitGuard}
                     theme={theme}
+                    selectedTheme={selectedTheme}
+                    onSelectTheme={setTheme}
                     initialSection={settingsInitialSection}
                     initialSettings={settingsSnapshot}
                     showSidebar={view === "settings"}

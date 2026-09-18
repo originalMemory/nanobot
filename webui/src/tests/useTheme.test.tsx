@@ -7,6 +7,7 @@ describe("useTheme", () => {
   beforeEach(() => {
     localStorage.removeItem("nanobot-webui.theme");
     document.documentElement.classList.remove("dark");
+    delete document.documentElement.dataset.theme;
 
     const themeColor = document.createElement("meta");
     themeColor.name = "theme-color";
@@ -19,6 +20,7 @@ describe("useTheme", () => {
   afterEach(() => {
     document.querySelector('meta[name="theme-color"]')?.remove();
     document.documentElement.classList.remove("dark");
+    delete document.documentElement.dataset.theme;
     localStorage.removeItem("nanobot-webui.theme");
   });
 
@@ -36,4 +38,19 @@ describe("useTheme", () => {
     expect(themeColor?.content).toBe("#ffffff");
     expect(localStorage.getItem("nanobot-webui.theme")).toBe("light");
   });
+  it("restores a custom palette while exposing its light/dark mode to code highlighting", () => {
+    localStorage.setItem("nanobot-webui.theme", "midnight");
+    const { result } = renderHook(useTheme);
+    expect(result.current.theme).toBe("dark");
+    expect(result.current.selectedTheme).toBe("midnight");
+    expect(document.documentElement.dataset.theme).toBe("midnight");
+    expect(document.documentElement).toHaveClass("dark");
+    act(() => result.current.setTheme("desert"));
+    expect(result.current.theme).toBe("light");
+    expect(document.documentElement).not.toHaveClass("dark");
+    expect(localStorage.getItem("nanobot-webui.theme")).toBe("desert");
+    act(() => result.current.toggle());
+    expect(result.current.selectedTheme).toBe("dark");
+  });
+
 });

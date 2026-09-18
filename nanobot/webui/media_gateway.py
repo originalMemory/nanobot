@@ -15,6 +15,7 @@ from nanobot.webui.attachment_ingress import (
     AttachmentIngressResult,
     store_inbound_attachments,
 )
+from nanobot.webui.http_utils import http_error, http_response
 from nanobot.webui.ingress_policy import AttachmentIngressLimits
 from nanobot.webui.media_api import (
     serve_signed_media,
@@ -54,6 +55,25 @@ class WebUIMediaGateway:
             logger=self.logger,
             limits=self.attachment_limits,
         )
+
+    def serve_avatar(self) -> Response:
+        """Serve the fixed public profile image, matching the lover media filenames."""
+        root = self._media_dir(None).resolve()
+        for name, mime in (("avatar.jpg", "image/jpeg"), ("avatar.png", "image/png"), ("avatar.webp", "image/webp")):
+            try:
+                candidate = (root / name).resolve()
+                candidate.relative_to(root)
+                if not candidate.is_file():
+                    continue
+                return http_response(candidate.read_bytes(), content_type=mime, extra_headers=[
+                    ("Cache-Control", "public, max-age=300, must-revalidate"),
+                    ("X-Content-Type-Options", "nosniff"),
+                ])
+            except ValueError:
+                continue
+            except OSError:
+                return http_error(500, "read error")
+        return http_error(404, "not found")
 
     def serve_signed_media(
         self,
