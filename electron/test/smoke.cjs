@@ -50,7 +50,11 @@ async function main() {
   const data = await mkdtemp(path.join(os.tmpdir(), 'nanobot-electron-smoke-'));
   const calls = [];
   const frames = [];
-  const chatId = 'smoke-chat';
+  const chatId = 'desktop';
+  const history = [
+    { id: 'shared-user', role: 'user', content: '这是另一渠道保存的历史', createdAt: 1700000000000 },
+    { id: 'shared-answer', role: 'assistant', content: '统一历史已加载。', createdAt: 1700000001000 },
+  ];
   const server = http.createServer((req, res) => {
     calls.push(req.url);
     res.setHeader('content-type', 'application/json');
@@ -62,8 +66,14 @@ async function main() {
     }
     let body = {};
     if (route === '/webui/bootstrap') body = { token: 'smoke', api_token: 'smoke', ws_path: '/socket', model_name: 'smoke-model' };
-    else if (route === '/api/sessions') body = { sessions: [] };
-    else if (route.endsWith('/webui-thread')) body = { sessionKey: `websocket:${chatId}`, messages: [] };
+    else if (route === '/api/sessions') body = { sessions: [
+      { key: 'websocket:old-test', title: 'OLD-TEST-RESIDUE', created_at: '', updated_at: '' },
+    ] };
+    else if (route.endsWith('/webui-thread')) body = {
+      schemaVersion: 3, sessionKey: `websocket:${chatId}`, messages: history,
+      has_pending_tool_calls: false, completed_turn_ids: [], active_turn_id: null,
+      page: { before_cursor: null, has_more_before: false, loaded_message_count: history.length, user_message_offset: 0 },
+    };
     else if (route === '/api/settings') body = {
       agent: { model: 'smoke-model', provider: 'custom', model_preset: 'default', has_api_key: true, max_tokens: 4096, context_window_tokens: 200000 },
       providers: [{ name: 'custom', label: 'Mock', configured: true }],
@@ -86,7 +96,7 @@ async function main() {
   const wss = new WebSocketServer({ server });
   wss.on('connection', (ws) => {
     const send = (value) => ws.send(JSON.stringify(value));
-    send({ event: 'ready', chat_id: chatId, client_id: 'smoke-client' });
+    send({ event: 'ready', chat_id: 'random-server-default', client_id: 'smoke-client' });
     ws.on('message', (raw) => {
       const frame = JSON.parse(raw); frames.push(frame);
       if (frame.type === 'new_chat' || frame.type === 'attach') {
@@ -94,6 +104,10 @@ async function main() {
       } else if (frame.type === 'webui_request') {
         send({ event: 'webui_response', request_id: frame.request_id, ok: true, result: {} });
       } else if (frame.type === 'message') {
+        history.push(
+          { id: `user-${history.length}`, role: 'user', content: frame.content, createdAt: Date.now() },
+          { id: `assistant-${history.length}`, role: 'assistant', content: '桌面链路已接通。', createdAt: Date.now() },
+        );
         const base = { chat_id: frame.chat_id, turn_id: frame.turn_id };
         send({ ...base, event: 'message_accepted', content: frame.content });
         send({ ...base, event: 'message', role: 'assistant', content: '桌面链路已接通。', text: '桌面链路已接通。' });
@@ -134,6 +148,9 @@ async function main() {
     activePage = chat;
     await until(() => calls.includes('/webui/bootstrap'), 'bootstrap');
     await until(() => chat.evaluate('Boolean(document.querySelector("textarea"))'), '上游聊天输入框');
+    await until(() => chat.evaluate('document.body.innerText.includes("统一历史已加载")'), '加载统一历史');
+    await until(() => chat.evaluate('Boolean(document.querySelector("nav")?.innerText.match(/Unified inbox|统一收件箱/))'), '统一收件箱入口');
+    assert.equal(await chat.evaluate('document.body.innerText.includes("OLD-TEST-RESIDUE")'), false);
     assert.equal(await chat.evaluate('typeof require'), 'undefined');
     assert.equal(await chat.evaluate('typeof window.desktopSetup'), 'undefined');
     assert.equal(await chat.evaluate(`window.nanobotHost.openSocket('ws://example.com/').then(() => false, () => true)`), true);
@@ -162,15 +179,33 @@ async function main() {
       button.click(); return true;
     })()`), '发送按钮');
     await until(() => frames.some((frame) => frame.type === 'message'), '发送消息');
+    assert.ok(frames.filter((frame) => frame.type === 'message').every((frame) => frame.chat_id === 'desktop'));
+    assert.equal(frames.some((frame) => frame.type === 'new_chat'), false);
     await until(() => chat.evaluate('document.body.innerText.includes("桌面链路已接通")'), '回复展示');
+    assert.equal(await chat.evaluate(`Array.from(document.querySelectorAll('button')).some(button => /Add pane|Fork|添加面板|分叉/i.test(button.getAttribute('aria-label') || ''))`), false);
+    history.push(
+      { id: 'external-user', role: 'user', content: '飞书发来的新消息', createdAt: Date.now(), source: { kind: 'channel', label: 'feishu' } },
+      { id: 'external-answer', role: 'assistant', content: '外部渠道回复已自动同步。', createdAt: Date.now(), source: { kind: 'channel', label: 'feishu' } },
+    );
+    for (const client of wss.clients) client.send(JSON.stringify({ event: 'session_updated', chat_id: chatId, scope: 'thread' }));
+    await until(() => chat.evaluate('document.body.innerText.includes("外部渠道回复已自动同步")'), '外部消息自动同步（不刷新窗口）');
+    assert.equal(await chat.evaluate('document.querySelectorAll("[data-channel-source]").length'), 2);
+    for (const client of wss.clients) client.send(JSON.stringify({ event: 'session_updated', chat_id: chatId, scope: 'thread' }));
+    await sleep(500);
+    assert.equal(await chat.evaluate('document.body.innerText.split("外部渠道回复已自动同步。").length - 1'), 1);
     assert.equal(JSON.parse(await readFile(path.join(data, 'connection.json'), 'utf8')).gateway, gateway);
     const screenshot = await chat.send('Page.captureScreenshot');
     const screenshotPath = path.join(os.tmpdir(), 'nanobot-electron-smoke.png');
     await writeFile(screenshotPath, Buffer.from(screenshot.data, 'base64'));
     const bootstrapCount = calls.filter((route) => route === '/webui/bootstrap').length;
+    const attachCount = frames.filter((frame) => frame.type === 'attach' && frame.chat_id === 'desktop').length;
     await chat.send('Page.reload');
     await until(() => calls.filter((route) => route === '/webui/bootstrap').length > bootstrapCount, '重新连接');
     await until(() => wss.clients.size === 1, '重载后旧 WebSocket 清理');
+    await until(() => frames.filter((frame) => frame.type === 'attach' && frame.chat_id === 'desktop').length > attachCount, '重载后订阅同一桌面入口');
+    assert.equal(frames.some((frame) => frame.type === 'new_chat'), false);
+    await until(() => chat.evaluate('document.body.innerText.includes("统一历史已加载") && document.body.innerText.includes("桌面链路已接通")'), '刷新后保留完整历史');
+    assert.equal(await chat.evaluate('document.body.innerText.split("桌面链路已接通。").length - 1'), 1);
     console.log('PASS: 连接页、认证隔离边界、图片预览、音频授权/视频拒绝、WebUI 与 WebSocket 消息收发');
     console.log(`截图: ${screenshotPath}`);
   } catch (error) {

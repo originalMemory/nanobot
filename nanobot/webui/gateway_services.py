@@ -112,7 +112,12 @@ def build_gateway_services(
         workspaces=workspaces,
         logger=logger,
     )
-    session_projection = WebUISessionProjection(session_manager, log=logger)
+    session_projection = WebUISessionProjection(
+        session_manager,
+        # 读取用户配置以决定查询目标，不会强制开启统一会话。
+        unified_session=lambda: settings.config.load().agents.defaults.unified_session,
+        log=logger,
+    )
     http = GatewayHTTPHandler(
         config=config,
         session_manager=session_manager,

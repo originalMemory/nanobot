@@ -9,6 +9,7 @@ if (location.protocol === 'file:') {
 } else if (location.protocol === 'nanobot:' && location.host === 'desktop') {
   // 复用上游 native 外观，不宣称有远端工作区的本地目录选择能力。
   contextBridge.exposeInMainWorld('nanobotHost', {
+    fixedChatId: 'desktop',
     openSocket: (url) => ipcRenderer.invoke('desktop:socket-open', url),
     sendSocket: (id, data) => ipcRenderer.invoke('desktop:socket-send', id, data),
     closeSocket: (id) => ipcRenderer.invoke('desktop:socket-close', id),

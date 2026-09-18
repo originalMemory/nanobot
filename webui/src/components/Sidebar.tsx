@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import { sidebarShortcutAria, sidebarShortcutLabel } from "@/lib/sidebar-shortcuts";
 
 interface SidebarProps {
+  fixedChatKey?: string | null;
   sessions: ChatSummary[];
   temporarySessions?: ChatSummary[];
   activeKey: string | null;
@@ -114,13 +115,15 @@ export function Sidebar(props: SidebarProps) {
   const toggleLabel = t("thread.header.toggleSidebar");
   const apple = isApplePlatform();
   const activeActionRef = useRef<HTMLButtonElement>(null);
-  const activeActionId = collapsed && props.newChatActive
+  const activeActionId = props.fixedChatKey && props.activeKey === props.fixedChatKey
+    ? "unified-inbox"
+    : collapsed && props.newChatActive
     ? "new-chat"
     : props.activeUtility
       ? `utility:${props.activeUtility}`
       : null;
 
-  const newChatButton = (
+  const newChatButton = !props.fixedChatKey && (
     <SidebarActionButton
       collapsed={collapsed}
       label={t("sidebar.newChat")}
@@ -134,7 +137,7 @@ export function Sidebar(props: SidebarProps) {
       ariaKeyShortcuts={sidebarShortcutAria("newChat")}
     />
   );
-  const searchButton = (
+  const searchButton = !props.fixedChatKey && (
     <SidebarActionButton
       collapsed={collapsed}
       label={t("sidebar.searchAria")}
@@ -209,6 +212,16 @@ export function Sidebar(props: SidebarProps) {
         )}
       >
         {collapsed && <>{newChatButton}{searchButton}</>}
+        {props.fixedChatKey && (
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={t("sidebar.unifiedInbox", { defaultValue: "Unified inbox" })}
+            onClick={() => props.onSelect(props.fixedChatKey!)}
+            active={props.activeKey === props.fixedChatKey}
+            selectionRef={activeActionRef}
+            icon={<MessageCircle className="h-4 w-4" />}
+          />
+        )}
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.apps")}
@@ -253,7 +266,7 @@ export function Sidebar(props: SidebarProps) {
           selectionRef={activeActionRef}
           icon={<MessageCircle className="h-4 w-4" />}
         />
-        {props.archivedCount ? (
+        {!props.fixedChatKey && props.archivedCount ? (
           <SidebarActionButton
             collapsed={collapsed}
             label={props.showArchived ? t("chat.hideArchived") : t("chat.showArchived")}
@@ -268,7 +281,7 @@ export function Sidebar(props: SidebarProps) {
           collapsed && "pointer-events-none opacity-0",
         )}
       >
-        {!collapsed && (
+        {!collapsed && !props.fixedChatKey && (
           <ChatList
             sessions={props.sessions}
             temporarySessions={props.temporarySessions}

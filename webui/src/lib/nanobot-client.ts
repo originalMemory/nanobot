@@ -150,6 +150,8 @@ export function isSystemCommandTurnId(value: string | null | undefined): value i
 
 export interface NanobotClientOptions {
   url: string;
+  /** 固定桌面入口，不为每次对话生成新 ID。 */
+  fixedChatId?: string;
   reconnect?: boolean;
   /** Maximum UTF-8 bytes accepted for one websocket message. */
   maxFrameBytes?: number;
@@ -256,7 +258,11 @@ export class NanobotClient {
   }
 
   get defaultChatId(): string | null {
-    return this.readyChatId;
+    return this.fixedChatId ?? this.readyChatId;
+  }
+
+  get fixedChatId(): string | null {
+    return this.options.fixedChatId ?? null;
   }
 
   /** Swap the URL (e.g. after fetching a fresh token) then reconnect. */
@@ -820,6 +826,11 @@ export class NanobotClient {
 
   /** Ask the server to provision a new chat_id; resolves with the assigned id. */
   newChat(timeoutMs: number = 5_000, workspaceScope?: WorkspaceScopePayload | null): Promise<string> {
+    if (this.fixedChatId) {
+      this.attach(this.fixedChatId);
+      if (workspaceScope) this.setWorkspaceScope(this.fixedChatId, workspaceScope);
+      return Promise.resolve(this.fixedChatId);
+    }
     if (this.pendingNewChat) {
       return Promise.reject(new Error("newChat already in flight"));
     }
@@ -838,6 +849,7 @@ export class NanobotClient {
 
   /** Ask the WebUI gateway to create a connection-owned non-persistent chat. */
   newTemporaryChat(timeoutMs: number = 5_000): Promise<string> {
+    if (this.fixedChatId) return Promise.reject(new Error("统一桌面入口不创建临时会话"));
     if (this.pendingNewChat) {
       return Promise.reject(new Error("newChat already in flight"));
     }
@@ -941,6 +953,7 @@ export class NanobotClient {
     title?: string,
     timeoutMs: number = 5_000,
   ): Promise<string> {
+    if (this.fixedChatId) return Promise.reject(new Error("统一桌面入口不创建分叉会话"));
     if (this.pendingNewChat) {
       return Promise.reject(new Error("newChat already in flight"));
     }
@@ -1064,6 +1077,7 @@ export class NanobotClient {
   }
 
   private handleOpen(): void {
+    if (this.fixedChatId) this.knownChats.add(this.fixedChatId);
     this.setStatus("open");
     this.reconnectAttempts = 0;
     // Re-attach every known chat_id so deliveries continue routing after a drop.
@@ -1177,8 +1191,8 @@ export class NanobotClient {
     }
 
     if (parsed.event === "ready") {
-      this.readyChatId = parsed.chat_id;
-      this.knownChats.add(parsed.chat_id);
+      this.readyChatId = this.fixedChatId ?? parsed.chat_id;
+      this.knownChats.add(this.readyChatId);
       return;
     }
 

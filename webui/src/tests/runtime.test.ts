@@ -20,6 +20,7 @@ describe("runtime host facade", () => {
 
     expect(host.surface).toBe("browser");
     expect(host.pickFolder).toBeUndefined();
+    expect(host.fixedChatId).toBeUndefined();
     expect(isNativeRuntime()).toBe(false);
   });
 

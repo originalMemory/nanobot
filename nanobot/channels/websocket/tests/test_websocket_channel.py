@@ -5695,12 +5695,14 @@ async def test_webui_thread_diagnostics_hash_session_key(tmp_path, monkeypatch) 
 
 
 @pytest.mark.asyncio
-async def test_handle_session_context_get_reads_detached_session() -> None:
+@pytest.mark.parametrize("unified", [False, True])
+async def test_handle_session_context_get_reads_detached_session(monkeypatch, unified) -> None:
     from urllib.parse import quote
 
     from websockets.datastructures import Headers
     from websockets.http11 import Request
 
+    from nanobot.config.schema import Config
     from nanobot.session import Session
 
     usage = LLMUsage.reported(
@@ -5710,15 +5712,18 @@ async def test_handle_session_context_get_reads_detached_session() -> None:
         cache_read_tokens=6,
     ).with_timing(generation_ms=300, ttft_ms=45)
     session = Session(
-        key="websocket:context-route",
+        key="unified:default" if unified else "websocket:context-route",
         messages=[{"role": "user", "content": "hello"}],
         metadata={"_last_usage": usage.to_dict()},
     )
     manager = MagicMock()
     manager.read_session_snapshot.return_value = session
     gateway = _basic_handler(MagicMock(), session_manager=manager)
+    config = Config()
+    config.agents.defaults.unified_session = unified
+    monkeypatch.setattr(gateway.http.settings.config, "load", lambda: config)
     gateway.tokens.api_tokens["tok"] = time.monotonic() + 300.0
-    encoded = quote(session.key, safe="")
+    encoded = quote("websocket:desktop" if unified else session.key, safe="")
     request = Request(
         f"/api/sessions/{encoded}/context",
         Headers([("Authorization", "Bearer tok")]),
@@ -5743,6 +5748,53 @@ async def test_handle_session_context_get_reads_detached_session() -> None:
         "timed_requests": 1,
     }
     manager.read_session_snapshot.assert_called_once_with(session.key)
+
+
+def test_desktop_history_reads_unified_session_without_merging_old_transcripts(tmp_path, monkeypatch):
+    """同一历史接口切换数据源，旧桌面流式记录不重复混入。"""
+    from websockets.datastructures import Headers
+    from websockets.http11 import Request
+
+    from nanobot.config.schema import Config
+    from nanobot.session.manager import SessionManager
+    from nanobot.webui.transcript import append_transcript_object
+
+    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    manager = SessionManager(tmp_path / "workspace")
+    shared = manager.get_or_create("unified:default")
+    for index in range(3):
+        shared.add_message("user", f"shared question {index}")
+        shared.add_message("assistant", f"shared answer {index}")
+    shared.last_archived = 4
+    manager.save(shared)
+    append_transcript_object("websocket:desktop", {"event": "message", "chat_id": "desktop", "text": "old display only"})
+    append_transcript_object("websocket:desktop", {"event": "turn_end", "chat_id": "desktop", "turn_id": "desktop-completed"})
+    gateway = _basic_handler(MagicMock(), session_manager=manager)
+    config = Config()
+    config.agents.defaults.unified_session = True
+    monkeypatch.setattr(gateway.http.settings.config, "load", lambda: config)
+    gateway.tokens.api_tokens["tok"] = time.monotonic() + 300
+    path = "/api/sessions/websocket%3Adesktop/webui-thread"
+
+    def read(query=""):
+        request = Request(path + query, Headers([("Authorization", "Bearer tok"), ("If-None-Match", '"old"')]))
+        response = gateway.http._handle_webui_thread_get(request, "websocket%3Adesktop")
+        assert response.status_code == 200
+        return json.loads(response.body)
+
+    latest = read("?limit=2&direction=latest")
+    assert latest["completed_turn_ids"] == ["desktop-completed"]
+    assert [m["content"] for m in latest["messages"]] == ["shared question 2", "shared answer 2"]
+    older = read("?before=" + latest["page"]["before_cursor"])
+    assert [m["content"] for m in older["messages"]] == [
+        "shared question 0", "shared answer 0", "shared question 1", "shared answer 1",
+    ]
+    assert len(manager.read_session_file("unified:default")["messages"]) == 6
+    config.agents.defaults.unified_session = False
+    assert [m["content"] for m in read()["messages"]] == ["old display only"]
+
+    unauthorized = Request(path, Headers())
+    assert gateway.http._handle_webui_thread_get(unauthorized, "websocket%3Adesktop").status_code == 401
 
 
 def test_handle_webui_thread_get_reports_registered_turn_as_pending(

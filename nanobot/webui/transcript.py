@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, NamedTuple, Sequence, cast
 from urllib.parse import unquote, urlparse
@@ -25,7 +26,8 @@ from nanobot.session.automation_turns import is_automation_kind
 from nanobot.session.history_visibility import is_hidden_history_message
 from nanobot.session.manager import SessionManager
 from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY, WEBUI_TURN_METADATA_KEY
-from nanobot.webui.session_identity import webui_chat_id, webui_session_key
+from nanobot.webui.outbound_wire import project_tool_events
+from nanobot.webui.session_identity import DESKTOP_CHAT_ID, webui_chat_id, webui_session_key
 
 WEBUI_TRANSCRIPT_SCHEMA_VERSION = 3
 WEBUI_FORK_MARKER_EVENT = "fork_marker"
@@ -2265,7 +2267,7 @@ def replay_transcript_to_ui_messages(
             return {}
         source_data = cast(dict[str, Any], source)
         kind = source_data.get("kind")
-        if not isinstance(kind, str) or not is_automation_kind(kind):
+        if not isinstance(kind, str) or not (is_automation_kind(kind) or kind == "channel"):
             return {}
         out: dict[str, Any] = {"source": {"kind": kind}}
         label = source_data.get("label")
@@ -2681,6 +2683,7 @@ def replay_transcript_to_ui_messages(
                 "role": "user",
                 "content": text_s,
                 **_turn_fields(rec, "user"),
+                **_source_fields(rec),
                 "createdAt": _created_at_ms(rec, idx),
             }
             if media_att:
@@ -3147,6 +3150,15 @@ def completed_turn_ids(lines: list[dict[str, Any]]) -> list[str]:
     return completed
 
 
+def read_recent_transcript_turn_state(session_key: str) -> tuple[list[str], bool]:
+    """只读最近的轮次状态，不把流式正文合并进统一历史。
+
+    轮转始终保留最新一轮在活动文件中，足以恢复当前客户端的完成标记。
+    """
+    lines = _read_transcript_file(webui_transcript_path(session_key))
+    return completed_turn_ids(lines), has_pending_tool_calls(lines)
+
+
 def build_webui_trace_detail_response(
     session_key: str,
     detail_ref: str,
@@ -3247,3 +3259,160 @@ def build_webui_thread_response(
     if fork_boundary is not None:
         payload["fork_boundary_message_count"] = fork_boundary
     return payload
+
+
+def build_session_thread_response(
+    session_key: str,
+    session_messages: list[dict[str, Any]],
+    *,
+    limit: int | None = None,
+    before: str | None = None,
+    active_turn_id: str | None = None,
+    active_turn_started_at: float | None = None,
+    completed_turns: list[str] | None = None,
+    transcript_pending: bool = False,
+    augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
+    augment_assistant_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
+    augment_assistant_text: Callable[[str], str] | None = None,
+) -> dict[str, Any]:
+    """只读投影统一会话原文，复用 WebUI 回放格式和整轮分页。"""
+    turns: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    pending_tools: dict[str, dict[str, Any]] = {}
+    chat_id = session_key.split(":", 1)[-1]
+
+    def text_content(value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            parts: list[str] = []
+            for raw_block in cast(list[object], value):
+                if not isinstance(raw_block, dict):
+                    continue
+                block = cast(dict[str, Any], raw_block)
+                text = block.get("text")
+                if block.get("type") == "text" and isinstance(text, str):
+                    parts.append(text)
+            return "\n".join(parts)
+        return ""
+
+    for stored in session_messages:
+        if is_hidden_history_message(stored) or _is_legacy_raw_subagent_result(stored):
+            continue
+        message = public_history_message(stored)
+        role = message.get("role")
+        if role not in {"user", "assistant", "tool"}:
+            continue
+        # 摘要边界是隐藏记录；只按可见 user 消息划分轮次。
+        if role == "user" and current:
+            turns.append(current)
+            current = []
+            pending_tools = {}
+        base: dict[str, Any] = {"chat_id": chat_id, "created_at_ms": 0}
+        source_channel = message.get("source_channel")
+        if (
+            isinstance(source_channel, str) and source_channel
+            and (source_channel, message.get("source_chat_id")) != ("websocket", DESKTOP_CHAT_ID)
+        ):
+            base["source"] = {"kind": "channel", "label": source_channel}
+        timestamp = message.get("timestamp")
+        if isinstance(timestamp, str):
+            try:
+                base["created_at_ms"] = int(datetime.fromisoformat(timestamp).timestamp() * 1000)
+            except (ValueError, OverflowError, OSError):
+                pass
+        text = text_content(message.get("content"))
+        # 这些辅助函数已负责附件、引用和模型运行时上下文的公开投影。
+        visible = {**message, "content": text}
+        if role == "user":
+            event = _session_user_event(session_key, visible)
+            if event is not None:
+                current.append({**event, **base})
+        elif role == "assistant":
+            reasoning = message.get("reasoning_content") or message.get("reasoning")
+            if isinstance(reasoning, str) and reasoning:
+                current.append({**base, "event": "message", "kind": "reasoning", "text": reasoning})
+            event = _session_assistant_event(session_key, visible)
+            if event is not None:
+                current.append({**event, **base})
+            calls = message.get("tool_calls")
+            for raw_call in cast(list[object], calls) if isinstance(calls, list) else []:
+                if not isinstance(raw_call, dict):
+                    continue
+                call = cast(dict[str, Any], raw_call)
+                if not isinstance(call.get("id"), str):
+                    continue
+                raw_fn = call.get("function")
+                if not isinstance(raw_fn, dict):
+                    continue
+                fn = cast(dict[str, Any], raw_fn)
+                if not isinstance(fn.get("name"), str):
+                    continue
+                arguments = fn.get("arguments", {})
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except ValueError:
+                        pass
+                tool = {"call_id": call["id"], "name": fn["name"], "arguments": arguments, "phase": "start"}
+                projected = project_tool_events([tool])[0]
+                pending_tools[call["id"]] = projected
+                current.append({**base, "event": "message", "kind": "tool_hint", "tool_events": [projected]})
+        elif role == "tool":
+            call_id = message.get("tool_call_id")
+            tool = pending_tools.pop(call_id, None) if isinstance(call_id, str) else None
+            if tool is not None:
+                tool.update(project_tool_events([{"phase": "end", "result": text}])[0])
+    if current:
+        turns.append(current)
+
+    # 和持久化 transcript 一样按整轮向前分页，避免拆开工具调用/结果。
+    upper = _decode_page_cursor(before)
+    upper = len(turns) if upper is None else min(upper, len(turns))
+    start = upper
+    lines: list[dict[str, Any]] = []
+    message_count = 0
+    byte_count = 0
+    while start > 0 and message_count < _coerce_page_limit(limit):
+        turn = turns[start - 1]
+        turn_bytes = _records_bytes(turn)
+        if lines and (len(lines) + len(turn) > _MAX_TRANSCRIPT_PAGE_RECORDS
+                      or byte_count + turn_bytes > _MAX_TRANSCRIPT_PAGE_BYTES):
+            break
+        turn = _trim_oversized_turn(turn, max_records=_MAX_TRANSCRIPT_PAGE_RECORDS, max_bytes=_MAX_TRANSCRIPT_PAGE_BYTES)
+        start -= 1
+        message_count += len(replay_transcript_to_ui_messages(turn))
+        lines = [*_records_with_replay_identity(turn, turn_ordinal=start), *lines]
+        byte_count += _records_bytes(turn)
+    # 明确关闭历史工具/思考段，不将已保存的工具记录误判为仍在执行。
+    completed_lines: list[dict[str, Any]] = []
+    for record in lines:
+        if record.get("event") == "user" and completed_lines:
+            completed_lines.append({"event": "turn_end", "chat_id": chat_id})
+        completed_lines.append(record)
+    completed_lines.append({"event": "turn_end", "chat_id": chat_id})
+    messages = replay_transcript_to_ui_messages(
+        completed_lines,
+        augment_user_media=augment_user_media,
+        augment_assistant_media=augment_assistant_media,
+        augment_assistant_text=augment_assistant_text,
+        # 源头是 Session，没有独立 transcript trace 可供延迟读取。
+        defer_trace_details=False,
+    )
+    return {
+        "schemaVersion": WEBUI_TRANSCRIPT_SCHEMA_VERSION,
+        "sessionKey": session_key,
+        "messages": messages,
+        "completed_turn_ids": list(completed_turns or []),
+        "has_pending_tool_calls": transcript_pending or (
+            active_turn_started_at is not None
+            and (active_turn_id is None or active_turn_id not in (completed_turns or []))
+        ),
+        "active_turn_id": active_turn_id,
+        "page": {
+            "before_cursor": _encode_page_cursor(start) if start > 0 else None,
+            "has_more_before": start > 0,
+            "loaded_message_count": len(messages),
+            "user_message_offset": sum(1 for turn in turns[:start] for record in turn if record.get("event") == "user"),
+        },
+    }

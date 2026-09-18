@@ -105,7 +105,7 @@ from nanobot.webui.session_automations import (
     session_automations_payload,
 )
 from nanobot.webui.session_context import session_context_payload
-from nanobot.webui.session_identity import is_webui_session_key
+from nanobot.webui.session_identity import is_webui_session_key, model_session_key
 from nanobot.webui.session_list_index import (
     WEBUI_SESSION_INDEX_INTERNAL_FIELDS,
     indexed_workspace_scope,
@@ -132,8 +132,10 @@ from nanobot.webui.skills_marketplace import (
 from nanobot.webui.thread_disk import delete_webui_thread
 from nanobot.webui.transcript import (
     TranscriptReplayStats,
+    build_session_thread_response,
     build_webui_thread_response,
     build_webui_trace_detail_response,
+    read_recent_transcript_turn_state,
     webui_transcript_revision,
 )
 from nanobot.webui.workspaces import WebUIWorkspaceController
@@ -825,7 +827,10 @@ class GatewayHTTPHandler:
             return _http_error(503, "session manager unavailable")
         session = await asyncio.to_thread(
             self.session_manager.read_session_snapshot,
-            decoded_key,
+            model_session_key(
+                decoded_key,
+                unified_session=self.settings.config.load().agents.defaults.unified_session,
+            ),
         )
         if session is None:
             return _http_error(404, "session not found")
@@ -973,12 +978,16 @@ class GatewayHTTPHandler:
             return _http_error(404, "session not found")
         if diagnostics is not None:
             diagnostics.session_hash = hashlib.sha256(decoded_key.encode("utf-8")).hexdigest()[:12]
-        scope = self.workspaces.scope_for_session_key(decoded_key)
+        source_key = model_session_key(
+            decoded_key,
+            unified_session=self.settings.config.load().agents.defaults.unified_session,
+        )
+        scope = self.workspaces.scope_for_session_key(source_key)
 
         def load_session_messages() -> list[dict[str, Any]] | None:
             if self.session_manager is None:
                 return None
-            session_data = self.session_manager.read_session_file(decoded_key)
+            session_data = self.session_manager.read_session_file(source_key)
             raw_messages = session_data.get("messages") if isinstance(session_data, dict) else None
             if not isinstance(raw_messages, list):
                 return None
@@ -1013,6 +1022,36 @@ class GatewayHTTPHandler:
         active_turn_transcript_persistence_failed = (
             websocket_turn_transcript_persistence_failed(chat_id)
         )
+        if source_key != decoded_key:
+            # 统一历史只读 Session 原文，不混入旧流式文件或复制另一份存储。
+            build_started = time.perf_counter()
+            # 先读完成标记再读原文，避免宣告一个尚未进入历史快照的轮次完成。
+            completed_turns, transcript_pending = read_recent_transcript_turn_state(decoded_key)
+            data = build_session_thread_response(
+                decoded_key,
+                load_session_messages() or [],
+                limit=limit,
+                before=before,
+                active_turn_id=active_turn_id,
+                active_turn_started_at=active_turn_started_at,
+                completed_turns=completed_turns,
+                transcript_pending=transcript_pending,
+                augment_user_media=self.media.augment_transcript_media,
+                augment_assistant_media=self.media.augment_transcript_media,
+                augment_assistant_text=lambda text: self.media.rewrite_local_markdown_images(
+                    text, workspace_path=scope.project_path,
+                ),
+            )
+            if diagnostics is not None:
+                diagnostics.build_ms = (time.perf_counter() - build_started) * 1000
+            data["workspace_scope"] = scope.payload()
+            # WebUI transcript 的 ETag 无法代表统一会话，不用它缓存此响应。
+            return _http_json_response(
+                data,
+                accept_encoding=_combined_list_header(request.headers, "Accept-Encoding"),
+                extra_headers=_NO_STORE_HEADERS,
+                metrics=diagnostics.response if diagnostics is not None else None,
+            )
         session_metadata = (
             self.session_manager.read_session_metadata(decoded_key)
             if self.session_manager is not None

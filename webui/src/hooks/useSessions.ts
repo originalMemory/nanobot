@@ -225,6 +225,14 @@ export function useSessions(): {
           refreshPendingRef.current = false;
           try {
             const rows = await listSessions(tokenRef.current);
+            // 固定入口在第一条消息前也可打开；不在后端创建空会话。
+            const fixedChatId = client.fixedChatId;
+            if (fixedChatId && !rows.some((row) => row.key === `websocket:${fixedChatId}`)) {
+              rows.unshift({
+                key: `websocket:${fixedChatId}`, channel: "websocket", chatId: fixedChatId,
+                createdAt: "", updatedAt: "", title: "", preview: "",
+              });
+            }
             const serverKeys = new Set(rows.map((row) => row.key));
             setSessions((prev) => {
               const byKey = new Map(prev.map((row) => [row.key, row]));
@@ -258,7 +266,7 @@ export function useSessions(): {
     })();
     refreshInFlightRef.current = request;
     return request;
-  }, []);
+  }, [client]);
 
   useEffect(() => {
     void refresh();

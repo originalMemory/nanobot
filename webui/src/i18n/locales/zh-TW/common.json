@@ -66,6 +66,7 @@
     "closeAction": "關閉臨時聊天：{{title}}"
   },
   "sidebar": {
+    "unifiedInbox": "統一收件匣",
     "resize": "調整側欄寬度",
     "navigation": "側邊欄導覽",
     "collapse": "收合側邊欄",

@@ -71,6 +71,58 @@ afterEach(() => {
 });
 
 describe("NanobotClient", () => {
+  it("统一历史的完成标记拦截丢失 turn_end 后的迟到分片", () => {
+    const client = new NanobotClient({
+      url: "ws://test", fixedChatId: "desktop", reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const received = vi.fn();
+    client.onChat("desktop", received);
+    client.connect();
+    const socket = lastSocket();
+    socket.fakeOpen();
+    client.sendMessage("desktop", "question", undefined, { turnId: "turn-1" });
+    socket.fakeMessage({ event: "message_accepted", chat_id: "desktop", turn_id: "turn-1",
+      active_turn_id: "turn-1", starts_turn: true, started_at: 1700000000 });
+    expect(client.reconcileCanonicalCompletion("desktop", client.getRunGeneration("desktop"),
+      ["turn-1"], { observedTurnIds: [], hasPendingToolCalls: false, activeTurnId: null })).toBe(true);
+    received.mockClear();
+    socket.fakeMessage({ event: "delta", chat_id: "desktop", turn_id: "turn-1", text: "late" });
+    socket.fakeMessage({ event: "turn_end", chat_id: "desktop", turn_id: "turn-1" });
+    expect(received).not.toHaveBeenCalled();
+    expect(client.hasUnsettledRun("desktop")).toBe(false);
+    client.close();
+  });
+  it("桌面复用固定入口，重连和停止不使用随机 ready ID", async () => {
+    const client = new NanobotClient({
+      url: "ws://test", fixedChatId: "desktop", maxBackoffMs: 10,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    const first = lastSocket();
+    first.fakeOpen();
+    first.fakeMessage({ event: "ready", chat_id: "random-1", client_id: "test" });
+    expect(client.defaultChatId).toBe("desktop");
+    expect(await client.newChat()).toBe("desktop");
+    expect(await client.newChat()).toBe("desktop");
+    await expect(client.newTemporaryChat()).rejects.toThrow();
+    await expect(client.forkChat("desktop", 0)).rejects.toThrow();
+    client.sendMessage("desktop", "hello");
+    client.sendMessage("desktop", "/stop");
+    const frames = first.sent.map((raw) => JSON.parse(raw));
+    expect(frames.some((frame) => frame.type === "new_chat")).toBe(false);
+    expect(frames.filter((frame) => frame.type === "message").map((frame) => frame.chat_id))
+      .toEqual(["desktop", "desktop"]);
+    first.fakeCloseWithCode(1006);
+    await vi.advanceTimersByTimeAsync(1000);
+    const second = lastSocket();
+    expect(second).not.toBe(first);
+    second.fakeOpen();
+    second.fakeMessage({ event: "ready", chat_id: "random-2", client_id: "test" });
+    const attaches = second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === "attach");
+    expect(attaches.map((frame) => frame.chat_id)).toEqual(["desktop"]);
+    client.close();
+  });
   it("reconciles simultaneous client submissions to the gateway-owned turn", () => {
     const client = new NanobotClient({
       url: "ws://test",

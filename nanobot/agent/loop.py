@@ -697,6 +697,7 @@ class AgentLoop:
         if has_text or media_paths or runtime_context_blocks:
             extra: dict[str, Any] = ({"media": list(media_paths)} if media_paths else {}) | agent_context.session_extra(msg.metadata)
             extra.update(kwargs)
+            extra.update(agent_context.session_source(msg, session.key))
             text = content_value if isinstance(content_value, str) else ""
             text_override, automation_extra = automation_history_overrides(msg.metadata)
             if text_override is not None:
@@ -1052,6 +1053,10 @@ class AgentLoop:
                         row["subagent_task_id"] = task_id
                     row[HIDDEN_HISTORY_META] = subagent_marker
                     row["injected_event"] = "subagent_result"
+                source = agent_context.session_source(pending_msg, active_session_key)
+                if source:
+                    # 走 provider 已有的私有 _meta 通道，只在落盘时还原来源字段。
+                    row.setdefault("_meta", {})[agent_context.SESSION_SOURCE_META] = source
                 followup_id = metadata.get(PENDING_FOLLOWUP_ID_KEY)
                 if isinstance(followup_id, str) and followup_id:
                     row[PENDING_FOLLOWUP_ID_KEY] = followup_id
@@ -2208,6 +2213,14 @@ class AgentLoop:
                 else None
             )
             role, content = entry.get("role"), entry.get("content")
+            if role == "user" and isinstance(internal_meta, dict):
+                source_value = cast(dict[str, Any], internal_meta).get(agent_context.SESSION_SOURCE_META)
+                if isinstance(source_value, dict):
+                    source = cast(dict[str, Any], source_value)
+                    for field in ("source_channel", "source_chat_id"):
+                        value = source.get(field)
+                        if isinstance(value, str) and value:
+                            entry[field] = value
             if role == "assistant" and not content and not entry.get("tool_calls"):
                 continue  # skip empty assistant messages — they poison session context
             if role == "tool":

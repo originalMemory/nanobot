@@ -25,11 +25,20 @@ from nanobot.runtime_context import (
     append_runtime_context,
 )
 from nanobot.security.workspace_access import WorkspaceScopeResolver
-from nanobot.session.keys import last_channel_from_metadata
+from nanobot.session.keys import UNIFIED_SESSION_KEY, last_channel_from_metadata
 from nanobot.session.manager import Session
 from nanobot.session.summary import SessionSummary
 from nanobot.utils.helpers import detect_image_mime, load_bundled_template
 from nanobot.utils.prompt_templates import render_template
+
+SESSION_SOURCE_META = "session_source"
+
+
+def session_source(message: InboundMessage, session_key: str | None) -> dict[str, str]:
+    """从实际入站消息保留来源，内部续跑不伪造用户来源。"""
+    if session_key != UNIFIED_SESSION_KEY or not message.is_user_input or message.channel in {"system", "cli"}:
+        return {}
+    return {"source_channel": message.channel, "source_chat_id": message.chat_id}
 
 
 def session_extra(metadata: Mapping[str, Any] | None) -> dict[str, Any]:

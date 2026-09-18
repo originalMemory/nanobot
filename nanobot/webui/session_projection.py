@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Protocol, cast
 
 from loguru import logger as default_logger
@@ -11,6 +12,7 @@ from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.model_selection import model_preset_from_metadata
 from nanobot.session.recovery import recovery_state_from_metadata
 from nanobot.session.webui_turns import websocket_turn_id, websocket_turn_wall_started_at
+from nanobot.webui.session_identity import model_session_key
 
 
 class SessionMetadataReader(Protocol):
@@ -26,16 +28,24 @@ class WebUISessionProjection:
         self,
         sessions: SessionMetadataReader | None,
         *,
+        unified_session: Callable[[], bool] | None = None,
         log: Any = default_logger,
     ) -> None:
         self._sessions = sessions
         self._log = log
+        self._unified_session = unified_session
+
+    def _model_key(self, session_key: str) -> str:
+        return model_session_key(
+            session_key,
+            unified_session=self._unified_session() if self._unified_session else False,
+        )
 
     def attach_fields(self, session_key: str) -> dict[str, Any]:
         """Return the session runtime facts sent with an attach handshake."""
         if self._sessions is None:
             return {}
-        snapshot = self._sessions.read_session_metadata(session_key)
+        snapshot = self._sessions.read_session_metadata(self._model_key(session_key))
         raw_metadata = snapshot.get("metadata") if snapshot is not None else None
         metadata = cast(dict[str, object], raw_metadata) if isinstance(raw_metadata, dict) else None
 
@@ -86,7 +96,7 @@ class WebUISessionProjection:
         """Return an actionable persisted goal state for reconnect hydration."""
         if self._sessions is None:
             return None
-        snapshot = self._sessions.read_session_metadata(session_key)
+        snapshot = self._sessions.read_session_metadata(self._model_key(session_key))
         raw_metadata = snapshot.get("metadata") if snapshot is not None else None
         metadata = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
         goal_state = goal_state_ws_blob(metadata)

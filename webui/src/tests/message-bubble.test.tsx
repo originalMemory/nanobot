@@ -12,6 +12,14 @@ import type {
   UIMessage,
 } from "@/lib/types";
 
+it.each(["user", "assistant"] as const)("显示 %s 消息的外部渠道来源", (role) => {
+  const { container } = render(<MessageBubble message={{
+    id: "external", role, content: "hello", createdAt: 1700000000000,
+    source: { kind: "channel", label: "telegram" },
+  }} />);
+  expect(container.querySelector("[data-channel-source]")).toHaveTextContent("telegram");
+});
+
 const CLI_APPS: CliAppInfo[] = [
   {
     name: "zoom",

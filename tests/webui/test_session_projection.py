@@ -8,6 +8,25 @@ from nanobot.session.recovery import RECOVERY_METADATA_KEY
 from nanobot.webui.session_projection import WebUISessionProjection
 
 
+def test_desktop_reconnect_uses_unified_metadata_and_preserves_wire_id() -> None:
+    sessions = MagicMock()
+    sessions.read_session_metadata.return_value = {
+        "metadata": {
+            SESSION_MODEL_PRESET_METADATA_KEY: "desktop-model",
+            "_last_usage": LLMUsage.reported(input_tokens=42, output_tokens=3).to_dict(),
+            "goal_state": {"status": "active", "objective": "remember this"},
+        }
+    }
+    projection = WebUISessionProjection(sessions, unified_session=lambda: True)
+    fields = projection.attach_fields("websocket:desktop")
+    assert fields["model_preset"] == "desktop-model"
+    assert fields["usage"]["prompt_tokens"] == 42
+    events = projection.hydration_events("websocket:desktop", "desktop")
+    assert events[0]["chat_id"] == "desktop"
+    assert events[0]["goal_state"]["objective"] == "remember this"
+    assert all(call.args == ("unified:default",) for call in sessions.read_session_metadata.call_args_list)
+
+
 def test_attach_fields_restore_session_runtime_metadata() -> None:
     usage = LLMUsage.reported(input_tokens=120, output_tokens=8, total_tokens=175)
     sessions = MagicMock()

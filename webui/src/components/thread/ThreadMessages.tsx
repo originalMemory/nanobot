@@ -348,7 +348,7 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
             mcpPresets={mcpPresets}
             slashCommands={slashCommands}
             onOpenFilePreview={onOpenFilePreview}
-            onForkFromHere={forkIndex !== undefined ? onForkFromHere : undefined}
+            onForkFromHere={forkIndex !== undefined && onForkFromMessage ? onForkFromHere : undefined}
           />
         ) : null}
       </div>

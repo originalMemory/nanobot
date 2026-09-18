@@ -506,6 +506,9 @@ def _run_gateway(
         schedule_background=_schedule_webui_background,
         recovery=recovery,
     )
+    from nanobot.webui.desktop_inbox import DesktopInboxCoordinator
+
+    desktop_inbox = DesktopInboxCoordinator(bus, session_manager)
     from nanobot.bus.events import OutboundMessage
     from nanobot.session.keys import session_key_for_channel
 
@@ -1028,6 +1031,7 @@ def _run_gateway(
     with (
         gateway_runtime.foreground_instance(gateway_start_options),
         webui_turn_coordinator.connected(),
+        desktop_inbox.connected(),
     ):
         if health_server_enabled:
             gateway_runtime.publish_health_host(config.gateway.host)

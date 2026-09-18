@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nanobot.agent.context import TranscriptInput
+from nanobot.agent.context import SESSION_SOURCE_META, TranscriptInput
 from nanobot.agent.goal_permission import goal_mutation_allowed, goal_mutation_permission
+from nanobot.agent.runner import AgentRunResult
 from nanobot.agent.tools.context import RequestContext
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.outbound_events import StreamedResponseEvent
@@ -29,6 +31,7 @@ from nanobot.runtime_context import (
     webui_quote_runtime_context,
 )
 from nanobot.session.goal_state import GOAL_STATE_KEY
+from nanobot.session.manager import Session
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.progress_events import output_events
 
@@ -51,6 +54,41 @@ def _make_loop(tmp_path):
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
     return loop
+
+
+@pytest.mark.asyncio
+async def test_unified_pending_sources_survive_save_without_leaking_to_provider(tmp_path):
+    loop = _make_loop(tmp_path)
+    session = Session(key="unified:default")
+    loop._persist_user_message_early(
+        InboundMessage(channel="websocket", chat_id="desktop", sender_id="user", content="same"),
+        session,
+    )
+    assert session.messages[0]["source_channel"] == "websocket"
+    queue = asyncio.Queue()
+    for channel in ("feishu", "telegram"):
+        queue.put_nowait(InboundMessage(channel=channel, chat_id=f"{channel}-room", sender_id="user", content="same"))
+    loop.context.build_user_content.side_effect = lambda content, image_paths: content
+    loop._resolve_runtime_context_for_request = AsyncMock(return_value=[])
+
+    async def run(spec):
+        assert spec.injection_callback is not None
+        injected = await spec.injection_callback()
+        assert [m["_meta"][SESSION_SOURCE_META]["source_channel"] for m in injected] == ["feishu", "telegram"]
+        wire = LLMProvider._sanitize_empty_content(injected)
+        assert all("_meta" not in m and "source_channel" not in m and "source_chat_id" not in m for m in wire)
+        loop._save_turn(session, [*injected, {"role": "assistant", "content": "answer"}], skip=0)
+        return AgentRunResult(final_content="answer", messages=injected)
+
+    loop.runner.run = AsyncMock(side_effect=run)
+    await loop._run_agent_loop(
+        TranscriptInput(history=[], current_message="same"), runtime=loop.llm_runtime(),
+        session=session, pending_queue=queue,
+    )
+    users = [m for m in session.messages if m["role"] == "user"]
+    assert [m["source_channel"] for m in users] == ["websocket", "feishu", "telegram"]
+    assert [m["source_chat_id"] for m in users] == ["desktop", "feishu-room", "telegram-room"]
+    assert all("_meta" not in m for m in users)
 
 
 @pytest.mark.asyncio

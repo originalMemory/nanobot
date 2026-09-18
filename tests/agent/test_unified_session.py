@@ -81,7 +81,8 @@ class TestUnifiedSessionDispatch:
     """AgentLoop._dispatch() session key rewriting logic."""
 
     @pytest.mark.asyncio
-    async def test_unified_session_rewrites_key_to_unified_default(self, tmp_path: Path):
+    @pytest.mark.parametrize(("channel", "chat_id"), [("telegram", "111"), ("websocket", "desktop")])
+    async def test_unified_session_rewrites_key_to_unified_default(self, tmp_path: Path, channel, chat_id):
         """When unified_session=True, all messages use 'unified:default' as session key."""
         loop = _make_loop(tmp_path, unified_session=True)
 
@@ -93,7 +94,7 @@ class TestUnifiedSessionDispatch:
 
         loop._process_message = fake_process  # type: ignore[method-assign]
 
-        msg = _make_msg(channel="telegram", chat_id="111")
+        msg = _make_msg(channel=channel, chat_id=chat_id)
         await loop._dispatch(msg)
 
         assert captured == ["unified:default"]
@@ -401,7 +402,8 @@ class TestStopCommandWithUnifiedSession:
         assert "Stopped 1 task" in result.content
 
     @pytest.mark.asyncio
-    async def test_stop_command_uses_effective_key_without_session_override(self, tmp_path: Path):
+    @pytest.mark.parametrize(("channel", "chat_id"), [("telegram", "123456"), ("websocket", "desktop")])
+    async def test_stop_command_uses_effective_key_without_session_override(self, tmp_path: Path, channel, chat_id):
         """Priority /stop must cancel the unified session even before dispatch rewrites the message."""
         from nanobot.command.builtin import cmd_stop
 
@@ -413,8 +415,8 @@ class TestStopCommandWithUnifiedSession:
         task = asyncio.create_task(long_running())
         loop._active_tasks[UNIFIED_SESSION_KEY] = {task}
         msg = InboundMessage(
-            channel="telegram",
-            chat_id="123456",
+            channel=channel,
+            chat_id=chat_id,
             sender_id="user1",
             content="/stop",
         )

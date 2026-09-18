@@ -1,6 +1,8 @@
 import type { RuntimeCapabilities, RuntimeSurface } from "./types";
 
 export interface RuntimeHost {
+  /** 桌面伴侣的固定通信入口；普通浏览器不设置。 */
+  fixedChatId?: string;
   surface: RuntimeSurface;
   capabilities: RuntimeCapabilities;
   socketFactory?: (url: string) => WebSocket;
@@ -24,6 +26,7 @@ interface HostRuntimeInfo {
 }
 
 interface NanobotHostApi {
+  fixedChatId?: string;
   getRuntimeInfo?(): Promise<HostRuntimeInfo>;
   restartEngine?(): Promise<void>;
   pickFolder?(): Promise<string | null>;
@@ -110,6 +113,7 @@ export function createRuntimeHost(
   const bridge = getHostSocketBridge();
   return {
     surface,
+    fixedChatId: api?.fixedChatId,
     capabilities: mergedCapabilities,
     socketFactory: bridge ? createHostWebSocket : undefined,
     pickFolder: api?.pickFolder?.bind(api),

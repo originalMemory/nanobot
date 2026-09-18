@@ -337,6 +337,7 @@ export function MessageBubble({
   onForkFromHere,
 }: MessageBubbleProps) {
   const { t } = useTranslation();
+  const channelSource = message.source?.kind === "channel" ? message.source.label?.trim() : null;
   const mentionCliApps = useMemo(
     () => mergeCliMentionApps(cliApps, message.cliApps),
     [cliApps, message.cliApps],
@@ -423,9 +424,10 @@ export function MessageBubble({
             {messageText}
           </p>
         ) : null}
-        {showDeliveryStatus || showCreatedAt || (hasText && showCopyAction) ? (
+        {channelSource || showDeliveryStatus || showCreatedAt || (hasText && showCopyAction) ? (
           <TooltipProvider>
             <div className="flex min-h-8 items-center justify-end gap-1.5 text-muted-foreground">
+              {channelSource ? <span data-channel-source className="text-xs">{channelSource}</span> : null}
               {showCreatedAt ? (
                 <MessageTimestamp
                   data-message-created-at
@@ -495,7 +497,7 @@ export function MessageBubble({
   const assistantTimestampTitle = showAssistantTimestamp ? fmtDateTime(assistantTimestamp) : "";
   const showAutomationTrigger = showAssistantTimestamp && automationSourceLabel.length > 0;
   const showAssistantFooterRow =
-    showCopyButton || showForkButton || showAssistantTimestamp;
+    showCopyButton || showForkButton || showAssistantTimestamp || Boolean(channelSource);
   const showAssistantFooterSlot =
     message.role === "assistant"
     && (!empty || hasReasoning || media.length > 0);
@@ -577,6 +579,7 @@ export function MessageBubble({
                 sourceLabel={automationSourceLabel}
               />
             ) : null}
+            {channelSource ? <span data-channel-source className="text-xs">{channelSource}</span> : null}
           </div>
         </TooltipProvider>
       ) : null}

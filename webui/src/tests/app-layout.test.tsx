@@ -237,6 +237,10 @@ vi.mock("@/lib/bootstrap", () => ({
 vi.mock("@/lib/nanobot-client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/nanobot-client")>();
   class MockClient {
+    fixedChatId: string | null;
+    constructor(options: { fixedChatId?: string }) {
+      this.fixedChatId = options.fixedChatId ?? null;
+    }
     status = "idle" as const;
     defaultChatId: string | null = null;
     connect = connectSpy;
@@ -3089,6 +3093,40 @@ describe("App layout", () => {
     const alphaRoot = within(alphaGroup).getByRole("button", { name: "Alpha tab" });
     expect(alphaChild.compareDocumentPosition(alphaRoot) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
+  });
+
+  it("固定桌面入口忽略旧分屏布局并隐藏多会话操作", async () => {
+    newTemporaryChatSpy.mockClear();
+    Reflect.set(window, "nanobotHost", { fixedChatId: "desktop" });
+    mockSessions = ["desktop", "old"].map((chatId) => ({
+      key: `websocket:${chatId}`, chatId, channel: "websocket", title: chatId,
+      preview: "", createdAt: "", updatedAt: "",
+    }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      if (String(url) === "/api/webui/sidebar-state") return jsonResponse({
+        workbench: { version: 1, tabs: { "tab:websocket:desktop": {
+          explicit: true, paneKeys: ["websocket:desktop", "websocket:old"], layout: "columns",
+        } } },
+      });
+      if (String(url).includes("/webui-thread")) return jsonResponse({
+        sessionKey: "websocket:desktop", messages: [
+          { id: "u", role: "user", content: "hello", createdAt: 1700000000000 },
+          { id: "a", role: "assistant", content: "saved answer", createdAt: 1700000001000 },
+        ],
+      });
+      return { ok: false, status: 404 };
+    }));
+    render(<App />);
+    await screen.findByText("saved answer");
+    expect(screen.getAllByRole("textbox")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Add pane" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pane layout" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /fork/i })).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "O", ctrlKey: true, shiftKey: true });
+    expect(createChatSpy).not.toHaveBeenCalled();
+    expect(newTemporaryChatSpy).not.toHaveBeenCalled();
   });
 
   it("uses one active pane without workbench editing controls on mobile", async () => {

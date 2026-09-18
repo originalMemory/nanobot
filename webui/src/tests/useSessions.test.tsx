@@ -22,6 +22,7 @@ function fakeClient() {
   return {
     status: "open" as const,
     defaultChatId: null as string | null,
+    fixedChatId: null as string | null,
     onStatus: () => () => {},
     onError: () => () => {},
     onChat: () => () => {},
@@ -61,6 +62,18 @@ function wrap(
 }
 
 describe("useSessions", () => {
+  it("固定桌面入口在没有持久化记录时保持可用且不创建空会话", async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([]);
+    const client = fakeClient();
+    client.fixedChatId = "desktop";
+    const { result, unmount } = renderHook(() => useSessions(), { wrapper: wrap(client) });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.sessions.map((row) => row.key)).toEqual(["websocket:desktop"]);
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.sessions.map((row) => row.key)).toEqual(["websocket:desktop"]);
+    expect(client.newChat).not.toHaveBeenCalled();
+    unmount();
+  });
   it("coalesces a burst across tasks and preserves unchanged session identities", async () => {
     const row = { key: "websocket:burst", channel: "websocket", chatId: "burst",
       createdAt: "2026-09-08", updatedAt: "2026-09-08", preview: "Stable" };

@@ -925,6 +925,7 @@ export default function App() {
           const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
           const client = new NanobotClient({
             url,
+            fixedChatId: runtimeHost.fixedChatId,
             maxFrameBytes: boot.limits?.transport.max_frame_bytes,
             socketFactory: runtimeHost.socketFactory,
             onReauth: async () => {
@@ -1111,7 +1112,14 @@ function Shell({
   } =
     useSidebarState(sessions, !loading);
   const initialRouteRef = useRef<ShellRoute | null>(null);
-  if (!initialRouteRef.current) initialRouteRef.current = readShellRoute();
+  // 保留现有页面和组件，只将桌面聊天入口约束到固定会话。
+  const fixedKey = client.fixedChatId ? `websocket:${client.fixedChatId}` : null;
+  const resolveRoute = useCallback((route: ShellRoute): ShellRoute => (
+    fixedKey && route.view === "chat"
+      ? { ...route, activeKey: fixedKey, temporary: false }
+      : route
+  ), [fixedKey]);
+  if (!initialRouteRef.current) initialRouteRef.current = resolveRoute(readShellRoute());
   const [activeKey, setActiveKey] = useState<string | null>(
     initialRouteRef.current.activeKey,
   );
@@ -1214,6 +1222,7 @@ function Shell({
 
   const navigate = useCallback(
     (route: ShellRoute, options?: { replace?: boolean }) => {
+      route = resolveRoute(route);
       const leave = () => {
         setActiveKey(route.activeKey);
         setView(route.view);
@@ -1224,12 +1233,12 @@ function Shell({
         settingsExitGuardRef.current(leave);
       } else leave();
     },
-    [],
+    [resolveRoute],
   );
 
   useEffect(() => {
     const applyRoute = () => {
-      const route = readShellRoute();
+      const route = resolveRoute(readShellRoute());
       if (currentShellRouteRef.current.view === "settings" && route.view !== "settings" && settingsExitGuardRef.current) {
         writeShellRoute(currentShellRouteRef.current, true);
         settingsExitGuardRef.current(() => {
@@ -1256,7 +1265,7 @@ function Shell({
       window.removeEventListener("hashchange", applyRoute);
       window.removeEventListener("popstate", applyRoute);
     };
-  }, []);
+  }, [resolveRoute]);
 
   useEffect(() => {
     temporarySessionsRef.current = temporarySessions;
@@ -2076,11 +2085,12 @@ function Shell({
       const action = matchSidebarShortcut(event);
       if (!action) return;
       event.preventDefault();
+      if (fixedKey && (action === "newChat" || action === "search")) return;
       actions[action]();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onNewChat, onOpenSessionSearch, onOpenApps, onOpenSkills, onOpenAutomations, onOpenChannels, onOpenSettings]);
+  }, [fixedKey, onNewChat, onOpenSessionSearch, onOpenApps, onOpenSkills, onOpenAutomations, onOpenChannels, onOpenSettings]);
 
   const onSettingsSectionChange = useCallback(
     (section: SettingsSectionKey) => {
@@ -2397,7 +2407,9 @@ function Shell({
     [sidebarTabPresentations],
   );
 
-  const headerTitle = temporaryChatActive
+  const headerTitle = fixedKey
+    ? t("sidebar.unifiedInbox", { defaultValue: "Unified inbox" })
+    : temporaryChatActive
     ? deriveTemporaryChatTitle(activeSession?.preview, t("temporaryChat.title"))
     : activeSession
     ? titleForSession(activeSession)
@@ -2417,10 +2429,10 @@ function Shell({
       .filter((session): session is ChatSummary => session !== undefined);
   }, [activeTabKey, activeTabState, orderedWorkbenchTabsByKey, sessions]);
   const paneChromeEnabled = Boolean(
-    activeKey && activeSession && !temporaryChatActive && activeTabState,
+    !fixedKey && activeKey && activeSession && !temporaryChatActive && activeTabState,
   );
   const activeTabVisible = Boolean(
-    activeTabState
+    !fixedKey && activeTabState
     && (activeTabState.explicit || activeTabState.paneKeys.length > 1),
   );
   const renderedWorkbenchPanes = useMemo(() => {
@@ -2598,6 +2610,7 @@ function Shell({
     : activeKey;
 
   const sidebarProps = {
+    fixedChatKey: fixedKey,
     sessions: sidebarTopicSessions,
     temporarySessions: temporarySessionList,
     activeKey: view === "chat"
@@ -2821,11 +2834,11 @@ function Shell({
                             session={activeSession}
                             sessions={sessions}
                             title={headerTitle}
-                            temporary={temporaryChatRequested}
+                            temporary={!fixedKey && temporaryChatRequested}
                             temporaryChatIds={temporaryChatIds}
                             temporaryChatEnabled={temporaryChatEnabled}
                             onTemporaryChatEnabledChange={
-                              !activeKey ? onTemporaryChatEnabledChange : undefined
+                              !fixedKey && !activeKey ? onTemporaryChatEnabledChange : undefined
                             }
                             onToggleSidebar={toggleSidebar}
                             onNewChat={onNewChat}
@@ -2834,7 +2847,7 @@ function Shell({
                             }
                             pendingFirstMessage={pendingAutomationMessage}
                             onPendingFirstMessageConsumed={onPendingAutomationMessageConsumed}
-                            onForkChat={temporaryChatActive ? undefined : onForkChat}
+                            onForkChat={fixedKey || temporaryChatActive ? undefined : onForkChat}
                             onTurnEnd={onTurnEnd}
                             theme={theme}
                             onToggleTheme={toggle}

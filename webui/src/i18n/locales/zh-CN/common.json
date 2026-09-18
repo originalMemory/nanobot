@@ -66,6 +66,7 @@
     "closeAction": "关闭临时聊天：{{title}}"
   },
   "sidebar": {
+    "unifiedInbox": "统一收件箱",
     "resize": "调整侧栏宽度",
     "navigation": "侧边栏导航",
     "collapse": "收起侧边栏",
