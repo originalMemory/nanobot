@@ -1,5 +1,32 @@
 {
+  "library": {
+    "back": "Voltar à caixa de entrada",
+    "imagesOmitted": "Não foi possível mostrar {{count}} imagens locais: arquivo ausente, formato não suportado ou limite atingido.",
+    "title": "Arquivos e notas",
+    "source": "Biblioteca",
+    "workspace": "Área de trabalho",
+    "notes": "Notas",
+    "today": "Diário de hoje",
+    "refresh": "Atualizar",
+    "parent": "Pasta superior",
+    "loading": "Carregando…",
+    "empty": "Pasta vazia",
+    "truncated": "Apenas parte do conteúdo é exibida.",
+    "preview": "Prévia",
+    "select": "Selecione um arquivo.",
+    "properties": "Propriedades",
+    "raw": "Código-fonte",
+    "rendered": "Renderizado",
+    "httpError": "Não foi possível ler (HTTP {{status}}). Verifique o caminho e diaryRoot.",
+    "error": "Falha ao carregar. Tente novamente."
+  },
   "app": {
+    "window": {
+      "minimize": "Minimizar",
+      "maximize": "Maximizar",
+      "restore": "Restaurar",
+      "close": "Fechar"
+    },
     "brand": "nanobot",
     "loading": {
       "connecting": "Conectando-se ao nanobot…",
@@ -66,6 +93,7 @@
     "closeAction": "Fechar chat temporário: {{title}}"
   },
   "sidebar": {
+    "quit": "Sair do aplicativo",
     "unifiedInbox": "Caixa de entrada unificada",
     "resize": "Redimensionar a barra lateral",
     "navigation": "Navegação da barra lateral",

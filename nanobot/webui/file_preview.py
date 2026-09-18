@@ -54,7 +54,7 @@ def file_preview_payload(
         "path": str(resolved),
         "display_path": display_path,
         "project_path": str(scope.project_path),
-        "language": _language_for_path(resolved),
+        "language": language_for_path(resolved),
         "content": content,
         "size": resolved.stat().st_size,
         "truncated": truncated,
@@ -133,7 +133,7 @@ def _display_path(path: Path, root: Path) -> str:
         return path.as_posix()
 
 
-def _language_for_path(path: Path) -> str:
+def language_for_path(path: Path) -> str:
     name = path.name.lower()
     ext = path.suffix.lower().lstrip(".")
     if name == "dockerfile":

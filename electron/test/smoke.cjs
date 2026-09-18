@@ -47,6 +47,9 @@ async function connectCDP(url) {
 }
 
 async function main() {
+  const libraryOnly = process.argv.includes("--library");
+  const windowOnly = process.argv.includes('--window-state');
+  const quitOnly = process.argv.includes('--quit');
   const authOnly = process.argv.includes("--auth");
   const surfacesOnly = process.argv.includes("--wallpaper-surfaces");
   const data = await mkdtemp(path.join(os.tmpdir(), 'nanobot-electron-smoke-'));
@@ -61,6 +64,11 @@ async function main() {
     calls.push(req.url);
     res.setHeader('content-type', 'application/json');
     const route = req.url.split('?')[0];
+    if (route === '/api/media/smoke/webp') {
+      res.setHeader('content-type', 'image/webp');
+      res.end(Buffer.from('UklGRs4AAABXRUJQVlA4IMIAAACQEwCdASrgAaAAPm02mUmkIyKhICgAgA2JaW7hd2Ee3AAAHf5D32ych77ZOQ99snOIi5OQ99snIe+2TkPfbJyHvtk5D32ych77ZOQ99snIe+2TkPfbJyHvtk5D32ych77ZOQ99snIe+2TkPfbJyHvtk5D32ych77ZOQ99snIe+2TkPfbJyHvtk5D32ych77ZOQ99snIe+2TkPfbJyHvtk5D32ycKAA/vCn/9SMMXY//90ACn3xXwKomAAAAAAAAAAAAA==', 'base64'));
+      return;
+    }
     if (route === '/api/media/smoke/image' || route === '/wallpaper-fixture') {
       if (route === '/wallpaper-fixture') { assert.equal(req.headers.authorization, undefined); assert.equal(req.headers.cookie, undefined); }
       res.setHeader('content-type', 'image/png');
@@ -70,6 +78,25 @@ async function main() {
     if (authOnly && route === '/webui/bootstrap') { res.statusCode = 401; res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
     let body = {};
     if (route === '/webui/bootstrap') body = { token: 'smoke', api_token: 'smoke', ws_path: '/socket', model_name: 'smoke-model' };
+    else if (route === '/api/library') {
+      assert.match(req.headers.authorization || '', /^Bearer /);
+      const query = new URL(req.url, 'http://localhost').searchParams;
+      const source = query.get('source'); const action = query.get('action'); const file = query.get('path');
+      const root = source === 'notes' ? '/gateway/notes' : '/gateway/workspace';
+      const tree = source === 'notes'
+        ? { '': [{ name: '日记', kind: 'dir' }], '日记': [{ name: '2026', kind: 'dir' }], '日记/2026': [{ name: '09', kind: 'dir' }],
+          '日记/2026/09': [{ name: '2026-09-18 周五.md', kind: 'file' }, { name: 'photo.webp', kind: 'file' }] }
+        : { '': [{ name: 'README.md', kind: 'file' }, { name: 'memory', kind: 'dir' }], 'memory': [{ name: 'MEMORY.md', kind: 'file' }] };
+      body = action === 'list'
+        ? { root, path: file || '', kind: 'directory', entries: tree[file || ''] || [], truncated: false }
+        : file?.endsWith('photo.webp')
+          ? { root, path: file, kind: 'image', url: '/api/media/smoke/webp', truncated: false }
+          : { root, path: action === 'today' ? '日记/2026/09/2026-09-18 周五.md' : file, kind: 'text',
+            content: source === 'notes' ? '# Diary fixture\nA quiet day.\n\n> [!multi-column]\n>\n>> [!quote] 回忆\n>> 今天的风很温柔。\n>\n>> [!summary] 今日小结\n>> 做了一点喜欢的事。\n\n![[photo.webp|320]]' : '# Workspace document\nRead-only preview.',
+            properties: { banner: '[[cover.webp]]', banner_y: 0.3, tags: ['日记', '生活'], mood: '平静' },
+            image_sources: { 'cover.webp': '/api/media/smoke/webp', 'photo.webp': '/api/media/smoke/webp' }, images_omitted: 1,
+            raw_content: '---\ntag: daily\n---\n# Diary fixture', frontmatter: 'tag: daily', language: 'markdown', size: 64, truncated: false };
+    }
     else if (route === '/api/sessions') body = { sessions: [
       { key: 'websocket:old-test', title: 'OLD-TEST-RESIDUE', created_at: '', updated_at: '' },
     ] };
@@ -134,6 +161,8 @@ async function main() {
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const gateway = `http://127.0.0.1:${server.address().port}`;
+  const savedBounds = { x: 100, y: 80, width: 1000, height: 720 };
+  if (windowOnly) await writeFile(path.join(data, 'window.json'), JSON.stringify(savedBounds));
   if (authOnly || surfacesOnly) await writeFile(path.join(data, 'appearance.json'), JSON.stringify({ source: 'url', url: `${gateway}/wallpaper-fixture`, opacity: 0.65 }));
   let stderr = '';
   const env = { ...process.env, NANOBOT_DESKTOP_DATA_DIR: data,
@@ -159,20 +188,98 @@ async function main() {
     };
     const setup = await page('file:');
     await until(() => setup.evaluate('Boolean(window.desktopSetup)'), '连接页桥接');
+    if (windowOnly) {
+      assert.equal(await setup.evaluate('window.innerWidth'), savedBounds.width);
+      assert.equal(await setup.evaluate('window.innerHeight'), savedBounds.height);
+      await setup.evaluate('window.desktopSetup.windowControls.action("maximize")');
+      await until(async () => {
+        const saved = JSON.parse(await readFile(path.join(data, 'window.json'), 'utf8'));
+        return saved.maximized === true && saved.width === savedBounds.width && saved.height === savedBounds.height;
+      }, '最大化时保留普通尺寸');
+      await setup.evaluate('window.desktopSetup.windowControls.action("maximize")');
+      await until(async () => JSON.parse(await readFile(path.join(data, 'window.json'), 'utf8')).maximized === false, '还原状态落盘');
+    }
     const rejected = await setup.evaluate('window.desktopSetup.connect("file:///tmp")');
     assert.equal(rejected.ok, false);
     assert.equal(await setup.evaluate('typeof require'), 'undefined');
     await setup.evaluate(`document.querySelector('#gateway').value=${JSON.stringify(gateway)};document.querySelector('form').requestSubmit()`);
     const chat = await page('nanobot://desktop/');
     activePage = chat;
+    if (quitOnly) {
+      await until(() => chat.evaluate(`Boolean(document.querySelector('button[aria-label="Quit app"]'))`), '侧栏完全退出按钮');
+      await chat.evaluate(`document.querySelector('button[aria-label="Quit app"]').click()`);
+      await until(() => child.exitCode !== null, '完全退出 Electron');
+      assert.equal(child.exitCode, 0);
+      console.log('PASS: 侧栏完全退出按钮结束 Electron 进程，而不是隐藏到托盘');
+      return;
+    }
+    if (windowOnly) {
+      await until(() => chat.evaluate(`window.innerWidth === ${savedBounds.width} && window.innerHeight === ${savedBounds.height}`), '切换主窗口恢复尺寸');
+      const saved = JSON.parse(await readFile(path.join(data, 'window.json'), 'utf8'));
+      for (const key of ['x', 'y', 'width', 'height']) assert.equal(saved[key], savedBounds[key]);
+      console.log('PASS: 启动恢复尺寸、最大化保留普通尺寸、还原状态落盘、切换主窗口保持位置和大小');
+      return;
+    }
     if (authOnly) {
       await until(() => chat.evaluate('Boolean(document.querySelector("#webui-auth-title"))'), '认证页');
+      await until(() => chat.evaluate('document.querySelector("[data-testid=desktop-titlebar]")?.offsetHeight === 30'), '认证页窗口顶栏');
+      if (process.platform !== 'darwin') {
+        assert.equal(await chat.evaluate(`(() => {
+          const button = document.querySelector('[aria-label="Close"]');
+          const rect = button.getBoundingClientRect();
+          return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+        })()`), true, '认证页不能覆盖关闭按钮');
+      }
+      await sleep(200);
       assert.equal(await chat.evaluate('Boolean(document.querySelector(".desktop-wallpaper"))'), false);
       assert.equal(calls.includes('/wallpaper-fixture'), false);
       const shot = await chat.send('Page.captureScreenshot');
       const file = path.join(os.tmpdir(), 'nanobot-f05-review-auth-fixed.png');
       await writeFile(file, Buffer.from(shot.data, 'base64'));
       console.log(`PASS: 认证页不渲染或加载已配置壁纸；截图 ${file}`);
+      return;
+    }
+    if (libraryOnly) {
+        await until(() => chat.evaluate('document.querySelector("[data-testid=desktop-titlebar]")?.offsetHeight === 30'), '无边框窗口顶栏');
+        if (process.platform !== 'darwin') {
+          await chat.evaluate(`document.querySelector('[aria-label="Maximize"]').click()`);
+          await until(() => chat.evaluate(`Boolean(document.querySelector('[aria-label="Restore"]'))`), '窗口最大化');
+          await chat.evaluate(`document.querySelector('[aria-label="Restore"]').click()`);
+          await until(() => chat.evaluate(`Boolean(document.querySelector('[aria-label="Maximize"]'))`), '窗口还原');
+        }
+      await until(() => chat.evaluate(`Array.from(document.querySelectorAll('button')).some(button => button.textContent === 'Workspace')`), '工作区入口');
+      await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Workspace').click()`);
+      await until(() => chat.evaluate(`Array.from(document.querySelectorAll('button')).some(button => button.textContent === 'README.md')`), 'gateway 目录列表');
+      await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'README.md').click()`);
+        await until(() => chat.evaluate('document.querySelector("article")?.innerText.includes("Workspace document")'), 'Markdown 预览');
+        assert.equal(await chat.evaluate('Boolean(document.querySelector(".host-drag-region button"))'), false);
+      assert.equal(await chat.evaluate('Boolean(document.querySelector("select[aria-label=Library]"))'), false);
+      await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'memory').click()`);
+      await until(() => chat.evaluate(`Array.from(document.querySelectorAll('button')).some(button => button.textContent === 'MEMORY.md')`), '展开目录');
+      await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'memory').click()`);
+      assert.equal(await chat.evaluate(`Array.from(document.querySelectorAll('button')).some(button => button.textContent === 'MEMORY.md')`), false);
+      await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Notes library').click()`);
+      await until(() => chat.evaluate(`Array.from(document.querySelectorAll('button')).some(button => button.textContent === 'Today’s diary')`), '今日日记入口');
+      await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Today’s diary').click()`);
+        await until(() => chat.evaluate('document.querySelector("article")?.innerText.includes("Diary fixture")'), '今日日记预览');
+        assert.equal(await chat.evaluate('Boolean(document.querySelector(".host-drag-region button"))'), false);
+      assert.equal(await chat.evaluate(`['日记', '2026', '09'].every(name => Array.from(document.querySelectorAll('button')).find(button => button.textContent === name)?.getAttribute('aria-expanded') === 'true')`), true);
+        await until(() => chat.evaluate('document.querySelector("article img")?.naturalWidth > 0'), '括号文件名图片映射');
+        await until(() => chat.evaluate(`document.querySelector('.diary-document img[alt="photo.webp"]')?.naturalWidth === 480`), 'WebP 正文图片');
+        assert.equal(await chat.evaluate('document.querySelectorAll("[data-callout=multi-column] > .obsidian-callout").length'), 2);
+        assert.equal(await chat.evaluate('getComputedStyle(document.querySelector("[data-callout=multi-column]")).display'), 'flex');
+        assert.equal(await chat.evaluate('document.querySelector(".diary-document dl")?.textContent.includes("生活")'), true);
+      assert.ok(await chat.evaluate('document.querySelector("article [role=status]")?.textContent.includes("1 local image")'));
+      const shot = await chat.send('Page.captureScreenshot');
+      const file = path.join(os.tmpdir(), 'nanobot-library-smoke.png');
+      await writeFile(file, Buffer.from(shot.data, 'base64'));
+      await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Source').click()`);
+      await until(() => chat.evaluate('document.querySelector("article")?.innerText.includes("# Diary fixture")'), '原文查看');
+        await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'photo.webp').click()`);
+      await until(() => chat.evaluate('document.querySelector("article img")?.naturalWidth > 0'), '图片预览');
+      await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Back to inbox').click()`);
+      await until(() => chat.evaluate('Boolean(document.querySelector("textarea")?.offsetParent)'), '返回收件箱');
+      console.log(`PASS: F06 桌面入口、鉴权读取、Markdown/原文/图片及今日日记；截图 ${file}`);
       return;
     }
     if (surfacesOnly) {
@@ -182,8 +289,8 @@ async function main() {
         for (const focused of [false, true]) {
           await chat.evaluate(focused ? 'document.querySelector("textarea").focus()' : 'document.activeElement.blur()');
           await sleep(250);
-          const surfaces = await chat.evaluate(`['.desktop-user-bubble', '.thread-composer-surface'].map(selector => {
-            const style = getComputedStyle(document.querySelector(selector));
+          const surfaces = await chat.evaluate(`Array.from(document.querySelectorAll('.desktop-user-bubble, .thread-composer-surface, .composer-model-pill, .thread-header-controls, .desktop-titlebar')).map(element => {
+            const style = getComputedStyle(element);
             return { background: style.backgroundColor, opacity: style.opacity };
           })`);
           for (const surface of surfaces) {
@@ -191,10 +298,25 @@ async function main() {
             assert.equal(surface.opacity, '1');
           }
           assert.equal(await chat.evaluate('getComputedStyle(document.querySelector(".thread-composer-dock")).backgroundColor'), 'rgba(0, 0, 0, 0)');
+          assert.equal(await chat.evaluate(`(() => {
+            const titlebar = document.querySelector('.desktop-titlebar');
+            const style = getComputedStyle(titlebar);
+            return style.position === 'relative' && Number(style.zIndex) > 0;
+          })()`), true, '标题栏绘制在固定壁纸层上方');
+          if (process.platform !== 'darwin') {
+            assert.equal(await chat.evaluate(`Array.from(document.querySelectorAll('.desktop-titlebar button')).filter(button => {
+              const rect = button.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0 && button.querySelector('svg')
+                && button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+            }).length`), 3, '三个窗口按钮均可见并可点击');
+          }
         }
       }
       const shot = await chat.send('Page.captureScreenshot');
       const file = path.join(os.tmpdir(), 'nanobot-wallpaper-surfaces.png');
+      assert.equal(await chat.evaluate(`Array.from(document.querySelectorAll('[data-testid="thread-header"] > div:last-child button')).every(button => button.title && button.title === button.getAttribute('aria-label'))`), true, '右侧按钮都有原生悬停提示');
+      const widths = await chat.evaluate(`['[data-testid="thread-message-region"] > div', '.thread-composer-surface'].map(selector => getComputedStyle(document.querySelector(selector)).maxWidth)`);
+      assert.deepEqual(widths, ['928px', '928px'], '消息列和输入框上限与 lover 一致');
       await writeFile(file, Buffer.from(shot.data, 'base64'));
       await chat.evaluate('delete document.documentElement.dataset.wallpaper');
       await sleep(250);

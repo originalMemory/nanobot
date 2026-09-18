@@ -1,4 +1,5 @@
 import { DesktopAppearanceProvider } from "@/providers/DesktopAppearanceProvider";
+import { DesktopWindowFrame } from "@/components/WindowTitleBar";
 import {
   lazy,
   Suspense,
@@ -124,7 +125,7 @@ const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
 const PAIRING_POLL_INTERVAL_MS = 5_000;
 const PAIRING_IDLE_POLL_INTERVAL_MS = 15_000;
 const PAIRING_DISMISS_SNOOZE_MS = 30_000;
-type ShellView = "chat" | "settings" | "apps" | "automations" | "skills" | "channels";
+type ShellView = "chat" | "settings" | "apps" | "automations" | "skills" | "channels" | "workspace" | "notes";
 type ShellRoute = {
   view: ShellView;
   activeKey: string | null;
@@ -134,6 +135,7 @@ type ShellRoute = {
 const ThreadShell = lazy(() => import("@/components/thread/ThreadShell").then(
   (module) => ({ default: module.ThreadShell }),
 ));
+const LibraryView = lazy(() => import("@/components/library/LibraryView").then((module) => ({ default: module.LibraryView })));
 const loadSettingsView = () => import("@/components/settings/SettingsView");
 const SettingsView = lazy(async () => {
   const module = await loadSettingsView();
@@ -257,6 +259,7 @@ function readShellRoute(): ShellRoute {
       settingsSection,
     };
   }
+  if (path === "/workspace" || path === "/notes" || path === "/library") return { view: path === "/notes" ? "notes" : "workspace", activeKey, settingsSection: "overview" };
   if (path === "/apps") {
     return { view: "apps", activeKey, settingsSection: "apps" };
   }
@@ -876,6 +879,10 @@ function resolveRuntimeSurface(
 }
 
 export default function App() {
+  return <DesktopWindowFrame><AppContent /></DesktopWindowFrame>;
+}
+
+function AppContent() {
   const { t } = useTranslation();
   const [state, setState] = useState<BootState>({ status: "loading" });
   const bootstrapSecretRef = useRef("");
@@ -2581,6 +2588,7 @@ function Shell({
       document.title = t("app.documentTitle.chat", { title: t("settings.nav.channels") });
       return;
     }
+    if (view === "workspace" || view === "notes") { document.title = t(`library.${view}`); return; }
     if (view === "skills") {
       document.title = t("app.documentTitle.chat", {
         title: t("settings.nav.skills", { defaultValue: "Skills" }),
@@ -2644,9 +2652,11 @@ function Shell({
     onOpenAutomations,
     onOpenChannels,
     onOpenSkills,
+    onOpenWorkspace: () => navigate({ view: "workspace", activeKey, settingsSection: "overview" }),
+    onOpenNotes: () => navigate({ view: "notes", activeKey, settingsSection: "overview" }),
     onSettingsIntent,
     onOpenSearch: onOpenSessionSearch,
-    activeUtility: view === "apps" || view === "automations" || view === "skills" || view === "channels" ? view : null,
+    activeUtility: view === "apps" || view === "automations" || view === "skills" || view === "channels" || view === "workspace" || view === "notes" ? view : null,
     onToggleArchived,
     pinnedKeys: sidebarPinnedTabKeys,
     archivedKeys: sidebarArchivedTabKeys,
@@ -2678,13 +2688,14 @@ function Shell({
       <div
         className={cn(
           "desktop-app-window relative h-full w-full overflow-hidden",
+          fixedKey && "desktop-unified",
           showHostChrome && "host-window-shell",
         )}
       >
         {showHostChrome ? (
           <HostChrome
             rightAction={
-              view === "chat" ? undefined : (
+              view === "chat" || view === "workspace" || view === "notes" ? undefined : (
                 <Button
                   type="button"
                   variant="ghost"
@@ -2934,7 +2945,7 @@ function Shell({
             {view !== "chat" && (
               <div className="absolute inset-0 flex flex-col">
                 <Suspense fallback={<SurfaceLoadingFallback />}>
-                  <SettingsView
+                  {view === "workspace" || view === "notes" ? <LibraryView key={view} source={view} onBack={onBackToChat} /> : <SettingsView
                     registerExitGuard={registerSettingsExitGuard}
                     theme={theme}
                     selectedTheme={selectedTheme}
@@ -2956,7 +2967,7 @@ function Shell({
                     onNativeEngineRestart={onNativeEngineRestart}
                     isRestarting={isRestarting}
                     hostChromeInset={showHostChrome}
-                  />
+                  />}
                 </Suspense>
               </div>
             )}

@@ -1,5 +1,32 @@
 {
+  "library": {
+    "back": "Kembali ke kotak masuk",
+    "imagesOmitted": "{{count}} gambar lokal tidak ditampilkan: berkas hilang, format tidak didukung, atau batas pratinjau tercapai.",
+    "title": "Berkas dan catatan",
+    "source": "Pustaka",
+    "workspace": "Ruang kerja",
+    "notes": "Catatan",
+    "today": "Jurnal hari ini",
+    "refresh": "Segarkan",
+    "parent": "Folder induk",
+    "loading": "Memuat…",
+    "empty": "Folder kosong",
+    "truncated": "Hanya sebagian konten ditampilkan.",
+    "preview": "Pratinjau",
+    "select": "Pilih berkas untuk pratinjau.",
+    "properties": "Properti",
+    "raw": "Sumber",
+    "rendered": "Tampilan",
+    "httpError": "Tidak dapat membaca (HTTP {{status}}). Periksa jalur dan diaryRoot.",
+    "error": "Gagal memuat. Coba lagi."
+  },
   "app": {
+    "window": {
+      "minimize": "Minimalkan",
+      "maximize": "Maksimalkan",
+      "restore": "Pulihkan",
+      "close": "Tutup"
+    },
     "brand": "nanobot",
     "loading": {
       "connecting": "Menghubungkan ke nanobot…",
@@ -66,6 +93,7 @@
     "closeAction": "Tutup obrolan sementara: {{title}}"
   },
   "sidebar": {
+    "quit": "Keluar dari aplikasi",
     "unifiedInbox": "Kotak masuk terpadu",
     "resize": "Ubah lebar bilah samping",
     "navigation": "Navigasi bilah samping",

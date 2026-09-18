@@ -92,6 +92,7 @@ from nanobot.webui.http_utils import (
     safe_host_header as _safe_host_header,
 )
 from nanobot.webui.ingress_policy import WebUIIngressPolicy
+from nanobot.webui.library import LibraryError, library_payload
 from nanobot.webui.media_gateway import WebUIMediaGateway
 from nanobot.webui.native_folder_picker import (
     NativeFolderPickerError,
@@ -1469,6 +1470,23 @@ class GatewayHTTPHandler:
     ) -> Response | None:
         if got == "/api/sessions":
             return await self._handle_sessions_list(request)
+        if got == "/api/library":
+            if not self.check_api_token(request):
+                return _http_error(401, "Unauthorized")
+            query = _parse_query(request.path)
+            try:
+                payload = await asyncio.to_thread(
+                    library_payload, self.settings.config.load(),
+                    source=_query_first(query, "source") or "workspace",
+                    action=_query_first(query, "action") or "list",
+                    path=_query_first(query, "path") or "",
+                    sign_image=self.media.sign_or_stage_media_path,
+                )
+            except LibraryError as exc:
+                return _http_error(exc.status, str(exc))
+            except OSError:
+                return _http_error(500, "failed to read library")
+            return _http_json_response(payload)
         if got == "/api/commands":
             return self._handle_commands(request)
         if got == "/api/workspaces/pick-folder":

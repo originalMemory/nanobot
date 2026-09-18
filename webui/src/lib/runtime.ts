@@ -17,7 +17,16 @@ export interface DesktopAppearanceApi {
   wallpaper(): Promise<string | null>;
 }
 
+export interface DesktopWindowControls {
+  isMac: boolean;
+  read(): Promise<boolean>;
+  action(action: "minimize" | "maximize" | "close"): Promise<void>;
+  onState(listener: (maximized: boolean) => void): () => void;
+}
+
 export interface RuntimeHost {
+  quit?: () => Promise<void>;
+  windowControls?: DesktopWindowControls;
   appearance?: DesktopAppearanceApi;
   onScreenshot?: (listener: (dataUrl: string) => void) => () => void;
   /** 桌面伴侣的固定通信入口；普通浏览器不设置。 */
@@ -45,6 +54,8 @@ interface HostRuntimeInfo {
 }
 
 interface NanobotHostApi {
+  quit?(): Promise<void>;
+  windowControls?: DesktopWindowControls;
   appearance?: DesktopAppearanceApi;
   onScreenshot?(listener: (dataUrl: string) => void): () => void;
   fixedChatId?: string;
@@ -134,6 +145,8 @@ export function createRuntimeHost(
   const bridge = getHostSocketBridge();
   return {
     surface,
+    quit: api?.quit?.bind(api),
+    windowControls: api?.windowControls,
     appearance: api?.appearance,
     fixedChatId: api?.fixedChatId,
     onScreenshot: api?.onScreenshot?.bind(api),

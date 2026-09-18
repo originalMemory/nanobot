@@ -2380,8 +2380,8 @@ export function ThreadComposer({
         className={cn(
           "thread-composer-surface group/composer relative mx-auto flex w-full flex-col overflow-visible transition-all duration-200",
           isHero
-            ? "max-w-[58rem] rounded-prominent bg-muted/80 focus-within:bg-muted dark:bg-card dark:focus-within:bg-white/[0.06]"
-            : "max-w-[49.5rem] rounded-panel bg-muted/80 focus-within:bg-muted dark:bg-card dark:focus-within:bg-white/[0.06]",
+            ? "max-w-[var(--composer-hero-width,58rem)] rounded-prominent bg-muted/80 focus-within:bg-muted dark:bg-card dark:focus-within:bg-white/[0.06]"
+            : "max-w-[var(--content-column-width)] rounded-panel bg-muted/80 focus-within:bg-muted dark:bg-card dark:focus-within:bg-white/[0.06]",
           compactWhenIdle && "thread-composer-collapsible transition-colors motion-reduce:transition-none",
           interactionDisabled && "opacity-60",
           sessionDragPreview && "ring-1 ring-primary/25",
@@ -3013,7 +3013,7 @@ function CliAppMentionPalette({
         floatingSurfaceVisualClassName,
         "absolute left-1/2 z-30 w-[calc(100%-0.5rem)] -translate-x-1/2 overflow-hidden",
         layout.placement === "above" ? "bottom-full mb-2" : "top-full mt-2",
-        isHero ? "max-w-[58rem]" : "max-w-[49.5rem]",
+        isHero ? "max-w-[var(--composer-hero-width,58rem)]" : "max-w-[var(--content-column-width)]",
       )}
     >
       <div ref={listRef} className="overflow-y-auto" style={{ maxHeight: listMaxHeight }}>
@@ -3166,7 +3166,7 @@ function SlashCommandPalette({
         floatingSurfaceVisualClassName,
         "absolute left-1/2 z-30 w-[calc(100%-0.5rem)] -translate-x-1/2 overflow-hidden",
         layout.placement === "above" ? "bottom-full mb-2" : "top-full mt-2",
-        isHero ? "max-w-[58rem]" : "max-w-[49.5rem]",
+        isHero ? "max-w-[var(--composer-hero-width,58rem)]" : "max-w-[var(--content-column-width)]",
       )}
     >
       <div ref={listRef} className="overflow-y-auto pr-0.5" style={{ maxHeight: listMaxHeight }}>

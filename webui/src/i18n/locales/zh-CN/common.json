@@ -1,5 +1,32 @@
 {
+  "library": {
+    "back": "返回收件箱",
+    "imagesOmitted": "有 {{count}} 张本地图片未能显示：文件缺失、不支持或已达预览上限。",
+    "title": "文件与笔记",
+    "source": "浏览范围",
+    "workspace": "工作区",
+    "notes": "笔记库",
+    "today": "今日日记",
+    "refresh": "刷新",
+    "parent": "上级目录",
+    "loading": "加载中…",
+    "empty": "目录为空",
+    "truncated": "仅展示部分内容。",
+    "preview": "预览",
+    "select": "选择文件进行预览。",
+    "properties": "属性",
+    "raw": "源码",
+    "rendered": "渲染",
+    "httpError": "无法读取（HTTP {{status}}），请检查路径和 diaryRoot 配置。",
+    "error": "加载失败，请重试。"
+  },
   "app": {
+    "window": {
+      "minimize": "最小化",
+      "maximize": "最大化",
+      "restore": "还原",
+      "close": "关闭"
+    },
     "brand": "nanobot",
     "loading": {
       "connecting": "正在连接 nanobot…",
@@ -66,6 +93,7 @@
     "closeAction": "关闭临时聊天：{{title}}"
   },
   "sidebar": {
+    "quit": "完全退出",
     "unifiedInbox": "统一收件箱",
     "resize": "调整侧栏宽度",
     "navigation": "侧边栏导航",

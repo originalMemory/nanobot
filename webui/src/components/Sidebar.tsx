@@ -8,11 +8,14 @@ import {
 import {
   Archive,
   Brain,
+  FolderOpen,
+  BookOpen,
   CalendarClock,
   MessageCircle,
   PanelLeftClose,
   Search,
   Settings,
+  Power,
   SquarePen,
   Blocks,
 } from "lucide-react";
@@ -35,6 +38,7 @@ import type {
   SidebarViewState,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { getRuntimeHost } from "@/lib/runtime";
 import { sidebarShortcutAria, sidebarShortcutLabel } from "@/lib/sidebar-shortcuts";
 
 interface SidebarProps {
@@ -68,11 +72,13 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenApps: () => void;
   onOpenSkills: () => void;
+  onOpenWorkspace?: () => void;
+  onOpenNotes?: () => void;
   onOpenAutomations: () => void;
   onOpenChannels: () => void;
   onSettingsIntent?: () => void;
   onOpenSearch: () => void;
-  activeUtility?: "apps" | "skills" | "automations" | "channels" | null;
+  activeUtility?: "apps" | "skills" | "automations" | "channels" | "workspace" | "notes" | null;
   onToggleArchived: () => void;
   onCollapse?: () => void;
   onExpand?: () => void;
@@ -237,6 +243,16 @@ export function Sidebar(props: SidebarProps) {
           selectionRef={activeActionRef}
           icon={<Blocks className="h-4 w-4" />}
         />
+        {props.fixedChatKey && props.onOpenWorkspace ? <SidebarActionButton
+          collapsed={collapsed} label={t("library.workspace")}
+          onClick={props.onOpenWorkspace} active={props.activeUtility === "workspace"}
+          selectionRef={activeActionRef} icon={<FolderOpen className="h-4 w-4" />}
+        /> : null}
+        {props.fixedChatKey && props.onOpenNotes ? <SidebarActionButton
+          collapsed={collapsed} label={t("library.notes")}
+          onClick={props.onOpenNotes} active={props.activeUtility === "notes"}
+          selectionRef={activeActionRef} icon={<BookOpen className="h-4 w-4" />}
+        /> : null}
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.skills.title")}
@@ -350,6 +366,14 @@ export function Sidebar(props: SidebarProps) {
           icon={<Settings className="h-4 w-4" />}
         />
         <ConnectionBadge />
+        {getRuntimeHost().quit ? <SidebarActionButton
+          collapsed={collapsed}
+          iconOnly
+          label={t("sidebar.quit")}
+          className="w-9 hover:text-destructive"
+          icon={<Power className="h-4 w-4" />}
+          onClick={() => { void getRuntimeHost().quit?.(); }}
+        /> : null}
       </div>
     </nav>
     </TooltipProvider>

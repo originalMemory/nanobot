@@ -11,6 +11,7 @@ test('截图从其他页面返回收件箱，等待 composer 挂载后只投递�
   let host;
   runInNewContext(readFileSync(require.resolve('../preload.cjs'), 'utf8'), {
     location,
+    process: { platform: 'win32' },
     require: () => ({ ipcRenderer, contextBridge: { exposeInMainWorld: (_name, api) => { host = api; } } }),
   });
   const data = 'data:image/jpeg;base64,ZmFrZQ==';
@@ -25,4 +26,30 @@ test('截图从其他页面返回收件箱，等待 composer 挂载后只投递�
   assert.deepEqual(next, []);
   ipcRenderer.emit('desktop:screenshot', {}, data);
   assert.deepEqual(next, [data]);
+});
+
+test('窗口桥接只暴露固定 IPC，并可解除状态监听', async () => {
+  const ipcRenderer = new EventEmitter();
+  const calls = [];
+  ipcRenderer.invoke = async (...args) => { calls.push(args); return false; };
+  for (const location of [{ protocol: 'nanobot:', host: 'desktop' }, { protocol: 'file:' }]) {
+    let api;
+    runInNewContext(readFileSync(require.resolve('../preload.cjs'), 'utf8'), {
+      location, process: { platform: 'win32' },
+      require: () => ({ ipcRenderer, contextBridge: { exposeInMainWorld: (_name, value) => { api = value; } } }),
+    });
+    assert.equal(api.windowControls.isMac, false);
+    await api.windowControls.read();
+    await api.windowControls.action('maximize');
+    const states = [];
+    const off = api.windowControls.onState((state) => states.push(state));
+    ipcRenderer.emit('desktop:window-state', {}, true);
+    off();
+    ipcRenderer.emit('desktop:window-state', {}, false);
+    assert.deepEqual(states, [true]);
+  }
+  assert.deepEqual(calls, [
+    ['desktop:window-state'], ['desktop:window-action', 'maximize'],
+    ['desktop:window-state'], ['desktop:window-action', 'maximize'],
+  ]);
 });

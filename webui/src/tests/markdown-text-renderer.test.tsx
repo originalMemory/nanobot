@@ -831,3 +831,21 @@ describe("MarkdownTextRenderer", () => {
     expect(container.querySelector(".katex")).toBeInTheDocument();
   });
 });
+
+it("renders library images with titles, parentheses and references without modifying code samples", () => {
+  const content = '```md\n![example](code.png)\n```\n\n![Title](photo.png "Caption")\n\n![Paren](photo(1).png)\n\n![Reference][pic]\n\n[pic]: photo.png';
+  const view = render(<MarkdownTextRenderer localImages={{ "photo.png": "/api/media/sig/photo", "photo(1).png": "/api/media/sig/paren" }}>{content}</MarkdownTextRenderer>);
+  expect(screen.getByRole("img", { name: "Title" })).toHaveAttribute("src", "/api/media/sig/photo");
+  expect(screen.getByRole("img", { name: "Paren" })).toHaveAttribute("src", "/api/media/sig/paren");
+  expect(screen.getByRole("img", { name: "Reference" })).toHaveAttribute("src", "/api/media/sig/photo");
+  expect(view.container.querySelector("code")).toHaveTextContent("![example](code.png)");
+  expect(screen.queryByRole("img", { name: "example" })).toBeNull();
+});
+
+it("renders wiki image nodes only in library prose, not inline or fenced code", () => {
+  const view = render(<MarkdownTextRenderer localImages={{ "photo.png": "/api/media/sig/photo" }}>{'![[photo.png|200]]\n\n`![[photo.png]]`\n\n```md\n![[photo.png]]\n```'}</MarkdownTextRenderer>);
+  expect(screen.getAllByRole("img")).toHaveLength(1);
+  expect(screen.getByRole("img", { name: "photo.png" })).toHaveAttribute("src", "/api/media/sig/photo");
+  expect(view.container.querySelectorAll("code").length).toBeGreaterThan(0);
+  expect(view.container.textContent).toContain("![[photo.png]]");
+});

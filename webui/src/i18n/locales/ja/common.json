@@ -1,5 +1,32 @@
 {
+  "library": {
+    "back": "受信トレイに戻る",
+    "imagesOmitted": "{{count}} 件のローカル画像を表示できません。ファイルの欠落、未対応形式、またはプレビュー上限に達しています。",
+    "title": "ファイルとノート",
+    "source": "ライブラリ",
+    "workspace": "ワークスペース",
+    "notes": "ノート",
+    "today": "今日の日記",
+    "refresh": "更新",
+    "parent": "親フォルダー",
+    "loading": "読み込み中…",
+    "empty": "空のフォルダー",
+    "truncated": "内容の一部のみ表示しています。",
+    "preview": "プレビュー",
+    "select": "プレビューするファイルを選択してください。",
+    "properties": "プロパティ",
+    "raw": "ソース",
+    "rendered": "表示",
+    "httpError": "読み取れません（HTTP {{status}}）。パスと diaryRoot 設定を確認してください。",
+    "error": "読み込みに失敗しました。再試行してください。"
+  },
   "app": {
+    "window": {
+      "minimize": "最小化",
+      "maximize": "最大化",
+      "restore": "元に戻す",
+      "close": "閉じる"
+    },
     "brand": "nanobot",
     "loading": {
       "connecting": "nanobot に接続中…",
@@ -66,6 +93,7 @@
     "closeAction": "一時チャット「{{title}}」を閉じる"
   },
   "sidebar": {
+    "quit": "アプリを終了",
     "unifiedInbox": "統合受信トレイ",
     "resize": "サイドバーの幅を変更",
     "navigation": "サイドバーのナビゲーション",

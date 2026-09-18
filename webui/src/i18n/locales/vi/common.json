@@ -1,5 +1,32 @@
 {
+  "library": {
+    "back": "Trở về hộp thư",
+    "imagesOmitted": "Không thể hiển thị {{count}} ảnh cục bộ: thiếu tệp, định dạng không hỗ trợ hoặc đã đạt giới hạn.",
+    "title": "Tệp và ghi chú",
+    "source": "Thư viện",
+    "workspace": "Không gian làm việc",
+    "notes": "Ghi chú",
+    "today": "Nhật ký hôm nay",
+    "refresh": "Làm mới",
+    "parent": "Thư mục cha",
+    "loading": "Đang tải…",
+    "empty": "Thư mục trống",
+    "truncated": "Chỉ hiển thị một phần nội dung.",
+    "preview": "Xem trước",
+    "select": "Chọn tệp để xem trước.",
+    "properties": "Thuộc tính",
+    "raw": "Mã nguồn",
+    "rendered": "Hiển thị",
+    "httpError": "Không thể đọc (HTTP {{status}}). Kiểm tra đường dẫn và diaryRoot.",
+    "error": "Không thể tải. Hãy thử lại."
+  },
   "app": {
+    "window": {
+      "minimize": "Thu nhỏ",
+      "maximize": "Phóng to",
+      "restore": "Khôi phục",
+      "close": "Đóng"
+    },
     "brand": "nanobot",
     "loading": {
       "connecting": "Đang kết nối tới nanobot…",
@@ -66,6 +93,7 @@
     "closeAction": "Đóng trò chuyện tạm thời: {{title}}"
   },
   "sidebar": {
+    "quit": "Thoát ứng dụng",
     "unifiedInbox": "Hộp thư hợp nhất",
     "resize": "Điều chỉnh độ rộng thanh bên",
     "navigation": "Điều hướng thanh bên",

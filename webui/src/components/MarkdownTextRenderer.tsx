@@ -42,14 +42,20 @@ interface MarkdownTextRendererProps {
   highlightCode?: boolean;
   streaming?: boolean;
   onOpenFilePreview?: (path: string) => void;
+  localImages?: Record<string, string>;
+  document?: boolean;
 }
 
 type MarkdownAstNode = {
   type: string;
   value?: string;
+  url?: string;
+  alt?: string;
+  title?: string;
   children?: MarkdownAstNode[];
   data?: {
     hName?: string;
+    hProperties?: Record<string, unknown>;
   };
 };
 
@@ -275,6 +281,30 @@ function remarkCjkStrongBoundaries() {
   };
 }
 
+function remarkWikiImages() {
+  return (tree: MarkdownAstNode) => {
+    const visit = (node: MarkdownAstNode) => {
+      if (!node.children) return;
+      node.children = node.children.flatMap((child) => {
+        if (child.type !== "text" || !child.value) { visit(child); return [child]; }
+        const parts: MarkdownAstNode[] = [];
+        let offset = 0;
+        for (const match of child.value.matchAll(/!\[\[([^\]]+)\]\]/g)) {
+          if (match.index > offset) parts.push({ type: "text", value: child.value.slice(offset, match.index) });
+          const name = match[1].split("|", 1)[0].trim();
+          const size = /\|(\d+)(?:x(\d+))?$/.exec(match[1]);
+          parts.push({ type: "image", url: name, alt: name, ...(size ? { title: `size=${size[1]}${size[2] ? `x${size[2]}` : ""}` } : {}) });
+          offset = match.index + match[0].length;
+        }
+        if (!offset) return [child];
+        if (offset < child.value.length) parts.push({ type: "text", value: child.value.slice(offset) });
+        return parts;
+      });
+    };
+    visit(tree);
+  };
+}
+
 const remarkPlugins: NonNullable<StreamdownProps["remarkPlugins"]> = [
   remarkBreaks,
   remarkGfm,
@@ -283,6 +313,37 @@ const remarkPlugins: NonNullable<StreamdownProps["remarkPlugins"]> = [
   remarkCjkStrongBoundaries,
   remarkSafeHtmlSubset,
 ];
+const libraryRemarkPlugins: NonNullable<StreamdownProps["remarkPlugins"]> = [...remarkPlugins, remarkWikiImages];
+
+/** 只在文档预览中恢复 lover 的 Obsidian callout，不改聊天渲染。 */
+function remarkDiaryDocument() {
+  return (tree: MarkdownAstNode) => {
+    const visit = (node: MarkdownAstNode) => {
+      if (node.type === "blockquote") {
+        const title = node.children?.[0];
+        const marker = title?.type === "paragraph" ? title.children?.[0] : null;
+        const match = marker?.type === "text" ? /^\[!([^\]]+)\]([+-])?[ \t]*(.*)/.exec(marker.value ?? "") : null;
+        if (match && marker && title) {
+          const type = match[1].trim().toLowerCase();
+          // remarkBreaks 已将换行转成 break，只把首行作为标题，其余留在正文。
+          const lineBreak = title.children?.findIndex((child) => child.type === "break") ?? -1;
+          if (lineBreak >= 0 && title.children) {
+            const body = title.children.splice(lineBreak);
+            body.shift();
+            if (body.length) node.children?.splice(1, 0, { type: "paragraph", children: body });
+          }
+          marker.value = match[3].trim() || (title.children?.length === 1 ? type : "");
+          node.data = { hName: "div", hProperties: { className: ["obsidian-callout"], "data-callout": type } };
+          title.data = { hName: "div", hProperties: { className: ["callout-title"] } };
+        }
+      }
+      node.children = node.children?.filter((child) => !(child.type === "html" && /^<div\s+class=["']timeline-container["']\s*><\/div>\s*$/.test(child.value ?? "")));
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+const documentRemarkPlugins: NonNullable<StreamdownProps["remarkPlugins"]> = [...libraryRemarkPlugins, remarkDiaryDocument];
 type MathPlugin = typeof import("@/lib/markdown-math").default;
 let loadedMathPlugin: MathPlugin | undefined;
 let mathPluginPromise: Promise<MathPlugin> | undefined;
@@ -530,6 +591,8 @@ export default function MarkdownTextRenderer({
   highlightCode = true,
   streaming = false,
   onOpenFilePreview,
+  localImages,
+  document = false,
 }: MarkdownTextRendererProps) {
   const { t } = useTranslation();
   const [mathPlugin, setMathPlugin] = useState(() => loadedMathPlugin);
@@ -564,7 +627,7 @@ export default function MarkdownTextRenderer({
           );
         }
         const raw = String(kids).replace(/\n$/, "");
-        if (isLikelyFilePath(raw)) {
+        if (!document && isLikelyFilePath(raw)) {
           return (
             <InferredFileReferenceChip
               path={raw}
@@ -801,8 +864,21 @@ export default function MarkdownTextRenderer({
         void _node;
         void imgClassName;
         void props;
-        const source = typeof src === "string" ? src : "";
+        let source = typeof src === "string" ? src : "";
+        if (localImages && !/^https?:\/\//i.test(source) && !source.startsWith("/api/media/")) {
+          let key = source;
+          try { key = decodeURIComponent(source); } catch { /* Keep malformed literals unmapped. */ }
+          if (!Object.hasOwn(localImages, key)) return <span>{alt}</span>;
+          source = localImages[key];
+        }
         if (!source) return null;
+        if (document) {
+          const size = /^size=(\d+)(?:x(\d+))?$/.exec(props.title ?? "");
+          return <img src={source} alt={alt ?? ""} loading="lazy"
+            title={size ? undefined : props.title}
+            width={size ? Number(size[1]) : undefined} height={size?.[2] ? Number(size[2]) : undefined}
+            className="mx-auto h-auto max-w-full rounded-xl border border-border/50 shadow-sm" />;
+        }
         const label = typeof alt === "string" ? alt : "";
         const kind = markdownAttachmentKind(source, label);
         return (
@@ -817,7 +893,7 @@ export default function MarkdownTextRenderer({
         );
       },
     }),
-    [highlightCode, onOpenFilePreview, t],
+    [highlightCode, onOpenFilePreview, localImages, document, t],
   );
 
   return (
@@ -830,13 +906,13 @@ export default function MarkdownTextRenderer({
       animated={false}
       linkSafety={DIRECT_LINKS}
       urlTransform={safeMarkdownUrl}
-      remarkPlugins={remarkPlugins}
+      remarkPlugins={document ? documentRemarkPlugins : localImages ? libraryRemarkPlugins : remarkPlugins}
       rehypePlugins={rehypePlugins}
       components={components}
       className={cn(
         "markdown-content prose max-w-none dark:prose-invert",
         "prose-headings:mt-4 prose-headings:mb-2 prose-headings:font-semibold prose-headings:tracking-tight",
-        "prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-[13px]",
+        document ? "prose-headings:border-b prose-headings:border-border/50 prose-headings:pb-1 prose-img:my-4" : "prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-[13px]",
         "prose-p:my-2",
         "prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5",
         "prose-blockquote:my-3 prose-blockquote:border-l-2 prose-blockquote:font-normal",

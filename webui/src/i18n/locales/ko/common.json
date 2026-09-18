@@ -1,5 +1,32 @@
 {
+  "library": {
+    "back": "받은편지함으로 돌아가기",
+    "imagesOmitted": "로컬 이미지 {{count}}개를 표시할 수 없습니다. 파일 누락, 미지원 형식 또는 미리보기 한도 때문입니다.",
+    "title": "파일과 노트",
+    "source": "라이브러리",
+    "workspace": "작업 공간",
+    "notes": "노트",
+    "today": "오늘의 일기",
+    "refresh": "새로 고침",
+    "parent": "상위 폴더",
+    "loading": "불러오는 중…",
+    "empty": "빈 폴더",
+    "truncated": "내용의 일부만 표시됩니다.",
+    "preview": "미리보기",
+    "select": "미리 볼 파일을 선택하세요.",
+    "properties": "속성",
+    "raw": "소스",
+    "rendered": "렌더링",
+    "httpError": "읽을 수 없습니다(HTTP {{status}}). 경로와 diaryRoot 설정을 확인하세요.",
+    "error": "불러오지 못했습니다. 다시 시도하세요."
+  },
   "app": {
+    "window": {
+      "minimize": "최소화",
+      "maximize": "최대화",
+      "restore": "복원",
+      "close": "닫기"
+    },
     "brand": "nanobot",
     "loading": {
       "connecting": "nanobot에 연결 중…",
@@ -66,6 +93,7 @@
     "closeAction": "임시 채팅 닫기: {{title}}"
   },
   "sidebar": {
+    "quit": "앱 종료",
     "unifiedInbox": "통합 받은편지함",
     "resize": "사이드바 너비 조절",
     "navigation": "사이드바 탐색",

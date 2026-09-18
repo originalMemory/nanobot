@@ -1,8 +1,20 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const windowControls = {
+  isMac: process.platform === 'darwin',
+  read: () => ipcRenderer.invoke('desktop:window-state'),
+  action: (action) => ipcRenderer.invoke('desktop:window-action', action),
+  onState: (listener) => {
+    const handler = (_event, maximized) => listener(maximized);
+    ipcRenderer.on('desktop:window-state', handler);
+    return () => ipcRenderer.removeListener('desktop:window-state', handler);
+  },
+};
+
 // 连接页拥有有限的设置接口；聊天页不能修改宿主配置。
 if (location.protocol === 'file:') {
   contextBridge.exposeInMainWorld('desktopSetup', {
+    windowControls,
     read: () => ipcRenderer.invoke('desktop:read'),
     connect: (url) => ipcRenderer.invoke('desktop:connect', url),
   });
@@ -16,6 +28,8 @@ if (location.protocol === 'file:') {
   });
   // 复用上游 native 外观，不宣称有远端工作区的本地目录选择能力。
   contextBridge.exposeInMainWorld('nanobotHost', {
+    quit: () => ipcRenderer.invoke('desktop:quit'),
+    windowControls,
     fixedChatId: 'desktop',
     appearance: {
       read: () => ipcRenderer.invoke('desktop:appearance-read'),

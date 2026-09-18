@@ -57,6 +57,7 @@ export function PromptNavigator({
           "hover:bg-accent/40 hover:text-foreground",
         )}
         aria-label={t("thread.promptNavigator.open")}
+        title={t("thread.promptNavigator.open")}
         onClick={() => setOpen(true)}
       >
         <ListTree className="h-4 w-4" />

@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import type { SessionHandle } from "@/lib/types";
 
 const controlsClassName = cn(
-  "pointer-events-auto flex items-center gap-0.5 rounded-compact bg-background p-px empty:hidden",
+  "thread-header-controls pointer-events-auto flex items-center gap-0.5 rounded-compact bg-background p-px empty:hidden",
   "[&_button]:h-7 [&_button]:w-7 [&_button>svg]:h-3.5 [&_button>svg]:w-3.5",
   "forced-colors:bg-[Canvas] forced-colors:outline forced-colors:outline-1 forced-colors:outline-[ButtonText]",
 );
@@ -70,7 +70,7 @@ export function ThreadHeader({
       <div
         className={cn(
           controlsClassName,
-          "relative min-w-0",
+          "thread-title-surface relative min-w-0",
           hideSidebarToggleForHostChrome && (minimal || hideTitle) && !handle && "lg:hidden",
         )}
       >
@@ -184,6 +184,7 @@ function ThemeButton({
       variant="ghost"
       size="icon"
       aria-label={label}
+      title={label}
       onClick={onToggleTheme}
       className={cn(
         "host-no-drag h-8 w-8 rounded-full text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground",

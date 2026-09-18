@@ -1,5 +1,32 @@
 {
+  "library": {
+    "back": "Back to inbox",
+    "imagesOmitted": "{{count}} local image(s) could not be shown: missing, unsupported, or preview limit reached.",
+    "title": "Files & notes",
+    "source": "Library",
+    "workspace": "Workspace",
+    "notes": "Notes library",
+    "today": "Today’s diary",
+    "refresh": "Refresh",
+    "parent": "Parent folder",
+    "loading": "Loading…",
+    "empty": "Empty folder",
+    "truncated": "Only part of this content is shown.",
+    "preview": "Preview",
+    "select": "Select a file to preview.",
+    "properties": "Properties",
+    "raw": "Source",
+    "rendered": "Rendered",
+    "httpError": "Unable to read (HTTP {{status}}). Check the path and diaryRoot configuration.",
+    "error": "Unable to load. Please retry."
+  },
   "app": {
+    "window": {
+      "minimize": "Minimize",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "close": "Close"
+    },
     "brand": "nanobot",
     "loading": {
       "connecting": "Connecting to nanobot…",
@@ -66,6 +93,7 @@
     "closeAction": "Close temporary chat: {{title}}"
   },
   "sidebar": {
+    "quit": "Quit app",
     "unifiedInbox": "Unified inbox",
     "resize": "Resize sidebar",
     "navigation": "Sidebar navigation",

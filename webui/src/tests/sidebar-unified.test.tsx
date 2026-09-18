@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Sidebar } from "@/components/Sidebar";
 
 vi.mock("@/components/ConnectionBadge", () => ({ ConnectionBadge: () => null }));
-afterEach(cleanup);
+afterEach(() => { cleanup(); delete window.nanobotHost; });
 
 function props(): ComponentProps<typeof Sidebar> {
   return {
@@ -35,4 +35,13 @@ it("普通浏览器保留旧话题列表", () => {
   render(<Sidebar {...props()} />);
   expect(screen.getByText("Old topic")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Unified inbox" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Quit app" })).not.toBeInTheDocument();
+});
+
+it.each([false, true])("桌面底部完全退出调用宿主，折叠=%s", (collapsed) => {
+  const quit = vi.fn().mockResolvedValue(undefined);
+  window.nanobotHost = { quit };
+  render(<Sidebar {...props()} fixedChatKey="websocket:desktop" collapsed={collapsed} />);
+  fireEvent.click(screen.getByRole("button", { name: "Quit app" }));
+  expect(quit).toHaveBeenCalledOnce();
 });

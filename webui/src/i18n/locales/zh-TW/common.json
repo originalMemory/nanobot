@@ -1,5 +1,32 @@
 {
+  "library": {
+    "back": "返回收件匣",
+    "imagesOmitted": "有 {{count}} 張本機圖片無法顯示：檔案遺失、不支援或已達預覽上限。",
+    "title": "檔案與筆記",
+    "source": "瀏覽範圍",
+    "workspace": "工作區",
+    "notes": "筆記庫",
+    "today": "今日日記",
+    "refresh": "重新整理",
+    "parent": "上層目錄",
+    "loading": "載入中…",
+    "empty": "目錄為空",
+    "truncated": "僅顯示部分內容。",
+    "preview": "預覽",
+    "select": "選擇檔案以預覽。",
+    "properties": "屬性",
+    "raw": "原始碼",
+    "rendered": "呈現",
+    "httpError": "無法讀取（HTTP {{status}}），請檢查路徑和 diaryRoot 設定。",
+    "error": "載入失敗，請重試。"
+  },
   "app": {
+    "window": {
+      "minimize": "最小化",
+      "maximize": "最大化",
+      "restore": "還原",
+      "close": "關閉"
+    },
     "brand": "nanobot",
     "loading": {
       "connecting": "正在連線到 nanobot…",
@@ -66,6 +93,7 @@
     "closeAction": "關閉臨時聊天：{{title}}"
   },
   "sidebar": {
+    "quit": "完全退出",
     "unifiedInbox": "統一收件匣",
     "resize": "調整側欄寬度",
     "navigation": "側邊欄導覽",

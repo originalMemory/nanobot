@@ -956,7 +956,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
               >
                 <div
                   data-testid="thread-composer-motion"
-                  className="mx-auto w-full max-w-[58rem]"
+                  className="mx-auto w-full max-w-[var(--composer-hero-width,58rem)]"
                 >
                   {composer}
                 </div>

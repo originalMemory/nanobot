@@ -424,6 +424,12 @@ class Config(BaseSettings):
 
     _source_path: Path | None = PrivateAttr(default=None)
 
+    diary_root: str = Field(
+        default="", validation_alias=AliasChoices("diaryRoot", "diary_root"),
+        serialization_alias="diaryRoot",
+        description="Diary directory on the gateway; its parent is the read-only notes library.",
+    )
+
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)

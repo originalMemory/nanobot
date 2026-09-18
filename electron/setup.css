@@ -12,3 +12,8 @@ input:focus { outline: 2px solid #db775d; outline-offset: 2px; }
 #error { color: light-dark(#b23030, #ffa2a2); font-size: 13px; min-height: 22px; }
 button { width: 100%; padding: 13px; border: 0; border-radius: 10px; background: #db775d; color: #fff; font: inherit; cursor: pointer; }
 button:disabled { opacity: .55; cursor: wait; }
+#titlebar { position: fixed; inset: 0 0 auto; height: 30px; border-bottom: 1px solid light-dark(#ddd, #444); -webkit-app-region: drag; }
+#window-buttons { float: right; height: 100%; -webkit-app-region: no-drag; }
+#window-buttons button { width: 44px; height: 100%; padding: 0; border-radius: 0; background: transparent; color: inherit; }
+#window-buttons button:hover { background: light-dark(#eee, #444); }
+#window-buttons button[data-action="close"]:hover { background: #c42b1c; color: white; }

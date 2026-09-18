@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, protocol, session, shell, dialog, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, protocol, session, shell, dialog, nativeImage, screen } = require('electron');
 const { readFile, writeFile, rename, mkdir } = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -6,6 +6,7 @@ const { createHash, randomUUID } = require('node:crypto');
 const { APP_ORIGIN, normalizeGateway, isExternalLink, isMediaUrl, createHandler } = require('./gateway.cjs');
 const { installDesktop } = require('./desktop.cjs');
 const { createAppearance } = require('./appearance.cjs');
+const { readWindowState, trackWindowState } = require('./window-state.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'nanobot', privileges: {
   standard: true, secure: true, supportFetchAPI: true, corsEnabled: true,
@@ -20,6 +21,8 @@ let gateway = 'http://127.0.0.1:8765';
 let loadError = '';
 const setupFile = path.join(__dirname, 'setup.html');
 const settingsFile = path.join(app.getPath('userData'), 'connection.json');
+const windowStateFile = path.join(app.getPath('userData'), 'window.json');
+let saveWindowState;
 const preload = path.join(__dirname, 'preload.cjs');
 const rendererDir = path.join(__dirname, 'renderer');
 const sockets = new Map();
@@ -74,13 +77,18 @@ function openMedia(owner, url) {
 }
 
 function makeWindow(webSession) {
+  saveWindowState?.();
+  const { maximized, ...bounds } = readWindowState(windowStateFile, screen);
   const next = new BrowserWindow({
-    title: 'Nanobot', width: 1200, height: 820, minWidth: 760, minHeight: 540,
+    title: 'Nanobot', ...bounds, minWidth: Math.min(760, bounds.width), minHeight: Math.min(540, bounds.height),
     backgroundColor: '#303030', show: false,
+    frame: false, titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 10, y: 12 },
+    autoHideMenuBar: true,
     webPreferences: { preload, session: webSession, nodeIntegration: false,
       contextIsolation: true, sandbox: true, webSecurity: true },
   });
-  next.once('ready-to-show', () => next.show());
+  next.once('ready-to-show', () => { if (maximized) next.maximize(); next.show(); });
+  saveWindowState = trackWindowState(next, windowStateFile);
   desktop?.bindWindow(next);
   next.on('closed', () => { if (window === next) window = null; });
   next.webContents.setWindowOpenHandler(({ url }) => {
@@ -98,6 +106,9 @@ function makeWindow(webSession) {
   next.webContents.on('will-redirect', guard);
   next.webContents.on('will-attach-webview', (event) => event.preventDefault());
   const owner = next.webContents;
+  const sendWindowState = () => owner.send('desktop:window-state', next.isMaximized());
+  next.on('maximize', sendWindowState);
+  next.on('unmaximize', sendWindowState);
   const closeSockets = () => {
     for (const [id, entry] of sockets) {
       if (entry.owner === owner) { entry.socket.close(); sockets.delete(id); }
@@ -180,6 +191,23 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     desktop = installDesktop({ getWindow: () => window, showWindow });
     installMenu();
+    ipcMain.handle('desktop:quit', (event) => {
+      trustedChat(event);
+      setImmediate(() => app.quit());
+    });
+    // 仅主窗口的聊天页或连接页可操作自身窗口，附件页无此权限。
+    const trustedWindow = (event) => {
+      if (event.senderFrame?.url === pathToFileURL(setupFile).href) trustedSetup(event);
+      else trustedChat(event);
+    };
+    ipcMain.handle('desktop:window-state', (event) => { trustedWindow(event); return window.isMaximized(); });
+    ipcMain.handle('desktop:window-action', (event, action) => {
+      trustedWindow(event);
+      if (action === 'minimize') window.minimize();
+      else if (action === 'maximize') { if (window.isMaximized()) window.unmaximize(); else window.maximize(); }
+      else if (action === 'close') window.close();
+      else throw new Error('无效窗口操作');
+    });
     const appearance = createAppearance({ directory: app.getPath('userData'), nativeImage, dialog });
     ipcMain.handle('desktop:appearance-read', (event) => { trustedChat(event); return appearance.read(); });
     ipcMain.handle('desktop:appearance-save', (event, value) => { trustedChat(event); return appearance.save(value); });

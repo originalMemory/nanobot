@@ -145,6 +145,7 @@ export function SessionInfoPopover({ client, sessionKey, token, title }: Session
             variant="ghost"
             size="icon"
             aria-label={t("thread.header.sessionInfo")}
+            title={t("thread.header.sessionInfo")}
             className={cn(
               "host-no-drag h-8 w-8 rounded-full text-muted-foreground/85",
               "hover:bg-accent/40 hover:text-foreground",
