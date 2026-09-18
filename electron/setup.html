@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'">
+  <title>连接 Nanobot</title>
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body>
+  <main>
+    <div class="mark">n.</div>
+    <h1>连接你的 Nanobot</h1>
+    <p>填写本机或 NAS 上的后端地址，继续你的对话。</p>
+    <form id="connection">
+      <label for="gateway">后端地址</label>
+      <input id="gateway" type="url" placeholder="http://127.0.0.1:8765" required autofocus>
+      <p class="hint">登录凭据将在连接后的界面中填写。</p>
+      <p id="error" role="alert"></p>
+      <button type="submit">连接</button>
+    </form>
+  </main>
+  <script src="setup.js"></script>
+</body>
+</html>

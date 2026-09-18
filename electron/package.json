@@ -1,0 +1,22 @@
+{
+  "name": "nanobot-desktop",
+  "productName": "Nanobot",
+  "version": "0.3.5",
+  "description": "Nanobot Electron client using the upstream WebUI",
+  "private": true,
+  "license": "MIT",
+  "main": "main.cjs",
+  "scripts": {
+    "build": "npm --prefix ../webui run build -- --outDir ../electron/renderer",
+    "start": "electron .",
+    "dev": "npm run build && electron .",
+    "test": "node --test test/*.test.cjs",
+    "test:smoke": "node test/smoke.cjs",
+    "package": "npm run build && electron-packager . Nanobot --out=out --asar --overwrite --extend-info=Info.plist --ignore=\"^/(out|test|README.md|package-lock.json)$\""
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.4.2",
+    "ws": "8.18.3"
+  }
+}
