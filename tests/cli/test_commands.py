@@ -3318,7 +3318,7 @@ def test_gateway_bound_cron_runs_as_session_turn(
     bus.publish_event.assert_awaited()
     kwargs = seen["cron_kwargs"]
     assert isinstance(kwargs, dict)
-    assert kwargs["session_key"] == "websocket:chat-1"
+    assert kwargs["session_key"] == "cron:repo-check"
     assert kwargs["channel"] == "websocket"
     assert kwargs["chat_id"] == "chat-1"
     assert "Cron job: Check repository health." in seen["cron_content"]

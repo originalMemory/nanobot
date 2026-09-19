@@ -12,7 +12,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 from nanobot.agent.tools.cron import CronTool
 from nanobot.bus.events import OutboundMessage
 from nanobot.cron.session_delivery import origin_delivery_context
-from nanobot.cron.session_turns import CRON_DEFER_UNTIL_IDLE_META, CRON_TRIGGER_META
+from nanobot.cron.session_turns import (
+    CRON_DEFER_UNTIL_IDLE_META,
+    CRON_TRIGGER_META,
+    cron_execution_session_key,
+)
 from nanobot.cron.types import CronJob, CronRunResult
 from nanobot.cron.webui_metadata import cron_proactive_delivery_metadata
 from nanobot.utils.prompt_templates import render_template
@@ -84,9 +88,9 @@ async def run_bound_cron_job(
     deliver_activity: CronActivityDelivery,
 ) -> CronRunResult:
     """Execute a session-bound cron job as a normal agent session turn."""
-    session_key = job.payload.session_key
-    if not session_key:
+    if not job.payload.session_key:
         raise ValueError(f"cron job {job.id} is missing payload.session_key")
+    session_key = cron_execution_session_key(job)
 
     prompt = render_template(
         "agent/cron_reminder.md",

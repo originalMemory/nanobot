@@ -1429,7 +1429,7 @@ def test_load_jobs_skips_null_run_history_elements(tmp_path) -> None:
     assert jobs[0].state.run_history[0].status == "ok"
 
 
-def test_add_job_isolates_unified_cron_session_and_targets_desktop(tmp_path) -> None:
+def test_add_job_preserves_owner_session_and_targets_desktop(tmp_path) -> None:
     service = CronService(tmp_path / "jobs.json")
 
     job = service.add_job(
@@ -1441,6 +1441,5 @@ def test_add_job_isolates_unified_cron_session_and_targets_desktop(tmp_path) -> 
         origin_chat_id="inbox:unified",
     )
 
-    assert job.payload.session_key == f"cron:{job.id}"
-    assert job.payload.origin_channel == "websocket"
+    assert job.payload.session_key == "unified:default"
     assert job.payload.origin_chat_id == "desktop"

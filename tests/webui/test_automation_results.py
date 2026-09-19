@@ -134,7 +134,7 @@ async def test_new_cron_run_identity_survives_reload(tmp_path: Path) -> None:
     assert cron_run_response(tmp_path / "runs", reloaded, record) == "reply"
     process = seen["process"]
     assert isinstance(process, dict)
-    assert process["session_key"] == "websocket:one"
+    assert process["session_key"] == f"cron:{job.id}"
     assert process["channel"] == "websocket"
     assert process["chat_id"] == "one"
     assert process["metadata"]["workspace_scope"] == {"project_path": "/tmp/project"}

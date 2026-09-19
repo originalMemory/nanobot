@@ -27,7 +27,6 @@ from nanobot.cron.types import (
     CronStore,
 )
 from nanobot.runtime_context import RUNTIME_CONTEXT_INPUT_META
-from nanobot.session.keys import UNIFIED_SESSION_KEY
 from nanobot.utils.run_records import (
     write_run_record as write_automation_run_record,
 )
@@ -728,13 +727,11 @@ class CronService:
             updated_at_ms=now,
             delete_after_run=delete_after_run,
         )
-        if job.payload.session_key == UNIFIED_SESSION_KEY:
-            job.payload.session_key = f"cron:{job.id}"
-            if (
-                job.payload.origin_channel == "websocket"
-                and job.payload.origin_chat_id == "inbox:unified"
-            ):
-                job.payload.origin_chat_id = "desktop"
+        if (
+            job.payload.origin_channel == "websocket"
+            and job.payload.origin_chat_id == "inbox:unified"
+        ):
+            job.payload.origin_chat_id = "desktop"
         _normalize_agent_turn_job(job)
         self._enforce_agent_binding(job)
         if self._should_persist_store():

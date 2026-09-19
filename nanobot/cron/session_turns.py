@@ -62,6 +62,11 @@ def cron_run_id(metadata: Mapping[str, Any] | None) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def cron_execution_session_key(job: CronJob) -> str:
+    """Return the isolated agent session used to execute one cron job."""
+    return f"cron:{job.id}"
+
+
 def is_bound_cron_job(job: CronJob) -> bool:
     """True for session-bound cron jobs with complete delivery context."""
     payload = job.payload

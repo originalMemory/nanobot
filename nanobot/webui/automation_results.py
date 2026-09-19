@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import cast
 
+from nanobot.cron.session_turns import cron_execution_session_key
 from nanobot.cron.types import CronJob, CronRunRecord
 from nanobot.triggers.local_types import LocalTrigger, TriggerRunRecord
 from nanobot.utils.run_records import safe_run_record_name
@@ -55,9 +56,10 @@ def cron_run_response(runs_dir: Path, job: CronJob, run: CronRunRecord) -> str |
                 return None
             if record is not None:
                 records.append(record)
+    valid_session_keys = {job.payload.session_key, cron_execution_session_key(job)}
     matching = [record for record in records
                 if record.get("job_id") == job.id
-                and record.get("session_key") == job.payload.session_key
+                and record.get("session_key") in valid_session_keys
                 and record.get("status") == run.status]
     if len(matching) != 1:
         return None
