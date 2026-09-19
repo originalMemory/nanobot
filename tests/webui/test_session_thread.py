@@ -134,6 +134,21 @@ def test_unified_history_keeps_heartbeat_delivery_as_a_separate_sourced_turn():
     assert previous["content"] == "answer"
     assert heartbeat["content"] == "heartbeat update"
     assert heartbeat["source"] == {"kind": "heartbeat"}
+    assert heartbeat["turnId"] != previous.get("turnId")
+
+
+def test_adjacent_cron_delivery_gets_a_distinct_turn_from_previous_answer():
+    result = build([
+        {"role": "user", "content": "schedule a test"},
+        {"role": "assistant", "content": "scheduled"},
+        {"role": "assistant", "content": "cron result", "_channel_delivery": True,
+         "source": {"kind": "cron", "label": "test job"}},
+    ])
+    scheduled, cron = result["messages"][-2:]
+    assert scheduled["content"] == "scheduled"
+    assert cron["content"] == "cron result"
+    assert cron["source"] == {"kind": "cron", "label": "test job"}
+    assert cron["turnId"] != scheduled.get("turnId")
 
 
 def test_completion_markers_survive_rotation_and_exclude_unfinished_turns(tmp_path, monkeypatch):

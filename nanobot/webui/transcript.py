@@ -3495,6 +3495,15 @@ def build_session_thread_response(
                       or byte_count + turn_bytes > _MAX_TRANSCRIPT_PAGE_BYTES):
             break
         turn = _trim_oversized_turn(turn, max_records=_MAX_TRANSCRIPT_PAGE_RECORDS, max_bytes=_MAX_TRANSCRIPT_PAGE_BYTES)
+        if any(isinstance(record.get("source"), dict) for record in turn):
+            digest = hashlib.sha256(
+                "\n".join(_stable_record_digest(record) for record in turn).encode("ascii")
+            ).hexdigest()[:16]
+            turn_id = f"sourced:{digest}"
+            turn = [
+                record if record.get("turn_id") else {**record, "turn_id": turn_id}
+                for record in turn
+            ]
         start -= 1
         message_count += len(replay_transcript_to_ui_messages(turn))
         lines = [*_records_with_replay_identity(turn, turn_ordinal=start), *lines]

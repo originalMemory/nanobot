@@ -58,6 +58,20 @@ describe("ThreadMessages", () => {
     expect(within(screen.getByTestId("assistant-turn-identity")).getByText("Heartbeat"))
       .toBeInTheDocument();
   });
+
+  it("keeps a sourced proactive answer separate from the previous assistant turn", () => {
+    render(<ThreadMessages messages={[
+      { id: "u", role: "user", content: "schedule", createdAt: 1, turnId: "turn-user" },
+      { id: "a", role: "assistant", content: "scheduled", createdAt: 2, turnId: "turn-user" },
+      { id: "cron", role: "assistant", content: "cron result", createdAt: 3,
+        turnId: "turn-cron", source: { kind: "cron", label: "test job" } },
+    ]} />);
+    const identities = screen.getAllByTestId("assistant-turn-identity");
+    expect(identities).toHaveLength(2);
+    expect(within(identities[1]).getByText("test job")).toBeInTheDocument();
+    expect(screen.getByText("scheduled")).toBeInTheDocument();
+    expect(screen.getByText("cron result")).toBeInTheDocument();
+  });
   it.each([0, -13_000, -14_000, -15_000, 15_000])(
     "keeps the optimistic timer through acknowledgement and output with %i ms server clock skew",
     (clockSkewMs) => {
