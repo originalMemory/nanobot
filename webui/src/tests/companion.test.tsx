@@ -34,8 +34,10 @@ it.each([false, true])('cancels obsolete work video when returning idle (loaded=
 
 it('keeps the panel visible after resize and avoids immediate video repeats', () => {
   const panel = clampCompanionPanel({ x: 3000, y: 3000, width: 1120, collapsed: false }, 760, 540);
-  expect(panel.x! + panel.width).toBeLessThanOrEqual(752);
+  expect(panel.x! + panel.width).toBe(760);
   expect(panel.y! + panel.width * 3 / 4 + 32).toBeLessThanOrEqual(540);
+  expect(clampCompanionPanel({ ...panel, x: -100 }, 760, 540).x).toBe(0);
+  expect(clampCompanionPanel({ ...panel, x: 0 }, 760, 540, 240).x).toBe(240);
   expect(pickCompanionVideo(['a', 'b', 'c'], ['a', 'b'], 'b')).toBe('c');
 });
 
@@ -49,6 +51,7 @@ it('loads local videos, switches only idle/working, and persists collapse/disabl
   vi.spyOn(client, 'onRunStatus').mockImplementation(handler => { run = handler; return () => {}; });
   const view = render(<ClientProvider client={client} token="test"><CompanionSettings /></ClientProvider>);
   await waitFor(() => expect(view.container.querySelector('video')).toHaveAttribute('src', 'idle.mp4'));
+  expect(view.container.querySelector('.companion-panel-header')).toHaveClass('bg-background/90', 'backdrop-blur');
   vi.spyOn(Math, 'random').mockReturnValue(0);
   fireEvent.error(view.container.querySelector('video')!);
   await waitFor(() => expect(view.container.querySelector('video[src="fallback.mp4"]')).not.toBeNull());

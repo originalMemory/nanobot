@@ -2696,6 +2696,11 @@ function Shell({
     };
   }, [nativeHost]);
 
+  useEffect(() => {
+    document.documentElement.dataset.shellView = view;
+    return () => { delete document.documentElement.dataset.shellView; };
+  }, [view]);
+
   return (
     <ThemeProvider theme={theme}>
       <div
@@ -2749,7 +2754,7 @@ function Shell({
               <div
                 className={cn(
                   "absolute inset-y-0 left-0 h-full w-full overflow-hidden",
-                  showHostChrome
+                  nativeHost
                     ? "host-sidebar-glass"
                     : "bg-sidebar",
                 )}
@@ -2758,6 +2763,7 @@ function Shell({
                   {...sidebarProps}
                   collapsed={!hostSidebarOpen}
                   hostChromeInset={showHostChrome}
+                  hostGlass={nativeHost}
                   onExpand={openHostSidebar}
                 />
               </div>

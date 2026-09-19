@@ -118,6 +118,20 @@ def _is_network_error(exc: BaseException) -> bool:
     )
 
 
+def _guard_botpy_heartbeat(client: Any, log: Any) -> Any:
+    """Treat a heartbeat racing a closing websocket as a normal disconnect."""
+    send_heart = client._send_heart
+
+    async def guarded(interval: float) -> None:
+        try:
+            await send_heart(interval)
+        except aiohttp.ClientConnectionError as exc:
+            log.debug("QQ bot heartbeat stopped after websocket closed: {}", exc)
+
+    client._send_heart = guarded
+    return client
+
+
 def _make_bot_class(channel: QQChannel) -> type[Any]:
     """Create a botpy client with per-session reconnect backoff."""
     botpy_sdk = cast(Any, botpy)
@@ -155,7 +169,10 @@ def _make_bot_class(channel: QQChannel) -> type[Any]:
                     await asyncio.sleep(remaining)
 
             websocket_class = cast(Any, BotWebSocket)
-            client = websocket_class(session, self._connection)
+            client = _guard_botpy_heartbeat(
+                websocket_class(session, self._connection),
+                channel.logger,
+            )
             backoff = self._ws_backoff.get(session_id, _RECONNECT_BACKOFF_START)
             try:
                 await client.ws_connect()

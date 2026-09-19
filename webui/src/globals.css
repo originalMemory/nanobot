@@ -1590,11 +1590,25 @@ html.native-host[data-wallpaper="on"] .thread-header-controls,
 html.native-host[data-wallpaper="on"] .desktop-titlebar {
   background-color: hsl(var(--card) / var(--desktop-panel-opacity));
 }
+html.native-host[data-wallpaper="on"] .thread-composer-attach-action,
+html.native-host[data-wallpaper="on"] .thread-composer-aux-action {
+  background-color: hsl(var(--card) / var(--desktop-panel-opacity));
+}
+html.native-host[data-wallpaper="on"] .thread-composer-send-action {
+  background-color: hsl(var(--foreground) / var(--desktop-panel-opacity));
+}
+html:not([data-shell-view="chat"]) .companion-panel {
+  display: none;
+}
+html.native-host[data-wallpaper="on"] .companion-panel-header {
+  background-color: hsl(var(--card) / var(--desktop-panel-opacity));
+}
 
 /* 桌面统一收件箱沿用 lover 的消息列与输入框宽度。 */
 .desktop-unified .thread-workspace {
-  --content-column-width: 58rem;
-  --composer-hero-width: 64rem;
+  --content-column-width: 72rem;
+  --composer-hero-width: 72rem;
+  --thread-layout-width: 74rem;
 }
 
 /* 日记库：只复刻 Blue Topaz 中最常用的 callout 层次，不加载 Obsidian 主题。 */

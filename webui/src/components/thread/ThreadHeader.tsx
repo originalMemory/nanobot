@@ -1,4 +1,4 @@
-import { Menu, MessageCircleDashed, Moon, Sun } from "lucide-react";
+import { Menu, MessageCircleDashed, Moon, RefreshCw, Sun } from "lucide-react";
 import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -33,6 +33,7 @@ interface ThreadHeaderProps {
   minimal?: boolean;
   promptNavigatorAction?: ReactNode;
   sessionInfoAction?: ReactNode;
+  onRefreshHistory?: () => void;
   temporaryChatEnabled?: boolean;
   temporaryChatDisabled?: boolean;
   onTemporaryChatEnabledChange?: (enabled: boolean) => void;
@@ -52,6 +53,7 @@ export function ThreadHeader({
   minimal = false,
   promptNavigatorAction,
   sessionInfoAction,
+  onRefreshHistory,
   temporaryChatEnabled = false,
   temporaryChatDisabled = false,
   onTemporaryChatEnabledChange,
@@ -105,6 +107,19 @@ export function ThreadHeader({
       </div>
 
       <div className={cn(controlsClassName, "ml-auto shrink-0")}>
+        {onRefreshHistory ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t("thread.header.refreshHistory")}
+            title={t("thread.header.refreshHistory")}
+            onClick={onRefreshHistory}
+            className="host-no-drag h-8 w-8 rounded-full text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        ) : null}
         {sessionInfoAction}
         {promptNavigatorAction}
         {actions}

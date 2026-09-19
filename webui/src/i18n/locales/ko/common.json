@@ -1421,6 +1421,7 @@
       "toggleSidebar": "사이드바 전환",
       "newChat": "새 주제 시작",
       "toggleTheme": "헤더에서 테마 전환",
+      "refreshHistory": "기록 새로고침",
       "settings": "설정 열기",
       "sessionInfo": "세션 세부 정보"
     },
@@ -1707,6 +1708,9 @@
     "usage": {
       "context": "최근 컨텍스트: {{tokens}}{{capacity}} 토큰",
       "requests": "모델 요청 {{count}}회",
+      "input": "입력 {{tokens}}",
+      "output": "출력 {{tokens}}",
+      "cached": "캐시 {{percent}}",
       "estimated": "예상 사용량 포함"
     },
     "activityThinkingFor": "{{duration}} 동안 생각 중",

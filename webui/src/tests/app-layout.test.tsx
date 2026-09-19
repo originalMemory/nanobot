@@ -2077,6 +2077,9 @@ describe("App layout", () => {
     expect(screen.getByTestId("desktop-titlebar")).toBeInTheDocument();
     expect(document.querySelector(".host-drag-region")).toBeNull();
     expect(document.documentElement).toHaveClass("native-host");
+    expect(document.documentElement).toHaveAttribute("data-shell-view", "chat");
+    expect(screen.getByTestId("host-sidebar-flow").firstElementChild).toHaveClass("host-sidebar-glass");
+    expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toHaveClass("bg-transparent");
   });
 
   it("switches to the next session when deleting the active chat", async () => {

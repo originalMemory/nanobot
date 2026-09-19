@@ -12,12 +12,13 @@ type Mode = "idle" | "working";
 type Panel = CompanionPrefs["panel"];
 const Context = createContext<{ api: CompanionApi; prefs: CompanionPrefs | null; videos: CompanionVideos | null; saving: boolean; error: boolean; save: (patch: Partial<CompanionPrefs>) => Promise<boolean>; reload: () => void } | null>(null);
 
-export function clampCompanionPanel(panel: Panel, width: number, height: number): Panel {
-  const limit = Math.max(1, Math.min(1120, width - 16, panel.collapsed ? 1120 : (height - 78) * 4 / 3));
+export function clampCompanionPanel(panel: Panel, width: number, height: number, minX = 0): Panel {
+  const availableWidth = Math.max(1, width - minX);
+  const limit = Math.max(1, Math.min(1120, availableWidth, panel.collapsed ? 1120 : (height - 78) * 4 / 3));
   const size = Math.min(limit, Math.max(200, Math.round(panel.width)));
   const panelHeight = panel.collapsed ? 32 : size * 3 / 4 + 32;
   return { ...panel, width: size,
-    x: Math.max(8, Math.min(width - size - 8, panel.x ?? width - size - 24)),
+    x: Math.max(minX, Math.min(width - size, panel.x ?? width - size - 24)),
     y: Math.max(38, Math.min(height - panelHeight - 8, panel.y ?? height - panelHeight - 24)) };
 }
 
@@ -137,20 +138,22 @@ function CompanionVideo({ videos, mode }: { videos: CompanionVideos; mode: Mode 
 
 function CompanionPanel({ prefs, videos, mode, save }: { prefs: CompanionPrefs; videos: CompanionVideos | null; mode: Mode; save: (patch: Partial<CompanionPrefs>) => Promise<boolean> }) {
   const { t } = useTranslation();
-  const [panel, setPanel] = useState(() => clampCompanionPanel(prefs.panel, innerWidth, innerHeight));
+  const clamp = useCallback((value: Panel) => clampCompanionPanel(value, innerWidth, innerHeight,
+    document.querySelector<HTMLElement>(".desktop-main")?.getBoundingClientRect().left ?? 0), []);
+  const [panel, setPanel] = useState(() => clamp(prefs.panel));
   const drag = useRef<{ x: number; y: number; panel: Panel; resize: boolean } | null>(null);
-  useEffect(() => { setPanel(clampCompanionPanel(prefs.panel, innerWidth, innerHeight)); }, [prefs.panel]);
-  useEffect(() => { const resize = () => setPanel(value => clampCompanionPanel(value, innerWidth, innerHeight)); window.addEventListener("resize", resize); return () => window.removeEventListener("resize", resize); }, []);
+  useEffect(() => { setPanel(clamp(prefs.panel)); }, [clamp, prefs.panel]);
+  useEffect(() => { const resize = () => setPanel(value => clamp(value)); window.addEventListener("resize", resize); return () => window.removeEventListener("resize", resize); }, [clamp]);
   const start = (event: PointerEvent<HTMLElement>, resize: boolean) => {
     if (event.button !== 0 || (!resize && (event.target as HTMLElement).closest("button"))) return;
     drag.current = { x: event.clientX, y: event.clientY, panel, resize };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
-  const persist = (next: Panel) => { next = clampCompanionPanel(next, innerWidth, innerHeight); setPanel(next); void save({ panel: next }); };
-  return <div className="fixed z-30 overflow-hidden rounded-2xl border border-border/70 bg-background/90 shadow-xl backdrop-blur" style={{ left: panel.x ?? 8, top: panel.y ?? 38, width: panel.width }}
-    onPointerMove={event => { const base = drag.current; if (!base) return; setPanel(clampCompanionPanel({ ...base.panel, ...(base.resize ? { width: base.panel.width + event.clientX - base.x } : { x: (base.panel.x ?? 0) + event.clientX - base.x, y: (base.panel.y ?? 0) + event.clientY - base.y }) }, innerWidth, innerHeight)); }}
+  const persist = (next: Panel) => { next = clamp(next); setPanel(next); void save({ panel: next }); };
+  return <div className="companion-panel fixed z-30 overflow-hidden rounded-2xl border border-border/70 bg-transparent shadow-xl" style={{ left: panel.x ?? 0, top: panel.y ?? 38, width: panel.width }}
+    onPointerMove={event => { const base = drag.current; if (!base) return; setPanel(clamp({ ...base.panel, ...(base.resize ? { width: base.panel.width + event.clientX - base.x } : { x: (base.panel.x ?? 0) + event.clientX - base.x, y: (base.panel.y ?? 0) + event.clientY - base.y }) })); }}
     onPointerUp={() => { if (drag.current) { drag.current = null; void save({ panel }); } }} onPointerCancel={() => { drag.current = null; }}>
-    <div className="flex h-8 touch-none select-none items-center justify-between px-2 cursor-move" tabIndex={0} aria-label={t("companion.move")}
+    <div className="companion-panel-header flex h-8 touch-none select-none items-center justify-between bg-background/90 px-2 backdrop-blur cursor-move" tabIndex={0} aria-label={t("companion.move")}
       onPointerDown={event => start(event, false)} onKeyDown={event => { if (event.target !== event.currentTarget || !event.key.startsWith("Arrow")) return; event.preventDefault(); persist({ ...panel, x: (panel.x ?? 0) + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0), y: (panel.y ?? 0) + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0) }); }}>
       <button type="button" title={t(panel.collapsed ? "companion.expand" : "companion.collapse")} aria-label={t(panel.collapsed ? "companion.expand" : "companion.collapse")} onClick={() => persist({ ...panel, collapsed: !panel.collapsed })}>{panel.collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
       <span className="text-xs text-muted-foreground">{t(`companion.${mode}`)}</span>

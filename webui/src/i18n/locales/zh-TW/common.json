@@ -1421,6 +1421,7 @@
       "toggleSidebar": "切換側邊欄",
       "newChat": "開始新話題",
       "toggleTheme": "切換佈景主題",
+      "refreshHistory": "重新整理歷史訊息",
       "settings": "開啟設定",
       "sessionInfo": "對話詳細資料"
     },
@@ -1706,6 +1707,9 @@
     "usage": {
       "context": "最近一次上下文：{{tokens}}{{capacity}} tokens",
       "requests": "{{count}} 次模型請求",
+      "input": "輸入 {{tokens}}",
+      "output": "輸出 {{tokens}}",
+      "cached": "快取 {{percent}}",
       "estimated": "包含估算用量"
     },
     "activityThinkingFor": "思考中，已 {{duration}}",

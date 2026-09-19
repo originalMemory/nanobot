@@ -1421,6 +1421,7 @@
       "toggleSidebar": "Bật/tắt thanh bên",
       "newChat": "Bắt đầu chủ đề mới",
       "toggleTheme": "Chuyển chủ đề từ header",
+      "refreshHistory": "Làm mới lịch sử",
       "settings": "Mở cài đặt",
       "sessionInfo": "Chi tiết phiên"
     },
@@ -1707,6 +1708,9 @@
     "usage": {
       "context": "Ngữ cảnh gần nhất: {{tokens}}{{capacity}} token",
       "requests": "{{count}} yêu cầu mô hình",
+      "input": "{{tokens}} đầu vào",
+      "output": "{{tokens}} đầu ra",
+      "cached": "{{percent}} đã lưu đệm",
       "estimated": "Bao gồm mức sử dụng ước tính"
     },
     "activityThinkingFor": "Đang suy nghĩ trong {{duration}}",

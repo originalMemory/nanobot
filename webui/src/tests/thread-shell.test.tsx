@@ -465,6 +465,31 @@ describe("ThreadShell", () => {
     );
   });
 
+  it("refreshes canonical history from the header", async () => {
+    const client = makeClient();
+    let historyCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes("websocket%3Arefresh-history/webui-thread")) {
+        historyCalls += 1;
+        return Promise.resolve(httpJson(transcriptFromSimpleMessages([
+          { role: "user", content: "question" },
+          { role: "assistant", content: `answer-${historyCalls}` },
+        ])));
+      }
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+    }));
+    render(wrap(client, <ThreadShell
+      session={session("refresh-history")}
+      title="Refresh history"
+      onToggleSidebar={() => {}}
+    />));
+    expect(await screen.findByText("answer-1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh history" }));
+
+    await waitFor(() => expect(historyCalls).toBeGreaterThan(1));
+  });
+
   it("surfaces and retries a deferred trace-detail request failure", async () => {
     const client = makeClient();
     let detailCalls = 0;

@@ -707,8 +707,12 @@ describe("ThreadComposer", () => {
     expect(input.parentElement?.parentElement?.className).toContain("max-w-[var(--content-column-width)]");
     expect(input.parentElement?.parentElement?.className).toContain("rounded-panel");
     expect(input.parentElement?.parentElement?.className).not.toContain("shadow-");
-    expect(screen.getByRole("button", { name: "Attach files" }).className).toContain("bg-card");
-    expect(screen.getByRole("button", { name: "Send message" }).className).toContain("bg-foreground");
+    expect(screen.getByRole("button", { name: "Attach files" })).toHaveClass(
+      "bg-card", "thread-composer-attach-action",
+    );
+    expect(screen.getByRole("button", { name: "Send message" })).toHaveClass(
+      "bg-foreground", "thread-composer-send-action",
+    );
     expect(screen.queryByText(/Enter to send/)).not.toBeInTheDocument();
   });
 

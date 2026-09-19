@@ -682,6 +682,16 @@ describe("MessageBubble", () => {
     expect(usage).toHaveAttribute("data-turn-usage");
   });
 
+  it("localizes per-turn token usage", async () => {
+    await act(() => setAppLanguage("zh-CN"));
+    render(<MessageBubble message={{
+      id: "a-usage-zh", role: "assistant", content: "完成", createdAt: Date.now(),
+      usage: { prompt_tokens: 12_400, completion_tokens: 823, cached_tokens: 9_672 },
+    }} />);
+    expect(screen.getByText("输入 12.4K · 输出 823 · 缓存 78%"))
+      .toHaveAttribute("data-turn-usage");
+  });
+
   it("renders structured CLI app attachments even without the installed catalog", () => {
     const message: UIMessage = {
       id: "u-cli-attached",

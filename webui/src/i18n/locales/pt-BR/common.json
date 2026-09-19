@@ -1435,6 +1435,7 @@
       "toggleSidebar": "Alternar barra lateral",
       "newChat": "Iniciar um novo tópico",
       "toggleTheme": "Alternar tema pelo cabeçalho",
+      "refreshHistory": "Atualizar histórico",
       "settings": "Abrir configurações",
       "sessionInfo": "Detalhes da sessão"
     },
@@ -1747,6 +1748,9 @@
     "usage": {
       "context": "Contexto atual: {{tokens}}{{capacity}}",
       "requests": "{{count}} chamadas nesta rodada",
+      "input": "{{tokens}} entrada",
+      "output": "{{tokens}} saída",
+      "cached": "{{percent}} em cache",
       "estimated": "Inclui uso estimado"
     }
   },

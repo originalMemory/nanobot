@@ -1421,6 +1421,7 @@
       "toggleSidebar": "Tampilkan atau sembunyikan sidebar",
       "newChat": "Mulai topik baru",
       "toggleTheme": "Alihkan tema dari header",
+      "refreshHistory": "Segarkan riwayat",
       "settings": "Buka pengaturan",
       "sessionInfo": "Detail sesi"
     },
@@ -1707,6 +1708,9 @@
     "usage": {
       "context": "Konteks terbaru: {{tokens}}{{capacity}} token",
       "requests": "{{count}} permintaan model",
+      "input": "{{tokens}} masuk",
+      "output": "{{tokens}} keluar",
+      "cached": "{{percent}} tersimpan",
       "estimated": "Termasuk penggunaan perkiraan"
     },
     "activityThinkingFor": "Berpikir selama {{duration}}",

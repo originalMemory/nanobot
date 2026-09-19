@@ -1421,6 +1421,7 @@
       "toggleSidebar": "サイドバーを切り替える",
       "newChat": "新しいトピックを開始",
       "toggleTheme": "ヘッダーからテーマを切り替える",
+      "refreshHistory": "履歴を更新",
       "settings": "設定を開く",
       "sessionInfo": "セッション詳細"
     },
@@ -1707,6 +1708,9 @@
     "usage": {
       "context": "最新のコンテキスト: {{tokens}}{{capacity}} トークン",
       "requests": "モデルリクエスト {{count}} 回",
+      "input": "入力 {{tokens}}",
+      "output": "出力 {{tokens}}",
+      "cached": "キャッシュ {{percent}}",
       "estimated": "推定使用量を含みます"
     },
     "activityThinkingFor": "{{duration}}考えています",

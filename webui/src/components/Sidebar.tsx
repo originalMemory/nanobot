@@ -100,6 +100,7 @@ interface SidebarProps {
   archivedCount?: number;
   defaultWorkspacePath?: string | null;
   hostChromeInset?: boolean;
+  hostGlass?: boolean;
 }
 
 type NavigatorWithUserAgentData = Navigator & {
@@ -165,7 +166,7 @@ export function Sidebar(props: SidebarProps) {
       aria-label={t("sidebar.navigation")}
       className={cn(
         "flex h-full w-full min-w-0 flex-col text-sidebar-content",
-        props.hostChromeInset ? "bg-transparent" : "bg-sidebar",
+        props.hostGlass ? "bg-transparent" : "bg-sidebar",
       )}
     >
       <div

@@ -1621,6 +1621,7 @@
       "toggleSidebar": "Toggle sidebar",
       "newChat": "Start a new topic",
       "toggleTheme": "Toggle theme from header",
+      "refreshHistory": "Refresh history",
       "settings": "Open settings",
       "sessionInfo": "Session details"
     },
@@ -1933,6 +1934,9 @@
     "usage": {
       "context": "Context now: {{tokens}}{{capacity}}",
       "requests": "{{count}} calls this turn",
+      "input": "{{tokens}} in",
+      "output": "{{tokens}} out",
+      "cached": "{{percent}} cached",
       "estimated": "Includes estimated usage"
     }
   },

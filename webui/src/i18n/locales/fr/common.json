@@ -1421,6 +1421,7 @@
       "toggleSidebar": "Afficher ou masquer la barre latérale",
       "newChat": "Démarrer un nouveau sujet",
       "toggleTheme": "Changer le thème depuis l’en-tête",
+      "refreshHistory": "Actualiser l’historique",
       "settings": "Ouvrir les paramètres",
       "sessionInfo": "Détails de la session"
     },
@@ -1707,6 +1708,9 @@
     "usage": {
       "context": "Dernier contexte : {{tokens}}{{capacity}} tokens",
       "requests": "{{count}} requêtes au modèle",
+      "input": "{{tokens}} entrée",
+      "output": "{{tokens}} sortie",
+      "cached": "{{percent}} en cache",
       "estimated": "Inclut une estimation de l’utilisation"
     },
     "activityThinkingFor": "Réflexion pendant {{duration}}",

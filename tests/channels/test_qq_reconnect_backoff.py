@@ -33,6 +33,22 @@ def _make_bot(channel):
 
 
 @pytest.mark.asyncio
+async def test_heartbeat_ignores_websocket_close_race():
+    from nanobot.channels.qq.runtime import _guard_botpy_heartbeat
+
+    client = MagicMock()
+    client._send_heart = AsyncMock(
+        side_effect=aiohttp.ClientConnectionError("Cannot write to closing transport")
+    )
+    log = MagicMock()
+
+    _guard_botpy_heartbeat(client, log)
+    await client._send_heart(30)
+
+    log.debug.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_bot_connect_dns_error_accounts_for_sdk_pacing():
     import asyncio
 

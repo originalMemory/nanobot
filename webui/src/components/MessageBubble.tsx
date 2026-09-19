@@ -195,10 +195,19 @@ function TurnUsageMeta({ usage, latencyMs }: { usage: TurnUsage; latencyMs?: num
   const completion = usage.completion_tokens;
   const approximate = (usage.estimated_tokens ?? 0) > 0 ? "~" : "";
   const parts: string[] = [];
-  if (typeof prompt === "number") parts.push(`${approximate}${formatCompactTokenCount(prompt)} in`);
-  if (typeof completion === "number") parts.push(`${approximate}${formatCompactTokenCount(completion)} out`);
+  if (typeof prompt === "number") parts.push(t("message.usage.input", {
+    tokens: `${approximate}${formatCompactTokenCount(prompt)}`,
+    defaultValue: "{{tokens}} in",
+  }));
+  if (typeof completion === "number") parts.push(t("message.usage.output", {
+    tokens: `${approximate}${formatCompactTokenCount(completion)}`,
+    defaultValue: "{{tokens}} out",
+  }));
   if (typeof usage.cached_tokens === "number" && typeof prompt === "number" && prompt > 0) {
-    parts.push(`${Math.round(Math.min(1, usage.cached_tokens / prompt) * 100)}% cached`);
+    parts.push(t("message.usage.cached", {
+      percent: `${Math.round(Math.min(1, usage.cached_tokens / prompt) * 100)}%`,
+      defaultValue: "{{percent}} cached",
+    }));
   }
   if (typeof latencyMs === "number" && latencyMs >= 0) parts.push(formatTurnLatency(latencyMs));
   if (parts.length === 0) return null;

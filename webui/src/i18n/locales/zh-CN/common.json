@@ -1621,6 +1621,7 @@
       "toggleSidebar": "切换侧边栏",
       "newChat": "从顶部新建话题",
       "toggleTheme": "从顶部切换主题",
+      "refreshHistory": "刷新历史消息",
       "settings": "打开设置",
       "sessionInfo": "会话详情"
     },
@@ -1933,6 +1934,9 @@
     "usage": {
       "context": "当前上下文：{{tokens}}{{capacity}}",
       "requests": "本轮 {{count}} 次模型调用",
+      "input": "输入 {{tokens}}",
+      "output": "输出 {{tokens}}",
+      "cached": "缓存 {{percent}}",
       "estimated": "包含估算用量"
     }
   },
