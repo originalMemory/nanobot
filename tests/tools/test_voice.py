@@ -5,26 +5,26 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from nanobot.agent.speech import DEFERRED_SPEECH, SpeechService
 from nanobot.agent.tools.context import RequestContext, request_context
 from nanobot.agent.tools.tts import TtsTool
+from nanobot.agent.voice import DEFERRED_VOICE, VoiceService
 from nanobot.config.loader import save_config
 from nanobot.config.schema import Config
 from nanobot.providers.tts import TTSStreamChunk, TTSStreamResult
 from nanobot.webui.settings_services import WebUISettingsConfig
 
 
-def test_lover_speech_history_remains_replayable(tmp_path, monkeypatch):
+def test_lover_voice_history_remains_replayable(tmp_path, monkeypatch):
     from nanobot.webui.transcript import (
         build_session_thread_response,
         replay_transcript_to_ui_messages,
     )
     media = tmp_path / "media"
-    old_audio = media / "tts" / "speech_old.wav"
+    old_audio = media / "tts" / "voice_old.wav"
     old_audio.parent.mkdir(parents=True)
     old_audio.write_bytes(b"RIFF-test")
     monkeypatch.setattr("nanobot.webui.transcript.get_media_dir", lambda: media)
-    speech = {"audioId": "old", "path": str(old_audio),
+    voice = {"audioId": "old", "path": str(old_audio),
               "mimeType": "audio/wav", "sampleRate": 24000, "durationMs": 1000,
               "provider": "minimax", "model": "speech-2.8-turbo", "voice": "v", "controls": [],
               "url": "https://expired.invalid/do-not-use"}
@@ -32,30 +32,30 @@ def test_lover_speech_history_remains_replayable(tmp_path, monkeypatch):
         assert paths == [str(old_audio.resolve())]
         return [{"url": "/media/fresh-signature"}]
     history = build_session_thread_response("websocket:desktop", [
-        {"role": "user", "content": "hello"}, {"role": "assistant", "content": "reply", "speech": speech},
+        {"role": "user", "content": "hello"}, {"role": "assistant", "content": "reply", "voice": voice},
     ], augment_assistant_media=sign)
-    assert history["messages"][-1]["speech"] == {"audioId": "old", "url": "/media/fresh-signature"}
+    assert history["messages"][-1]["voice"] == {"audioId": "old", "url": "/media/fresh-signature"}
     for audio_first in (True, False):
         answer = {"event": "message", "chat_id": "desktop", "turn_id": "old-turn", "text": "reply"}
-        end = {"event": "assistant_audio_end", "chat_id": "desktop", "turn_id": "old-turn", "audio": speech}
+        end = {"event": "assistant_audio_end", "chat_id": "desktop", "turn_id": "old-turn", "audio": voice}
         records = [end, answer] if audio_first else [answer, {"event": "turn_end", "turn_id": "old-turn"}, end]
         replay = replay_transcript_to_ui_messages(records, augment_assistant_media=sign)
-        assert replay[-1]["speech"]["url"] == "/media/fresh-signature"
+        assert replay[-1]["voice"]["url"] == "/media/fresh-signature"
     old_audio.unlink()
-    assert "speech" not in build_session_thread_response("websocket:desktop", [
-        {"role": "assistant", "content": "reply", "speech": speech},
+    assert "voice" not in build_session_thread_response("websocket:desktop", [
+        {"role": "assistant", "content": "reply", "voice": voice},
     ], augment_assistant_media=sign)["messages"][-1]
 
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required for MP3 encoding")
-async def test_speech_background_replay_failure_and_heartbeat_gate(tmp_path, monkeypatch):
+async def test_voice_background_replay_failure_and_heartbeat_gate(tmp_path, monkeypatch):
     config = Config(tools={"tts": {"mode": "off", "preset": "minimax", "voice": "voice"}},
                     ttsPresets={"minimax": {"label": "MiniMax", "config": {"apiKey": "secret"},
                         "voices": [{"id": "voice", "label": "Voice", "languageVoices": {"default": "zh"}}]}})
     path = tmp_path / "config.json"
     save_config(config, path)
-    service = SpeechService(WebUISettingsConfig(path))
+    service = VoiceService(WebUISettingsConfig(path))
     assert "secret" not in str(service.settings())
     tasks = []
     service.schedule = lambda coro: tasks.append(asyncio.create_task(coro))
@@ -68,7 +68,7 @@ async def test_speech_background_replay_failure_and_heartbeat_gate(tmp_path, mon
             await release.wait()
             await on_chunk(TTSStreamChunk(0, b"\x01\x00", 24000))
             return None if fail else TTSStreamResult(24000, 1, 2)
-    monkeypatch.setattr("nanobot.agent.speech.MiniMaxTTSProvider", Provider)
+    monkeypatch.setattr("nanobot.agent.voice.MiniMaxTTSProvider", Provider)
     tool = TtsTool(service)
     with request_context(RequestContext(channel="websocket", chat_id="desktop", metadata={"webui_turn_id": "turn"})):
         assert "已触发" in await tool.execute("hello")
@@ -80,7 +80,7 @@ async def test_speech_background_replay_failure_and_heartbeat_gate(tmp_path, mon
     assert service.path("turn").stat().st_size > 0
     subprocess.run(["ffmpeg", "-v", "error", "-i", str(service.path("turn")), "-f", "null", "-"], check=True, capture_output=True)
     assert [call.args[1]["phase"] for call in service.emit.call_args_list] == ["start", "chunk", "end"]
-    restarted = SpeechService(WebUISettingsConfig(path))
+    restarted = VoiceService(WebUISettingsConfig(path))
     assert restarted.path("turn").is_file()
     fail = True
     service.submit("desktop", "failed", "text")
@@ -89,13 +89,13 @@ async def test_speech_background_replay_failure_and_heartbeat_gate(tmp_path, mon
     assert service.emit.call_args.args[1]["phase"] == "error"
     before = len(tasks)
     pending = []
-    token = DEFERRED_SPEECH.set(pending)
+    token = DEFERRED_VOICE.set(pending)
     try:
         with request_context(RequestContext(channel="qq", chat_id="qq-group", session_key="heartbeat", turn_id="heartbeat-turn")):
             assert "获准" in await tool.execute("greeting")
         assert pending == ["greeting"] and len(tasks) == before
     finally:
-        DEFERRED_SPEECH.reset(token)
+        DEFERRED_VOICE.reset(token)
     service.deliver = AsyncMock()
     fail = False
     with request_context(RequestContext(channel="qq", chat_id="qq-group", turn_id="qq-turn", metadata={"message_id": "source-msg"})):
@@ -111,7 +111,7 @@ async def test_speech_background_replay_failure_and_heartbeat_gate(tmp_path, mon
         service.update({"mode": "agent", "preset": "other", "voice": "voice"})
 
 
-async def test_speech_routes_require_auth_and_socket_mutations(tmp_path):
+async def test_voice_routes_require_auth_and_socket_mutations(tmp_path):
     from types import SimpleNamespace
 
     from websockets.datastructures import Headers
@@ -129,18 +129,18 @@ async def test_speech_routes_require_auth_and_socket_mutations(tmp_path):
     )
     connection = SimpleNamespace(remote_address=("127.0.0.1", 10000))
     handler = services.http
-    response = await handler.dispatch(connection, Request("/api/speech/settings", Headers()))
+    response = await handler.dispatch(connection, Request("/api/voice/settings", Headers()))
     assert response.status_code == 401
-    response = await handler.dispatch(connection, Request("/api/speech/settings/update", Headers()))
+    response = await handler.dispatch(connection, Request("/api/voice/settings/update", Headers()))
     assert response.status_code == 405
-    response = await handler.dispatch_webui_mutation(connection, "speech.settings", {"preset": "missing", "voice": "missing"})
+    response = await handler.dispatch_webui_mutation(connection, "voice.settings", {"preset": "missing", "voice": "missing"})
     assert response.status_code == 400
-    assert "mode" not in handler.speech.settings()
+    assert "mode" not in handler.voice.settings()
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required for MP3 encoding")
 @pytest.mark.parametrize("audio_first", [True, False])
-async def test_unified_history_keeps_speech_link_across_reload(tmp_path, monkeypatch, audio_first):
+async def test_unified_history_keeps_voice_link_across_reload(tmp_path, monkeypatch, audio_first):
     from nanobot.agent.loop import AgentLoop
     from nanobot.agent.tools.registry import ToolRegistry
     from nanobot.bus.events import InboundMessage
@@ -153,7 +153,7 @@ async def test_unified_history_keeps_speech_link_across_reload(tmp_path, monkeyp
                         "voices": [{"id": "v", "label": "Voice", "languageVoices": {"default": "zh"}}]}})
     path = tmp_path / "config.json"
     save_config(config, path)
-    service = SpeechService(WebUISettingsConfig(path))
+    service = VoiceService(WebUISettingsConfig(path))
     release = asyncio.Event()
     tasks = []
     service.schedule = lambda coro: tasks.append(asyncio.create_task(coro))
@@ -163,7 +163,7 @@ async def test_unified_history_keeps_speech_link_across_reload(tmp_path, monkeyp
             await release.wait()
             await on_chunk(TTSStreamChunk(0, b"\x01\x00" * 2400, 24000))
             return TTSStreamResult(24000, 1, 4800)
-    monkeypatch.setattr("nanobot.agent.speech.MiniMaxTTSProvider", AudioProvider)
+    monkeypatch.setattr("nanobot.agent.voice.MiniMaxTTSProvider", AudioProvider)
     class Provider(LLMProvider):
         def __init__(self):
             super().__init__(provider_name="test")
@@ -190,11 +190,11 @@ async def test_unified_history_keeps_speech_link_across_reload(tmp_path, monkeyp
     replay = build_session_thread_response("websocket:desktop", saved, augment_assistant_media=lambda paths: [{"url": "/media/current-signature"}])
     answer = next(m for m in replay["messages"] if m["role"] == "assistant" and m["content"] == "hello")
     assert answer.get("turnId") is None
-    assert "speechTurnId" not in answer
-    assert answer["speech"]["url"] == "/media/current-signature"
-    restarted = SpeechService(WebUISettingsConfig(path))
+    assert "voiceTurnId" not in answer
+    assert answer["voice"]["url"] == "/media/current-signature"
+    restarted = VoiceService(WebUISettingsConfig(path))
     assert restarted.path("saved-voice").is_file()
-    assert saved[-1]["speech"]["mimeType"] == "audio/mpeg"
-    assert saved[-1]["speech"]["durationMs"] == 100
-    assert saved[-1]["speech"]["audioId"] == answer["speech"]["audioId"]
-    assert all("speech" not in m for m in loop.sessions.get_or_create("unified:default").get_history())
+    assert saved[-1]["voice"]["mimeType"] == "audio/mpeg"
+    assert saved[-1]["voice"]["durationMs"] == 100
+    assert saved[-1]["voice"]["audioId"] == answer["voice"]["audioId"]
+    assert all("voice" not in m for m in loop.sessions.get_or_create("unified:default").get_history())

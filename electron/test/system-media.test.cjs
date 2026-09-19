@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { SystemMediaController } = require('../system-media.cjs');
 
-test('暂停媒体默认开启，保留用户明确关闭的设置', () => {
+test('语音播放暂停媒体默认开启，保留用户明确关闭的设置', () => {
   assert.equal(new SystemMediaController({ get: () => undefined, set() {} }, 'linux').getEnabled(), true);
   assert.equal(new SystemMediaController({ get: () => false, set() {} }, 'linux').getEnabled(), false);
 });

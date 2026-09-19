@@ -12,7 +12,7 @@ import type {
   WorkspaceScopePayload,
 } from "./types";
 import { createHostWebSocket } from "./runtime";
-import { isSpeechEvent, type SpeechEvent } from "./speech";
+import { isVoiceEvent, type VoiceEvent } from "./voice";
 
 /** WebSocket readyState constants, referenced by value to stay portable
  * across runtimes that don't expose a global ``WebSocket`` (tests, SSR). */
@@ -245,7 +245,7 @@ export class NanobotClient {
   // Set by ``close()`` so the onclose handler knows the drop was intentional
   // and must not schedule a reconnect or flip status back to "reconnecting".
   private intentionallyClosed = false;
-  private speechHandlers = new Set<(event: SpeechEvent) => void>();
+  private voiceHandlers = new Set<(event: VoiceEvent) => void>();
   private companionWorking = false;
   private companionHandlers = new Set<(working: boolean) => void>();
 
@@ -255,9 +255,9 @@ export class NanobotClient {
     return () => { this.companionHandlers.delete(handler); };
   }
 
-  onSpeech(handler: (event: SpeechEvent) => void): Unsubscribe {
-    this.speechHandlers.add(handler);
-    return () => { this.speechHandlers.delete(handler); };
+  onVoice(handler: (event: VoiceEvent) => void): Unsubscribe {
+    this.voiceHandlers.add(handler);
+    return () => { this.voiceHandlers.delete(handler); };
   }
 
   constructor(private options: NanobotClientOptions) {
@@ -1123,8 +1123,8 @@ export class NanobotClient {
         return;
       }
       parsed = raw as InboundEvent;
-      if (isSpeechEvent(parsed)) {
-        for (const handler of this.speechHandlers) handler(parsed);
+      if (isVoiceEvent(parsed)) {
+        for (const handler of this.voiceHandlers) handler(parsed);
         return;
       }
       if (decodeNotification(parsed) === null) return;

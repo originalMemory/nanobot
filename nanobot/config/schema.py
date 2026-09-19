@@ -113,14 +113,6 @@ class ModelPresetConfig(Base):
         )
 
 
-class ActiveMemoryConfig(Base):
-    """自动日记召回；主题卡摘要沿用当前轮次的主模型。"""
-
-    enabled: bool = False
-    model: str = "active-memory:1.7b"
-    timeout_seconds: float = Field(default=6.0, gt=0, le=60)
-
-
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -151,7 +143,6 @@ class AgentDefaults(Base):
     bot_name: str = "nanobot"  # Display name shown in CLI prompts (e.g. "{name} is thinking...")
     bot_icon: str = "🐈"  # Short icon (emoji or text) shown next to the bot name in CLI; "" to omit
     unified_session: bool = False  # Share one session across all channels (single-user multi-device)
-    active_memory: ActiveMemoryConfig = Field(default_factory=ActiveMemoryConfig)
     disabled_skills: list[str] = Field(default_factory=list)  # Skill names to exclude from loading (e.g. ["summarize", "skill-creator"])
     session_ttl_minutes: int = Field(
         default=15,

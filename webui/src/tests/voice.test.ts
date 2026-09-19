@@ -1,11 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { isSpeechEvent, SpeechPlayer } from "@/lib/speech";
+import { isVoiceEvent, VoicePlayer } from "@/lib/voice";
 
 afterEach(() => vi.unstubAllGlobals());
 
 it("validates wire chunks and restores media after streaming drains", async () => {
-  const event = { event: "speech" as const, chat_id: "desktop", turn_id: "one" };
-  expect(isSpeechEvent({ ...event, phase: "chunk", pcm: "", sequence: -1 })).toBe(false);
+  const event = { event: "voice" as const, chat_id: "desktop", turn_id: "one" };
+  expect(isVoiceEvent({ ...event, phase: "chunk", pcm: "", sequence: -1 })).toBe(false);
   const sources: { onended: (() => void) | null; stop: () => void; start: () => void }[] = [];
   const samples: Float32Array[] = [];
   class Context {
@@ -25,7 +25,7 @@ it("validates wire chunks and restores media after streaming drains", async () =
   vi.stubGlobal("AudioContext", Context);
   const host = { active: vi.fn(async () => {}), settings: vi.fn() };
   const changed = vi.fn();
-  const player = new SpeechPlayer(host, changed);
+  const player = new VoicePlayer(host, changed);
   player.receive({ ...event, phase: "start" });
   for (let sequence = 0; sequence < 10; sequence++) {
     player.receive({ ...event, phase: "chunk", pcm: btoa("\x00\x40\x00\xC0"), sequence });
@@ -52,8 +52,8 @@ it("stop prevents delayed pause completion from resurrecting audio", async () =>
     createBufferSource = () => ({ start });
   });
   const host = { active: vi.fn((active: boolean) => active ? new Promise<void>((r) => { release = r; }) : Promise.resolve()), settings: vi.fn() };
-  const player = new SpeechPlayer(host, vi.fn());
-  const event = { event: "speech" as const, chat_id: "desktop", turn_id: "one" };
+  const player = new VoicePlayer(host, vi.fn());
+  const event = { event: "voice" as const, chat_id: "desktop", turn_id: "one" };
   player.receive({ ...event, phase: "start" });
   player.receive({ ...event, phase: "chunk", pcm: "AAA=", sequence: 0 });
   await vi.waitFor(() => expect(release).toBeDefined());
@@ -69,9 +69,9 @@ it("a new live response supersedes a replay waiting for media pause", async () =
   vi.stubGlobal("Audio", class { play = play; pause = vi.fn(); });
   const host = { active: vi.fn((active: boolean) => active ? new Promise<void>((r) => { release = r; }) : Promise.resolve()), settings: vi.fn() };
   const changed = vi.fn();
-  const player = new SpeechPlayer(host, changed);
+  const player = new VoicePlayer(host, changed);
   const pending = player.replay("old", "/media/old.wav");
-  player.receive({ event: "speech", chat_id: "desktop", turn_id: "new", phase: "start" });
+  player.receive({ event: "voice", chat_id: "desktop", turn_id: "new", phase: "start" });
   await vi.waitFor(() => expect(changed).toHaveBeenLastCalledWith("new"));
   release(); await pending;
   expect(play).not.toHaveBeenCalled();

@@ -138,8 +138,8 @@
     }
   },
   "settings": {
-    "speech": {
-      "title": "Suara MiniMax",
+    "aiVoice": {
+      "title": "Suara AI",
       "provider": "Penyedia",
       "voice": "Suara",
       "description": "AI menentukan kapan perlu menjawab dengan suara.",

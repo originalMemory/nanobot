@@ -131,8 +131,8 @@ export interface UIMessage {
   sessionMessage?: UISessionMessage;
   /** Stable protocol metadata for grouping all activity emitted by one user turn. */
   turnId?: string;
-  /** Lover-compatible audio, freshly signed by the gateway during history replay. */
-  speech?: { audioId: string; url: string };
+  /** AI voice audio, freshly signed by the gateway during history replay. */
+  voice?: { audioId: string; url: string };
   turnPhase?: UITurnPhase;
   turnSeq?: number;
   /** Ephemeral delivery lifecycle for optimistic user messages. */

@@ -501,15 +501,15 @@ def _run_gateway(
     def _schedule_webui_background(awaitable: Awaitable[None]) -> None:
         agent.schedule_background(cast(Coroutine[Any, Any, None], awaitable))
 
-    from nanobot.agent.speech import SpeechService
     from nanobot.agent.tools.tts import TtsTool
+    from nanobot.agent.voice import VoiceService
     from nanobot.webui.settings_services import WebUISettingsConfig
 
-    speech = SpeechService(WebUISettingsConfig(Path(config_path)))
-    speech.sessions = session_manager
-    speech.schedule = _schedule_webui_background
-    speech.deliver = bus.publish_outbound
-    tools.register(TtsTool(speech))  # pyright: ignore[reportAbstractUsage]
+    voice = VoiceService(WebUISettingsConfig(Path(config_path)))
+    voice.sessions = session_manager
+    voice.schedule = _schedule_webui_background
+    voice.deliver = bus.publish_outbound
+    tools.register(TtsTool(voice))  # pyright: ignore[reportAbstractUsage]
 
     webui_turn_coordinator = WebuiTurnCoordinator(
         bus=bus,
@@ -556,8 +556,8 @@ def _run_gateway(
             key = session_key or _channel_session_key(msg.channel, msg.chat_id)
             session = session_manager.get_or_create(key)
             extra: dict[str, Any] = {"_channel_delivery": True}
-            if isinstance(metadata.get("speech"), dict):
-                extra["speech"] = dict(metadata["speech"])
+            if isinstance(metadata.get("voice"), dict):
+                extra["voice"] = dict(metadata["voice"])
             if msg.media:
                 extra["media"] = list(msg.media)
             session.add_message("assistant", msg.content, **extra)
@@ -658,9 +658,9 @@ def _run_gateway(
             # Internal check: funnel all output through the post-run gate so the
             # turn can't deliver directly via the message tool and skip it.
             suppress_token = None
-            from nanobot.agent.speech import DEFERRED_SPEECH
-            deferred_speech: list[str] = []
-            speech_token = DEFERRED_SPEECH.set(deferred_speech)
+            from nanobot.agent.voice import DEFERRED_VOICE
+            deferred_voice: list[str] = []
+            voice_token = DEFERRED_VOICE.set(deferred_voice)
             if isinstance(message_tool, MessageTool):
                 suppress_token = message_tool.set_suppress_delivery(True)
             try:
@@ -673,7 +673,7 @@ def _run_gateway(
                     on_progress=_silent,
                 )
             finally:
-                DEFERRED_SPEECH.reset(speech_token)
+                DEFERRED_VOICE.reset(voice_token)
                 if isinstance(message_tool, MessageTool) and suppress_token is not None:
                     message_tool.reset_suppress_delivery(suppress_token)
 
@@ -698,18 +698,18 @@ def _run_gateway(
             if should_notify:
                 logger.info("Heartbeat: completed, delivering response")
                 from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
-                speech_turn = f"heartbeat:{uuid.uuid4().hex}"
+                voice_turn = f"heartbeat:{uuid.uuid4().hex}"
                 audio = None
-                if deferred_speech:
+                if deferred_voice:
                     try:
-                        audio = speech.submit(chat_id, speech_turn, deferred_speech[0], channel=channel,
+                        audio = voice.submit(chat_id, voice_turn, deferred_voice[0], channel=channel,
                                               session_key=_channel_session_key(channel, chat_id))
                     except ValueError:
-                        logger.warning("Heartbeat: speech unavailable; text delivered")
+                        logger.warning("Heartbeat: voice unavailable; text delivered")
                 await _deliver_to_channel(
                     OutboundMessage(channel=channel, chat_id=chat_id, content=response,
-                                    metadata={WEBUI_TURN_METADATA_KEY: speech_turn,
-                                              **({"speech": audio} if audio else {})}),
+                                    metadata={WEBUI_TURN_METADATA_KEY: voice_turn,
+                                              **({"voice": audio} if audio else {})}),
                     record=True,
                 )
             else:
@@ -771,8 +771,8 @@ def _run_gateway(
             websocket_channel.companion_working = lambda: desktop_inbox.working
             desktop_inbox.on_run_state = websocket_channel.send_companion_state
             tools.register(DesktopContextTool(websocket_channel.desktop_context))  # pyright: ignore[reportAbstractUsage]
-            websocket_channel.gateway.http.speech = speech
-            speech.emit = websocket_channel.send_speech
+            websocket_channel.gateway.http.voice = voice
+            voice.emit = websocket_channel.send_voice
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""

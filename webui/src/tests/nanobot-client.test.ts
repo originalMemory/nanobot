@@ -89,16 +89,16 @@ describe("NanobotClient", () => {
   it("语音帧独立投递，不进入聊天正文或恢复状态", () => {
     const client = new NanobotClient({ url: "ws://test", reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
-    const speech = vi.fn(); const chat = vi.fn();
-    const unsubscribe = client.onSpeech(speech);
+    const voice = vi.fn(); const chat = vi.fn();
+    const unsubscribe = client.onVoice(voice);
     client.onChat("desktop", chat);
     client.connect(); lastSocket().fakeOpen();
-    const frame = { event: "speech", chat_id: "desktop", turn_id: "voice-1", phase: "start" };
+    const frame = { event: "voice", chat_id: "desktop", turn_id: "voice-1", phase: "start" };
     lastSocket().fakeMessage(frame);
-    expect(speech).toHaveBeenCalledWith(frame);
+    expect(voice).toHaveBeenCalledWith(frame);
     expect(chat).not.toHaveBeenCalled();
     unsubscribe(); lastSocket().fakeMessage({ ...frame, phase: "end" });
-    expect(speech).toHaveBeenCalledTimes(1);
+    expect(voice).toHaveBeenCalledTimes(1);
     client.close();
   });
   it("统一历史的完成标记拦截丢失 turn_end 后的迟到分片", () => {

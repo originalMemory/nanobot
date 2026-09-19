@@ -1,5 +1,5 @@
 import { DesktopIdentity } from "@/providers/DesktopAppearanceProvider";
-import { SpeechReplayButton } from "@/providers/SpeechProvider";
+import { VoiceReplayButton, useVoice } from "@/providers/VoiceProvider";
 import {
   useCallback,
   useEffect,
@@ -340,6 +340,7 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const { t } = useTranslation();
   const channelSource = message.source?.kind === "channel" ? message.source.label?.trim() : null;
+  const voice = useVoice();
   const mentionCliApps = useMemo(
     () => mergeCliMentionApps(cliApps, message.cliApps),
     [cliApps, message.cliApps],
@@ -498,8 +499,12 @@ export function MessageBubble({
     && (!empty || hasReasoning || media.length > 0);
   const assistantTimestampTitle = showAssistantTimestamp ? fmtDateTime(assistantTimestamp) : "";
   const showAutomationTrigger = showAssistantTimestamp && automationSourceLabel.length > 0;
+  const voiceTurnId = message.turnId ?? message.voice?.audioId;
+  const showVoiceButton = Boolean(voice && voiceTurnId && (
+    message.voice?.url || voice.turn === voiceTurnId || voice.available.has(voiceTurnId)
+  ));
   const showAssistantFooterRow =
-    showCopyButton || showForkButton || showAssistantTimestamp || Boolean(channelSource);
+    showCopyButton || showForkButton || showAssistantTimestamp || Boolean(channelSource) || showVoiceButton;
   const showAssistantFooterSlot =
     message.role === "assistant"
     && (!empty || hasReasoning || media.length > 0);
@@ -547,7 +552,7 @@ export function MessageBubble({
             {showCopyButton ? (
               <MessageCopyButton content={assistantContent} />
             ) : null}
-            {!message.isStreaming && <SpeechReplayButton turnId={message.turnId ?? message.speech?.audioId} audioUrl={message.speech?.url} />}
+            {showVoiceButton && <VoiceReplayButton turnId={voiceTurnId} audioUrl={message.voice?.url} />}
             {showForkButton ? (
               <Tooltip>
                 <TooltipTrigger asChild>

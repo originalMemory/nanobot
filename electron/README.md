@@ -39,7 +39,7 @@ npm --prefix electron run package
 - 本地 `nanobot://desktop` 协议提供打包的 WebUI，并把 `/api`、`/auth`、`/webui` 请求转给选定 gateway；WebSocket 复用上游 HostSocketBridge，经主进程连接同一 gateway 并使用上游短期 token，支持 NAS 的 HTTP/WS 部署而不关闭混合内容保护。
 - 不关闭 webSecurity，不向聊天页暴露 Node 或任意 IPC；连接页的 IPC 校验主 frame 和来源。外部链接交给系统浏览器，拒绝任意本地协议导航。
 - 签名图片附件在不带 preload 的独立预览窗口展示，附件只作为图片加载。只有主聊天页面可申请麦克风，系统仍可拒绝；摄像头、附件页与其他来源不获授权。macOS 包包含麦克风用途说明。
-- 偏好默认放在系统应用数据目录的 `Nanobot-next/`，与旧 lover 分开；可用 `NANOBOT_DESKTOP_DATA_DIR` 指定隔离目录。不同 gateway 分区保存认证缓存。
+- 偏好默认放在系统应用数据目录的 `Nanobot/`，与旧 lover 共用，不做数据迁移，缺失设置可重新配置；可用 `NANOBOT_DESKTOP_DATA_DIR` 指定隔离目录。不同 gateway 分区保存认证缓存。
 - 远端工作区不能用本机目录选择器代替，因此这一阶段不宣称支持原生目录选择、引擎重启或诊断桥接。
 - 统一收件箱已完成固定入口这一步：Electron 聊天使用 `desktop`，重连不创建新话题；临时/分叉创建请求会被拒绝。普通浏览器保持上游行为。
 - 后端需开启 `agents.defaults.unifiedSession: true`，发送和停止沿用上游统一路由；桌面重连状态和上下文查询映射到 `unified:default`。关闭该配置时不会强行开启统一会话。
@@ -56,7 +56,7 @@ npm --prefix electron run package
 ## F03 桌面基础体验
 
 - 主窗口沿用 lover 的 30px 无边框顶栏；Windows/Linux 提供最小化、最大化/还原和关闭按钮，macOS 保留原生红绿灯。连接页、认证页和聊天共用窗口控制，关闭仍隐藏到托盘；Windows/Linux 可按 Alt 打开应用菜单。
-- 窗口位置、普通尺寸及最大化状态保存在本机 `Nanobot-next/window.json`，重启或更换后端后恢复；断开外接屏时会移回可见工作区，最小化和全屏不会覆盖普通尺寸。
+- 窗口位置、普通尺寸及最大化状态保存在本机 `Nanobot/window.json`，重启或更换后端后恢复；断开外接屏时会移回可见工作区，最小化和全屏不会覆盖普通尺寸。
 - 侧边栏底部电源按钮「完全退出」直接结束 Electron，与托盘退出一致；标题栏关闭按钮仍隐藏到托盘。不会停止独立运行的 gateway。
 - 关闭主窗口隐藏到托盘；点击托盘或使用全局 `Cmd/Ctrl+Shift+E` 显示/隐藏窗口，菜单「退出」才结束应用。快捷键被占用时仍可通过托盘唤起。
 - 「桌面 → 截图并附加」或应用内 `Cmd/Ctrl+Shift+S`：短暂隐藏窗口，截取鼠标所在屏幕，回到统一收件箱并加入附件预览，手动发送。首次使用可能需要系统屏幕录制授权。
@@ -72,7 +72,7 @@ npm --prefix electron run package
 
 壁纸可选择网络图片网址或本地目录，支持顺序/随机、刷新间隔和手动下一张。单张输入上限 12 MiB；目录通过系统选择器授权，坏图会跳过。窗口隐藏时暂停刷新，加载失败保留上一张并提示。开启壁纸后可调面板不透明度，文字与控件本身不降低透明度；关闭后恢复普通主题。
 
-这些本机偏好保存在 `Nanobot-next/appearance.json`，与旧 lover 和 NAS 配置分开。主题沿用当前 gateway 分区的 localStorage。旧偏好不会自动迁移；本地目录指这台电脑上的目录。新宿主接口需完全退出并重启 Electron 后生效。
+这些本机偏好保存在 `Nanobot/appearance.json`，与旧 lover 共用目录，与 NAS 配置分开。主题沿用当前 gateway 分区的 localStorage。旧偏好不会自动迁移；本地目录指这台电脑上的目录。新宿主接口需完全退出并重启 Electron 后生效。
 
 ## F06 文件与笔记
 
@@ -97,9 +97,9 @@ Electron 连接后自动上报桌面状态，不设功能开关，也不定时�
 
 是否生成语音固定由 AI 决定，不需要模式开关；设置概览可选择 gateway 中配置好的 MiniMax 服务与音色。连接后流式播放生成的语音；消息底部的喇叭按钮重播已保存音频，右下角可停止。没有生成过语音的回复会提示不可重播。MiniMax 失败不影响文字回复。
 
-配置沿用 lover 的 tools.tts（preset/voice）和 ttsPresets：preset 中的 config 配置 provider=minimax、apiKey、apiBase、model、speed、rpm；voices 中以 id/label 标识音色，languageVoices.default 是中文音色，languageVoices.ja 是日语音色。密钥只留在 gateway。新文件以 64 kbps MP3 保存在 gateway 实例 media/speech 下，重播不重新合成。gateway 需要 FFmpeg，Dockerfile 已包含此依赖。历史使用 lover 的 speech 对象；原有 speech.path 音频在媒体目录内仍可读时可直接重播，不复用过期签名 URL。
+配置沿用 lover 的 tools.tts（preset/voice）和 ttsPresets：preset 中的 config 配置 provider=minimax、apiKey、apiBase、model、speed、rpm；voices 中以 id/label 标识音色，languageVoices.default 是中文音色，languageVoices.ja 是日语音色。密钥只留在 gateway。新文件以 64 kbps MP3 保存在 gateway 实例 media/voice 下，重播不重新合成。gateway 需要 FFmpeg，Dockerfile 已包含此依赖。历史使用 voice 对象，voice.path 音频重新签名后重播。按用户要求直接改名，不读取旧 speech 字段，不迁移旧数据。
 
-“朗读时暂停系统媒体”默认开启，可在设置中关闭；复用 lover 的媒体暂停/恢复实现。Windows 使用原有系统媒体会话控制；macOS 优先 media-control，缺少时仅支持 Music/Spotify；Linux 暂不支持。只恢复本次暂停且身份匹配的媒体。此项保存在本机，与 gateway 的服务/音色选择分开。
+“AI 语音播放时暂停系统媒体”默认开启，可在设置中关闭；复用 lover 的媒体暂停/恢复实现。Windows 使用原有系统媒体会话控制；macOS 优先 media-control，缺少时仅支持 Music/Spotify；Linux 暂不支持。只恢复本次暂停且身份匹配的媒体。此项保存在本机，与 gateway 的服务/音色选择分开。
 
 
 ## 本地数字伴侣

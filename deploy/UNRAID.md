@@ -6,6 +6,8 @@
 
 ## 镜像与环境
 
+- 按用户要求，gateway/API 均不设置 CPU、内存限制或资源预留。其他服务设置沿用 lover；镜像自动命名，不另需 env 文件。
+
 - `Dockerfile` 的 `unraid` target 沿用上游完整前后端构建，预装当前启用的 QQ、Telegram、WebSocket、微信渠道依赖；用户固定 `99:100`，补充组 `281` 保留 Docker socket 权限。
 - 与 lover 一样，容器内 nanobot 用户和同名组均映射到宿主 Unraid nobody/users 的数字身份 99:100，供 SMB/Windows 共享按既有权限访问创建的文件。root 降权和所有权修复读取实际 UID/GID，不再使用 1000:1000；不批量修改现有文件权限或共享 ACL。
 - 保留现有数据、SSH、笔记库、SSD、HDD、Clouddrive 和 Docker socket 挂载，以及 NAS 已使用的 bubblewrap 权限。WebSocket 端口仍为 8765，API 仅在 `api` profile 开启时启动。
@@ -16,8 +18,8 @@
 - `tools.exec.allowedEnvKeys` 保留 PATH、VIRTUAL_ENV 及代理变量，`pathAppend` 保留两个工具目录；只设置 Docker ENV 不够。NAS 已备份并更新这些设置。默认 exec 不使用登录 shell；不要用 login=true 重置共用 Python 路径。
 - NAS bootstrap 已修正 Python 路径优先级，以及 SSH key 不存在时导致启动退出的问题；没有在当前服务里实际执行安装。
 - 用户决定暂缓浏览器依赖，等待知乎脚本调整；目前不承诺容器内 Chromium 抓取可用。
-- 将旧 compose 中的 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`、`OAUTH_CLI_KIT_TOKEN_PATH` 原值保存在根目录 `.env.unraid`。该文件已排除 Git 和镜像构建上下文。不要设置 `PYTHONPATH`。`NO_PROXY` 保留现有局域网地址，确保固定 Ollama 地址直连；构建代理按 Docker/BuildKit 的代理设置配置。
-- 不移动 `.nanobot/media`、认证和 WebUI 数据。日记仍为 `/home/nanobot/note/日记`；旧 TTS 历史引用的媒体路径保持不变。
+- 代理和 OAuth token 路径沿用 lover 的 Compose 环境设置，不另需 .env.unraid。构建代理仍需用 --build-arg 传入。
+- 不移动 `.nanobot/media`、认证和 WebUI 数据。日记仍为 `/home/nanobot/note/日记`；已有媒体文件保留不动；按最新命名决定，不迁移或兼容旧 speech 历史字段。
 
 ## 升级步骤（在 NAS shell 手动执行）
 
@@ -37,7 +39,7 @@ tar -tf "$backup/nanobot-data.tar" >/dev/null
 
 旧 Dockerfile、compose、entrypoint 和对应代码版本也应放入该备份目录。NAS 原容器通过源码挂载运行，只有镜像备份不足以回退。
 
-备份完成后准备 lover-next 代码及 `.env.unraid`，不要用强制 checkout 丢弃原部署修改。然后构建：
+备份完成后准备 lover-next 代码，不要用强制 checkout 丢弃原部署修改。然后构建：
 
 ```sh
 docker compose -f docker-compose.unraid.yml config --quiet
@@ -104,6 +106,6 @@ docker compose -f docker-compose.unraid.yml logs --tail=100 nanobot-gateway
 - 月度原文归档仍在 `workspace/sessions` 的归档子目录，不加入历史读取。日语进度仍在 `workspace/memory/japanese-learning-state.json` 和 `japanese-learning.md`；技能业务数据仍在 `workspace/data`。
 - NAS 定时任务已位于 `workspace/cron/jobs.json`，无需再次迁移；只有旧 `.nanobot/cron/jobs.json` 存在且目标不存在时，上游才会自动移动。
 - 不依赖 `nanobot sessions restore-workspace` 完成 lover 回退：它只识别新版编码文件名，旧命名会话的副本实验未能全部恢复。回退时先停新服务，另行保存升级后的整个 `.nanobot`，再恢复升级前的完整数据、原代码及部署文件。不要直接覆盖或删除升级后数据，避免丢失试运行期间的新消息。
-- 实机验收：渠道登录、Electron 连接和统一收件箱、旧历史及 TTS 回放、日记召回、定时任务、日语进度、工作区工具与 Docker socket。确认稳定前不要删除回退备份。
+- 实机验收：渠道登录、Electron 连接和统一收件箱、历史展示及新 voice 语音回放、日记召回、定时任务、日语进度、工作区工具与 Docker socket。确认稳定前不要删除回退备份。
 
 本机 Docker daemon 未启动，当前无法做 Linux 镜像构建和 Unraid 实机验收；这些检查必须在实际部署时完成。

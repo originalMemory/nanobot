@@ -4,7 +4,7 @@ import { DesktopAppearanceSettings } from "@/components/settings/DesktopAppearan
 import { DesktopAppearanceProvider, DesktopIdentity } from "@/providers/DesktopAppearanceProvider";
 import type { DesktopAppearance } from "@/lib/runtime";
 import { ClientProvider } from "@/providers/ClientProvider";
-import { SpeechSettings } from "@/providers/SpeechProvider";
+import { VoiceSettings } from "@/providers/VoiceProvider";
 import { NanobotClient } from "@/lib/nanobot-client";
 
 const config: DesktopAppearance = { name: "nanobot", icon: "🦊", source: "none", url: "", directory: "", order: "sequential", intervalMinutes: 1, opacity: 0.8 };
@@ -17,15 +17,15 @@ function fixture(overrides: Partial<DesktopAppearance> = {}) {
 }
 const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
 
-it("speech settings retry loading and share save/cancel switch behavior", async () => {
+it("voice settings retry loading and share save/cancel switch behavior", async () => {
   const settings = { preset: "minimax", voice: "one", presets: [{ id: "minimax", label: "MiniMax", voices: [{ id: "one", label: "Voice one" }] }] };
   const local = vi.fn(async () => ({ pauseSystemMedia: true, support: "system" }));
-  window.nanobotHost = { speech: { active: vi.fn(async () => {}), settings: local } };
+  window.nanobotHost = { voice: { active: vi.fn(async () => {}), settings: local } };
   const fetchSettings = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("offline"))
     .mockResolvedValue(new Response(JSON.stringify(settings)));
   const client = new NanobotClient({ url: "ws://unused", reconnect: false });
   const save = vi.spyOn(client, "requestMutation").mockResolvedValue(settings);
-  const view = render(<ClientProvider client={client} token="test"><SpeechSettings /></ClientProvider>);
+  const view = render(<ClientProvider client={client} token="test"><VoiceSettings /></ClientProvider>);
   try {
     await screen.findByRole("alert");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));

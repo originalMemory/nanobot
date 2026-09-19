@@ -16,19 +16,51 @@ import type {
 
 it("统一历史没有实时 turnId 时仍按持久化语音标识重播", async () => {
   const previous = window.nanobotHost;
-  window.nanobotHost = { speech: { active: vi.fn(async () => {}), settings: vi.fn() } };
+  window.nanobotHost = { voice: { active: vi.fn(async () => {}), settings: vi.fn() } };
   const fetchAudio = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ audio: { url: "/media/test.wav" } })));
   const play = vi.fn(async () => {});
   vi.stubGlobal("Audio", class { play = play; pause = vi.fn(); });
   const view = render(<ClientProvider client={new NanobotClient({ url: "ws://test", reconnect: false })} token="test">
-    <MessageBubble message={{ id: "saved", role: "assistant", content: "hello", createdAt: 1700000000000, speech: { audioId: "saved-voice", url: "/media/test.mp3" } }} />
+    <MessageBubble message={{ id: "saved", role: "assistant", content: "hello", createdAt: 1700000000000, voice: { audioId: "saved-voice", url: "/media/test.mp3" } }} />
   </ClientProvider>);
   try {
     fireEvent.click(screen.getByRole("button", { name: "播放回复语音" }));
     await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
     expect(fetchAudio).not.toHaveBeenCalled();
+    expect(screen.queryByText("正在播放语音")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "停止回复语音" })).toHaveLength(1);
   } finally {
     view.unmount(); fetchAudio.mockRestore(); vi.unstubAllGlobals();
+    if (previous) window.nanobotHost = previous;
+    else delete window.nanobotHost;
+  }
+});
+
+it("纯文本不显示语音按钮，收到语音后在消息内停止或重播，错误仍可关闭", async () => {
+  const previous = window.nanobotHost;
+  window.nanobotHost = { voice: { active: vi.fn(async () => {}), settings: vi.fn() } };
+  const client = new NanobotClient({ url: "ws://test", reconnect: false });
+  const listen = vi.spyOn(client, "onVoice");
+  const view = render(<ClientProvider client={client} token="test">
+    <MessageBubble message={{ id: "live", role: "assistant", content: "hello", createdAt: 1700000000000, turnId: "turn", isStreaming: true }} />
+  </ClientProvider>);
+  const emit = (phase: "start" | "end" | "error") => act(async () => {
+    listen.mock.calls[0][0]({ event: "voice", chat_id: "desktop", turn_id: "turn", phase });
+  });
+  try {
+    expect(screen.queryByRole("button", { name: "播放回复语音" })).not.toBeInTheDocument();
+    await emit("start");
+    expect(screen.getAllByRole("button", { name: "停止回复语音" })).toHaveLength(1);
+    expect(screen.queryByText("正在播放语音")).not.toBeInTheDocument();
+    await emit("end");
+    expect(screen.getByRole("button", { name: "播放回复语音" })).toBeInTheDocument();
+    await emit("start");
+    await emit("error");
+    expect(screen.getByRole("alert")).toHaveTextContent("语音合成失败");
+    fireEvent.click(screen.getByRole("button", { name: "关闭提示" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  } finally {
+    view.unmount(); listen.mockRestore();
     if (previous) window.nanobotHost = previous;
     else delete window.nanobotHost;
   }

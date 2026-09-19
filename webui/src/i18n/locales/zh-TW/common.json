@@ -138,15 +138,15 @@
     }
   },
   "settings": {
-    "speech": {
-      "title": "MiniMax 語音",
+    "aiVoice": {
+      "title": "AI 語音",
       "provider": "服務",
       "voice": "音色",
       "description": "由 AI 按對話需要產生語音。",
       "selectProvider": "選擇服務",
       "selectVoice": "選擇音色",
-      "pauseMedia": "朗讀時暫停系統媒體",
-      "pauseDescription": "朗讀結束後恢復之前暫停的播放器。",
+      "pauseMedia": "語音播放時暫停系統媒體",
+      "pauseDescription": "語音播放結束後恢復之前暫停的播放器。",
       "limited": "結束後恢復，目前系統僅支援部分播放器。",
       "unavailable": "目前系統不支援媒體控制。",
       "loading": "正在讀取語音設定…",

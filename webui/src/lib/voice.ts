@@ -1,7 +1,7 @@
-import type { DesktopSpeechApi } from "./runtime";
+import type { DesktopVoiceApi } from "./runtime";
 
-export interface SpeechEvent {
-  event: "speech";
+export interface VoiceEvent {
+  event: "voice";
   chat_id: string;
   turn_id: string;
   phase: "start" | "chunk" | "end" | "error";
@@ -9,16 +9,16 @@ export interface SpeechEvent {
   sequence?: number;
 }
 
-export function isSpeechEvent(value: unknown): value is SpeechEvent {
+export function isVoiceEvent(value: unknown): value is VoiceEvent {
   if (!value || typeof value !== "object") return false;
   const data = value as Record<string, unknown>;
-  return data.event === "speech" && typeof data.chat_id === "string"
+  return data.event === "voice" && typeof data.chat_id === "string"
     && typeof data.turn_id === "string" && ["start", "chunk", "end", "error"].includes(String(data.phase))
     && (data.phase !== "chunk" || (typeof data.pcm === "string" && data.pcm.length <= 8 * 1024 * 1024
       && Number.isSafeInteger(data.sequence) && Number(data.sequence) >= 0));
 }
 
-export class SpeechPlayer {
+export class VoicePlayer {
   private context: AudioContext | null = null;
   private sources = new Set<AudioBufferSourceNode>();
   private audio: HTMLAudioElement | null = null;
@@ -30,7 +30,7 @@ export class SpeechPlayer {
   private chain = Promise.resolve();
   private mediaActive = false;
   private mediaTransition = Promise.resolve();
-  constructor(private host: DesktopSpeechApi, private changed: (turn: string, error?: string) => void) {}
+  constructor(private host: DesktopVoiceApi, private changed: (turn: string, error?: string) => void) {}
 
   private setMediaActive(active: boolean): Promise<void> {
     if (active === this.mediaActive) return this.mediaTransition;
@@ -52,7 +52,7 @@ export class SpeechPlayer {
     void this.setMediaActive(false);
   }
 
-  receive(event: SpeechEvent) {
+  receive(event: VoiceEvent) {
     const version = this.generation;
     this.chain = this.chain.then(async () => {
       if (version !== this.generation) return;

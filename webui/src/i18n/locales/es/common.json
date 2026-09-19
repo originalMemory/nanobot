@@ -138,8 +138,8 @@
     }
   },
   "settings": {
-    "speech": {
-      "title": "Voz de MiniMax",
+    "aiVoice": {
+      "title": "Voz de IA",
       "provider": "Proveedor",
       "voice": "Voz",
       "description": "La IA decide cuándo conviene responder con voz.",

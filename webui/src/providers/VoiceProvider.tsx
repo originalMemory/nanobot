@@ -8,22 +8,28 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleButton } from "@/components/settings/ToggleButton";
 import { SettingsGroup, SettingsRow, SettingsSectionTitle, DismissibleStatusMessage, RestartSettingsFooter } from "@/components/settings/shared/SettingsControls";
-import { SpeechPlayer } from "@/lib/speech";
+import { VoicePlayer } from "@/lib/voice";
 
-const SpeechContext = createContext<{ turn: string; replay: (turn: string, url?: string) => void; stop: () => void } | null>(null);
+const VoiceContext = createContext<{ turn: string; available: Set<string>; replay: (turn: string, url?: string) => void; stop: () => void } | null>(null);
+export const useVoice = () => useContext(VoiceContext);
 
-export function SpeechProvider({ children }: { children: ReactNode }) {
+export function VoiceProvider({ children }: { children: ReactNode }) {
   const { client, getToken } = useClient();
   const [turn, setTurn] = useState("");
   const [error, setError] = useState("");
-  const player = useRef<SpeechPlayer | null>(null);
+  const [available, setAvailable] = useState<Set<string>>(() => new Set());
+  const player = useRef<VoicePlayer | null>(null);
   const replayVersion = useRef(0);
-  const host = getRuntimeHost().speech;
+  const host = getRuntimeHost().voice;
   useEffect(() => {
     if (!host) return;
-    const current = new SpeechPlayer(host, (id, message) => { setTurn(id); setError(message ?? ""); });
+    const current = new VoicePlayer(host, (id, message) => { setTurn(id); setError(message ?? ""); });
     player.current = current;
-    const unsubscribe = client.onSpeech((event) => { if (event.phase === "start") replayVersion.current++; current.receive(event); });
+    const unsubscribe = client.onVoice((event) => {
+      if (event.phase === "start") replayVersion.current++;
+      if (event.phase === "end") setAvailable(previous => new Set(previous).add(event.turn_id));
+      current.receive(event);
+    });
     const status = client.onStatus((value) => { if (value !== "open") { replayVersion.current++; current.stop(); } });
     return () => { replayVersion.current++; unsubscribe(); status(); current.stop(); player.current = null; };
   }, [client, host]);
@@ -32,7 +38,7 @@ export function SpeechProvider({ children }: { children: ReactNode }) {
     setError("");
     try {
       if (url) { await player.current?.replay(id, url); return; }
-      const response = await fetch(`/api/speech/audio?turn_id=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const response = await fetch(`/api/voice/audio?turn_id=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${getToken()}` } });
       if (!response.ok) throw new Error("无法读取语音");
       const data = await response.json();
       if (version !== replayVersion.current) return;
@@ -41,26 +47,26 @@ export function SpeechProvider({ children }: { children: ReactNode }) {
     } catch (reason) { if (version === replayVersion.current) setError(reason instanceof Error ? reason.message : "重播失败"); }
   };
   const stop = () => { replayVersion.current++; player.current?.stop(); };
-  return <SpeechContext.Provider value={host ? { turn, replay: (id, url) => { void replay(id, url); }, stop } : null}>
+  return <VoiceContext.Provider value={host ? { turn, available, replay: (id, url) => { void replay(id, url); }, stop } : null}>
     {children}
-    {(error || turn) && <div className="fixed bottom-3 right-3 z-50 flex items-center gap-2 rounded-lg border bg-background/85 px-3 py-2 text-sm shadow backdrop-blur">
-      <span role={error ? "alert" : "status"}>{error || "正在朗读"}</span>
-      <button aria-label={error ? "关闭提示" : "停止回复语音"} title={error ? "关闭提示" : "停止回复语音"} onClick={() => { stop(); setError(""); }}>{error ? <Square className="h-4 w-4" /> : <CircleStop className="h-4 w-4 motion-safe:animate-pulse" aria-hidden />}</button>
+    {error && <div className="fixed bottom-3 right-3 z-50 flex items-center gap-2 rounded-lg border bg-background/85 px-3 py-2 text-sm shadow backdrop-blur">
+      <span role="alert">{error}</span>
+      <button aria-label="关闭提示" title="关闭提示" onClick={() => setError("")}><Square className="h-4 w-4" /></button>
     </div>}
-  </SpeechContext.Provider>;
+  </VoiceContext.Provider>;
 }
 
-export function SpeechReplayButton({ turnId, audioUrl }: { turnId?: string; audioUrl?: string }) {
-  const speech = useContext(SpeechContext);
-  if (!speech || !turnId) return null;
-  const active = speech.turn === turnId;
+export function VoiceReplayButton({ turnId, audioUrl }: { turnId?: string; audioUrl?: string }) {
+  const voice = useContext(VoiceContext);
+  if (!voice || !turnId) return null;
+  const active = voice.turn === turnId;
   const label = active ? "停止回复语音" : "播放回复语音";
   return <TooltipProvider>
     <Tooltip delayDuration={300}>
       <TooltipTrigger asChild>
         <button type="button" aria-label={label}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => active ? speech.stop() : speech.replay(turnId, audioUrl)}>
+          onClick={() => active ? voice.stop() : voice.replay(turnId, audioUrl)}>
           {active ? <CircleStop className="h-4 w-4 motion-safe:animate-pulse" aria-hidden /> : <CirclePlay className="h-4 w-4" aria-hidden />}
         </button>
       </TooltipTrigger>
@@ -69,25 +75,25 @@ export function SpeechReplayButton({ turnId, audioUrl }: { turnId?: string; audi
   </TooltipProvider>;
 }
 
-interface SpeechSettingsValue {
+interface VoiceSettingsValue {
   preset: string | null;
   voice: string | null;
   presets: { id: string; label: string; voices: { id: string; label: string }[] }[];
 }
 
-export function SpeechSettings() {
-  const speech = useContext(SpeechContext);
-  return speech ? <SpeechSettingsForm /> : null;
+export function VoiceSettings() {
+  const voice = useContext(VoiceContext);
+  return voice ? <VoiceSettingsForm /> : null;
 }
 
-function SpeechSettingsForm() {
+function VoiceSettingsForm() {
   const { t } = useTranslation();
-  const label = (key: string) => t(`settings.speech.${key}`);
-  const [saved, setSaved] = useState<{ value: SpeechSettingsValue; pause: boolean } | null>(null);
+  const label = (key: string) => t(`settings.aiVoice.${key}`);
+  const [saved, setSaved] = useState<{ value: VoiceSettingsValue; pause: boolean } | null>(null);
   const [reload, setReload] = useState(0);
   const { client, getToken } = useClient();
-  const host = getRuntimeHost().speech!;
-  const [value, setValue] = useState<SpeechSettingsValue | null>(null);
+  const host = getRuntimeHost().voice!;
+  const [value, setValue] = useState<VoiceSettingsValue | null>(null);
   const [pause, setPause] = useState(true);
   const [support, setSupport] = useState("");
   const [error, setError] = useState("");
@@ -95,7 +101,7 @@ function SpeechSettingsForm() {
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
-      fetch("/api/speech/settings", { headers: { Authorization: `Bearer ${getToken()}` } }).then(async (r) => { if (!r.ok) throw new Error(); return r.json() as Promise<SpeechSettingsValue>; }),
+      fetch("/api/voice/settings", { headers: { Authorization: `Bearer ${getToken()}` } }).then(async (r) => { if (!r.ok) throw new Error(); return r.json() as Promise<VoiceSettingsValue>; }),
       host.settings(),
     ]).then(([settings, local]) => { if (!cancelled) { setValue(settings); setPause(local.pauseSystemMedia); setSupport(local.support); setSaved({ value: settings, pause: local.pauseSystemMedia }); } })
       .catch(() => { if (!cancelled) setError("loadError"); });
@@ -107,7 +113,7 @@ function SpeechSettingsForm() {
     try {
       let result = value;
       if (!saved || value.preset !== saved.value.preset || value.voice !== saved.value.voice) {
-        result = await client.requestMutation<SpeechSettingsValue>("speech.settings", { preset: value.preset, voice: value.voice });
+        result = await client.requestMutation<VoiceSettingsValue>("voice.settings", { preset: value.preset, voice: value.voice });
         setValue(result); setSaved({ value: result, pause: saved?.pause ?? pause });
       }
       if (!saved || pause !== saved.pause) await host.settings(pause);

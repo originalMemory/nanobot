@@ -39,7 +39,7 @@ from nanobot.agent.hook import (
     AgentTurnHookFactory,
 )
 from nanobot.agent.tools.context import RequestContext, current_request_context, request_context
-from nanobot.config.schema import ActiveMemoryConfig, Config
+from nanobot.config.schema import Config
 from nanobot.llm_usage.context import llm_usage_source
 from nanobot.security.network import validate_url_target
 from nanobot.session.automation_turns import automation_history_overrides
@@ -66,6 +66,8 @@ def _strings(value: Any) -> list[str]:
 # ── 配置 ──────────────────────────────────────────────
 
 OLLAMA_URL = "http://192.168.31.73:11434/api/chat"
+OLLAMA_MODEL = "active-memory:1.7b"
+OLLAMA_TIMEOUT = 6.0
 MAX_RESULTS = 10
 RECENT_RESULTS_WITHOUT_CARD = 6
 HISTORICAL_RESULTS_WITHOUT_CARD = 4
@@ -90,11 +92,9 @@ class ActiveMemoryHook(AgentHook):
 
     def __init__(
         self, diary_root: str = "", workspace: str | Path | None = None,
-        settings: ActiveMemoryConfig | None = None,
         *, topic_lock: asyncio.Lock | None = None, topic_tasks: set[str] | None = None,
     ) -> None:
         super().__init__()
-        self._settings = settings or ActiveMemoryConfig()
         self._diary_root = str(Path(diary_root).expanduser().resolve()) if diary_root else ""
         self._log_path = Path(workspace) / "memory" / "active_memory.jsonl" if workspace else None
         self._topic_dir = Path(workspace) / "memory" / "active_memory_topics" if workspace else None
@@ -142,7 +142,7 @@ class ActiveMemoryHook(AgentHook):
         try:
             keywords = await asyncio.wait_for(
                 self._extract_keywords(text),
-                timeout=self._settings.timeout_seconds,
+                timeout=OLLAMA_TIMEOUT,
             )
         except asyncio.TimeoutError:
             log_entry["action"] = "skip_timeout"
@@ -212,9 +212,9 @@ class ActiveMemoryHook(AgentHook):
         allowed, reason = await asyncio.to_thread(validate_url_target, OLLAMA_URL)
         if not allowed:
             raise ValueError(reason)
-        async with httpx.AsyncClient(timeout=self._settings.timeout_seconds, trust_env=False) as client:
+        async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT, trust_env=False) as client:
             resp = await client.post(OLLAMA_URL, json={
-                "model": self._settings.model,
+                "model": OLLAMA_MODEL,
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": text},
@@ -393,8 +393,7 @@ class ActiveMemoryHook(AgentHook):
 
 def create_active_memory_hook_factory(agent: AgentLoop, config: Config) -> AgentTurnHookFactory | None:
     """从配置统一接入 CLI、SDK 与 gateway；每轮独立待办，同实例串行写卡。"""
-    settings = config.agents.defaults.active_memory
-    if not settings.enabled or not config.diary_root:
+    if not config.diary_root:
         return None
     workspace = config.workspace_path.resolve()
     # ponytail: 同实例串行写卡；多个 gateway 共用工作区时需跨进程锁。
@@ -411,7 +410,7 @@ def create_active_memory_hook_factory(agent: AgentLoop, config: Config) -> Agent
                 or request is None or not request.original_user_text or request.sender_id == "subagent"):
             return None
         runtime = request.runtime or agent.llm_runtime()
-        hook = ActiveMemoryHook(config.diary_root, workspace, settings,
+        hook = ActiveMemoryHook(config.diary_root, workspace,
                                 topic_lock=topic_lock, topic_tasks=topic_tasks)
 
         async def summarize(prompt: str) -> str:

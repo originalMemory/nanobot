@@ -138,8 +138,8 @@
     }
   },
   "settings": {
-    "speech": {
-      "title": "Giọng nói MiniMax",
+    "aiVoice": {
+      "title": "Giọng nói AI",
       "provider": "Nhà cung cấp",
       "voice": "Giọng nói",
       "description": "AI quyết định khi nào cần trả lời bằng giọng nói.",

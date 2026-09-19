@@ -224,7 +224,7 @@ Dream 输入日志另有清理：`compact_history()` 默认上限 1000 条，超
 
 已新增 `electron/`，由 Electron 主进程、受限 preload、连接页和 gateway 转发组成。根 `webui/` 源码未修改，直接使用其构建脚本生成桌面包内的 renderer。没有复制 React 组件或改动 Agent/Session 内核。
 
-已提供：本机/NAS 地址选择和记忆、每 gateway 独立认证分区、上游原生 WebSocket 桥接、重新连接菜单、单实例、macOS 窗口生命周期、构建和当前平台打包入口。桌面试用偏好与旧 lover 隔离。
+已提供：本机/NAS 地址选择和记忆、每 gateway 独立认证分区、上游原生 WebSocket 桥接、重新连接菜单、单实例、macOS 窗口生命周期、构建和当前平台打包入口。桌面偏好与旧 lover 共用应用数据目录，不迁移旧配置格式；缺失设置由用户重新配置。
 
 本批不包含：统一收件箱、托盘/全局快捷键/截图迁移、MiniMax、伴侣视频与记忆变更。界面仍展示上游多会话布局，后续按第 3 节的已确认方案接入统一聊天。
 
@@ -379,7 +379,7 @@ F05 尚未完成：头像名称、网络/本地目录壁纸及壁纸上的透明
 
 F05 已完成；第 17 节的未完成状态是主题阶段记录，以本节为准。桌面「设置 → 外观」现在提供九主题、本机显示名称、表情/简称、固定 gateway 头像，以及网络图片或本地目录壁纸。身份只用于侧栏头像与聊天展示，不修改模型人格或 gateway 配置。
 
-名称、表情、壁纸来源/顺序/间隔和面板不透明度保存在 Electron 用户数据目录的 `appearance.json`（默认 `Nanobot-next/`），通过临时文件与 rename 保存。头像沿用 lover 的固定来源：gateway 媒体目录中的 avatar.jpg、avatar.png、avatar.webp（按此优先级），缺失或加载失败时显示表情或名称首字；Electron 不提供头像导入和存储。主题仍使用每个 gateway 分区的现有 localStorage。旧 lover 的 Electron 偏好不会自动导入；固定头像文件直接复用。
+名称、表情、壁纸来源/顺序/间隔和面板不透明度保存在 Electron 用户数据目录的 `appearance.json`（默认 `Nanobot/`），通过临时文件与 rename 保存。头像沿用 lover 的固定来源：gateway 媒体目录中的 avatar.jpg、avatar.png、avatar.webp（按此优先级），缺失或加载失败时显示表情或名称首字；Electron 不提供头像导入和存储。主题仍使用每个 gateway 分区的现有 localStorage。旧 lover 的 Electron 偏好不会自动导入；固定头像文件直接复用。
 
 壁纸支持 HTTP(S) 图片、系统选择器授权的本地目录；目录按文件名数字顺序或随机轮播，尽量避免连续重复，并跳过损坏、移除的图片及目录符号链接。应用重启后从目录首张开始；轮播当前位置不另写偏好。网络请求不携带 gateway 凭据，输入图片上限 12 MiB，解码后以最长边 2560 像素的 JPEG 传给 renderer。目录扫描 PNG/JPEG/WebP/GIF/BMP，由系统解码器处理；不把 SVG/HTML 作为界面内容加载。
 
@@ -447,7 +447,7 @@ Review 核对了鉴权、根目录边界、符号链接、读取大小、只读�
 
 按用户要求从 `V:\nanobot\.nanobot` 同步智谱、DeepSeek 提供方配置及 `glm5-3flash`、`ds4pro`、`ds4flash` 预设，保留本机当前选中的 ds4flash 和日记目录。workspace 的 AGENTS.md、SOUL.md、USER.md 原样同步；配置与被覆盖文件均先保存在本机 `.nanobot/backups/nas-persona-sync-20260918-202139/`，配置校验、提供方/预设相等检查及人设文件 SHA-256 校验通过。不复制其他提供方、历史、任务或个人数据。
 
-窗口状态使用本机 `Nanobot-next/window.json`，原子保存普通位置、尺寸和最大化状态；移动/缩放防抖写入，关闭或隐藏时立即保存，更换主窗口前也刷新。恢复时检查坐标与尺寸、适配当前显示器工作区，最小化或全屏不覆盖普通尺寸。回归覆盖保存恢复、外接屏移除、超大/无效尺寸及关闭前刷新；真实 Electron 验证启动恢复、最大化保留普通尺寸和重建主窗口时保持位置。重启 Electron 后启用；模型配置需重启 gateway，未自动重启用户服务。
+窗口状态使用本机 `Nanobot/window.json`，原子保存普通位置、尺寸和最大化状态；移动/缩放防抖写入，关闭或隐藏时立即保存，更换主窗口前也刷新。恢复时检查坐标与尺寸、适配当前显示器工作区，最小化或全屏不覆盖普通尺寸。回归覆盖保存恢复、外接屏移除、超大/无效尺寸及关闭前刷新；真实 Electron 验证启动恢复、最大化保留普通尺寸和重建主窗口时保持位置。重启 Electron 后启用；模型配置需重启 gateway，未自动重启用户服务。
 
 ### 壁纸下的顶栏和控件背景
 
@@ -473,7 +473,7 @@ ESLint、桌面构建和 Windows Electron `--wallpaper-surfaces` 定向检查通
 
 召回只注入当前轮次的模型请求，结束或取消后还原用户消息；保留多模态输入，不把参考内容写入正常用户历史。注入保持 lover 的完整格式，不新增总字符截断；完整保留主题摘要、过期提醒及本轮原文片段。Ollama 超时、失败、无关键词或无命中时原对话继续；后台摘要失败保留旧卡。主题卡改用上游原子写入工具。
 
-按用户最新决定，Ollama 地址继续固定为 `http://192.168.31.73:11434/api/chat`，不提供地址配置项；模型默认 `active-memory:1.7b`。代码仍检查 SSRF 白名单，部署时应允许该地址（最小范围为 `192.168.31.73/32`）；本机已有白名单覆盖，不额外扩大。配置入口为 `agents.defaults.activeMemory`：`enabled` 默认 false，`model` 默认上述模型，`timeoutSeconds` 默认 6。本机配置已先备份，再启用该功能，diaryRoot 保持 `Y:\note\日记`。重启 gateway 生效，未自动重启用户服务。
+按用户最新决定，Ollama 地址继续固定为 `http://192.168.31.73:11434/api/chat`，不提供地址配置项；模型默认 `active-memory:1.7b`。代码仍检查 SSRF 白名单，部署时应允许该地址（最小范围为 `192.168.31.73/32`）；本机已有白名单覆盖，不额外扩大。不新增 activeMemory 配置段：地址、模型及 6 秒超时均沿用 lover 固定值，有 diaryRoot 即启用。本机此前新增的配置段已备份后移除，diaryRoot 保持 `Y:\note\日记`。重启 gateway 生效，未自动重启用户服务。
 
 验证：68 项迁入的连续记忆回归，加上新接入与现有 hook/runner 测试，共 98 项通过；Ruff 与改动生产文件 BasedPyright 通过。新增覆盖模型可见而用户历史不污染、轮次隔离、同主题单次生成、自动任务跳过、模型快照、无工具后台调用、关键词失败/超时、UTF-8 与目录边界。对固定 NAS 服务做了一次合成句子加临时日记验证，真实提取“杭州 西湖”并完成召回约 0.9 秒；没有把私人日记发送给测试主模型，也没有调用真实主模型生成主题卡。F09 Dream 语义与 F10 历史保护留到后续。
 
@@ -650,3 +650,9 @@ F17 已提交为 `063efb0e`（`feat(skills): 迁移日语教学技能并适配�
 - 验证：Compose CLI schema 检查通过，WebUI 生产构建通过，session location 15 项测试通过。本机 Docker daemon 未运行，尚未验证 Linux 镜像构建及 Unraid 实机运行；F18 改动保留未提交以供 review。
 
 F18 review 修复与最终方式：用户确认手动暂停旧服务后迁移，流程先停机备份再切换源码。NAS 已备份并更新 exec 的 PATH/虚拟环境/代理变量，以及 workspace 工具路径。按用户要求，依赖管理沿用 lover 的 `workspace/scripts/bootstrap.sh` 统一入口，entrypoint 降权后执行，失败即停止启动；项目不列举技能依赖，删除此前新增的 deploy/unraid-requirements.txt。公共补充依赖只放 NAS workspace/config/python-requirements.txt，bootstrap 负责安装到容器共用 Python。修正 bootstrap 的虚拟环境 PATH 优先级及缺失 SSH key 导致退出问题，AGENTS.md 同步约定。此次备份位于 `V:/nanobot/.nanobot/backups/bootstrap-entry-20260919-122829`；未重启服务、执行 NAS 安装或移除旧 desk_pet。deploy/verify_unraid.py 只验证实际 ExecTool 的共用 Python 和路径，具体技能验收留在 workspace。Linux 镜像及实机安装仍待部署时验证。
+
+升级行为修复：删除自动召回 enabled 开关，有 diaryRoot 即启用；旧 NAS 配置无需新增开关。Electron 默认改用 Nanobot 数据目录，不自动复制、转换或删除旧版/试用版偏好，缺失设置允许重新配置；测试环境的显式临时目录覆盖保留。
+
+额外配置清理：删除 ActiveMemoryConfig 及模型/超时配置传递，恢复 lover 的 OLLAMA_MODEL 与 OLLAMA_TIMEOUT 常量；不再增加 enabled、model、timeoutSeconds 配置项。用户明确要求只迁移既有行为，缺失 Electron 偏好允许重新配置。
+
+AI 语音命名最终决定：界面统一称 AI 语音，组件/服务/事件/API/持久化字段统一使用 voice；文件位置改为 media/voice、Electron voice.json。用户明确不考虑兼容，因此不保留 speech 别名或迁移旧记录，覆盖前文关于旧 speech 字段直接回放的承诺。TTS 仅保留为合成工具、服务配置及厂商模型的技术名称，避免修改外部 API 模型标识。

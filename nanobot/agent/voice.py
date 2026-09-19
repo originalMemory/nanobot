@@ -22,7 +22,7 @@ from nanobot.webui.settings_services import WebUISettingsConfig
 if TYPE_CHECKING:
     from nanobot.session.manager import SessionManager
 
-DEFERRED_SPEECH: ContextVar[list[str] | None] = ContextVar("deferred_heartbeat_speech", default=None)
+DEFERRED_VOICE: ContextVar[list[str] | None] = ContextVar("deferred_heartbeat_voice", default=None)
 
 
 async def encode_mp3(source: Path, target: Path) -> None:
@@ -42,11 +42,11 @@ async def encode_mp3(source: Path, target: Path) -> None:
             await process.wait()
 
 
-class SpeechService:
+class VoiceService:
     def __init__(self, config: WebUISettingsConfig):
         self.config = config
         self.sessions: SessionManager | None = None
-        self.directory = config.path.parent / "media" / "speech"
+        self.directory = config.path.parent / "media" / "voice"
         self.active: set[str] = set()
         self.provider: MiniMaxTTSProvider | None = None
         self.provider_key = ""
@@ -77,7 +77,7 @@ class SpeechService:
 
     def path(self, turn_id: object) -> Path:
         if not isinstance(turn_id, str) or not 1 <= len(turn_id) <= 1024:
-            raise ValueError("invalid speech turn id")
+            raise ValueError("invalid voice turn id")
         return self.directory / (hashlib.sha256(turn_id.encode()).hexdigest() + ".mp3")
 
     def submit(self, chat_id: str, turn_id: str, text: str, *, channel: str = "websocket",
@@ -85,7 +85,7 @@ class SpeechService:
         path = self.path(turn_id)
         text = re.sub(r"<[^>]+>", "", text).strip()
         if not text or len(text) > 10000:
-            raise ValueError("朗读文本须为 1–10000 字符")
+            raise ValueError("语音文本须为 1–10000 字符")
         if not shutil.which("ffmpeg"):
             raise ValueError("MP3 编码需要 gateway 安装 ffmpeg")
         if self.schedule is None:
@@ -160,8 +160,8 @@ class SpeechService:
                 if self.sessions is not None and session_key:
                     session = self.sessions.get_or_create(session_key)
                     for message in reversed(session.messages):
-                        if message.get("role") == "assistant" and isinstance(message.get("speech"), dict) and message["speech"].get("audioId") == audio["audioId"]:
-                            message["speech"] = dict(audio)
+                        if message.get("role") == "assistant" and isinstance(message.get("voice"), dict) and message["voice"].get("audioId") == audio["audioId"]:
+                            message["voice"] = dict(audio)
                             self.sessions.save(session)
                             break
                 await emit("end")
@@ -172,7 +172,7 @@ class SpeechService:
             await emit("error")
             raise
         except Exception:
-            # 不把 provider 响应、密钥或完整朗读文本带到客户端错误里。
+            # 不把 provider 响应、密钥或完整语音文本带到客户端错误里。
             await emit("error")
         finally:
             temporary.unlink(missing_ok=True)

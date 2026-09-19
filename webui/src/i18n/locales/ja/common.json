@@ -138,8 +138,8 @@
     }
   },
   "settings": {
-    "speech": {
-      "title": "MiniMax 音声",
+    "aiVoice": {
+      "title": "AI 音声",
       "provider": "プロバイダー",
       "voice": "音声",
       "description": "音声で返答するタイミングは AI が判断します。",

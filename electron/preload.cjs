@@ -37,9 +37,9 @@ if (location.protocol === 'file:') {
       choose: () => ipcRenderer.invoke('desktop:companion-choose'),
       videos: () => ipcRenderer.invoke('desktop:companion-videos'),
     },
-    speech: {
-      settings: (value) => ipcRenderer.invoke('desktop:speech-settings', value),
-      active: (value) => ipcRenderer.invoke('desktop:speech-active', value),
+    voice: {
+      settings: (value) => ipcRenderer.invoke('desktop:voice-settings', value),
+      active: (value) => ipcRenderer.invoke('desktop:voice-active', value),
     },
     appearance: {
       read: () => ipcRenderer.invoke('desktop:appearance-read'),

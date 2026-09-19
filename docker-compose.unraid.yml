@@ -1,7 +1,8 @@
 # Standalone deployment: docker compose -f docker-compose.unraid.yml ...
-# Proxy and other private environment values stay in .env.unraid (not Git).
+x-unraid-icon: &unraid-icon
+  net.unraid.docker.icon: "https://nanobot.wiki/assets/nanobot_icon.png"
+
 x-common-config: &common-config
-  image: nanobot-lover-next:unraid
   build:
     context: .
     dockerfile: Dockerfile
@@ -10,9 +11,14 @@ x-common-config: &common-config
       NANOBOT_CHANNELS: qq,telegram,websocket,weixin
   user: "99:100"
   group_add: ["281"]
-  env_file: .env.unraid
   environment:
+    PUID: "99"
+    PGID: "100"
     TZ: Asia/Shanghai
+    HTTP_PROXY: "http://192.168.31.73:7890"
+    HTTPS_PROXY: "http://192.168.31.73:7890"
+    NO_PROXY: "localhost,127.0.0.1,192.168.31.73,nanobot-gateway,nanobot-api"
+    OAUTH_CLI_KIT_TOKEN_PATH: "/home/nanobot/.nanobot/auth/codex.json"
   volumes:
     - .:/home/nanobot/src
     - ./.nanobot:/home/nanobot/.nanobot
@@ -35,11 +41,8 @@ services:
     command: [gateway]
     restart: unless-stopped
     ports: ["18790:18790", "8765:8765"]
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
+    labels:
+      <<: *unraid-icon
   nanobot-api:
     <<: *common-config
     container_name: nanobot-api
@@ -47,9 +50,13 @@ services:
     command: [serve, --host, 0.0.0.0, -w, /home/nanobot/.nanobot/api-workspace]
     restart: unless-stopped
     ports: ["127.0.0.1:8900:8900"]
+    labels:
+      <<: *unraid-icon
   nanobot-cli:
     <<: *common-config
     profiles: [cli]
     command: [status]
     stdin_open: true
     tty: true
+    labels:
+      <<: *unraid-icon

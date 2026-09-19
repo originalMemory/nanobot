@@ -1,6 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DesktopAppearanceSettings } from "@/components/settings/DesktopAppearanceSettings";
-import { SpeechSettings } from "@/providers/SpeechProvider";
+import { VoiceSettings } from "@/providers/VoiceProvider";
 import { CompanionSettings } from "@/providers/CompanionProvider";
 import { THEME_CHOICES, type ThemeChoice } from "@/hooks/useTheme";
 import { getRuntimeHost } from "@/lib/runtime";
@@ -399,7 +399,7 @@ export function AppearanceSettings({
         </SettingsGroup>
       </section>
       <DesktopAppearanceSettings />
-      <SpeechSettings />
+      <VoiceSettings />
       <CompanionSettings />
     </div>
   );

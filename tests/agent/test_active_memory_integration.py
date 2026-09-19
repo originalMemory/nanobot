@@ -14,7 +14,7 @@ from nanobot.agent.hook import AgentHookContext, AgentRunHookContext, AgentTurnH
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.tools.context import RequestContext, request_context
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.config.schema import ActiveMemoryConfig, Config
+from nanobot.config.schema import Config
 from nanobot.providers.base import LLMProvider, LLMResponse
 from nanobot.utils.llm_runtime import LLMRuntime
 
@@ -39,7 +39,7 @@ def configuration(tmp_path):
     diary.mkdir()
     (diary / "2026-09-18 周五.md").write_text("星海的角色月白登场。", encoding="utf-8")
     return Config(diaryRoot=str(diary), agents={"defaults": {
-        "workspace": str(tmp_path), "model": "test-model", "activeMemory": {"enabled": True},
+        "workspace": str(tmp_path), "model": "test-model",
         "idleCompactAfterMinutes": 0,
     }})
 
@@ -89,7 +89,8 @@ async def test_turn_local_pending_and_shared_topic_single_flight(tmp_path, monke
 
 async def test_keyword_failure_and_cancellation_leave_original_message(tmp_path, monkeypatch):
     config = configuration(tmp_path)
-    hook = ActiveMemoryHook(config.diary_root, tmp_path, ActiveMemoryConfig(timeoutSeconds=0.01))
+    monkeypatch.setattr("nanobot.agent.active_memory.OLLAMA_TIMEOUT", 0.01)
+    hook = ActiveMemoryHook(config.diary_root, tmp_path)
     message = {"role": "user", "content": [{"type": "text", "text": "继续说说星海的故事"}]}
     original = deepcopy(message)
     monkeypatch.setattr(hook, "_extract_keywords", AsyncMock(side_effect=httpx.ConnectError("offline")))
@@ -130,8 +131,7 @@ async def test_summary_uses_admitted_model_without_tools_or_user_route(tmp_path)
 
 
 async def test_keyword_http_contract_and_blocked_private_host(tmp_path, monkeypatch):
-    settings = ActiveMemoryConfig()
-    hook = ActiveMemoryHook(str(tmp_path), tmp_path, settings)
+    hook = ActiveMemoryHook(str(tmp_path), tmp_path)
     client_type = httpx.AsyncClient
     def handler(request):
         data = json.loads(request.content)

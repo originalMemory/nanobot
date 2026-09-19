@@ -15,8 +15,8 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'nanobot', privileges: {
   standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true,
 } }]);
 app.setName('Nanobot');
-// 与旧版 lover 的偏好和认证缓存分开，避免试用污染日常环境。
-app.setPath('userData', process.env.NANOBOT_DESKTOP_DATA_DIR || path.join(app.getPath('appData'), 'Nanobot-next'));
+// 升级沿用同一个应用数据目录；测试仍可显式指定临时目录。
+app.setPath('userData', process.env.NANOBOT_DESKTOP_DATA_DIR || path.join(app.getPath('appData'), 'Nanobot'));
 
 let window;
 let desktop;
@@ -203,11 +203,11 @@ if (!app.requestSingleInstanceLock()) {
       });
     }
     const desktopContext = createDesktopContext();
-    const mediaFile = path.join(app.getPath('userData'), 'speech.json');
+    const mediaFile = path.join(app.getPath('userData'), 'voice.json');
     let pauseMedia = true;
     try { pauseMedia = JSON.parse(await readFile(mediaFile, 'utf8')).pauseSystemMedia !== false; } catch { /* 首次运行使用默认值。 */ }
     const systemMedia = new SystemMediaController({ get: () => pauseMedia, set: (_key, value) => { pauseMedia = value; } });
-    ipcMain.handle('desktop:speech-settings', async (event, value) => {
+    ipcMain.handle('desktop:voice-settings', async (event, value) => {
       trustedChat(event);
       if (value !== undefined) {
         if (typeof value !== 'boolean') throw new Error('Invalid media setting');
@@ -218,7 +218,7 @@ if (!app.requestSingleInstanceLock()) {
       }
       return { pauseSystemMedia: systemMedia.getEnabled(), support: await systemMedia.getSupport() };
     });
-    ipcMain.handle('desktop:speech-active', (event, active) => {
+    ipcMain.handle('desktop:voice-active', (event, active) => {
       trustedChat(event);
       if (typeof active !== 'boolean') throw new Error('Invalid playback state');
       return systemMedia.setTtsActive(event.sender.id, active);

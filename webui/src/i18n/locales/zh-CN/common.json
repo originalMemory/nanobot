@@ -138,15 +138,15 @@
     }
   },
   "settings": {
-    "speech": {
-      "title": "MiniMax 语音",
+    "aiVoice": {
+      "title": "AI 语音",
       "provider": "服务",
       "voice": "音色",
       "description": "由 AI 按对话需要生成语音。",
       "selectProvider": "选择服务",
       "selectVoice": "选择音色",
-      "pauseMedia": "朗读时暂停系统媒体",
-      "pauseDescription": "朗读结束后恢复之前暂停的播放器。",
+      "pauseMedia": "AI 语音播放时暂停系统媒体",
+      "pauseDescription": "语音播放结束后恢复之前暂停的播放器。",
       "limited": "结束后恢复，当前系统仅支持部分播放器。",
       "unavailable": "当前系统不支持媒体控制。",
       "loading": "正在读取语音设置…",

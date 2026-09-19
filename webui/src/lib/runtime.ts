@@ -26,7 +26,7 @@ export interface DesktopWindowControls {
 
 export interface RuntimeHost {
   companion?: CompanionApi;
-  speech?: DesktopSpeechApi;
+  voice?: DesktopVoiceApi;
   quit?: () => Promise<void>;
   windowControls?: DesktopWindowControls;
   appearance?: DesktopAppearanceApi;
@@ -42,7 +42,7 @@ export interface RuntimeHost {
   exportDiagnostics?: () => Promise<string>;
 }
 
-export interface DesktopSpeechApi {
+export interface DesktopVoiceApi {
   settings(value?: boolean): Promise<{ pauseSystemMedia: boolean; support: string }>;
   active(value: boolean): Promise<void>;
 }
@@ -82,7 +82,7 @@ interface HostRuntimeInfo {
 
 interface NanobotHostApi {
   companion?: CompanionApi;
-  speech?: DesktopSpeechApi;
+  voice?: DesktopVoiceApi;
   quit?(): Promise<void>;
   windowControls?: DesktopWindowControls;
   appearance?: DesktopAppearanceApi;
@@ -177,7 +177,7 @@ export function createRuntimeHost(
     quit: api?.quit?.bind(api),
     windowControls: api?.windowControls,
     appearance: api?.appearance,
-    speech: api?.speech,
+    voice: api?.voice,
     companion: api?.companion,
     fixedChatId: api?.fixedChatId,
     onScreenshot: api?.onScreenshot?.bind(api),
