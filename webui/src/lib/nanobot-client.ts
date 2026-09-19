@@ -12,6 +12,7 @@ import type {
   WorkspaceScopePayload,
 } from "./types";
 import { createHostWebSocket } from "./runtime";
+import { isSpeechEvent, type SpeechEvent } from "./speech";
 
 /** WebSocket readyState constants, referenced by value to stay portable
  * across runtimes that don't expose a global ``WebSocket`` (tests, SSR). */
@@ -244,6 +245,12 @@ export class NanobotClient {
   // Set by ``close()`` so the onclose handler knows the drop was intentional
   // and must not schedule a reconnect or flip status back to "reconnecting".
   private intentionallyClosed = false;
+  private speechHandlers = new Set<(event: SpeechEvent) => void>();
+
+  onSpeech(handler: (event: SpeechEvent) => void): Unsubscribe {
+    this.speechHandlers.add(handler);
+    return () => { this.speechHandlers.delete(handler); };
+  }
 
   constructor(private options: NanobotClientOptions) {
     this.shouldReconnect = options.reconnect ?? true;
@@ -1096,6 +1103,10 @@ export class NanobotClient {
     let parsed: InboundEvent;
     try {
       parsed = JSON.parse(typeof ev.data === "string" ? ev.data : "") as InboundEvent;
+      if (isSpeechEvent(parsed)) {
+        for (const handler of this.speechHandlers) handler(parsed);
+        return;
+      }
       if (decodeNotification(parsed) === null) return;
     } catch {
       if (wsInboundDebugEnabled()) {

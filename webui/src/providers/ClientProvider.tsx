@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import type { NanobotClient } from "@/lib/nanobot-client";
+import { SpeechProvider } from "./SpeechProvider";
 import type { WebUIIngressLimits } from "@/lib/types";
 
 interface ClientContextValue {
@@ -43,7 +44,7 @@ export function ClientProvider({
 
   return (
     <ClientContext.Provider value={value}>
-      {children}
+      <SpeechProvider>{children}</SpeechProvider>
     </ClientContext.Provider>
   );
 }

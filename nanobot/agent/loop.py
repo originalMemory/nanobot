@@ -2049,6 +2049,8 @@ class AgentLoop:
             turn_latency_ms=ctx.turn_latency_ms,
             summary_checkpoint=ctx.summary_checkpoint,
             input_persisted_early=ctx.input_persisted_early,
+            speech=(ctx.request_context.attributes.get("speech")
+                            if ctx.request_context else None),
         )
         if (
             not ctx.ephemeral
@@ -2156,6 +2158,7 @@ class AgentLoop:
         turn_latency_ms: int | None = None,
         summary_checkpoint: SessionSummaryCheckpoint | None = None,
         input_persisted_early: bool = False,
+        speech: dict[str, Any] | None = None,
     ) -> None:
         """Commit new-turn messages and an optional summary boundary."""
         declared_tool_call_ids = {
@@ -2292,6 +2295,8 @@ class AgentLoop:
             session.commit_summary_checkpoint(summary_checkpoint.summary)
         if turn_latency_ms is not None and last_assistant_idx is not None:
             session.messages[last_assistant_idx]["latency_ms"] = int(turn_latency_ms)
+        if speech and last_assistant_idx is not None:
+            session.messages[last_assistant_idx]["speech"] = dict(speech)
         if saved_followup_ids:
             acknowledge_pending_followups(session, saved_followup_ids)
         session.updated_at = datetime.now()

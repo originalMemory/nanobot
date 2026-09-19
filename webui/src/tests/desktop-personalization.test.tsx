@@ -3,6 +3,9 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { DesktopAppearanceSettings } from "@/components/settings/DesktopAppearanceSettings";
 import { DesktopAppearanceProvider, DesktopIdentity } from "@/providers/DesktopAppearanceProvider";
 import type { DesktopAppearance } from "@/lib/runtime";
+import { ClientProvider } from "@/providers/ClientProvider";
+import { SpeechSettings } from "@/providers/SpeechProvider";
+import { NanobotClient } from "@/lib/nanobot-client";
 
 const config: DesktopAppearance = { name: "nanobot", icon: "🦊", source: "none", url: "", directory: "", order: "sequential", intervalMinutes: 1, opacity: 0.8 };
 function fixture(overrides: Partial<DesktopAppearance> = {}) {
@@ -13,6 +16,32 @@ function fixture(overrides: Partial<DesktopAppearance> = {}) {
   return api;
 }
 const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+
+it("speech settings retry loading and share save/cancel switch behavior", async () => {
+  const settings = { preset: "minimax", voice: "one", presets: [{ id: "minimax", label: "MiniMax", voices: [{ id: "one", label: "Voice one" }] }] };
+  const local = vi.fn(async () => ({ pauseSystemMedia: true, support: "system" }));
+  window.nanobotHost = { speech: { active: vi.fn(async () => {}), settings: local } };
+  const fetchSettings = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValue(new Response(JSON.stringify(settings)));
+  const client = new NanobotClient({ url: "ws://unused", reconnect: false });
+  const save = vi.spyOn(client, "requestMutation").mockResolvedValue(settings);
+  const view = render(<ClientProvider client={client} token="test"><SpeechSettings /></ClientProvider>);
+  try {
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    const toggle = await screen.findByRole("switch", { name: "Pause system media while speaking" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(local).toHaveBeenCalledWith(false));
+    expect(save).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+  } finally { view.unmount(); fetchSettings.mockRestore(); save.mockRestore(); }
+});
 beforeEach(() => { Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" }); });
 afterEach(() => {
   delete window.nanobotHost;
@@ -80,7 +109,8 @@ it("retains the last wallpaper on refresh failure and exposes retry", async () =
   fireEvent.click(screen.getByRole("button", { name: "Next / refresh" }));
   await screen.findByRole("alert");
   expect(screen.getByTestId("desktop-wallpaper")).toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText("Source"), { target: { value: "none" } });
+  fireEvent.keyDown(screen.getByRole("combobox", { name: "Source" }), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: "Off" }));
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.queryByTestId("desktop-wallpaper")).toBeNull());
 });

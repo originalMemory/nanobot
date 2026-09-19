@@ -406,17 +406,20 @@ export function NumberInput({
   max,
   onChange,
   suffix,
+  ariaLabel,
 }: {
   value: number;
   min: number;
   max: number;
   onChange: (value: number) => void;
   suffix?: string;
+  ariaLabel?: string;
 }) {
   return (
     <div className="relative w-full">
       <Input
         type="number"
+        aria-label={ariaLabel}
         min={min}
         max={max}
         value={value}

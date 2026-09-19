@@ -31,6 +31,10 @@ if (location.protocol === 'file:') {
     quit: () => ipcRenderer.invoke('desktop:quit'),
     windowControls,
     fixedChatId: 'desktop',
+    speech: {
+      settings: (value) => ipcRenderer.invoke('desktop:speech-settings', value),
+      active: (value) => ipcRenderer.invoke('desktop:speech-active', value),
+    },
     appearance: {
       read: () => ipcRenderer.invoke('desktop:appearance-read'),
       save: (value) => ipcRenderer.invoke('desktop:appearance-save', value),

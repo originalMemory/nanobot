@@ -390,7 +390,37 @@ def _lazy_default(module_path: str, class_name: str) -> Any:
     return getattr(module, class_name)()
 
 
+class TtsOptions(Base):
+    """MiniMax 活动服务与音色；是否生成语音固定由 AI 决定。"""
+    preset: str | None = None
+    voice: str | None = None
+
+
+class TtsConfig(Base):
+    provider: str = "minimax"
+    api_base: str = "https://api.minimaxi.com"
+    api_key: str = ""
+    model: str = "speech-2.8-turbo"
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    rpm: int = Field(default=20, ge=1, le=20)
+    extra_body: dict[str, Any] = Field(default_factory=dict)
+
+
+class TtsVoicePresetConfig(Base):
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    language_voices: dict[str, str] = Field(default_factory=dict)
+
+
+class TtsPresetConfig(Base):
+    label: str
+    config: TtsConfig
+    voices: list[TtsVoicePresetConfig] = Field(default_factory=list)
+
+
 class ToolsConfig(Base):
+    tts: TtsOptions = Field(default_factory=TtsOptions)
+
     """Tools configuration.
 
     Field types for tool-specific sub-configs are resolved via model_rebuild()
@@ -441,6 +471,7 @@ class Config(BaseSettings):
 
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
+    tts_presets: dict[str, TtsPresetConfig] = Field(default_factory=dict, validation_alias=AliasChoices("ttsPresets", "tts_presets"), serialization_alias="ttsPresets")
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)

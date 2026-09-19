@@ -116,6 +116,21 @@
     }
   },
   "settings": {
+    "speech": {
+      "title": "MiniMax 음성",
+      "provider": "제공자",
+      "voice": "음성",
+      "description": "음성 응답이 필요한지는 AI가 판단합니다.",
+      "selectProvider": "제공자 선택",
+      "selectVoice": "음성 선택",
+      "pauseMedia": "읽는 동안 시스템 미디어 일시 정지",
+      "pauseDescription": "읽기가 끝나면 일시 정지한 플레이어를 다시 재생합니다.",
+      "limited": "종료 후 재개하며 일부 플레이어만 지원합니다.",
+      "unavailable": "이 플랫폼에서는 미디어 제어를 사용할 수 없습니다.",
+      "loading": "음성 설정을 불러오는 중…",
+      "loadError": "음성 설정을 불러오지 못했습니다.",
+      "saveError": "저장하지 못했습니다. MiniMax 제공자와 음성을 확인하세요."
+    },
     "desktop": {
       "identity": "데스크톱 표시 정보",
       "name": "표시 이름",

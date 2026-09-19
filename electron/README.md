@@ -91,3 +91,12 @@ Electron 连接后自动上报桌面状态，不设功能开关，也不定时�
 不新建独立截图文件；截图作为单次多模态工具结果使用，正常消息历史只保留图片占位。运行中的上游恢复检查点可能暂存内联图片，结束后按既有机制清理。心跳是否发消息继续走上游通知判断，不绕过 `message` 投递抑制；静默时段和问候条件由现有 HEARTBEAT.md 任务控制。
 
 需要重启 gateway 并完全退出、重新打开 Electron。隔离验证使用 `node electron/test/smoke.cjs --desktop-context`，它只使用模拟采集器，不读取真实屏幕。
+
+
+## MiniMax 语音
+
+是否生成语音固定由 AI 决定，不需要模式开关；设置概览可选择 gateway 中配置好的 MiniMax 服务与音色。连接后流式播放生成的语音；消息底部的喇叭按钮重播已保存音频，右下角可停止。没有生成过语音的回复会提示不可重播。MiniMax 失败不影响文字回复。
+
+配置沿用 lover 的 tools.tts（preset/voice）和 ttsPresets：preset 中的 config 配置 provider=minimax、apiKey、apiBase、model、speed、rpm；voices 中以 id/label 标识音色，languageVoices.default 是中文音色，languageVoices.ja 是日语音色。密钥只留在 gateway。新文件以 64 kbps MP3 保存在 gateway 实例 media/speech 下，重播不重新合成。gateway 需要 FFmpeg，Dockerfile 已包含此依赖。历史使用 lover 的 speech 对象；原有 speech.path 音频在媒体目录内仍可读时可直接重播，不复用过期签名 URL。
+
+“朗读时暂停系统媒体”默认开启，可在设置中关闭；复用 lover 的媒体暂停/恢复实现。Windows 使用原有系统媒体会话控制；macOS 优先 media-control，缺少时仅支持 Music/Spotify；Linux 暂不支持。只恢复本次暂停且身份匹配的媒体。此项保存在本机，与 gateway 的服务/音色选择分开。

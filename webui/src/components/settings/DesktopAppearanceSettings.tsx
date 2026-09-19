@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { SettingsGroup, SettingsRow, SettingsSectionTitle } from "@/components/settings/shared/SettingsControls";
+import { NumberInput, RestartSettingsFooter, SettingsGroup, SettingsRow, SettingsSectionTitle } from "@/components/settings/shared/SettingsControls";
 import { useDesktopAppearance } from "@/providers/DesktopAppearanceProvider";
 import type { DesktopAppearance } from "@/lib/runtime";
 
@@ -18,7 +19,7 @@ export function DesktopAppearanceSettings() {
   const label = (key: string) => t(`settings.desktop.${key}`);
   if (!value) return <section>
     {appearance.loadFailed ? <p role="alert">{label("error")}</p> : <p>{label("loading")}</p>}
-    {appearance.loadFailed ? <Button variant="outline" onClick={appearance.reload}>{label("retry")}</Button> : null}
+    {appearance.loadFailed ? <Button size="sm" className="rounded-full" variant="outline" onClick={appearance.reload}>{label("retry")}</Button> : null}
   </section>;
   const update = <K extends keyof DesktopAppearance>(key: K, next: DesktopAppearance[K]) => setDraft({ ...value, [key]: next });
   const choose = async (kind: "directory") => {
@@ -33,44 +34,44 @@ export function DesktopAppearanceSettings() {
     catch { setFailed(true); }
     finally { setBusy(false); }
   };
-  return <fieldset disabled={busy} className="space-y-6" data-testid="desktop-appearance-settings">
+  return <fieldset disabled={busy} className="settings-stack" data-testid="desktop-appearance-settings">
     <section>
       <SettingsSectionTitle>{label("identity")}</SettingsSectionTitle>
       <SettingsGroup>
-        <SettingsRow title={label("name")}><Input aria-label={label("name")} maxLength={80} value={value.name} onChange={(event) => update("name", event.target.value)} /></SettingsRow>
-        <SettingsRow title={label("icon")}><Input aria-label={label("icon")} maxLength={16} value={value.icon} onChange={(event) => update("icon", event.target.value)} /></SettingsRow>
+        <SettingsRow title={label("name")}><Input className="h-9 rounded-full text-[13px]" aria-label={label("name")} maxLength={80} value={value.name} onChange={(event) => update("name", event.target.value)} /></SettingsRow>
+        <SettingsRow title={label("icon")}><Input className="h-9 rounded-full text-[13px]" aria-label={label("icon")} maxLength={16} value={value.icon} onChange={(event) => update("icon", event.target.value)} /></SettingsRow>
       </SettingsGroup>
     </section>
     <section>
       <SettingsSectionTitle>{label("wallpaper")}</SettingsSectionTitle>
       <SettingsGroup>
         <SettingsRow title={label("source")}>
-          <select className="rounded-control border border-input bg-background p-2 text-foreground" aria-label={label("source")} value={value.source} onChange={(event) => update("source", event.target.value as DesktopAppearance["source"])}>
-            {(["none", "url", "directory"] as const).map((source) => <option key={source} value={source}>{label(source)}</option>)}
-          </select>
+          <Select disabled={busy} value={value.source} onValueChange={(next) => update("source", next as DesktopAppearance["source"])}>
+            <SelectTrigger className="w-full rounded-full" aria-label={label("source")}><SelectValue /></SelectTrigger>
+            <SelectContent>{(["none", "url", "directory"] as const).map((source) => <SelectItem key={source} value={source}>{label(source)}</SelectItem>)}</SelectContent>
+          </Select>
         </SettingsRow>
-        {value.source === "url" ? <SettingsRow title={label("url")}><Input aria-label={label("url")} type="url" maxLength={2048} value={value.url} onChange={(event) => update("url", event.target.value)} /></SettingsRow> : null}
+        {value.source === "url" ? <SettingsRow title={label("url")}><Input className="h-9 rounded-full text-[13px]" aria-label={label("url")} type="url" maxLength={2048} value={value.url} onChange={(event) => update("url", event.target.value)} /></SettingsRow> : null}
         {value.source === "directory" ? <>
           <SettingsRow title={label("directory")}>
-            <div className="min-w-0 space-y-2"><p className="break-all text-sm text-muted-foreground">{value.directory}</p><Button variant="outline" onClick={() => void choose("directory")}>{label("choose")}</Button></div>
+            <div className="min-w-0 space-y-2"><p className="break-all text-sm text-muted-foreground">{value.directory}</p><Button size="sm" className="rounded-full" variant="outline" onClick={() => void choose("directory")}>{label("choose")}</Button></div>
           </SettingsRow>
           <SettingsRow title={label("order")}>
-            <select className="rounded-control border border-input bg-background p-2" aria-label={label("order")} value={value.order} onChange={(event) => update("order", event.target.value as DesktopAppearance["order"])}>
-              {(["sequential", "random"] as const).map((order) => <option key={order} value={order}>{label(order)}</option>)}
-            </select>
+            <Select disabled={busy} value={value.order} onValueChange={(next) => update("order", next as DesktopAppearance["order"])}>
+              <SelectTrigger className="w-full rounded-full" aria-label={label("order")}><SelectValue /></SelectTrigger>
+              <SelectContent>{(["sequential", "random"] as const).map((order) => <SelectItem key={order} value={order}>{label(order)}</SelectItem>)}</SelectContent>
+            </Select>
           </SettingsRow>
         </> : null}
         {value.source !== "none" ? <>
-          <SettingsRow title={label("interval")}><Input aria-label={label("interval")} type="number" min={1} max={1440} value={value.intervalMinutes} onChange={(event) => update("intervalMinutes", Number(event.target.value))} /></SettingsRow>
-          <SettingsRow title={label("opacity")}><div className="flex items-center gap-2"><input aria-label={label("opacity")} type="range" min={50} max={100} value={Math.round(value.opacity * 100)} onChange={(event) => update("opacity", Number(event.target.value) / 100)} /><span>{Math.round(value.opacity * 100)}%</span></div></SettingsRow>
+          <SettingsRow title={label("interval")}><NumberInput ariaLabel={label("interval")} min={1} max={1440} value={value.intervalMinutes} onChange={(next) => update("intervalMinutes", next)} /></SettingsRow>
+          <SettingsRow title={label("opacity")}><NumberInput ariaLabel={label("opacity")} min={50} max={100} suffix="%" value={Math.round(value.opacity * 100)} onChange={(next) => update("opacity", next / 100)} /></SettingsRow>
         </> : null}
       </SettingsGroup>
     </section>
-    {failed || appearance.wallpaperFailed ? <p role="alert" className="text-sm text-destructive">{label("error")}</p> : null}
-    <div className="flex flex-wrap gap-2">
-      <Button onClick={() => void save()} disabled={!draft || busy}>{t("settings.actions.save")}</Button>
-      <Button variant="outline" disabled={!draft || busy} onClick={() => { setDraft(null); setFailed(false); }}>{t("settings.actions.cancel")}</Button>
-      {config?.source !== "none" ? <Button variant="outline" onClick={appearance.refreshWallpaper}>{label("next")}</Button> : null}
-    </div>
+    {config?.source !== "none" ? <div className="flex justify-end"><Button size="sm" className="rounded-full" variant="ghost" onClick={appearance.refreshWallpaper}>{label("next")}</Button></div> : null}
+    <RestartSettingsFooter dirty={Boolean(draft)} saving={busy} pendingRestart={false}
+      error={failed || appearance.wallpaperFailed} message={failed || appearance.wallpaperFailed ? label("error") : undefined}
+      onSave={() => void save()} onReset={() => { setDraft(null); setFailed(false); }} />
   </fieldset>;
 }

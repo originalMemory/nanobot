@@ -8,6 +8,7 @@ const { installDesktop } = require('./desktop.cjs');
 const { createAppearance } = require('./appearance.cjs');
 const { readWindowState, trackWindowState } = require('./window-state.cjs');
 const { createDesktopContext } = require('./desktop-context.cjs');
+const { SystemMediaController } = require('./system-media.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'nanobot', privileges: {
   standard: true, secure: true, supportFetchAPI: true, corsEnabled: true,
@@ -86,7 +87,7 @@ function makeWindow(webSession) {
     frame: false, titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 10, y: 12 },
     autoHideMenuBar: true,
     webPreferences: { preload, session: webSession, nodeIntegration: false,
-      contextIsolation: true, sandbox: true, webSecurity: true },
+      contextIsolation: true, sandbox: true, webSecurity: true, autoplayPolicy: 'no-user-gesture-required' },
   });
   next.once('ready-to-show', () => { if (maximized) next.maximize(); next.show(); });
   saveWindowState = trackWindowState(next, windowStateFile);
@@ -192,6 +193,39 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     desktop = installDesktop({ getWindow: () => window, showWindow });
     const desktopContext = createDesktopContext();
+    const mediaFile = path.join(app.getPath('userData'), 'speech.json');
+    let pauseMedia = true;
+    try { pauseMedia = JSON.parse(await readFile(mediaFile, 'utf8')).pauseSystemMedia !== false; } catch { /* 首次运行使用默认值。 */ }
+    const systemMedia = new SystemMediaController({ get: () => pauseMedia, set: (_key, value) => { pauseMedia = value; } });
+    ipcMain.handle('desktop:speech-settings', async (event, value) => {
+      trustedChat(event);
+      if (value !== undefined) {
+        if (typeof value !== 'boolean') throw new Error('Invalid media setting');
+        await systemMedia.setEnabled(value);
+        const temporary = `${mediaFile}.tmp`;
+        await writeFile(temporary, JSON.stringify({ pauseSystemMedia: value }));
+        await rename(temporary, mediaFile);
+      }
+      return { pauseSystemMedia: systemMedia.getEnabled(), support: await systemMedia.getSupport() };
+    });
+    ipcMain.handle('desktop:speech-active', (event, active) => {
+      trustedChat(event);
+      if (typeof active !== 'boolean') throw new Error('Invalid playback state');
+      return systemMedia.setTtsActive(event.sender.id, active);
+    });
+    app.on('web-contents-created', (_event, contents) => {
+      const release = () => { void systemMedia.setTtsActive(contents.id, false); };
+      contents.on('destroyed', release);
+      contents.on('render-process-gone', release);
+      contents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) release(); });
+    });
+    let mediaReleased = false;
+    app.on('before-quit', (event) => {
+      if (mediaReleased) return;
+      event.preventDefault();
+      mediaReleased = true;
+      void systemMedia.dispose().finally(() => app.quit());
+    });
     app.on('will-quit', () => desktopContext.dispose());
     installMenu();
     ipcMain.handle('desktop:quit', (event) => {

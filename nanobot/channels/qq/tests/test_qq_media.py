@@ -20,6 +20,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.qq.runtime import (
     QQ_FILE_TYPE_FILE,
     QQ_FILE_TYPE_IMAGE,
+    QQ_FILE_TYPE_VOICE,
     QQChannel,
     QQConfig,
     _guess_send_file_type,
@@ -102,6 +103,28 @@ def test_guess_send_file_type_image() -> None:
 
 def test_guess_send_file_type_file() -> None:
     assert _guess_send_file_type("doc.pdf") == QQ_FILE_TYPE_FILE
+
+
+@pytest.mark.parametrize("suffix", [".wav", ".mp3", ".ogg", ".silk"])
+def test_guess_send_file_type_voice(suffix) -> None:
+    assert _guess_send_file_type("speech" + suffix) == QQ_FILE_TYPE_VOICE
+
+
+@pytest.mark.parametrize("is_group", [False, True])
+async def test_wav_sent_as_voice_message(tmp_path, is_group) -> None:
+    audio = tmp_path / "speech.wav"
+    audio.write_bytes(b"RIFF-test-audio")
+    channel = QQChannel(QQConfig(app_id="app", secret="secret", allow_from=["*"]), MessageBus())
+    channel._client = _FakeClient()
+    with patch.object(channel, "_post_base64file", new_callable=AsyncMock,
+                      return_value={"file_info": "voice-info"}) as upload:
+        assert await channel._send_media("user", str(audio), "source-msg", is_group)
+        assert upload.call_args.kwargs["file_type"] == 3
+        assert upload.call_args.kwargs["file_name"] == "speech.wav"
+    calls = channel._client.api.group_calls if is_group else channel._client.api.c2c_calls
+    assert calls[0]["msg_type"] == 7
+    assert calls[0]["msg_id"] == "source-msg"
+    assert calls[0]["media"]["file_info"] == "voice-info"
 
 
 def test_guess_send_file_type_by_mime() -> None:

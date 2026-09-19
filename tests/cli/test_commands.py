@@ -4072,6 +4072,9 @@ def test_gateway_shutdown_event_exits_forever_runtime_tasks(
         def __init__(self, _config, _bus, **_kwargs) -> None:
             self.enabled_channels = ["websocket"]
 
+        def get_channel(self, _name):
+            return None
+
         async def start_all(self) -> None:
             try:
                 await asyncio.Event().wait()

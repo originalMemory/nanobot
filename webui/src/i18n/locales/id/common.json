@@ -116,6 +116,21 @@
     }
   },
   "settings": {
+    "speech": {
+      "title": "Suara MiniMax",
+      "provider": "Penyedia",
+      "voice": "Suara",
+      "description": "AI menentukan kapan perlu menjawab dengan suara.",
+      "selectProvider": "Pilih penyedia",
+      "selectVoice": "Pilih suara",
+      "pauseMedia": "Jeda media sistem saat membacakan",
+      "pauseDescription": "Lanjutkan pemutar yang dijeda setelah pembacaan selesai.",
+      "limited": "Dilanjutkan setelah selesai; hanya beberapa pemutar yang didukung.",
+      "unavailable": "Kontrol media tidak tersedia di platform ini.",
+      "loading": "Memuat pengaturan suara…",
+      "loadError": "Tidak dapat memuat pengaturan suara.",
+      "saveError": "Tidak dapat menyimpan. Periksa penyedia MiniMax dan suara."
+    },
     "desktop": {
       "identity": "Identitas desktop",
       "name": "Nama tampilan",

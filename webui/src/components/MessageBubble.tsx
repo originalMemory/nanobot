@@ -1,4 +1,5 @@
 import { DesktopIdentity } from "@/providers/DesktopAppearanceProvider";
+import { SpeechReplayButton } from "@/providers/SpeechProvider";
 import {
   useCallback,
   useEffect,
@@ -546,6 +547,7 @@ export function MessageBubble({
             {showCopyButton ? (
               <MessageCopyButton content={assistantContent} />
             ) : null}
+            {!message.isStreaming && <SpeechReplayButton turnId={message.turnId ?? message.speech?.audioId} audioUrl={message.speech?.url} />}
             {showForkButton ? (
               <Tooltip>
                 <TooltipTrigger asChild>

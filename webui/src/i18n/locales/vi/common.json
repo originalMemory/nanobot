@@ -116,6 +116,21 @@
     }
   },
   "settings": {
+    "speech": {
+      "title": "Giọng nói MiniMax",
+      "provider": "Nhà cung cấp",
+      "voice": "Giọng nói",
+      "description": "AI quyết định khi nào cần trả lời bằng giọng nói.",
+      "selectProvider": "Chọn nhà cung cấp",
+      "selectVoice": "Chọn giọng nói",
+      "pauseMedia": "Tạm dừng phương tiện khi đọc",
+      "pauseDescription": "Tiếp tục các trình phát đã tạm dừng sau khi đọc xong.",
+      "limited": "Tiếp tục sau khi đọc; chỉ hỗ trợ một số trình phát.",
+      "unavailable": "Nền tảng này không hỗ trợ điều khiển phương tiện.",
+      "loading": "Đang tải cài đặt giọng nói…",
+      "loadError": "Không thể tải cài đặt giọng nói.",
+      "saveError": "Không thể lưu. Hãy kiểm tra nhà cung cấp MiniMax và giọng nói."
+    },
     "desktop": {
       "identity": "Thông tin hiển thị",
       "name": "Tên hiển thị",

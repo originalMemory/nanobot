@@ -12,7 +12,7 @@ Outbound:
 - msg.media supports local paths, file:// paths, and http(s) URLs
 
 Notes:
-- QQ restricts many audio/video formats. We conservatively classify as image vs file.
+- Supported audio formats use the QQ voice media type; other attachments remain files.
 - Attachment structures differ across botpy versions; we try multiple field candidates.
 """
 
@@ -60,9 +60,9 @@ except ImportError:  # pragma: no cover
     BotWebSocket = None
     Route = None
 
-# QQ rich media file_type: 1=image, 4=file
-# (2=voice, 3=video are restricted; we only use image vs file)
+# QQ rich media file_type: 1=image, 2=video, 3=voice, 4=file.
 QQ_FILE_TYPE_IMAGE = 1
+QQ_FILE_TYPE_VOICE = 3
 QQ_FILE_TYPE_FILE = 4
 
 _IMAGE_EXTS = {
@@ -95,11 +95,14 @@ def _is_image_name(name: str) -> bool:
 
 
 def _guess_send_file_type(filename: str) -> int:
-    """Conservative send type: images -> 1, else -> 4."""
+    """Use QQ's voice upload type for supported audio instead of generic files."""
     ext = Path(filename).suffix.lower()
     mime, _ = mimetypes.guess_type(filename)
     if ext in _IMAGE_EXTS or (mime and mime.startswith("image/")):
         return QQ_FILE_TYPE_IMAGE
+    # https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/rich-media.html
+    if ext in {".silk", ".mp3", ".wav", ".ogg"}:
+        return QQ_FILE_TYPE_VOICE
     return QQ_FILE_TYPE_FILE
 
 

@@ -1,4 +1,6 @@
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DesktopAppearanceSettings } from "@/components/settings/DesktopAppearanceSettings";
+import { SpeechSettings } from "@/providers/SpeechProvider";
 import { THEME_CHOICES, type ThemeChoice } from "@/hooks/useTheme";
 import { getRuntimeHost } from "@/lib/runtime";
 import { useState, type Dispatch, type SetStateAction } from "react";
@@ -282,16 +284,10 @@ export function AppearanceSettings({
         <SettingsGroup>
           <SettingsRow title={t("settings.rows.theme")}>
             {getRuntimeHost().fixedChatId && onSelectTheme ? (
-              <div className="grid grid-cols-3 gap-2" role="group" aria-label={t("settings.rows.theme")}>
-                {THEME_CHOICES.map((choice) => (
-                  <Button key={choice} data-theme-choice={choice} className="h-auto min-h-10 min-w-0 whitespace-normal px-2"
-                    variant={(selectedTheme ?? theme) === choice ? "default" : "outline"}
-                    aria-pressed={(selectedTheme ?? theme) === choice}
-                    onClick={() => onSelectTheme(choice)}>
-                    <span className="min-w-0 [overflow-wrap:anywhere]">{t(`settings.values.${choice === "light" ? "alabaster" : choice === "dark" ? "graphite" : choice}`)}</span>
-                  </Button>
-                ))}
-              </div>
+              <Select value={selectedTheme ?? theme} onValueChange={(next) => onSelectTheme(next as ThemeChoice)}>
+                <SelectTrigger className="w-full rounded-full" aria-label={t("settings.rows.theme")}><SelectValue /></SelectTrigger>
+                <SelectContent>{THEME_CHOICES.map((choice) => <SelectItem key={choice} value={choice}>{t(`settings.values.${choice === "light" ? "alabaster" : choice === "dark" ? "graphite" : choice}`)}</SelectItem>)}</SelectContent>
+              </Select>
             ) : (
             <SegmentedControl
               value={theme}
@@ -402,6 +398,7 @@ export function AppearanceSettings({
         </SettingsGroup>
       </section>
       <DesktopAppearanceSettings />
+      <SpeechSettings />
     </div>
   );
 }

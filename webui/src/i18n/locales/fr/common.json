@@ -116,6 +116,21 @@
     }
   },
   "settings": {
+    "speech": {
+      "title": "Voix MiniMax",
+      "provider": "Fournisseur",
+      "voice": "Voix",
+      "description": "L’IA décide quand une réponse vocale est utile.",
+      "selectProvider": "Choisir un fournisseur",
+      "selectVoice": "Choisir une voix",
+      "pauseMedia": "Mettre les médias en pause pendant la lecture",
+      "pauseDescription": "Reprendre les lecteurs mis en pause à la fin de la lecture.",
+      "limited": "Reprise après la lecture ; seuls certains lecteurs sont pris en charge.",
+      "unavailable": "Le contrôle des médias n’est pas disponible sur cette plateforme.",
+      "loading": "Chargement des paramètres vocaux…",
+      "loadError": "Impossible de charger les paramètres vocaux.",
+      "saveError": "Échec de l’enregistrement. Vérifiez le fournisseur MiniMax et la voix."
+    },
     "desktop": {
       "identity": "Identité du bureau",
       "name": "Nom affiché",

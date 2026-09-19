@@ -2,7 +2,7 @@
 
 更新：2026-09-18
 
-状态：F01 Electron、F02 统一收件箱、F03 桌面基础体验已完成；F04 聊天展示与设置已确认复用上游，待实际体验。F05 外观、F06 工作区与笔记浏览、F08 自动召回与主题卡、F09 Dream 个人化记忆、F10 原文保护与历史归档已完成；F11 定时任务已确认复用上游并验证，F12 按需桌面感知已完成；下一项为 F13 MiniMax TTS。
+状态：F01 Electron、F02 统一收件箱、F03 桌面基础体验已完成；F04 聊天展示与设置已确认复用上游，待实际体验。F05 外观、F06 工作区与笔记浏览、F08 自动召回与主题卡、F09 Dream 个人化记忆、F10 原文保护与历史归档已完成；F11 定时任务已确认复用上游并验证，F12 按需桌面感知已完成；F13 MiniMax TTS 已完成；下一项为 F14 本地伴侣视频。
 
 ## 1. 总体方向
 
@@ -540,3 +540,54 @@ F10 已提交为 `220b4dd6`（`feat(memory): 实现部分压缩与可靠月度�
 测试未采集真实屏幕、未调用真实模型或触发线上心跳；真实操作系统截图授权和实际主动消息质量留待体验。需要重启 gateway 和 Electron，当前未提交。
 
 F12 review 修复：新连接仅在无目标时接管，已有目标只随用户消息切换；后台重连不抢占，目标断线不自动切换到其他已有连接。定向回归 13 项、Ruff 和差异检查通过。
+
+
+F12 已提交为 `dc6db32d`（`feat(desktop): 迁移心跳按需桌面感知`），未推送。
+
+## 25. F13 MiniMax 语音
+
+只迁入 lover 的 MiniMax provider、中日分段及有序 PCM 流，以及系统媒体暂停/恢复控制。按用户最新决定，是否生成语音固定由 AI 调用 tts 决定，不设关闭/自动朗读模式，不限制渠道或心跳。tools.tts 只保留活动 preset/voice，旧 mode 字段不参与行为；ttsPresets 保留服务与音色格式。未迁入 IndexTTS、Qwen、备用服务或旧桌宠控制协议。
+
+语音服务在 gateway 中统一注册，不依赖 WebSocket 是否启用；工具提交后台任务后立即返回。Electron 按回复 turn_id 流式播放，提供停止和重播；其他渠道合成完成后复用 OutboundMessage.media 发音频，并保留原请求 message_id/线程等路由元数据。心跳也可请求语音，朗读意图在通知判断前暂存，获准后向实际目标渠道合成与发送，不绕过静默判断。文字回复不等待音频。
+
+设置概览只展示 MiniMax 服务、音色、本机暂停媒体选项，不再提供朗读模式。密钥留在 gateway config.json，不发到前端。完整 MP3（64 kbps、24kHz、单声道）原子保存在实例 media/speech/<turn_id 的 SHA-256>.mp3；Electron 重播通过认证 HTTP 和签名媒体 URL 读取，重启后仍可用，不重复合成。模型原文历史不塞 PCM 或签名 URL。失败临时文件清理，文字会话保持可用。
+
+QQ 修正音频分类，silk/mp3/wav/ogg 以 file_type=3 上传，再以 msg_type=7 发送；不再把 WAV 当普通文件。保留原有 base64 上传流程，单聊/群聊分别上传。依据 [QQ 官方富媒体概述](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/rich-media.html) 以语音类型发送 MP3；详细上传页仍只标注 SILK，实际语音条效果需实机验证。其他渠道沿用各自的媒体发送实现，是否显示为语音条取决于该渠道适配器，MP3 在 gateway 上通过 FFmpeg 编码，Dockerfile 已加入该系统依赖。
+
+Windows/macOS 媒体控制直接复用 lover 现有逻辑，只适配 CommonJS、当前 preload 和可信主窗口 IPC；Windows 保留应用内部原有 Windows PowerShell 调用，不新增编译助手。结束、失败、停止、页面重载、渲染进程退出及正常退出时释放暂停状态，恢复沿用旧版目标匹配规则。
+
+本机 config.json 已备份并同步 NAS 的 MiniMax preset/音色，随后移除 mode；没有修改 NAS。此前后端回归 226 项、心跳定向 16 项、前端回归及 Electron 模拟冒烟通过；本轮渠道调整后，语音服务/gateway/QQ 回归 37 项通过，Ruff 与生产代码 BasedPyright 通过。QQ 测试覆盖单聊/群聊按语音类型上传与回复消息关联；未调用真实 MiniMax、发送真实消息、播放音频或暂停真实播放器。需重启 gateway 与 Electron，F13 尚未提交。
+
+F13 review 修复：tts 接受请求后记录本轮语音标识，随最终 assistant 回复原子保存；心跳投递同样保存关联。统一历史投影输出独立 speechTurnId，重播不再依赖实时 turnId，且该元数据不进入模型对话上下文。音频先完成/回复先保存两种顺序均覆盖真实 AgentLoop 到磁盘再到历史投影的回归。播放器复用 lover 的 active 状态去重与串行切换，10 个片段只暂停一次、完成后恢复一次。后端保存/历史回归 154 项、前端播放器/消息气泡 65 项通过，Ruff、BasedPyright 与差异检查通过。
+F13 按用户要求沿用 lover 的 CirclePlay/CircleStop 圆形播放按钮、播放中脉冲动画、悬停提示与焦点样式；重播逻辑保持。
+
+设置页统一：桌面主题选项复用 SegmentedControl，壁纸来源/顺序及 TTS 服务/音色复用 Select；文本/数值输入、TTS 分组行、开关、错误提示和保存按钮沿用原设置页共用组件。透明度用百分比 NumberInput。朗读暂停系统媒体默认开启，保留明确保存的关闭设置。
+
+
+### F13 设置页全量一致性检查（2026-09-19）
+
+以迁移起点 1bb712d3 对照当前工作区，清点所有 settings 组件、关联 provider、主题 CSS 和语言资源差异。设置页新增内容为九种桌面主题、桌面身份、壁纸和 TTS；SettingsPage/SettingsView 只增加主题参数透传，其他分区没有新增独立表单。
+
+| 范围 | 检查与修正 |
+| --- | --- |
+| 主题 | 九个主题不挤进单行分段按钮，改用共用 Select；保留浏览器原有双主题分段控件 |
+| 身份、壁纸 | 统一 SettingsGroup/Row、圆角输入、Select、NumberInput；保存/取消/未保存及错误提示复用 RestartSettingsFooter；选择目录/刷新按钮沿用小型圆角样式 |
+| TTS | 同一套分组、下拉、开关和保存区；无修改禁用保存，可取消恢复；加载失败可重试；十种语言资源补齐 |
+| 共用样式 | 核对 ToggleButton、SettingsControls 和桌面主题变量的影响，未改原有设置布局规则 |
+| 视觉 | 使用真实 React 组件与相同 settings-grid 容器，隔离模拟数据检查宽/窄容器、中英、浅色/深色、壁纸关闭/网址/目录、长音色名称、下拉、焦点和保存/取消状态 |
+| 交互 | 回归覆盖加载失败后重试、默认暂停开关、修改/取消/保存、壁纸失败保留与重试；暂停默认开启并保留用户显式关闭 |
+
+预览只使用模拟配置，未连接真实 gateway、未修改用户配置、未触发 TTS 或播放器控制；临时预览文件和服务已清理。此检查范围是分支新增/修改的设置 UI，不将未改动的其他页面或真实平台调用宣称为已视觉验证。
+
+本轮验证：15 个测试文件共 265 项通过，TypeScript 与 Electron WebUI 构建通过；差异检查通过。
+
+
+### F13 音频格式与历史结构收敛（2026-09-19）
+
+用户试听同源 WAV 与 64 kbps MP3 后决定使用 MP3，并要求沿用 lover 的历史结构。新回复保存 speech 对象（audioId/path/mimeType/sampleRate/durationMs/provider/model/voice/controls）；音频先完成时随回复保存，回复先保存时按 audioId 补写完成时长。旧 speech.path 直接签名读取，旧 assistant_audio_end 事件仍绑定该轮最后一条回复；读取时移除原路径并重新生成签名，不使用历史过期 URL。
+
+按用户要求删除开发期 speech_turn_id / speechTurnId 和按 turn_id 回退查找 WAV 的兼容代码，不按文件名搜索搬迁后的旧媒体。原有历史音频必须仍在实例媒体目录下可读；既有文件不批量转换。PCM 仅用于实时传输和临时编码输入，不是历史输出格式。
+
+流式合成沿用 lover 的中日并发分段与有序输出，新版没有声称新增首包延迟优化；新协议按 48 KiB 分片，结束后编码 MP3 并完成落盘。保留文字失败降级，缺少 FFmpeg 时调用工具即报告配置问题，Docker 构建已包含 FFmpeg。当前未提交。
+
+F13 提交前收尾：本机暂停媒体开关与远端音色设置按修改字段分别保存，避免未配置 MiniMax 时无法修改本地开关；定向回归覆盖仅修改本机选项不调用远端设置接口。

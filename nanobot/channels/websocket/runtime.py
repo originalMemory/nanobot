@@ -400,6 +400,7 @@ class WebSocketChannel(BaseChannel):
         self._temporary_chats = gateway.temporary_chats
         self._session_projection = gateway.session_projection
         self._commands = WebUICommandRouter(self, gateway)
+        gateway.http.speech.emit = self.send_speech
         self._webui_request_tasks = self._commands.request_tasks
         self._webui_request_operations = self._commands.request_operations
         self._webui_request_locks = self._commands.request_locks
@@ -1177,6 +1178,10 @@ class WebSocketChannel(BaseChannel):
 
     async def send(self, msg: OutboundMessage) -> None:
         await self._outbound.send(msg)
+
+    async def send_speech(self, chat_id: str, fields: dict[str, Any]) -> None:
+        for connection in self.webui_subscribers(chat_id):
+            await self._send_event(connection, "speech", chat_id=chat_id, **fields)
 
     async def send_projected_message(
         self,

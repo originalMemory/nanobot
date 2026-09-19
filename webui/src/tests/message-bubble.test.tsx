@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 
 import { MessageBubble } from "@/components/MessageBubble";
+import { ClientProvider } from "@/providers/ClientProvider";
+import { NanobotClient } from "@/lib/nanobot-client";
 import { setAppLanguage } from "@/i18n";
 import * as clipboard from "@/lib/clipboard";
 import { fmtDateTime, formatMessageEndTime } from "@/lib/format";
@@ -11,6 +13,26 @@ import type {
   SlashCommand,
   UIMessage,
 } from "@/lib/types";
+
+it("统一历史没有实时 turnId 时仍按持久化语音标识重播", async () => {
+  const previous = window.nanobotHost;
+  window.nanobotHost = { speech: { active: vi.fn(async () => {}), settings: vi.fn() } };
+  const fetchAudio = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ audio: { url: "/media/test.wav" } })));
+  const play = vi.fn(async () => {});
+  vi.stubGlobal("Audio", class { play = play; pause = vi.fn(); });
+  const view = render(<ClientProvider client={new NanobotClient({ url: "ws://test", reconnect: false })} token="test">
+    <MessageBubble message={{ id: "saved", role: "assistant", content: "hello", createdAt: 1700000000000, speech: { audioId: "saved-voice", url: "/media/test.mp3" } }} />
+  </ClientProvider>);
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "播放回复语音" }));
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+    expect(fetchAudio).not.toHaveBeenCalled();
+  } finally {
+    view.unmount(); fetchAudio.mockRestore(); vi.unstubAllGlobals();
+    if (previous) window.nanobotHost = previous;
+    else delete window.nanobotHost;
+  }
+});
 
 it.each(["user", "assistant"] as const)("显示 %s 消息的外部渠道来源", (role) => {
   const { container } = render(<MessageBubble message={{

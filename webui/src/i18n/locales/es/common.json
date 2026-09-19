@@ -116,6 +116,21 @@
     }
   },
   "settings": {
+    "speech": {
+      "title": "Voz de MiniMax",
+      "provider": "Proveedor",
+      "voice": "Voz",
+      "description": "La IA decide cuándo conviene responder con voz.",
+      "selectProvider": "Seleccionar proveedor",
+      "selectVoice": "Seleccionar voz",
+      "pauseMedia": "Pausar los medios durante la lectura",
+      "pauseDescription": "Reanudar los reproductores pausados al terminar.",
+      "limited": "Se reanuda al terminar; solo algunos reproductores son compatibles.",
+      "unavailable": "El control multimedia no está disponible en esta plataforma.",
+      "loading": "Cargando ajustes de voz…",
+      "loadError": "No se pudieron cargar los ajustes de voz.",
+      "saveError": "No se pudo guardar. Revisa el proveedor MiniMax y la voz."
+    },
     "desktop": {
       "identity": "Identidad de escritorio",
       "name": "Nombre visible",

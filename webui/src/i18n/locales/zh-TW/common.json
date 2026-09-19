@@ -116,6 +116,21 @@
     }
   },
   "settings": {
+    "speech": {
+      "title": "MiniMax 語音",
+      "provider": "服務",
+      "voice": "音色",
+      "description": "由 AI 按對話需要產生語音。",
+      "selectProvider": "選擇服務",
+      "selectVoice": "選擇音色",
+      "pauseMedia": "朗讀時暫停系統媒體",
+      "pauseDescription": "朗讀結束後恢復之前暫停的播放器。",
+      "limited": "結束後恢復，目前系統僅支援部分播放器。",
+      "unavailable": "目前系統不支援媒體控制。",
+      "loading": "正在讀取語音設定…",
+      "loadError": "無法讀取語音設定。",
+      "saveError": "儲存失敗，請確認已設定 MiniMax 服務與音色。"
+    },
     "desktop": {
       "identity": "桌面身分",
       "name": "顯示名稱",

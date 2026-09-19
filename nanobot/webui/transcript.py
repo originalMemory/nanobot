@@ -20,7 +20,7 @@ from urllib.parse import unquote, urlparse
 
 from loguru import logger
 
-from nanobot.config.paths import get_webui_dir
+from nanobot.config.paths import get_media_dir, get_webui_dir
 from nanobot.runtime_context import public_history_message
 from nanobot.session.automation_turns import is_automation_kind
 from nanobot.session.history_visibility import is_hidden_history_message
@@ -1568,6 +1568,32 @@ def _assistant_text_signature(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _speech_payload(
+    value: object,
+    sign: Callable[[list[str]], list[dict[str, Any]]] | None,
+) -> dict[str, Any] | None:
+    """读取 lover 的 speech.path；重新签名，不复用历史 URL 或暴露本机路径。"""
+    if not isinstance(value, dict) or sign is None:
+        return None
+    speech = cast(dict[str, Any], value)
+    raw_path = speech.get("path")
+    if not isinstance(raw_path, str) or not raw_path:
+        return None
+    root = get_media_dir().resolve()
+    try:
+        path = Path(raw_path).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            return None
+        signed = sign([str(path)])
+        if signed and isinstance(signed[0].get("url"), str):
+            audio_id = speech.get("audioId")
+            return {"audioId": audio_id if isinstance(audio_id, str) and audio_id else path.stem,
+                    "url": signed[0]["url"]}
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def _session_assistant_event(
     session_key: str,
     message: dict[str, Any],
@@ -1590,6 +1616,8 @@ def _session_assistant_event(
     }
     if media_paths:
         event["media"] = media_paths
+    if isinstance(message.get("speech"), dict):
+        event["speech"] = dict(message["speech"])
     latency_ms = message.get("latency_ms")
     if isinstance(latency_ms, int | float) and latency_ms >= 0:
         event["latency_ms"] = int(latency_ms)
@@ -2240,8 +2268,18 @@ def replay_transcript_to_ui_messages(
             active_activity_segment_id = segment_id
         return segment_id
 
+    legacy_speech = {
+        record["turn_id"]: record.get("audio")
+        for record in lines
+        if record.get("event") == "assistant_audio_end" and isinstance(record.get("turn_id"), str)
+    }
+
     def _turn_fields(rec: dict[str, Any], fallback_phase: str | None = None) -> dict[str, Any]:
         fields: dict[str, Any] = {}
+        if fallback_phase == "answer":
+            audio = _speech_payload(rec.get("speech"), augment_assistant_media)
+            if audio:
+                fields["speech"] = audio
         turn_id = rec.get("turn_id")
         if isinstance(turn_id, str) and turn_id:
             if turn_id in closed_turn_ids:
@@ -3042,6 +3080,13 @@ def replay_transcript_to_ui_messages(
             buffer_parts = []
             continue
 
+    for turn_id, raw_audio in legacy_speech.items():
+        audio = _speech_payload(raw_audio, augment_assistant_media)
+        if audio:
+            for message in reversed(messages):
+                if message.get("role") == "assistant" and message.get("kind") != "trace" and message.get("turnId") == turn_id:
+                    message["speech"] = audio
+                    break
     if defer_trace_details:
         _defer_large_trace_details(messages)
     for i, m in enumerate(messages):

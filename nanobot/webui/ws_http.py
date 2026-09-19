@@ -168,6 +168,7 @@ class _WebUIThreadDiagnostics:
     event_loop_lag_ms: float = 0.0
 
 _WEBUI_MUTATION_PATHS = {
+    "speech.settings": "/api/speech/settings/update",
     "automation.enable": "/api/webui/automations/enable",
     "automation.disable": "/api/webui/automations/disable",
     "automation.delete": "/api/webui/automations/delete",
@@ -374,6 +375,8 @@ class GatewayHTTPHandler:
         self.ingress = ingress
         self.workspaces = workspaces
         self.settings = settings
+        from nanobot.agent.speech import SpeechService
+        self.speech = SpeechService(settings.config)
         self.skills_workspace_path = skills_workspace_path
         self.disabled_skills: set[str] = (
             disabled_skills if disabled_skills is not None else set()
@@ -525,6 +528,7 @@ class GatewayHTTPHandler:
         if path in {"/api/webui/recovery/continue", "/api/webui/recovery/dismiss"}:
             return True
         return path in {
+            "/api/speech/settings/update",
             "/api/webui/skills/install",
             "/api/webui/skills/update",
             "/api/webui/skills/delete",
@@ -1468,6 +1472,21 @@ class GatewayHTTPHandler:
     async def _dispatch_misc_routes(
         self, connection: Any, request: WsRequest, got: str
     ) -> Response | None:
+        if got in {"/api/speech/settings", "/api/speech/settings/update", "/api/speech/audio"}:
+            if not self.check_api_token(request):
+                return _http_error(401, "Unauthorized")
+            try:
+                if got.endswith("/update"):
+                    payload = getattr(request, _WEBUI_MUTATION_PAYLOAD_ATTR, {})
+                    return _http_json_response(self.speech.update(payload))
+                if got.endswith("/settings"):
+                    return _http_json_response(self.speech.settings())
+                turn_id = _query_first(_parse_query(request.path), "turn_id") or ""
+                path = self.speech.path(turn_id)
+                return _http_json_response({"active": turn_id in self.speech.active,
+                    "audio": self.media.sign_or_stage_media_path(path) if path.is_file() else None})
+            except ValueError:
+                return _http_error(400, "语音设置或轮次无效")
         if got == "/api/sessions":
             return await self._handle_sessions_list(request)
         if got == "/api/library":

@@ -116,6 +116,21 @@
     }
   },
   "settings": {
+    "speech": {
+      "title": "MiniMax speech",
+      "provider": "Provider",
+      "voice": "Voice",
+      "description": "The AI decides when a spoken reply is useful.",
+      "selectProvider": "Select provider",
+      "selectVoice": "Select voice",
+      "pauseMedia": "Pause system media while speaking",
+      "pauseDescription": "Resume previously paused players when speech ends.",
+      "limited": "Resume after speech; only some players are supported.",
+      "unavailable": "System media control is unavailable on this platform.",
+      "loading": "Loading speech settings…",
+      "loadError": "Could not load speech settings.",
+      "saveError": "Could not save. Check the MiniMax provider and voice."
+    },
     "desktop": {
       "identity": "Desktop identity",
       "name": "Display name",
