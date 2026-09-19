@@ -7,7 +7,7 @@ function completionKey(frame) {
   return null;
 }
 
-function installDesktop({ getWindow, showWindow, electron = require('electron') }) {
+function installDesktop({ store, getWindow, showWindow, electron = require('electron') }) {
   const { app, Tray, Menu, nativeImage, globalShortcut, desktopCapturer, screen, Notification, dialog } = electron;
   let quitting = false;
   let capturing = false;
@@ -71,7 +71,7 @@ function installDesktop({ getWindow, showWindow, electron = require('electron') 
   }
 
   const supportsStartup = app.isPackaged && ['darwin', 'win32'].includes(process.platform);
-  const shortcut = process.env.NANOBOT_RAISE_SHORTCUT ?? 'CommandOrControl+Shift+E';
+  const shortcut = process.env.NANOBOT_RAISE_SHORTCUT ?? store?.get('shortcuts.raiseInbox') ?? 'CommandOrControl+Shift+E';
   const registered = Boolean(shortcut) && globalShortcut.register(shortcut, toggle);
   if (shortcut && !registered) console.warn(`快捷键 ${shortcut} 已被占用，请通过托盘显示窗口。`);
   app.on('before-quit', () => { quitting = true; });

@@ -1,6 +1,6 @@
 const path = require('node:path');
 const { createReadStream } = require('node:fs');
-const { readFile, writeFile, mkdir, rename, readdir, realpath, stat } = require('node:fs/promises');
+const { readdir, realpath, stat } = require('node:fs/promises');
 const { createHash } = require('node:crypto');
 const { Readable } = require('node:stream');
 
@@ -27,14 +27,14 @@ function normalize(raw = {}) {
   return { enabled: raw.enabled, directory: raw.directory.trim(), panel, schedule: Object.fromEntries(Object.keys(SCHEDULE).map(key => [key, schedule[key]])) };
 }
 
-function createCompanion({ directory, bundledRoot, dialog }) {
-  const configFile = path.join(directory, 'companion.json');
+function createCompanion({ store, bundledRoot, dialog }) {
   let config; let chosenDirectory; let saving = Promise.resolve();
   const files = new Map();
   async function read() {
     if (!config) {
-      try { config = normalize(JSON.parse(await readFile(configFile, 'utf8'))); }
-      catch (error) { if (error.code !== 'ENOENT') throw error; config = normalize(DEFAULTS); }
+      const saved = store.get('avatarCompanion', {});
+      config = normalize({ ...DEFAULTS, ...saved, directory: saved.videoDirectory ?? '',
+        schedule: saved.timeSchedule ?? SCHEDULE });
     }
     return structuredClone(config);
   }
@@ -43,9 +43,8 @@ function createCompanion({ directory, bundledRoot, dialog }) {
       const previous = await read();
       const next = normalize({ ...previous, ...patch, panel: { ...previous.panel, ...patch.panel } });
       if (next.directory && next.directory !== previous.directory && next.directory !== chosenDirectory) throw new Error('Choose a video folder using the desktop dialog');
-      await mkdir(directory, { recursive: true });
-      await writeFile(`${configFile}.tmp`, JSON.stringify(next), { mode: 0o600 });
-      await rename(`${configFile}.tmp`, configFile);
+      store.set('avatarCompanion', { ...store.get('avatarCompanion', {}), enabled: next.enabled,
+        videoDirectory: next.directory, timeSchedule: next.schedule, panel: next.panel });
       config = next;
       if (previous.directory !== next.directory) files.clear();
       return structuredClone(next);

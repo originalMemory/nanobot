@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, ipcMain, protocol, session, shell, dialog, nativeImage, screen } = require('electron');
-const { readFile, writeFile, rename, mkdir } = require('node:fs/promises');
+const { readFile } = require('node:fs/promises');
+const Store = require('electron-store');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createHash, randomUUID } = require('node:crypto');
@@ -17,6 +18,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'nanobot', privileges: {
 app.setName('Nanobot');
 // 升级沿用同一个应用数据目录；测试仍可显式指定临时目录。
 app.setPath('userData', process.env.NANOBOT_DESKTOP_DATA_DIR || path.join(app.getPath('appData'), 'Nanobot'));
+const store = new Store();
 
 let window;
 let desktop;
@@ -24,11 +26,10 @@ let companion;
 let gateway = 'http://127.0.0.1:8765';
 let loadError = '';
 const setupFile = path.join(__dirname, 'setup.html');
-const settingsFile = path.join(app.getPath('userData'), 'connection.json');
-const windowStateFile = path.join(app.getPath('userData'), 'window.json');
 let saveWindowState;
 const preload = path.join(__dirname, 'preload.cjs');
 const rendererDir = path.join(__dirname, 'renderer');
+const appIcon = path.join(__dirname, 'assets', 'icon.png');
 const sockets = new Map();
 
 function trustedChat(event) {
@@ -66,7 +67,7 @@ function showWindow() {
 function openMedia(owner, url) {
   // 只在图片标签中展示附件，不让附件 HTML 获得聊天页的 origin 或 preload。
   const preview = new BrowserWindow({
-    title: '图片预览', width: 900, height: 700, parent: owner,
+    title: '图片预览', width: 900, height: 700, parent: owner, icon: appIcon,
     webPreferences: { session: owner.webContents.session, nodeIntegration: false,
       contextIsolation: true, sandbox: true, webSecurity: true },
   });
@@ -82,17 +83,17 @@ function openMedia(owner, url) {
 
 function makeWindow(webSession) {
   saveWindowState?.();
-  const { maximized, ...bounds } = readWindowState(windowStateFile, screen);
+  const { maximized, ...bounds } = readWindowState(store, screen);
   const next = new BrowserWindow({
     title: 'Nanobot', ...bounds, minWidth: Math.min(760, bounds.width), minHeight: Math.min(540, bounds.height),
-    backgroundColor: '#303030', show: false,
+    backgroundColor: '#303030', show: false, icon: appIcon,
     frame: false, titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 10, y: 12 },
     autoHideMenuBar: true,
     webPreferences: { preload, session: webSession, nodeIntegration: false,
       contextIsolation: true, sandbox: true, webSecurity: true, autoplayPolicy: 'no-user-gesture-required' },
   });
   next.once('ready-to-show', () => { if (maximized) next.maximize(); next.show(); });
-  saveWindowState = trackWindowState(next, windowStateFile);
+  saveWindowState = trackWindowState(next, store);
   desktop?.bindWindow(next);
   next.on('closed', () => { if (window === next) window = null; });
   next.webContents.setWindowOpenHandler(({ url }) => {
@@ -193,8 +194,9 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', showWindow);
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.whenReady().then(async () => {
-    desktop = installDesktop({ getWindow: () => window, showWindow });
-    companion = createCompanion({ directory: app.getPath('userData'), bundledRoot: path.join(__dirname, 'avatar-videos'), dialog });
+    if (app.dock) app.dock.setIcon(appIcon);
+    desktop = installDesktop({ store, getWindow: () => window, showWindow });
+    companion = createCompanion({ store, bundledRoot: path.join(__dirname, 'avatar-videos'), dialog });
     for (const action of ['read', 'save', 'choose', 'videos']) {
       ipcMain.handle(`desktop:companion-${action}`, (event, value) => {
         trustedChat(event);
@@ -203,18 +205,12 @@ if (!app.requestSingleInstanceLock()) {
       });
     }
     const desktopContext = createDesktopContext();
-    const mediaFile = path.join(app.getPath('userData'), 'voice.json');
-    let pauseMedia = true;
-    try { pauseMedia = JSON.parse(await readFile(mediaFile, 'utf8')).pauseSystemMedia !== false; } catch { /* 首次运行使用默认值。 */ }
-    const systemMedia = new SystemMediaController({ get: () => pauseMedia, set: (_key, value) => { pauseMedia = value; } });
+    const systemMedia = new SystemMediaController(store);
     ipcMain.handle('desktop:voice-settings', async (event, value) => {
       trustedChat(event);
       if (value !== undefined) {
         if (typeof value !== 'boolean') throw new Error('Invalid media setting');
         await systemMedia.setEnabled(value);
-        const temporary = `${mediaFile}.tmp`;
-        await writeFile(temporary, JSON.stringify({ pauseSystemMedia: value }));
-        await rename(temporary, mediaFile);
       }
       return { pauseSystemMedia: systemMedia.getEnabled(), support: await systemMedia.getSupport() };
     });
@@ -238,6 +234,15 @@ if (!app.requestSingleInstanceLock()) {
     });
     app.on('will-quit', () => desktopContext.dispose());
     installMenu();
+    for (const action of ['get', 'set']) {
+      ipcMain.handle(`desktop:config-${action}`, (event, key, value) => {
+        trustedChat(event);
+        if (!['appearance.theme', 'appearance.language', 'gateway.token'].includes(key)) throw new Error('Invalid preference');
+        if (action === 'get') return store.get(key);
+        if (typeof value !== 'string' || value.length > 100) throw new Error('Invalid preference value');
+        store.set(key, value);
+      });
+    }
     ipcMain.handle('desktop:quit', (event) => {
       trustedChat(event);
       setImmediate(() => app.quit());
@@ -255,7 +260,7 @@ if (!app.requestSingleInstanceLock()) {
       else if (action === 'close') window.close();
       else throw new Error('无效窗口操作');
     });
-    const appearance = createAppearance({ directory: app.getPath('userData'), nativeImage, dialog });
+    const appearance = createAppearance({ store, nativeImage, dialog });
     ipcMain.handle('desktop:appearance-read', (event) => { trustedChat(event); return appearance.read(); });
     ipcMain.handle('desktop:appearance-save', (event, value) => { trustedChat(event); return appearance.save(value); });
     ipcMain.handle('desktop:appearance-choose', (event, kind) => { trustedChat(event); return appearance.choose(kind, window); });
@@ -319,9 +324,7 @@ if (!app.requestSingleInstanceLock()) {
       trustedSetup(event);
       try {
         const selected = normalizeGateway(value);
-        await mkdir(path.dirname(settingsFile), { recursive: true });
-        await writeFile(`${settingsFile}.tmp`, JSON.stringify({ gateway: selected }), { mode: 0o600 });
-        await rename(`${settingsFile}.tmp`, settingsFile);
+        store.set('gateway.url', selected);
         gateway = selected;
         // 先响应连接页，避免销毁页面使 IPC Promise 悬挂。
         setImmediate(() => void showChat());
@@ -330,7 +333,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     try {
       gateway = normalizeGateway(process.env.NANOBOT_GATEWAY_URL
-        || JSON.parse(await readFile(settingsFile, 'utf8')).gateway);
+        || store.get('gateway.url'));
       await showChat();
     } catch (error) {
       await showSetup(error.code === 'ENOENT' ? '' : '后端地址配置无效，请重新填写。');

@@ -13,14 +13,15 @@ function fixture() {
   });
   const sent = []; const notices = []; const shortcuts = new Map();
   let shown = 0;
-  class Tray extends EventEmitter { setToolTip() {} setContextMenu() {} destroy() {} }
+  let trayIcon = '';
+  class Tray extends EventEmitter { constructor(icon) { super(); trayIcon = icon.path; } setToolTip() {} setContextMenu() {} destroy() {} }
   class Notification extends EventEmitter {
     static isSupported() { return true; }
     show() { notices.push(this); }
   }
   const electron = {
     app, Tray, Notification, Menu: { buildFromTemplate: (value) => value },
-    nativeImage: { createFromPath: () => ({ setTemplateImage() {} }) },
+    nativeImage: { createFromPath: (file) => ({ path: file, setTemplateImage() {} }) },
     globalShortcut: { register: (key, fn) => { shortcuts.set(key, fn); return true; }, unregister: (key) => shortcuts.delete(key) },
     screen: { getCursorScreenPoint: () => ({}), getDisplayNearestPoint: () => ({ id: 1, size: { width: 100, height: 80 } }) },
     desktopCapturer: { getSources: async () => [{ display_id: '1', thumbnail: { isEmpty: () => false, toJPEG: () => Buffer.from('fixture') } }] },
@@ -28,8 +29,13 @@ function fixture() {
   };
   const controller = installDesktop({ getWindow: () => win, showWindow: () => { shown++; win.visible = true; }, electron });
   controller.bindWindow(win);
-  return { app, win, sent, notices, shortcuts, controller, shown: () => shown };
+  return { app, win, sent, notices, shortcuts, controller, shown: () => shown, trayIcon: () => trayIcon };
 }
+
+test('Windows 托盘使用彩色头像图标', () => {
+  const f = fixture();
+  assert.match(f.trayIcon(), /assets[\\/]tray\.png$/);
+});
 
 test('只识别桌面完成事件，开始同步和其他会话不提醒', () => {
   assert.equal(completionKey({ event: 'turn_end', chat_id: 'desktop', turn_id: 't' }), 't');

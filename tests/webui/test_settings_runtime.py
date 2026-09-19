@@ -121,7 +121,12 @@ def test_every_exposed_runtime_setting_has_a_frontend_use():
     paths = re.findall(r'group: "[^"]+", path: "([^"]+)"', fields.read_text(encoding="utf-8"))
     assert len(paths) == len(set(paths))
     # The CLI enable flag controls visibility of its advanced fields, without an editor.
-    visibility_only = {"tools.cli_apps.enable"}
+    # Bot identity is edited by the Electron appearance surface, not this generic form.
+    visibility_only = {
+        "tools.cli_apps.enable",
+        "agents.defaults.bot_name",
+        "agents.defaults.bot_icon",
+    }
     assert set(paths) | visibility_only == set(RUNTIME_CONFIG_PATHS)
 
 
@@ -132,6 +137,19 @@ def test_disabling_memory_consolidation_preserves_other_memory_settings():
     after = config.agents.defaults.model_dump()
     before["dream"]["enabled"] = False
     assert after == before
+
+
+def test_desktop_identity_updates_canonical_agent_config():
+    config = Config()
+    assert update_runtime_config(config, {
+        "agents.defaults.bot_name": "焰",
+        "agents.defaults.bot_icon": "🔥",
+    }, local_browser=False)
+    assert config.agents.defaults.bot_name == "焰"
+    assert config.agents.defaults.bot_icon == "🔥"
+    payload = runtime_config_payload(config)
+    assert payload["agents.defaults.bot_name"] == "焰"
+    assert payload["agents.defaults.bot_icon"] == "🔥"
 
 
 @pytest.mark.parametrize("backend", ["bwrap", "seatbelt"])

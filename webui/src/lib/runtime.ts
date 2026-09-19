@@ -11,8 +11,8 @@ export interface DesktopAppearance {
   opacity: number;
 }
 export interface DesktopAppearanceApi {
-  read(): Promise<DesktopAppearance>;
-  save(value: DesktopAppearance): Promise<DesktopAppearance>;
+  read(): Promise<Omit<DesktopAppearance, "name" | "icon">>;
+  save(value: Omit<DesktopAppearance, "name" | "icon">): Promise<Omit<DesktopAppearance, "name" | "icon">>;
   choose(kind: "directory"): Promise<string | null>;
   wallpaper(): Promise<string | null>;
 }
@@ -25,6 +25,7 @@ export interface DesktopWindowControls {
 }
 
 export interface RuntimeHost {
+  config?: DesktopConfigApi;
   companion?: CompanionApi;
   voice?: DesktopVoiceApi;
   quit?: () => Promise<void>;
@@ -80,7 +81,13 @@ interface HostRuntimeInfo {
   engine_transport?: "unix_socket";
 }
 
+export interface DesktopConfigApi {
+  get(key: "appearance.theme" | "appearance.language" | "gateway.token"): Promise<unknown>;
+  set(key: "appearance.theme" | "appearance.language" | "gateway.token", value: string): Promise<void>;
+}
+
 interface NanobotHostApi {
+  config?: DesktopConfigApi;
   companion?: CompanionApi;
   voice?: DesktopVoiceApi;
   quit?(): Promise<void>;
@@ -174,6 +181,7 @@ export function createRuntimeHost(
   const bridge = getHostSocketBridge();
   return {
     surface,
+    config: api?.config,
     quit: api?.quit?.bind(api),
     windowControls: api?.windowControls,
     appearance: api?.appearance,

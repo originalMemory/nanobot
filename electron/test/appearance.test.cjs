@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { mkdtemp, writeFile, mkdir, rm, symlink } = require('node:fs/promises');
 const os = require('node:os');
+const Store = require('electron-store');
 const path = require('node:path');
 const { createAppearance, normalize, boundedImage, DEFAULTS } = require('../appearance.cjs');
 
@@ -13,15 +14,31 @@ async function fixture(t) {
     isEmpty: () => !buffer.toString().startsWith('good'), getSize: () => ({ width: 100, height: 100 }),
     toJPEG: () => buffer,
   }) };
-  const options = { directory, nativeImage, dialog: { showOpenDialog: async () => selection ?? { canceled: true, filePaths: [] } } };
+  const store = new Store({ cwd: directory, projectVersion: '0.3.5' });
+  const options = { store, nativeImage, dialog: { showOpenDialog: async () => selection ?? { canceled: true, filePaths: [] } } };
   return { directory, options, api: createAppearance(options), select: (file) => { selection = { canceled: false, filePaths: [file] }; } };
 }
 
 test('appearance validates bounds, URLs and image payloads', () => {
-  assert.equal(normalize({}).name, 'nanobot');
+  assert.equal(normalize({}).source, 'none');
   for (const patch of [{ source: 'url', url: 'https://example.com/image', opacity: 0 }, { source: 'url', url: 'https://example.com/image', intervalMinutes: NaN }, { source: 'other' }, { source: 'url' }, { source: 'url', url: 'file:///etc/passwd' }, { source: 'url', url: 'https://a:b@example.com/' }]) {
     assert.throws(() => normalize({ ...DEFAULTS, ...patch }));
   }
+});
+
+test('reads lover wallpaper keys and preserves unrelated store settings', async (t) => {
+  const f = await fixture(t);
+  f.options.store.set({ gateway: { url: 'http://nas:8765', token: 'unchanged' },
+    appearance: { theme: 'ink', wallpaper: { source: 'url', url: 'https://example.com/image', localOrder: 'random', intervalMinutes: 3, localIndex: 7 } } });
+  const value = await f.api.read();
+  assert.equal(value.order, 'random'); assert.equal(value.intervalMinutes, 3);
+  await f.api.save({ ...value, opacity: 0.7 });
+  const reopened = new Store({ cwd: f.directory, projectVersion: '0.3.5' });
+  assert.equal(reopened.get('appearance.theme'), 'ink');
+  assert.equal(reopened.get('appearance.wallpaper.localOrder'), 'random');
+  assert.equal(reopened.get('appearance.wallpaper.localIndex'), 7);
+  assert.equal(reopened.get('gateway.url'), 'http://nas:8765');
+  assert.equal(reopened.get('gateway.token'), 'unchanged');
 });
 
 test('only dialog-selected folders can be saved; legacy avatar data is ignored', async (t) => {
@@ -30,9 +47,9 @@ test('only dialog-selected folders can be saved; legacy avatar data is ignored',
   await assert.rejects(f.api.choose('avatar'));
   assert.equal(await f.api.choose('directory'), null);
   f.select(f.directory); const directory = await f.api.choose('directory');
-  await f.api.save({ ...DEFAULTS, name: 'Homura', directory, avatar: 'legacy-inline-image' });
+  await f.api.save({ ...DEFAULTS, directory, avatar: 'legacy-inline-image' });
   const saved = await createAppearance(f.options).read();
-  assert.equal(saved.directory, directory); assert.equal(saved.name, 'Homura');
+  assert.equal(saved.directory, directory);
   assert.equal(Object.hasOwn(saved, 'avatar'), false);
 });
 
@@ -67,8 +84,8 @@ test('network wallpapers reject non-images and oversized streams', async (t) => 
 
 test('inactive wallpaper fields cannot block saving identity, disabling, or switching source', async (t) => {
   const f = await fixture(t);
-  const disabled = await f.api.save({ ...DEFAULTS, name: 'Homura', source: 'none', url: 'bad-url', intervalMinutes: 0, opacity: NaN });
-  assert.equal(disabled.name, 'Homura'); assert.equal(disabled.url, '');
+  const disabled = await f.api.save({ ...DEFAULTS, source: 'none', url: 'bad-url', intervalMinutes: 0, opacity: NaN });
+  assert.equal(disabled.url, '');
   assert.equal(disabled.intervalMinutes, DEFAULTS.intervalMinutes);
   assert.equal(disabled.opacity, DEFAULTS.opacity);
   assert.deepEqual(await createAppearance(f.options).read(), disabled);

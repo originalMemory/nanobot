@@ -2,20 +2,23 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const os = require('node:os');
+const Store = require('electron-store');
 const fs = require('node:fs/promises');
 const { createCompanion, timeSegment } = require('../companion.cjs');
 
 test('本地资源只通过清单 URL 读取，支持 Range 和场景时段回退', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nanobot-companion-'));
   try {
+    const store = new Store({ cwd: root, projectVersion: '0.3.5' });
     const bundledRoot = path.join(root, 'bundled');
     const pack = path.join(root, 'scene');
     for (const folder of [bundledRoot, path.join(pack, 'idle', 'day'), path.join(pack, 'working')]) await fs.mkdir(folder, { recursive: true });
     await fs.writeFile(path.join(bundledRoot, '待机-呼吸.mp4'), '0123456789');
     await fs.writeFile(path.join(bundledRoot, '工作-思考中.mp4'), 'work');
     await fs.writeFile(path.join(pack, 'idle', 'day', 'scene.mp4'), 'scene');
-    const api = createCompanion({ directory: root, bundledRoot, dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [pack] }) } });
+    const api = createCompanion({ store, bundledRoot, dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [pack] }) } });
     assert.equal((await api.read()).enabled, false);
+    store.set('avatarCompanion.serverUrl', 'http://old-unused-setting');
     await assert.rejects(api.save({ directory: pack }), /desktop dialog/);
     const selected = await api.choose();
     await Promise.all([api.save({ enabled: true }), api.save({ directory: selected })]);
@@ -33,9 +36,11 @@ test('本地资源只通过清单 URL 读取，支持 Range 和场景时段回�
     assert.equal((await api.serve(new Request('nanobot://desktop/companion-video/unlisted'))).status, 404);
     await assert.rejects(api.save({ schedule: { day: '99:00' } }), /Invalid time/);
     await api.save({ panel: { width: 5000, collapsed: true } });
-    const restored = createCompanion({ directory: root, bundledRoot, dialog: {} });
+    const restored = createCompanion({ store, bundledRoot, dialog: {} });
     assert.equal((await restored.read()).panel.width, 1120);
     assert.equal((await restored.read()).panel.collapsed, true);
+    assert.equal(store.get('avatarCompanion.videoDirectory'), selected);
+    assert.equal(store.get('avatarCompanion.serverUrl'), 'http://old-unused-setting');
     assert.equal(timeSegment(new Date(2026, 8, 19, 2)), 'night');
   } finally { assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep + "nanobot-companion-")); await fs.rm(root, { recursive: true, force: true }); }
 });

@@ -62,7 +62,7 @@ async def test_partial_compaction_retains_recent_turns_and_archives_exact_prefix
     complete = sessions.read_session_file(session.key)["messages"]
     visible = [message for message in complete if not is_summary_checkpoint(message)]
     assert visible[:-2] == original[2:]
-    archived = [json.loads(line) for path in (sessions.workspace / "sessions" / "archive").glob("*.jsonl") for line in path.read_text(encoding="utf-8").splitlines()]
+    archived = [json.loads(line) for path in (sessions.sessions_dir / "archive").glob("*.jsonl") for line in path.read_text(encoding="utf-8").splitlines()]
     for row in archived:
         row.pop("_archive_meta")
     assert archived == original[:2]

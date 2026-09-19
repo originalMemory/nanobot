@@ -15,6 +15,17 @@ function fixture(overrides: Partial<DesktopAppearance> = {}) {
   window.nanobotHost = { fixedChatId: "desktop", appearance: api };
   return api;
 }
+function renderAppearance(children: React.ReactNode) {
+  const client = new NanobotClient({ url: "ws://unused", reconnect: false });
+  const mutate = vi.spyOn(client, "requestMutation").mockResolvedValue({});
+  const fetchSettings = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+    runtime_config: { "agents.defaults.bot_name": "nanobot", "agents.defaults.bot_icon": "🦊" },
+  }), { headers: { "content-type": "application/json" } }));
+  const view = render(<ClientProvider client={client} token="test">
+    <DesktopAppearanceProvider>{children}</DesktopAppearanceProvider>
+  </ClientProvider>);
+  return { view, mutate, fetchSettings };
+}
 const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
 
 it("voice settings retry loading and share save/cancel switch behavior", async () => {
@@ -52,7 +63,7 @@ afterEach(() => {
 
 it("saves display identity and keeps a failed draft for retry", async () => {
   const api = fixture();
-  render(<DesktopAppearanceProvider><DesktopAppearanceSettings /><DesktopIdentity /></DesktopAppearanceProvider>);
+  const mounted = renderAppearance(<><DesktopAppearanceSettings /><DesktopIdentity /></>);
   const input = await screen.findByLabelText("Display name");
   fireEvent.change(input, { target: { value: "Homura" } });
   api.save.mockRejectedValueOnce(new Error("disk full"));
@@ -62,12 +73,15 @@ it("saves display identity and keeps a failed draft for retry", async () => {
   expect(screen.getByTestId("desktop-identity")).toHaveTextContent("nanobot");
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.getByTestId("desktop-identity")).toHaveTextContent("Homura"));
-  expect(api.save).toHaveBeenLastCalledWith(expect.objectContaining({ name: "Homura" }));
+  expect(api.save).toHaveBeenLastCalledWith(expect.not.objectContaining({ name: "Homura", icon: "🦊" }));
+  expect(mounted.mutate).toHaveBeenCalledWith("settings.runtime_config.update", { values: {
+    "agents.defaults.bot_name": "Homura", "agents.defaults.bot_icon": "🦊",
+  } }, 20_000);
 });
 
 it("uses the fixed gateway avatar and falls back to the icon", async () => {
   const api = fixture();
-  render(<DesktopAppearanceProvider><DesktopAppearanceSettings /><DesktopIdentity /></DesktopAppearanceProvider>);
+  renderAppearance(<><DesktopAppearanceSettings /><DesktopIdentity /></>);
   const identity = await screen.findByTestId("desktop-identity");
   const image = identity.querySelector("img")!;
   expect(image).toHaveAttribute("src", "/api/avatar");
@@ -84,7 +98,7 @@ it("pauses wallpaper refresh while hidden, resumes on visibility, and cleans up"
   let visibility: DocumentVisibilityState = "visible";
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
   const api = fixture({ source: "url", url: "https://example.com/image" });
-  const view = render(<DesktopAppearanceProvider><DesktopIdentity /></DesktopAppearanceProvider>);
+  const { view } = renderAppearance(<DesktopIdentity />);
   await act(async () => {});
   expect(api.wallpaper).toHaveBeenCalledTimes(1);
   expect(document.documentElement.dataset.wallpaper).toBe("on");
@@ -103,7 +117,7 @@ it("pauses wallpaper refresh while hidden, resumes on visibility, and cleans up"
 
 it("retains the last wallpaper on refresh failure and exposes retry", async () => {
   const api = fixture({ source: "url", url: "https://example.com/image" });
-  render(<DesktopAppearanceProvider><DesktopAppearanceSettings /></DesktopAppearanceProvider>);
+  renderAppearance(<DesktopAppearanceSettings />);
   await screen.findByTestId("desktop-wallpaper");
   api.wallpaper.mockRejectedValueOnce(new Error("offline"));
   fireEvent.click(screen.getByRole("button", { name: "Next / refresh" }));

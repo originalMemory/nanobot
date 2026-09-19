@@ -1,18 +1,16 @@
 const path = require('node:path');
-const { mkdir, readFile, readdir, rename, realpath, stat, writeFile } = require('node:fs/promises');
-const { randomUUID } = require('node:crypto');
+const { readFile, readdir, realpath, stat } = require('node:fs/promises');
 const MAX_IMAGE = 12 * 1024 * 1024;
-const DEFAULTS = { name: 'nanobot', icon: '🦊', source: 'none', url: '', directory: '', order: 'sequential', intervalMinutes: 5, opacity: 0.8 };
+const DEFAULTS = { source: 'none', url: '', directory: '', order: 'sequential', intervalMinutes: 5, opacity: 0.8 };
 
 function normalize(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid appearance settings');
   const result = { ...DEFAULTS };
-  for (const [key, max] of [['name', 80], ['icon', 16], ['url', 2048], ['directory', 4096]]) {
+  for (const [key, max] of [['url', 2048], ['directory', 4096]]) {
     if (value[key] === undefined) continue;
     if (typeof value[key] !== 'string' || value[key].length > max) throw new Error(`Invalid ${key}`);
     result[key] = value[key].trim();
   }
-  result.name ||= DEFAULTS.name;
   for (const [key, choices] of [['source', ['none', 'url', 'directory']], ['order', ['sequential', 'random']]]) {
     if (value[key] !== undefined && !choices.includes(value[key])) throw new Error(`Invalid ${key}`);
     result[key] = value[key] ?? DEFAULTS[key];
@@ -51,14 +49,14 @@ async function boundedImage(response) {
   return Buffer.concat(chunks);
 }
 
-function createAppearance({ directory, nativeImage, dialog, fetchImage = fetch }) {
-  const file = path.join(directory, 'appearance.json');
+function createAppearance({ store, nativeImage, dialog, fetchImage = fetch }) {
   let config; let selectedDirectory; let lastFile = '';
   let saving = Promise.resolve();
   async function read() {
     if (!config) {
-      try { config = normalize(JSON.parse(await readFile(file, 'utf8'))); }
-      catch (error) { if (error.code !== 'ENOENT') throw error; config = { ...DEFAULTS }; }
+      const appearance = store.get('appearance', {});
+      const wallpaper = appearance.wallpaper ?? {};
+      config = normalize({ ...wallpaper, opacity: appearance.opacity, order: wallpaper.localOrder });
     }
     return { ...config };
   }
@@ -80,10 +78,10 @@ function createAppearance({ directory, nativeImage, dialog, fetchImage = fetch }
     const operation = saving.then(async () => {
       const previous = await read(); const next = normalize(value);
       if (next.directory && next.directory !== previous.directory && next.directory !== selectedDirectory) throw new Error('Choose the folder through the desktop dialog');
-      await mkdir(directory, { recursive: true });
-      const tmp = `${file}.${randomUUID()}.tmp`;
-      await writeFile(tmp, JSON.stringify(next), { mode: 0o600 });
-      await rename(tmp, file);
+      store.set({ 'appearance.opacity': next.opacity, 'appearance.wallpaper': {
+          ...store.get('appearance.wallpaper', {}), source: next.source, url: next.url,
+          directory: next.directory, localOrder: next.order, intervalMinutes: next.intervalMinutes,
+        } });
       if (next.directory !== previous.directory) lastFile = '';
       config = next;
       return { ...next };

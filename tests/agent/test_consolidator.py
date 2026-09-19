@@ -36,7 +36,7 @@ _ARCHIVE_PROMPT = render_template("agent/consolidator_archive.md", strip=True)
 def _archived_messages(sessions, session):
     """验证月度原文加活跃消息的保全性，不改变产品历史读取行为。"""
     batches = {}
-    for path in sorted((sessions.workspace / "sessions" / "archive").glob("*.jsonl")):
+    for path in sorted((sessions.sessions_dir / "archive").glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             row = json.loads(line)
             if row.get("_archive_meta", {}).get("session_key") == session.key:

@@ -1,4 +1,4 @@
-"""按 lover 的路径保存裁剪原文：workspace/sessions/archive/YYYY-MM.jsonl。"""
+"""在活动 workspace namespace 内保存裁剪原文：archive/YYYY-MM.jsonl。"""
 
 from __future__ import annotations
 

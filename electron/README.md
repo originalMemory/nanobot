@@ -34,6 +34,8 @@ npm --prefix electron run package
 
 打包输出在 `electron/out/`，默认面向当前系统和架构；这是可运行的应用目录，尚未签名、公证或生成安装器。WebUI 必须先有依赖，桌面依赖和构建产物已忽略，不进入 Git。
 
+应用图标源自 `assets/avatar.png`：`icon.ico` 用于 Windows，`icon.icns` 用于 macOS，`icon.png` 用于窗口和应用内展示。图标使用轻微圆角和透明留白，适配任务栏、Dock 与系统圆角表现；Windows 托盘使用近景彩色 `tray.png`，macOS 菜单栏继续使用单色 template 图标。
+
 ## 边界
 
 - 本地 `nanobot://desktop` 协议提供打包的 WebUI，并把 `/api`、`/auth`、`/webui` 请求转给选定 gateway；WebSocket 复用上游 HostSocketBridge，经主进程连接同一 gateway 并使用上游短期 token，支持 NAS 的 HTTP/WS 部署而不关闭混合内容保护。
@@ -56,7 +58,7 @@ npm --prefix electron run package
 ## F03 桌面基础体验
 
 - 主窗口沿用 lover 的 30px 无边框顶栏；Windows/Linux 提供最小化、最大化/还原和关闭按钮，macOS 保留原生红绿灯。连接页、认证页和聊天共用窗口控制，关闭仍隐藏到托盘；Windows/Linux 可按 Alt 打开应用菜单。
-- 窗口位置、普通尺寸及最大化状态保存在本机 `Nanobot/window.json`，重启或更换后端后恢复；断开外接屏时会移回可见工作区，最小化和全屏不会覆盖普通尺寸。
+- 窗口位置、普通尺寸及最大化状态保存在本机 electron-store 的 `window` 键，重启或更换后端后恢复；断开外接屏时会移回可见工作区，最小化和全屏不会覆盖普通尺寸。
 - 侧边栏底部电源按钮「完全退出」直接结束 Electron，与托盘退出一致；标题栏关闭按钮仍隐藏到托盘。不会停止独立运行的 gateway。
 - 关闭主窗口隐藏到托盘；点击托盘或使用全局 `Cmd/Ctrl+Shift+E` 显示/隐藏窗口，菜单「退出」才结束应用。快捷键被占用时仍可通过托盘唤起。
 - 「桌面 → 截图并附加」或应用内 `Cmd/Ctrl+Shift+S`：短暂隐藏窗口，截取鼠标所在屏幕，回到统一收件箱并加入附件预览，手动发送。首次使用可能需要系统屏幕录制授权。
@@ -72,7 +74,7 @@ npm --prefix electron run package
 
 壁纸可选择网络图片网址或本地目录，支持顺序/随机、刷新间隔和手动下一张。单张输入上限 12 MiB；目录通过系统选择器授权，坏图会跳过。窗口隐藏时暂停刷新，加载失败保留上一张并提示。开启壁纸后可调面板不透明度，文字与控件本身不降低透明度；关闭后恢复普通主题。
 
-这些本机偏好保存在 `Nanobot/appearance.json`，与旧 lover 共用目录，与 NAS 配置分开。主题沿用当前 gateway 分区的 localStorage。旧偏好不会自动迁移；本地目录指这台电脑上的目录。新宿主接口需完全退出并重启 Electron 后生效。
+这些本机偏好使用与 lover 相同的 electron-store（Nanobot/config.json），与 NAS 配置分开。连接使用 gateway.url，窗口使用 window，壁纸使用 appearance.wallpaper，主题/语言使用 appearance.theme/language，语音暂停使用 tts.pauseSystemMedia，伴侣使用 avatarCompanion。直接读取原键，不迁移此前拆分的 JSON 文件；本地目录指这台电脑上的目录。新宿主接口需完全退出并重启 Electron 后生效。
 
 ## F06 文件与笔记
 

@@ -11,7 +11,7 @@
 - `Dockerfile` 的 `unraid` target 仅构建 Python 后端，不构建或打包网页，预装当前启用的 QQ、Telegram、WebSocket、微信渠道依赖；用户固定 `99:100`，补充组 `281` 保留 Docker socket 权限。
 - 与 lover 一样，容器内 nanobot 用户和同名组均映射到宿主 Unraid nobody/users 的数字身份 99:100，供 SMB/Windows 共享按既有权限访问创建的文件。root 降权和所有权修复读取实际 UID/GID，不再使用 1000:1000；不批量修改现有文件权限或共享 ACL。
 - 保留现有数据、SSH、笔记库、SSD、HDD、Clouddrive 和 Docker socket 挂载，以及 NAS 已使用的 bubblewrap 权限。WebSocket 端口仍为 8765，API 仅在 `api` profile 开启时启动。
-- `/home/nanobot/src` 保留为代码访问目录。后端运行代码使用镜像中的版本，不设置旧 `PYTHONPATH`；修改后端才需要重新构建镜像。Electron 从本地包加载 UI，纯 UI 修改只重新构建/打包 Electron，不依赖 NAS 提供页面。
+- `/home/nanobot/src` 作为运行源码，通过 `PYTHONPATH` 覆盖镜像内的代码副本。普通 Python 源码改动后在聊天中执行 `/restart` 即可加载；只有 Dockerfile、系统包、Python/渠道依赖发生变化时才重建镜像。Electron 从本地包加载 UI，纯 UI 修改只重新构建/打包 Electron，不依赖 NAS 提供页面。
 - `rg` 和 FFmpeg 在基础镜像中；Unraid 保留 curl 等启动工具。所有技能与网关共用 `/app/.venv`，不为技能新建环境。
 - 与 lover 一样，entrypoint 在非 root 身份下执行 `$HOME/.nanobot/workspace/scripts/bootstrap.sh`，成功后才启动 nanobot；失败则停止启动。root 启动也先降权再执行，不以 root 安装 workspace 技能依赖。
 - 具体依赖、外部工具及安装检查只在 workspace bootstrap 和 `config/python-requirements.txt` 维护，不进入项目 Dockerfile。容器重建后由统一入口补齐；需要联网下载时沿用代理。浏览器等技能的系统依赖也由该环境维护流程负责，不能仅凭 Python 包安装成功认定可用。
@@ -102,8 +102,8 @@ docker compose -f docker-compose.unraid.yml logs --tail=100 nanobot-gateway
 
 ## 数据迁移和回退
 
-- 上游自动把 `workspace/sessions/*.jsonl` 移到 `.nanobot/sessions/<workspace-id>/`，工作区身份标记也必须保留。在临时副本中，65 个现有 NAS 会话迁移前后 SHA-256 全部一致。
-- 月度原文归档仍在 `workspace/sessions` 的归档子目录，不加入历史读取。日语进度仍在 `workspace/memory/japanese-learning-state.json` 和 `japanese-learning.md`；技能业务数据仍在 `workspace/data`。
+- 活动会话和归档统一位于 `.nanobot/sessions/<workspace-id>/`；身份来自 `workspace/.nanobot/workspace-id`。活动文件使用 session key 的 Base64URL 文件名，月度原文位于同一 namespace 的 `archive/YYYY-MM.jsonl`，`/new` 快照位于 `archive/snapshots/`。归档不加入聊天历史读取。
+- 旧非统一会话仅在目标不存在时复制；发生文件名冲突时保留新版 canonical 文件并抛弃旧候选。统一会话保留较新的 canonical 文件。日语进度仍在 `workspace/memory/japanese-learning-state.json` 和 `japanese-learning.md`；技能业务数据仍在 `workspace/data`。
 - NAS 定时任务已位于 `workspace/cron/jobs.json`，无需再次迁移；只有旧 `.nanobot/cron/jobs.json` 存在且目标不存在时，上游才会自动移动。
 - 不依赖 `nanobot sessions restore-workspace` 完成 lover 回退：它只识别新版编码文件名，旧命名会话的副本实验未能全部恢复。回退时先停新服务，另行保存升级后的整个 `.nanobot`，再恢复升级前的完整数据、原代码及部署文件。不要直接覆盖或删除升级后数据，避免丢失试运行期间的新消息。
 - 实机验收：渠道登录、Electron 连接和统一收件箱、历史展示及新 voice 语音回放、日记召回、定时任务、日语进度、工作区工具与 Docker socket。确认稳定前不要删除回退备份。

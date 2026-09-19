@@ -28,6 +28,10 @@ if (location.protocol === 'file:') {
   });
   // 复用上游 native 外观，不宣称有远端工作区的本地目录选择能力。
   contextBridge.exposeInMainWorld('nanobotHost', {
+    config: {
+      get: (key) => ipcRenderer.invoke('desktop:config-get', key),
+      set: (key, value) => ipcRenderer.invoke('desktop:config-set', key, value),
+    },
     quit: () => ipcRenderer.invoke('desktop:quit'),
     windowControls,
     fixedChatId: 'desktop',

@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getRuntimeHost, type DesktopAppearance, type DesktopAppearanceApi } from "@/lib/runtime";
+import { fetchSettings } from "@/lib/api";
+import { useClient } from "@/providers/ClientProvider";
 
 interface AppearanceContextValue {
   config: DesktopAppearance | null;
@@ -14,6 +16,7 @@ const AppearanceContext = createContext<AppearanceContextValue | null>(null);
 export const useDesktopAppearance = () => useContext(AppearanceContext);
 
 export function DesktopAppearanceProvider({ children }: { children: ReactNode }) {
+  const { client, getToken } = useClient();
   const [api] = useState(() => getRuntimeHost().appearance);
   const [config, setConfig] = useState<DesktopAppearance | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -24,10 +27,16 @@ export function DesktopAppearanceProvider({ children }: { children: ReactNode })
   useEffect(() => {
     if (!api) return;
     let cancelled = false;
-    void api.read().then((value) => { if (!cancelled) { setConfig(value); setLoadFailed(false); } },
+    void Promise.all([api.read(), fetchSettings(getToken())]).then(([value, settings]) => {
+      const runtime = settings.runtime_config ?? {};
+      const name = runtime["agents.defaults.bot_name"];
+      const icon = runtime["agents.defaults.bot_icon"];
+      if (!cancelled) { setConfig({ ...value, name: typeof name === "string" ? name : "nanobot",
+        icon: typeof icon === "string" ? icon : "🐈" }); setLoadFailed(false); }
+    },
       () => { if (!cancelled) setLoadFailed(true); });
     return () => { cancelled = true; };
-  }, [api, reloadId]);
+  }, [api, getToken, reloadId]);
   const source = config?.source;
   const interval = config?.intervalMinutes ?? 5;
   const url = config?.url;
@@ -58,8 +67,15 @@ export function DesktopAppearanceProvider({ children }: { children: ReactNode })
     return () => { delete root.dataset.wallpaper; root.style.removeProperty("--desktop-panel-opacity"); };
   }, [image, config?.opacity]);
   const save = useCallback(async (value: DesktopAppearance) => {
-    if (api) setConfig(await api.save(value));
-  }, [api]);
+    if (!api) return;
+    const { name, icon, ...localValue } = value;
+    const local = await api.save(localValue);
+    await client.requestMutation("settings.runtime_config.update", { values: {
+      "agents.defaults.bot_name": name,
+      "agents.defaults.bot_icon": icon,
+    } }, 20_000);
+    setConfig({ ...local, name, icon });
+  }, [api, client]);
   const context = useMemo(() => ({ config, api, loadFailed, wallpaperFailed, save,
     reload: () => setReloadId((value) => value + 1),
     refreshWallpaper: () => setRevision((value) => value + 1) }), [config, api, loadFailed, wallpaperFailed, save]);

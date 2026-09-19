@@ -17,6 +17,8 @@ from nanobot.webui.settings_contracts import WebUISettingsError
 # Only these leaves may be read or patched through this surface. Model/provider,
 # channel, and secret configuration keep their dedicated mutation contracts.
 RUNTIME_CONFIG_PATHS = (
+    "agents.defaults.bot_name",
+    "agents.defaults.bot_icon",
     "agents.defaults.timezone",
     "agents.defaults.timezone_mode",
     "agents.defaults.unified_session",

@@ -1,5 +1,5 @@
-import { act, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useTheme } from "@/hooks/useTheme";
 
@@ -51,6 +51,23 @@ describe("useTheme", () => {
     expect(localStorage.getItem("nanobot-webui.theme")).toBe("desert");
     act(() => result.current.toggle());
     expect(result.current.selectedTheme).toBe("dark");
+  });
+
+  it("reads and writes the original Electron theme store key", async () => {
+    const previous = window.nanobotHost;
+    const config = { get: vi.fn(async () => 'ink'), set: vi.fn(async () => {}) };
+    window.nanobotHost = { config };
+    const view = renderHook(useTheme);
+    try {
+      await waitFor(() => expect(view.result.current.selectedTheme).toBe('ink'));
+      expect(config.set).not.toHaveBeenCalled();
+      act(() => view.result.current.setTheme('midnight'));
+      expect(config.set).toHaveBeenCalledWith('appearance.theme', 'midnight');
+    } finally {
+      view.unmount();
+      if (previous) window.nanobotHost = previous;
+      else delete window.nanobotHost;
+    }
   });
 
 });

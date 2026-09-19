@@ -572,7 +572,6 @@ class JsonlSessionStore:
         with suppress(OSError):
             os.chmod(root, 0o700)
         self.workspace = canonical_workspace
-        self.history_store = SessionHistoryStore(canonical_workspace / "sessions")
         self._migration_lock = FileLock(
             str(root / ".workspace-migration.lock"),
             timeout=_SESSION_MIGRATION_LOCK_TIMEOUT_SECONDS,
@@ -585,6 +584,7 @@ class JsonlSessionStore:
                 workspace_id,
             )
             self.sessions_dir = ensure_dir(root / workspace_id)
+            self.history_store = SessionHistoryStore(self.sessions_dir)
             self.legacy_sessions_dir = get_legacy_sessions_dir()
             self._session_files_lock = FileLock(
                 str(self.sessions_dir / _SESSION_FILES_LOCK_FILENAME)
@@ -1232,8 +1232,8 @@ class JsonlSessionStore:
 
     def _history_archive_dir(self, key: str) -> Path:
         directory = self.history_store.archive_dir / "snapshots" / self.storage_key(key)
-        if not directory.resolve().is_relative_to(self.workspace.resolve()):
-            raise OSError("会话归档目录不能越出工作区")
+        if not directory.resolve().is_relative_to(self.sessions_dir.resolve()):
+            raise OSError("会话归档目录不能越出会话 namespace")
         directory.mkdir(parents=True, exist_ok=True)
         self._fsync_directory(directory.parent)
         self._fsync_directory(self.history_store.archive_dir)

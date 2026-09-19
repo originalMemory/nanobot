@@ -12,11 +12,14 @@
     "dev": "npm run build && electron .",
     "test": "node --test test/*.test.cjs",
     "test:smoke": "node test/smoke.cjs",
-    "package": "npm run build && electron-packager . Nanobot --out=out --asar --overwrite --extend-info=Info.plist --ignore=\"^/(out|test|README.md|package-lock.json)$\""
+    "package": "npm run build && electron-packager . Nanobot --out=out --asar --overwrite --icon=assets/icon --extend-info=Info.plist --ignore=\"^/(out|out-build|dist|\\.vite|test|README.md|package-lock.json)$\""
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
     "electron": "44.4.2",
     "ws": "8.18.3"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0"
   }
 }

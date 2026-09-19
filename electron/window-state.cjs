@@ -1,12 +1,5 @@
-const { readFileSync, writeFileSync, renameSync, mkdirSync } = require('node:fs');
-const path = require('node:path');
-
-function readWindowState(file, screen) {
-  let saved;
-  try { saved = JSON.parse(readFileSync(file, 'utf8')); }
-  catch (error) {
-    if (error.code !== 'ENOENT') console.warn('无法读取窗口位置，将使用默认位置。', error.message);
-  }
+function readWindowState(store, screen) {
+  const saved = store.get('window');
   const valid = saved && ['x', 'y', 'width', 'height'].every((key) => Number.isSafeInteger(saved[key]))
     && saved.width > 0 && saved.height > 0;
   const area = (valid && screen.getAllDisplays().find(({ workArea: a }) =>
@@ -21,17 +14,14 @@ function readWindowState(file, screen) {
   };
 }
 
-function trackWindowState(win, file) {
+function trackWindowState(win, store) {
   let timer;
   const save = () => {
     clearTimeout(timer);
     if (win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return;
     const state = { ...win.getNormalBounds(), maximized: win.isMaximized() };
     try {
-      // 小文件同步原子写入，关闭/退出时不会丢掉尚未执行的防抖保存。
-      mkdirSync(path.dirname(file), { recursive: true });
-      writeFileSync(`${file}.tmp`, JSON.stringify(state));
-      renameSync(`${file}.tmp`, file);
+      store.set('window', state);
     } catch (error) { console.warn('无法保存窗口位置。', error.message); }
   };
   const schedule = () => { clearTimeout(timer); timer = setTimeout(save, 300); };

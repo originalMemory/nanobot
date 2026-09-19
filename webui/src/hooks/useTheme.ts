@@ -4,9 +4,11 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { getRuntimeHost } from "@/lib/runtime";
 
 type Theme = "light" | "dark";
 export const THEME_CHOICES = ["light", "dark", "midnight", "desert", "neon", "marshmallow", "ink", "party", "rainbow"] as const;
@@ -50,6 +52,8 @@ export function useTheme(): {
   selectedTheme: ThemeChoice;
   setTheme: (t: ThemeChoice) => void;
 } {
+  const [config] = useState(() => getRuntimeHost().config);
+  const changed = useRef(false);
   const [theme, setThemeState] = useState<ThemeChoice>(() => {
     const stored = readStored();
     if (stored) return stored;
@@ -70,10 +74,21 @@ export function useTheme(): {
     }
   }, [theme]);
 
-  const setTheme = useCallback((t: ThemeChoice) => setThemeState(t), []);
+  useEffect(() => {
+    let cancelled = false;
+    void config?.get("appearance.theme").then(value => {
+      if (!cancelled && !changed.current && isThemeChoice(value)) setThemeState(value);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [config]);
+  const setTheme = useCallback((t: ThemeChoice) => {
+    changed.current = true;
+    setThemeState(t);
+    void config?.set("appearance.theme", t).catch(() => {});
+  }, [config]);
   const toggle = useCallback(
-    () => setThemeState((t) => (themeMode(t) === "dark" ? "light" : "dark")),
-    [],
+    () => setTheme(themeMode(theme) === "dark" ? "light" : "dark"),
+    [setTheme, theme],
   );
   return { theme: themeMode(theme), selectedTheme: theme, toggle, setTheme };
 }

@@ -658,3 +658,15 @@ F18 review 修复与最终方式：用户确认手动暂停旧服务后迁移，
 AI 语音命名最终决定：界面统一称 AI 语音，组件/服务/事件/API/持久化字段统一使用 voice；文件位置改为 media/voice、Electron voice.json。用户明确不考虑兼容，因此不保留 speech 别名或迁移旧记录，覆盖前文关于旧 speech 字段直接回放的承诺。TTS 仅保留为合成工具、服务配置及厂商模型的技术名称，避免修改外部 API 模型标识。
 
 部署最终边界：用户只需要 Electron。Docker 已移除 Node/WebUI 构建阶段与网页产物复制，构建上下文排除根 webui 和 Electron；运行时沿用现有 NANOBOT_SKIP_WEBUI_BUILD 禁止自动构建。Electron 始终从本地 renderer 加载 UI，缺失资源不回退在线页面。纯 UI 修改只构建/打包 Electron；只有后端或通信协议变化才更新后端镜像。
+
+Electron 偏好存储修正：恢复 lover 的 electron-store 8.2 与原配置键，删除 connection/window/appearance/voice/companion 独立 JSON 读写实现。连接 gateway.url、窗口 window、壁纸 appearance.wallpaper（localOrder）、主题/语言 appearance.theme/language、系统媒体 tts.pauseSystemMedia、伴侣 avatarCompanion（videoDirectory/timeSchedule/panel）直接复用原数据，不导入临时独立 JSON，不覆盖其他键。旧快捷键 shortcuts.raiseInbox 同样读取。此决定替代前文关于分散偏好文件的说明。
+
+Electron 图标改为 NAS `.nanobot/media/avatar.png` 的项目副本。应用图标使用轻微圆角方形和透明留白，生成 Windows ICO、macOS ICNS 与窗口 PNG；Windows 托盘使用更近的彩色头像裁切，macOS 菜单栏继续使用原单色 template 图标。打包命令显式传入跨平台 icon 基名，窗口和 macOS Dock 也使用同一图标。原图保存在 `electron/assets/avatar.png`，未修改 NAS 源文件。
+
+认证补充修正：旧 Electron 的长期认证口令位于 electron-store `gateway.token`，而不是连接地址或短期 WebSocket token。启动时优先读取 URL 显式口令、当前页面 localStorage，再读取该原 store 键；用户输入成功后同时写回原键，退出登录时清空。真实 Electron smoke 要求旧 store 能不经认证页直接完成 bootstrap。
+
+最终会话布局调整：活动会话、月度原文归档和重置快照统一放在 `.nanobot/sessions/<workspace-id>/`；archive 与 canonical JSONL 同属一个 namespace。NAS 已把 62 个无冲突旧会话复制为 Base64URL 文件名；非统一会话冲突保留原 canonical 目标，统一会话保留已追加新消息的 canonical 文件。五个月度归档共 97,261,768 字节复制并逐文件校验，旧源保留。`diary` workspace 技能改为读取 workspace 身份标记、Base64 统一会话及同目录 archive。
+
+NAS 源码运行恢复 lover 方式：Compose 设置 `PYTHONPATH=/home/nanobot/src`，`/restart` 现有 `os.execv` 会从挂载源码重新加载。普通 Python 改动无需 build；依赖、系统包和 Dockerfile 改动仍需重建，Compose 环境首次变化需重建容器但不重建镜像。
+
+桌面身份不再保存独立 Electron `appearance.name/icon`，设置页直接读取和更新 gateway `agents.defaults.bot_name/bot_icon`；固定头像仍读取 gateway media/avatar。Electron 本地 store 只保留壁纸及其他真正属于本机的偏好。

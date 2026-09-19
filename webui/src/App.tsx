@@ -87,6 +87,7 @@ import {
 } from "@/lib/api";
 import {
   createRuntimeHost,
+  getRuntimeHost,
   isNativeRuntime,
   toRuntimeSurface,
 } from "@/lib/runtime";
@@ -927,7 +928,10 @@ function AppContent() {
         try {
           const boot = await fetchBootstrap("", secret);
           if (cancelled) return;
-          if (secret) saveSecret(secret);
+          if (secret) {
+            saveSecret(secret);
+            void getRuntimeHost().config?.set("gateway.token", secret).catch(() => {});
+          }
           const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
           const runtimeSurface = resolveRuntimeSurface(boot.runtime_surface, "browser");
           const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
@@ -993,8 +997,15 @@ function AppContent() {
   }, [refreshReadyClient, state]);
 
   useEffect(() => {
-    const saved = consumeUrlBootstrapSecret() || loadSavedSecret();
-    return bootstrapWithSecret(saved);
+    let cancelled = false;
+    let dispose: (() => void) | undefined;
+    void (async () => {
+      const explicit = consumeUrlBootstrapSecret();
+      const local = loadSavedSecret();
+      const stored = await getRuntimeHost().config?.get("gateway.token").catch(() => "");
+      if (!cancelled) dispose = bootstrapWithSecret(explicit || local || (typeof stored === "string" ? stored : ""));
+    })();
+    return () => { cancelled = true; dispose?.(); };
   }, [bootstrapWithSecret]);
 
   if (state.status === "loading") {
@@ -1045,6 +1056,7 @@ function AppContent() {
       state.client.close();
     }
     clearSavedSecret();
+    void getRuntimeHost().config?.set("gateway.token", "").catch(() => {});
     setState({ status: "auth" });
   };
 
@@ -1074,21 +1086,21 @@ function AppContent() {
   };
 
   return (
-    <DesktopAppearanceProvider>
-      <ClientProvider
+    <ClientProvider
         client={state.client}
         token={state.token}
         modelName={state.modelName}
         ingressLimits={state.ingressLimits}
-      >
+    >
+      <DesktopAppearanceProvider>
         <Shell
           runtimeSurface={state.runtimeSurface}
           onModelNameChange={handleModelNameChange}
           onLogout={handleLogout}
           onNativeEngineRestart={handleNativeEngineRestart}
         />
-      </ClientProvider>
-    </DesktopAppearanceProvider>
+      </DesktopAppearanceProvider>
+    </ClientProvider>
   );
 }
 

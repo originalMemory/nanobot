@@ -47,6 +47,7 @@ async function connectCDP(url) {
 }
 
 async function main() {
+  const storeOnly = process.argv.includes('--store');
   const libraryOnly = process.argv.includes("--library");
   const windowOnly = process.argv.includes('--window-state');
   const quitOnly = process.argv.includes('--quit');
@@ -77,6 +78,7 @@ async function main() {
       return;
     }
     if (authOnly && route === '/webui/bootstrap') { res.statusCode = 401; res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
+    if (storeOnly && route === '/webui/bootstrap') assert.equal(req.headers['x-nanobot-auth'], 'preserved');
     let body = {};
     if (route === '/webui/bootstrap') body = { token: 'smoke', api_token: 'smoke', ws_path: '/socket', model_name: 'smoke-model' };
     else if (route === '/api/library') {
@@ -163,8 +165,13 @@ async function main() {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const gateway = `http://127.0.0.1:${server.address().port}`;
   const savedBounds = { x: 100, y: 80, width: 1000, height: 720 };
-  if (windowOnly) await writeFile(path.join(data, 'window.json'), JSON.stringify(savedBounds));
-  if (authOnly || surfacesOnly) await writeFile(path.join(data, 'appearance.json'), JSON.stringify({ source: 'url', url: `${gateway}/wallpaper-fixture`, opacity: 0.65 }));
+  await writeFile(path.join(data, 'config.json'), JSON.stringify({
+    ...(storeOnly ? { gateway: { url: gateway, token: 'preserved' },
+      appearance: { theme: 'ink', language: 'en', wallpaper: { source: 'none', localOrder: 'random', intervalMinutes: 3 } },
+      tts: { pauseSystemMedia: false }, avatarCompanion: { enabled: false, videoDirectory: '', timeSchedule: { day: '11:00' } } } : {}),
+    ...(windowOnly ? { window: savedBounds } : {}),
+    ...(authOnly || surfacesOnly ? { appearance: { wallpaper: { source: 'url', url: `${gateway}/wallpaper-fixture` }, opacity: 0.65 } } : {}),
+  }));
   let stderr = '';
   const env = { ...process.env, NANOBOT_DESKTOP_DATA_DIR: data,
     NANOBOT_RAISE_SHORTCUT: '', NANOBOT_DESKTOP_NOTIFICATIONS: '0' };
@@ -189,6 +196,19 @@ async function main() {
       }, prefix);
       const cdp = await connectCDP(target.webSocketDebuggerUrl); connections.push(cdp.socket); return cdp;
     };
+    if (storeOnly) {
+      const chat = await page('nanobot://desktop/');
+      await until(() => chat.evaluate('document.documentElement.dataset.theme === "ink"'), '原 store 主题');
+      assert.equal((await chat.evaluate('window.nanobotHost.voice.settings()')).pauseSystemMedia, false);
+      assert.equal((await chat.evaluate('window.nanobotHost.appearance.read()')).order, 'random');
+      assert.equal((await chat.evaluate('window.nanobotHost.companion.read()')).schedule.day, '11:00');
+      await chat.evaluate('window.nanobotHost.config.set("appearance.theme", "midnight")');
+      const saved = JSON.parse(await readFile(path.join(data, 'config.json'), 'utf8'));
+      assert.equal(saved.gateway.url, gateway); assert.equal(saved.gateway.token, 'preserved');
+      assert.equal(saved.appearance.theme, 'midnight');
+      console.log('PASS: 原 store 自动连接，主题/语言/壁纸/语音/伴侣键可读，保存不覆盖其他配置');
+      return;
+    }
     const setup = await page('file:');
     await until(() => setup.evaluate('Boolean(window.desktopSetup)'), '连接页桥接');
     if (windowOnly) {
@@ -196,11 +216,11 @@ async function main() {
       assert.equal(await setup.evaluate('window.innerHeight'), savedBounds.height);
       await setup.evaluate('window.desktopSetup.windowControls.action("maximize")');
       await until(async () => {
-        const saved = JSON.parse(await readFile(path.join(data, 'window.json'), 'utf8'));
+        const saved = JSON.parse(await readFile(path.join(data, 'config.json'), 'utf8')).window;
         return saved.maximized === true && saved.width === savedBounds.width && saved.height === savedBounds.height;
       }, '最大化时保留普通尺寸');
       await setup.evaluate('window.desktopSetup.windowControls.action("maximize")');
-      await until(async () => JSON.parse(await readFile(path.join(data, 'window.json'), 'utf8')).maximized === false, '还原状态落盘');
+      await until(async () => JSON.parse(await readFile(path.join(data, 'config.json'), 'utf8')).window.maximized === false, '还原状态落盘');
     }
     const rejected = await setup.evaluate('window.desktopSetup.connect("file:///tmp")');
     assert.equal(rejected.ok, false);
@@ -231,7 +251,7 @@ async function main() {
     }
     if (windowOnly) {
       await until(() => chat.evaluate(`window.innerWidth === ${savedBounds.width} && window.innerHeight === ${savedBounds.height}`), '切换主窗口恢复尺寸');
-      const saved = JSON.parse(await readFile(path.join(data, 'window.json'), 'utf8'));
+      const saved = JSON.parse(await readFile(path.join(data, 'config.json'), 'utf8')).window;
       for (const key of ['x', 'y', 'width', 'height']) assert.equal(saved[key], savedBounds[key]);
       console.log('PASS: 启动恢复尺寸、最大化保留普通尺寸、还原状态落盘、切换主窗口保持位置和大小');
       return;
@@ -388,7 +408,7 @@ async function main() {
     for (const client of wss.clients) client.send(JSON.stringify({ event: 'session_updated', chat_id: chatId, scope: 'thread' }));
     await sleep(500);
     assert.equal(await chat.evaluate('document.body.innerText.split("外部渠道回复已自动同步。").length - 1'), 1);
-    assert.equal(JSON.parse(await readFile(path.join(data, 'connection.json'), 'utf8')).gateway, gateway);
+    assert.equal(JSON.parse(await readFile(path.join(data, 'config.json'), 'utf8')).gateway.url, gateway);
     await chat.evaluate("location.hash = '#/settings?section=appearance&chat=websocket%3Adesktop'");
     await until(() => chat.evaluate('document.querySelectorAll("[data-theme-choice]").length === 9'), '桌面九套主题');
     for (const theme of ['light', 'dark', 'midnight', 'desert', 'neon', 'marshmallow', 'ink', 'party', 'rainbow']) {

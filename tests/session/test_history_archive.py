@@ -30,7 +30,7 @@ def test_archive_shrinks_live_history_and_preserves_original_in_lover_monthly_pa
     assert len(manager.get_or_create(session.key).messages) == 5
     active = manager.read_session_file(session.key)["messages"]
     assert active == session.messages
-    path = manager.workspace / "sessions" / "archive" / (original[0]["timestamp"][:7] + ".jsonl")
+    path = manager.sessions_dir / "archive" / (original[0]["timestamp"][:7] + ".jsonl")
     archived = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     for row in archived:
         assert row.pop("_archive_meta")["session_key"] == session.key
@@ -68,7 +68,7 @@ def test_retry_after_archive_success_and_live_save_failure_is_idempotent(tmp_pat
     assert manager.read_session_file(session.key)["messages"] == original
     monkeypatch.setattr(store, "_save_unlocked", save)
     manager.save(session)
-    assert len(list((manager.workspace / "sessions" / "archive").glob("*.jsonl"))) == 1
+    assert len(list((manager.sessions_dir / "archive").glob("*.jsonl"))) == 1
     assert len(manager.read_session_file(session.key)["messages"]) == 5
 
 
@@ -76,7 +76,7 @@ def test_corrupt_monthly_archive_blocks_further_trimming(tmp_path):
     manager, session = fixture(tmp_path)
     session.commit_summary_checkpoint("summary", insert_at=4)
     manager.save(session)
-    segment = next((manager.workspace / "sessions" / "archive").glob("*.jsonl"))
+    segment = next((manager.sessions_dir / "archive").glob("*.jsonl"))
     segment.write_text("{broken", encoding="utf-8")
     session.commit_summary_checkpoint("next summary", insert_at=3)
     before = deepcopy(session.messages)
@@ -138,4 +138,4 @@ def test_transient_reset_never_creates_archive(tmp_path):
     session = manager.get_or_create_transient("websocket:private")
     session.add_message("user", "do not retain")
     assert manager.archive_session_snapshot(session, reason="reset") is None
-    assert not (manager.workspace / "sessions" / "archive").exists()
+    assert not (manager.sessions_dir / "archive").exists()

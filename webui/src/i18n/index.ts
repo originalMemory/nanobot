@@ -83,7 +83,9 @@ export async function initializeI18n(): Promise<typeof i18n> {
   if (initialization) return initialization;
 
   initialization = (async () => {
-    const initialLocale = resolveInitialLocale();
+    const savedLocale = await window.nanobotHost?.config?.get("appearance.language").catch(() => undefined);
+    const initialLocale = typeof savedLocale === "string" && savedLocale
+      ? normalizeLocale(savedLocale) : resolveInitialLocale();
     const startupLocales = initialLocale === fallbackLocale
       ? [fallbackLocale]
       : [fallbackLocale, initialLocale];
@@ -122,6 +124,7 @@ export async function setAppLanguage(locale: SupportedLocale): Promise<void> {
   await initializeI18n();
   await loadLocaleResources(locale);
   await i18n.changeLanguage(locale);
+  await window.nanobotHost?.config?.set("appearance.language", locale);
 }
 
 function syncLocaleSideEffects(language: string) {
