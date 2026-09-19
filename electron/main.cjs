@@ -9,9 +9,10 @@ const { createAppearance } = require('./appearance.cjs');
 const { readWindowState, trackWindowState } = require('./window-state.cjs');
 const { createDesktopContext } = require('./desktop-context.cjs');
 const { SystemMediaController } = require('./system-media.cjs');
+const { createCompanion } = require('./companion.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'nanobot', privileges: {
-  standard: true, secure: true, supportFetchAPI: true, corsEnabled: true,
+  standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true,
 } }]);
 app.setName('Nanobot');
 // 与旧版 lover 的偏好和认证缓存分开，避免试用污染日常环境。
@@ -19,6 +20,7 @@ app.setPath('userData', process.env.NANOBOT_DESKTOP_DATA_DIR || path.join(app.ge
 
 let window;
 let desktop;
+let companion;
 let gateway = 'http://127.0.0.1:8765';
 let loadError = '';
 const setupFile = path.join(__dirname, 'setup.html');
@@ -139,7 +141,7 @@ async function showChat() {
   const webSession = session.fromPartition(`persist:gateway-${key}`);
   if (!(await webSession.protocol.isProtocolHandled('nanobot'))) {
     webSession.protocol.handle('nanobot', createHandler({
-      rendererDir, gateway,
+      rendererDir, gateway, companion,
       fetch: (url, options) => webSession.fetch(url, { ...options, credentials: 'include' }),
     }));
     webSession.setPermissionRequestHandler((contents, permission, callback, details) => {
@@ -192,6 +194,14 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.whenReady().then(async () => {
     desktop = installDesktop({ getWindow: () => window, showWindow });
+    companion = createCompanion({ directory: app.getPath('userData'), bundledRoot: path.join(__dirname, 'avatar-videos'), dialog });
+    for (const action of ['read', 'save', 'choose', 'videos']) {
+      ipcMain.handle(`desktop:companion-${action}`, (event, value) => {
+        trustedChat(event);
+        if (action === 'save') return companion.save(value);
+        return companion[action]();
+      });
+    }
     const desktopContext = createDesktopContext();
     const mediaFile = path.join(app.getPath('userData'), 'speech.json');
     let pauseMedia = true;

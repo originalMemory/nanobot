@@ -9,6 +9,7 @@ import json
 import socket
 import ssl
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,7 +56,7 @@ from nanobot.webui.outbound_wire import (
     WebUIWirePersistence,
     project_tool_events,
 )
-from nanobot.webui.session_identity import is_valid_webui_chat_id
+from nanobot.webui.session_identity import DESKTOP_CHAT_ID, is_valid_webui_chat_id
 from nanobot.webui.transcript import WEBUI_TRANSCRIPT_INCOMPLETE_KEY
 from nanobot.webui.websocket_logging import websockets_server_logger
 
@@ -393,6 +394,7 @@ class WebSocketChannel(BaseChannel):
         self._outbound_retire_tasks: set[asyncio.Task[None]] = set()
         self._retired_connections: WeakSet[ServerConnection] = WeakSet()
         self.desktop_context = DesktopContextBroker(self._send_event)
+        self.companion_working: Callable[[], bool] = lambda: False
 
         self.gateway = gateway
         self._media = gateway.media
@@ -530,6 +532,12 @@ class WebSocketChannel(BaseChannel):
     async def _hydrate_after_subscribe(self, chat_id: str) -> None:
         """Replay persisted or actively running per-chat state after subscribe."""
         await self._outbound.hydrate(chat_id)
+        if chat_id == DESKTOP_CHAT_ID:
+            await self.send_companion_state(self.companion_working())
+
+    async def send_companion_state(self, working: bool) -> None:
+        for connection in self.webui_subscribers(DESKTOP_CHAT_ID):
+            await self._send_event(connection, "companion_state", working=working)
 
     async def _send_event(
         self,

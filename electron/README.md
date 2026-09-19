@@ -100,3 +100,10 @@ Electron 连接后自动上报桌面状态，不设功能开关，也不定时�
 配置沿用 lover 的 tools.tts（preset/voice）和 ttsPresets：preset 中的 config 配置 provider=minimax、apiKey、apiBase、model、speed、rpm；voices 中以 id/label 标识音色，languageVoices.default 是中文音色，languageVoices.ja 是日语音色。密钥只留在 gateway。新文件以 64 kbps MP3 保存在 gateway 实例 media/speech 下，重播不重新合成。gateway 需要 FFmpeg，Dockerfile 已包含此依赖。历史使用 lover 的 speech 对象；原有 speech.path 音频在媒体目录内仍可读时可直接重播，不复用过期签名 URL。
 
 “朗读时暂停系统媒体”默认开启，可在设置中关闭；复用 lover 的媒体暂停/恢复实现。Windows 使用原有系统媒体会话控制；macOS 优先 media-control，缺少时仅支持 Music/Spotify；Linux 暂不支持。只恢复本次暂停且身份匹配的媒体。此项保存在本机，与 gateway 的服务/音色选择分开。
+
+
+## 本地数字伴侣
+
+设置概览的“数字伴侣”可开启本地视频面板，默认关闭。只区分待机和工作，不连接 LiveTalking，也不随语音切换说话视频。包含 lover 的 9 个内置视频，支持拖动、缩放、收起以及重启后恢复面板位置。
+
+可选择本机场景包目录：idle/sunrise、idle/day、idle/sunset、idle/night，以及对应 working 目录；开始时间可在设置中修改。缺少或损坏素材时回退到内置视频。素材只读，界面不接收任意文件路径；隐藏/收起面板后卸载视频。

@@ -25,6 +25,7 @@ export interface DesktopWindowControls {
 }
 
 export interface RuntimeHost {
+  companion?: CompanionApi;
   speech?: DesktopSpeechApi;
   quit?: () => Promise<void>;
   windowControls?: DesktopWindowControls;
@@ -46,6 +47,26 @@ export interface DesktopSpeechApi {
   active(value: boolean): Promise<void>;
 }
 
+export interface CompanionPrefs {
+  enabled: boolean;
+  directory: string;
+  schedule: Record<"sunrise" | "day" | "sunset" | "night", string>;
+  panel: { x: number | null; y: number | null; width: number; collapsed: boolean };
+}
+export interface CompanionVideos {
+  idle: string[];
+  working: string[];
+  fallback: Record<"idle" | "working", string[]>;
+  segment: string;
+  error: boolean;
+}
+export interface CompanionApi {
+  read(): Promise<CompanionPrefs>;
+  save(patch: Partial<CompanionPrefs>): Promise<CompanionPrefs>;
+  choose(): Promise<string | null>;
+  videos(): Promise<CompanionVideos>;
+}
+
 interface HostRuntimeInfo {
   surface: "native";
   app_version: string;
@@ -60,6 +81,7 @@ interface HostRuntimeInfo {
 }
 
 interface NanobotHostApi {
+  companion?: CompanionApi;
   speech?: DesktopSpeechApi;
   quit?(): Promise<void>;
   windowControls?: DesktopWindowControls;
@@ -156,6 +178,7 @@ export function createRuntimeHost(
     windowControls: api?.windowControls,
     appearance: api?.appearance,
     speech: api?.speech,
+    companion: api?.companion,
     fixedChatId: api?.fixedChatId,
     onScreenshot: api?.onScreenshot?.bind(api),
     capabilities: mergedCapabilities,

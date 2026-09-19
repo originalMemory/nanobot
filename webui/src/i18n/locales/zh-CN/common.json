@@ -1,4 +1,26 @@
 {
+  "companion": {
+    "title": "数字伴侣",
+    "collapse": "收起",
+    "expand": "展开",
+    "hide": "隐藏",
+    "idle": "待机",
+    "working": "工作中",
+    "enable": "启用数字伴侣",
+    "directory": "视频目录",
+    "directoryHelp": "选择包含 idle/ 与 working/ 目录的场景包。",
+    "choose": "选择目录",
+    "sunrise": "清晨日出",
+    "day": "白天",
+    "sunset": "傍晚日落",
+    "night": "夜晚",
+    "move": "移动伴侣面板",
+    "resize": "调整伴侣面板大小",
+    "bundled": "内置视频",
+    "noVideo": "暂无可播放的本地视频",
+    "error": "无法读取或保存伴侣设置。",
+    "fallback": "视频目录不可用，已使用内置视频。"
+  },
   "library": {
     "back": "返回收件箱",
     "imagesOmitted": "有 {{count}} 张本地图片未能显示：文件缺失、不支持或已达预览上限。",

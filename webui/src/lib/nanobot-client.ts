@@ -246,6 +246,14 @@ export class NanobotClient {
   // and must not schedule a reconnect or flip status back to "reconnecting".
   private intentionallyClosed = false;
   private speechHandlers = new Set<(event: SpeechEvent) => void>();
+  private companionWorking = false;
+  private companionHandlers = new Set<(working: boolean) => void>();
+
+  onCompanionState(handler: (working: boolean) => void): Unsubscribe {
+    this.companionHandlers.add(handler);
+    handler(this.companionWorking);
+    return () => { this.companionHandlers.delete(handler); };
+  }
 
   onSpeech(handler: (event: SpeechEvent) => void): Unsubscribe {
     this.speechHandlers.add(handler);
@@ -1072,6 +1080,10 @@ export class NanobotClient {
   private setStatus(status: ConnectionStatus): void {
     if (this.status_ === status) return;
     this.status_ = status;
+    if (status !== "open") {
+      this.companionWorking = false;
+      for (const handler of this.companionHandlers) handler(false);
+    }
     for (const handler of this.statusHandlers) handler(status);
   }
 
@@ -1102,7 +1114,15 @@ export class NanobotClient {
   private handleMessage(ev: MessageEvent): void {
     let parsed: InboundEvent;
     try {
-      parsed = JSON.parse(typeof ev.data === "string" ? ev.data : "") as InboundEvent;
+      const raw = JSON.parse(typeof ev.data === "string" ? ev.data : "");
+      if (raw?.event === "companion_state") {
+        if (typeof raw.working === "boolean") {
+          this.companionWorking = raw.working;
+          for (const handler of this.companionHandlers) handler(raw.working);
+        }
+        return;
+      }
+      parsed = raw as InboundEvent;
       if (isSpeechEvent(parsed)) {
         for (const handler of this.speechHandlers) handler(parsed);
         return;

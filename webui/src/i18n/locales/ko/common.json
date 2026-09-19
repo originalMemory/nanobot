@@ -1,4 +1,26 @@
 {
+  "companion": {
+    "title": "Companion",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "hide": "Hide",
+    "idle": "Idle",
+    "working": "Working",
+    "enable": "Enable avatar companion",
+    "directory": "Video directory",
+    "directoryHelp": "Choose a scene-pack directory containing idle/ and working/ folders.",
+    "choose": "Browse",
+    "sunrise": "Sunrise",
+    "day": "Day",
+    "sunset": "Sunset",
+    "night": "Night",
+    "move": "Move companion panel",
+    "resize": "Resize companion panel",
+    "bundled": "Built-in videos",
+    "noVideo": "No playable local video",
+    "error": "Could not load or save companion settings.",
+    "fallback": "Video folder unavailable; using built-in videos."
+  },
   "library": {
     "back": "받은편지함으로 돌아가기",
     "imagesOmitted": "로컬 이미지 {{count}}개를 표시할 수 없습니다. 파일 누락, 미지원 형식 또는 미리보기 한도 때문입니다.",

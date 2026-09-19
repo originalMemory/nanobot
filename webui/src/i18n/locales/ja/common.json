@@ -1,4 +1,26 @@
 {
+  "companion": {
+    "title": "Companion",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "hide": "Hide",
+    "idle": "Idle",
+    "working": "Working",
+    "enable": "Enable avatar companion",
+    "directory": "Video directory",
+    "directoryHelp": "Choose a scene-pack directory containing idle/ and working/ folders.",
+    "choose": "Browse",
+    "sunrise": "Sunrise",
+    "day": "Day",
+    "sunset": "Sunset",
+    "night": "Night",
+    "move": "Move companion panel",
+    "resize": "Resize companion panel",
+    "bundled": "Built-in videos",
+    "noVideo": "No playable local video",
+    "error": "Could not load or save companion settings.",
+    "fallback": "Video folder unavailable; using built-in videos."
+  },
   "library": {
     "back": "受信トレイに戻る",
     "imagesOmitted": "{{count}} 件のローカル画像を表示できません。ファイルの欠落、未対応形式、またはプレビュー上限に達しています。",

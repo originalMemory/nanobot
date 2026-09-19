@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -23,6 +23,8 @@ class DesktopInboxCoordinator:
         self.bus = bus
         self.sessions = sessions
         self._starts: dict[str, int] = {}
+        self.working = False
+        self.on_run_state: Callable[[bool], Awaitable[None]] | None = None
 
     @staticmethod
     def _external(context: RuntimeEventContext) -> bool:
@@ -56,6 +58,10 @@ class DesktopInboxCoordinator:
         context = event.context
         if not self._unified(context):
             return
+        if event.status in {"running", "idle"}:
+            self.working = event.status == "running"
+            if self.on_run_state is not None:
+                await self.on_run_state(self.working)
         if event.status == "running" and context.session_key not in self._starts:
             session = self.sessions.get_or_create(context.session_key)
             self._starts[context.session_key] = len(session.messages)
@@ -106,3 +112,4 @@ class DesktopInboxCoordinator:
             for disconnect in reversed(unsubscribe):
                 disconnect()
             self._starts.clear()
+            self.working = False

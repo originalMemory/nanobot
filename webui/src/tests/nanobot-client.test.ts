@@ -71,6 +71,21 @@ afterEach(() => {
 });
 
 describe("NanobotClient", () => {
+  it("伴侣状态接收重连快照，不修改聊天运行状态", () => {
+    const client = new NanobotClient({ url: "ws://test", reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const companion = vi.fn(); const chat = vi.fn(); const running = vi.fn();
+    client.onCompanionState(companion); client.onChat("desktop", chat); client.onRunStatus(running);
+    client.connect(); lastSocket().fakeOpen();
+    lastSocket().fakeMessage({ event: "companion_state", working: true });
+    expect(companion).toHaveBeenLastCalledWith(true);
+    const later = vi.fn(); client.onCompanionState(later);
+    expect(later).toHaveBeenLastCalledWith(true);
+    lastSocket().fakeMessage({ event: "companion_state", working: "false" });
+    expect(companion).toHaveBeenLastCalledWith(true);
+    expect(chat).not.toHaveBeenCalled(); expect(running).not.toHaveBeenCalled();
+    client.close(); expect(companion).toHaveBeenLastCalledWith(false);
+  });
   it("语音帧独立投递，不进入聊天正文或恢复状态", () => {
     const client = new NanobotClient({ url: "ws://test", reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });

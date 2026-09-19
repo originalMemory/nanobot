@@ -768,6 +768,8 @@ def _run_gateway(
     if "websocket" in channels.enabled_channels:
         websocket_channel = channels.get_channel("websocket")
         if isinstance(websocket_channel, WebSocketChannel):
+            websocket_channel.companion_working = lambda: desktop_inbox.working
+            desktop_inbox.on_run_state = websocket_channel.send_companion_state
             tools.register(DesktopContextTool(websocket_channel.desktop_context))  # pyright: ignore[reportAbstractUsage]
             websocket_channel.gateway.http.speech = speech
             speech.emit = websocket_channel.send_speech

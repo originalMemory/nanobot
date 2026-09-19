@@ -33,12 +33,13 @@ function isMediaUrl(value) {
 }
 
 // 只代理 gateway 路由；静态界面始终来自当前桌面包。
-function createHandler({ rendererDir, gateway, fetch: upstreamFetch }) {
+function createHandler({ rendererDir, gateway, fetch: upstreamFetch, companion }) {
   return async (request) => {
     const url = new URL(request.url);
     if (url.protocol !== 'nanobot:' || url.host !== 'desktop') {
       return new Response('Forbidden', { status: 403 });
     }
+    if (url.pathname.startsWith('/companion-video/')) return companion ? companion.serve(request) : new Response(null, { status: 404 });
     if (/^\/(api|auth|webui)(\/|$)/.test(url.pathname)) {
       try {
         const headers = new Headers();

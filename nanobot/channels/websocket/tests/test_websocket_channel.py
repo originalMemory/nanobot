@@ -90,6 +90,19 @@ from .ws_test_client import http_get as _http_get
 
 # -- Shared helpers (aligned with test_websocket_integration.py) ---------------
 
+
+async def test_companion_state_is_replayed_after_desktop_attach():
+    channel = _ch(MessageBus())
+    connection = object()
+    channel._subs["desktop"] = {connection}
+    channel._send_event = AsyncMock()
+    channel._outbound.hydrate = AsyncMock()
+    channel.companion_working = lambda: True
+    await channel._hydrate_after_subscribe("desktop")
+    channel._send_event.assert_awaited_once_with(connection, "companion_state", working=True)
+    await channel.send_companion_state(False)
+    channel._send_event.assert_awaited_with(connection, "companion_state", working=False)
+
 _PORT = 29876
 
 

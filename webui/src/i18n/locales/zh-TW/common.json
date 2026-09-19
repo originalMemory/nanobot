@@ -1,4 +1,26 @@
 {
+  "companion": {
+    "title": "Companion",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "hide": "Hide",
+    "idle": "Idle",
+    "working": "Working",
+    "enable": "Enable avatar companion",
+    "directory": "Video directory",
+    "directoryHelp": "Choose a scene-pack directory containing idle/ and working/ folders.",
+    "choose": "Browse",
+    "sunrise": "Sunrise",
+    "day": "Day",
+    "sunset": "Sunset",
+    "night": "Night",
+    "move": "移動伴侶面板",
+    "resize": "調整伴侶面板大小",
+    "bundled": "內建影片",
+    "noVideo": "暫無可播放的本機影片",
+    "error": "無法讀取或儲存伴侶設定。",
+    "fallback": "影片目錄無法使用，已使用內建影片。"
+  },
   "library": {
     "back": "返回收件匣",
     "imagesOmitted": "有 {{count}} 張本機圖片無法顯示：檔案遺失、不支援或已達預覽上限。",

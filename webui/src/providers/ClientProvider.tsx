@@ -9,6 +9,7 @@ import {
 
 import type { NanobotClient } from "@/lib/nanobot-client";
 import { SpeechProvider } from "./SpeechProvider";
+import { CompanionProvider } from "./CompanionProvider";
 import type { WebUIIngressLimits } from "@/lib/types";
 
 interface ClientContextValue {
@@ -44,7 +45,7 @@ export function ClientProvider({
 
   return (
     <ClientContext.Provider value={value}>
-      <SpeechProvider>{children}</SpeechProvider>
+      <SpeechProvider><CompanionProvider>{children}</CompanionProvider></SpeechProvider>
     </ClientContext.Provider>
   );
 }

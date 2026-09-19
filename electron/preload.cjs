@@ -31,6 +31,12 @@ if (location.protocol === 'file:') {
     quit: () => ipcRenderer.invoke('desktop:quit'),
     windowControls,
     fixedChatId: 'desktop',
+    companion: {
+      read: () => ipcRenderer.invoke('desktop:companion-read'),
+      save: (value) => ipcRenderer.invoke('desktop:companion-save', value),
+      choose: () => ipcRenderer.invoke('desktop:companion-choose'),
+      videos: () => ipcRenderer.invoke('desktop:companion-videos'),
+    },
     speech: {
       settings: (value) => ipcRenderer.invoke('desktop:speech-settings', value),
       active: (value) => ipcRenderer.invoke('desktop:speech-active', value),

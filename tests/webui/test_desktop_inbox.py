@@ -1,5 +1,7 @@
 """跨渠道通知只读取统一会话，不重复发送正文或改动原渠道。"""
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from nanobot.bus.events import OutboundMessage
@@ -13,6 +15,25 @@ from nanobot.bus.runtime_events import (
 from nanobot.session.manager import SessionManager
 from nanobot.webui.desktop_inbox import DesktopInboxCoordinator
 from nanobot.webui.transcript import build_session_thread_response
+
+
+async def test_unified_companion_state_tracks_external_run_until_idle(tmp_path):
+    bus = MessageBus()
+    sessions = SessionManager(tmp_path / "workspace")
+    inbox = DesktopInboxCoordinator(bus, sessions)
+    inbox.on_run_state = AsyncMock()
+    context = RuntimeEventContext(channel="qq", chat_id="group", session_key="unified:default")
+    with inbox.connected():
+        await bus.publish(TurnRunStatusChanged(context, "running", 10))
+        assert inbox.working is True
+        inbox.on_run_state.assert_awaited_with(True)
+        await bus.publish(SessionTurnPersisted(context, "qq-turn", "user"))
+        assert inbox.working is True
+        await bus.publish(TurnRunStatusChanged(context, "idle"))
+        assert inbox.working is False
+        inbox.on_run_state.assert_awaited_with(False)
+        assert inbox.on_run_state.await_count == 2
+    assert inbox.working is False
 
 
 @pytest.mark.asyncio
