@@ -1738,6 +1738,7 @@
     "cliRunRan": "使用済み",
     "cliRunFailed": "失敗",
     "automationSourceFallback": "自動化",
+    "heartbeatSource": "ハートビート",
     "automationTriggered": "自動実行"
   },
   "recovery": {

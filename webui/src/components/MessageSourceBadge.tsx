@@ -1,4 +1,4 @@
-import { Bell, MessageCircle } from "lucide-react";
+import { Bell, HeartPulse, MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { channelUiPresentation } from "@/channel-plugins/registry";
@@ -23,12 +23,16 @@ export function MessageSourceBadge({ source }: { source?: UIMessage["source"] })
       <span className="relative -top-px whitespace-nowrap">{presentation?.displayName ?? channel}</span>
     </span>;
   }
+  const heartbeat = source.kind === "heartbeat";
   const cron = source.kind === "cron";
-  const label = source.label?.trim() || t("message.automationSourceFallback");
+  const label = source.label?.trim() || (heartbeat
+    ? t("message.heartbeatSource", { defaultValue: "Heartbeat" })
+    : t("message.automationSourceFallback"));
   return <span data-message-source={source.kind} className={`${PILL} ${cron
     ? "border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300"
     : "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300"}`}>
-    {!cron ? <Bell className="h-3 w-3" aria-hidden /> : null}
+    {heartbeat ? <HeartPulse className="h-3 w-3" aria-hidden />
+      : !cron ? <Bell className="h-3 w-3" aria-hidden /> : null}
     <span className="relative -top-px whitespace-nowrap">{label}</span>
   </span>;
 }

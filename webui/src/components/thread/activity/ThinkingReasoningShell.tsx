@@ -49,7 +49,7 @@ export function ThinkingReasoningShell({
         >
           <span
             className={cn(
-              "min-w-0 truncate text-[13px] font-medium leading-[18px] text-muted-foreground/70",
+              "min-w-0 truncate text-[13px] font-medium leading-[18px] text-muted-foreground",
               active && "animate-pulse motion-reduce:animate-none",
             )}
           >
@@ -64,7 +64,7 @@ export function ThinkingReasoningShell({
           >
             <ChevronDown
               className={cn(
-                "h-3 w-3 text-muted-foreground/60 transition-colors duration-200",
+                "h-3 w-3 text-muted-foreground/80 transition-colors duration-200",
                 "group-hover:text-muted-foreground motion-reduce:transition-none",
               )}
               strokeWidth={1.8}
@@ -81,7 +81,7 @@ export function ThinkingReasoningShell({
         >
           <span
             className={cn(
-              "min-w-0 truncate text-[13px] font-medium leading-[18px] text-muted-foreground/70",
+              "min-w-0 truncate text-[13px] font-medium leading-[18px] text-muted-foreground",
               active && "animate-pulse motion-reduce:animate-none",
             )}
           >

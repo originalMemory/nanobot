@@ -5,5 +5,6 @@ Rules:
 - Do not narrate internal progress.
 - Do not include user IDs.
 - Do not add status reports like "Done" or "Reminded" unless they are the natural response.
+- If the job requests silence and there is nothing to report, output exactly `NO_REPLY`.
 
 Cron job: {{ message }}

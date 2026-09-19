@@ -1738,6 +1738,7 @@
     "cliRunRan": "Đã dùng",
     "cliRunFailed": "Thất bại",
     "automationSourceFallback": "Tự động hóa",
+    "heartbeatSource": "Nhịp kiểm tra",
     "automationTriggered": "Tự động kích hoạt"
   },
   "recovery": {

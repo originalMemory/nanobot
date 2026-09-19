@@ -6,10 +6,11 @@ import asyncio
 import hashlib
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Protocol
 
 from nanobot.agent.tools.cron import CronTool
-from nanobot.bus.events import InboundMessage, OutboundMessage
+from nanobot.bus.events import OutboundMessage
 from nanobot.cron.session_delivery import origin_delivery_context
 from nanobot.cron.session_turns import CRON_DEFER_UNTIL_IDLE_META, CRON_TRIGGER_META
 from nanobot.cron.types import CronJob, CronRunResult
@@ -23,13 +24,25 @@ if TYPE_CHECKING:
 class BoundCronAgent(Protocol):
     tools: ToolRegistry
 
-    async def submit_cron_turn(self, msg: InboundMessage) -> OutboundMessage | None:
+    async def process_cron_turn(
+        self,
+        content: str,
+        *,
+        session_key: str,
+        channel: str,
+        chat_id: str,
+        metadata: dict[str, Any],
+    ) -> OutboundMessage | None:
         ...
 
 
 class CronRunRecorder(Protocol):
     def write_run_record(self, run_id: str, record: dict[str, Any]) -> None:
         ...
+
+
+CronResultDelivery = Callable[[OutboundMessage], Awaitable[None]]
+CronActivityDelivery = Callable[[CronJob, bool], Awaitable[None]]
 
 
 def _cron_prompt_ref(prompt: str) -> dict[str, Any]:
@@ -67,6 +80,8 @@ async def run_bound_cron_job(
     *,
     agent: BoundCronAgent,
     cron: CronRunRecorder,
+    deliver_result: CronResultDelivery,
+    deliver_activity: CronActivityDelivery,
 ) -> CronRunResult:
     """Execute a session-bound cron job as a normal agent session turn."""
     session_key = job.payload.session_key
@@ -116,17 +131,40 @@ async def run_bound_cron_job(
     cron_token = None
     if isinstance(cron_tool, CronTool):
         cron_token = cron_tool.set_cron_context(True)
+    await deliver_activity(job, True)
     try:
-        resp = await agent.submit_cron_turn(
-            InboundMessage(
-                channel=channel,
-                sender_id="cron",
-                chat_id=chat_id,
-                content=prompt,
-                metadata=metadata,
-                session_key_override=session_key,
-            )
+        resp = await agent.process_cron_turn(
+            prompt,
+            session_key=session_key,
+            channel=channel,
+            chat_id=chat_id,
+            metadata=metadata,
         )
+        response = resp.content if resp else ""
+        if (
+            resp is not None
+            and response.strip().upper() != "NO_REPLY"
+            and (response or resp.media)
+        ):
+            result_metadata = dict(metadata)
+            result_metadata.update(resp.metadata)
+            await deliver_result(OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=response,
+                media=list(resp.media),
+                buttons=list(resp.buttons),
+                metadata=result_metadata,
+            ))
+        cron.write_run_record(
+            run_id,
+            {
+                **run_record_base,
+                "status": "ok",
+                "response": response,
+            },
+        )
+        return CronRunResult(run_id=run_id, response=response)
     except (Exception, asyncio.CancelledError) as exc:
         error_text = str(exc) or exc.__class__.__name__
         cron.write_run_record(
@@ -141,14 +179,4 @@ async def run_bound_cron_job(
     finally:
         if isinstance(cron_tool, CronTool) and cron_token is not None:
             cron_tool.reset_cron_context(cron_token)
-
-    response = resp.content if resp else ""
-    cron.write_run_record(
-        run_id,
-        {
-            **run_record_base,
-            "status": "ok",
-            "response": response,
-        },
-    )
-    return CronRunResult(run_id=run_id, response=response)
+        await deliver_activity(job, False)

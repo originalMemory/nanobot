@@ -1738,6 +1738,7 @@
     "cliRunRan": "Digunakan",
     "cliRunFailed": "Gagal",
     "automationSourceFallback": "Otomatisasi",
+    "heartbeatSource": "Denyut berkala",
     "automationTriggered": "Dipicu otomatis"
   },
   "recovery": {

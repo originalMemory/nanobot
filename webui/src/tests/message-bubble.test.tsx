@@ -549,7 +549,7 @@ describe("MessageBubble", () => {
       "cursor-help",
       "text-[11px]",
       "leading-none",
-      "text-muted-foreground/70",
+      "text-muted-foreground",
       "tabular-nums",
     );
 
@@ -675,10 +675,12 @@ describe("MessageBubble", () => {
         prompt_tokens: 12_400,
         completion_tokens: 823,
         cached_tokens: 9_672,
+        context_tokens: 16_000,
       },
+      contextWindowTokens: 32_000,
     }} />);
 
-    const usage = screen.getByText(/12\.4K in · 823 out · 78% cached · 18/);
+    const usage = screen.getByText(/12\.4K in · 823 out · 78% cached · Context now: 16K \/ 32K \(50%\) · 18/);
     expect(usage).toHaveAttribute("data-turn-usage");
   });
 

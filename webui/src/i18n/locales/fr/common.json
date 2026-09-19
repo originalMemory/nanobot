@@ -1738,6 +1738,7 @@
     "cliRunRan": "Utilisé",
     "cliRunFailed": "Échec",
     "automationSourceFallback": "Automatisation",
+    "heartbeatSource": "Signal périodique",
     "automationTriggered": "Déclenché automatiquement"
   },
   "recovery": {

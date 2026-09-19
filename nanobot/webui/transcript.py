@@ -3367,6 +3367,12 @@ def build_session_thread_response(
         return ""
 
     for stored in session_messages:
+        if stored.get("_channel_delivery") is True:
+            if current:
+                turns.append(current)
+            current = []
+            pending_tools = {}
+            turn_source = None
         automation = stored.get(AUTOMATION_HISTORY_META)
         if isinstance(automation, Mapping):
             automation_data = cast(Mapping[str, Any], automation)
@@ -3401,6 +3407,19 @@ def build_session_thread_response(
         if role == "user":
             turn_source = None
         base: dict[str, Any] = {"chat_id": chat_id, "created_at_ms": 0}
+        raw_source = message.get("source")
+        if isinstance(raw_source, dict):
+            source_data = cast(dict[str, Any], raw_source)
+            source_kind = source_data.get("kind")
+            if isinstance(source_kind, str) and (
+                is_automation_kind(source_kind) or source_kind == "channel"
+            ):
+                source: dict[str, str] = {"kind": source_kind}
+                source_label = source_data.get("label")
+                if isinstance(source_label, str) and source_label.strip():
+                    source["label"] = source_label.strip()
+                base["source"] = source
+                turn_source = source
         source_channel = message.get("source_channel")
         if (
             isinstance(source_channel, str) and source_channel
@@ -3409,7 +3428,7 @@ def build_session_thread_response(
             channel_source = {"kind": "channel", "label": source_channel}
             base["source"] = channel_source
             turn_source = channel_source
-        elif role != "user" and turn_source is not None:
+        elif "source" not in base and role != "user" and turn_source is not None:
             base["source"] = turn_source
         timestamp = message.get("timestamp")
         if isinstance(timestamp, str):

@@ -42,6 +42,7 @@ from nanobot.utils.evaluator import evaluate_response, resolve_evaluator_prompt
 from nanobot.utils.helpers import sync_workspace_templates
 from nanobot.webui.build import BuildMode
 from nanobot.webui.dev import WebUIDevError, WebUIDevServer
+from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY, WEBUI_TURN_METADATA_KEY
 from nanobot.webui.sidebar_state import read_webui_sidebar_state
 
 __all__ = ["_run_gateway"]
@@ -532,6 +533,7 @@ def _run_gateway(
 
     async def _deliver_to_channel(
         msg: OutboundMessage, *, record: bool = False, session_key: str | None = None,
+        publish: bool = True,
     ) -> None:
         """Publish a user-visible message and mirror it into that channel's session."""
         metadata = dict(msg.metadata or {})
@@ -556,13 +558,71 @@ def _run_gateway(
             key = session_key or _channel_session_key(msg.channel, msg.chat_id)
             session = session_manager.get_or_create(key)
             extra: dict[str, Any] = {"_channel_delivery": True}
+            source_value = cast(object, metadata.get(WEBUI_MESSAGE_SOURCE_METADATA_KEY))
+            if isinstance(source_value, dict):
+                extra["source"] = dict(cast(dict[str, Any], source_value))
             if isinstance(metadata.get("voice"), dict):
                 extra["voice"] = dict(metadata["voice"])
             if msg.media:
                 extra["media"] = list(msg.media)
+            if isinstance(metadata.get("usage"), dict):
+                extra["usage"] = dict(metadata["usage"])
+            if isinstance(metadata.get("round_usages"), list):
+                extra["round_usages"] = list(metadata["round_usages"])
+            context_window = metadata.get("context_window_tokens")
+            if isinstance(context_window, int) and context_window > 0:
+                extra["context_window_tokens"] = context_window
+            latency_ms = metadata.get("latency_ms")
+            if isinstance(latency_ms, int | float) and latency_ms >= 0:
+                extra["latency_ms"] = int(latency_ms)
             session.add_message("assistant", msg.content, **extra)
             session_manager.save(session)
-        await bus.publish_outbound(msg)
+        if publish:
+            await bus.publish_outbound(msg)
+
+    async def _deliver_bound_cron_result(msg: OutboundMessage) -> None:
+        await _deliver_to_channel(
+            msg,
+            record=True,
+            session_key=UNIFIED_SESSION_KEY,
+            publish=msg.channel != "websocket",
+        )
+        from nanobot.bus.outbound_events import SessionUpdatedEvent
+        from nanobot.webui.session_identity import DESKTOP_CHAT_ID
+
+        await bus.publish_event(
+            SessionUpdatedEvent(scope="thread"),
+            channel="websocket",
+            chat_id=DESKTOP_CHAT_ID,
+        )
+
+    active_cron_jobs: dict[str, str] = {}
+
+    async def _deliver_bound_cron_activity(job: CronJob, active: bool) -> None:
+        from nanobot.bus.outbound_events import GoalStateSyncEvent
+        from nanobot.session.goal_state import goal_state_ws_blob
+        from nanobot.webui.session_identity import DESKTOP_CHAT_ID
+
+        if active:
+            active_cron_jobs[job.id] = job.name
+        else:
+            active_cron_jobs.pop(job.id, None)
+        if active_cron_jobs:
+            names = " · ".join(active_cron_jobs.values())
+            state = {
+                "active": True,
+                "status": "active",
+                "objective": f"正在执行定时任务：{names}",
+                "ui_summary": f"定时任务：{names}",
+            }
+        else:
+            unified = session_manager.get_or_create(UNIFIED_SESSION_KEY)
+            state = goal_state_ws_blob(unified.metadata)
+        await bus.publish_event(
+            GoalStateSyncEvent(goal_state=state),
+            channel="websocket",
+            chat_id=DESKTOP_CHAT_ID,
+        )
 
     message_tool = agent.tools.get("message")
     if isinstance(message_tool, MessageTool):
@@ -636,6 +696,8 @@ def _run_gateway(
 
         # Heartbeat is a system job that checks HEARTBEAT.md for active tasks.
         if job.name == "heartbeat":
+            from nanobot.session.automation_turns import AUTOMATION_HISTORY_TURNS
+
             heartbeat_file = config.workspace_path / "HEARTBEAT.md"
             try:
                 content = heartbeat_file.read_text(encoding="utf-8")
@@ -649,6 +711,8 @@ def _run_gateway(
             channel, chat_id = _pick_heartbeat_target()
             if channel == "cli":
                 return None
+
+            agent.retain_session_turns("heartbeat", AUTOMATION_HISTORY_TURNS)
 
             prompt = (
                 _HEARTBEAT_PREAMBLE
@@ -676,6 +740,7 @@ def _run_gateway(
                 DEFERRED_VOICE.reset(voice_token)
                 if isinstance(message_tool, MessageTool) and suppress_token is not None:
                     message_tool.reset_suppress_delivery(suppress_token)
+            agent.retain_session_turns("heartbeat", AUTOMATION_HISTORY_TURNS)
 
             if not resp or not resp.content:
                 return
@@ -697,7 +762,6 @@ def _run_gateway(
 
             if should_notify:
                 logger.info("Heartbeat: completed, delivering response")
-                from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
                 voice_turn = f"heartbeat:{uuid.uuid4().hex}"
                 audio = None
                 if deferred_voice:
@@ -709,6 +773,7 @@ def _run_gateway(
                 await _deliver_to_channel(
                     OutboundMessage(channel=channel, chat_id=chat_id, content=response,
                                     metadata={WEBUI_TURN_METADATA_KEY: voice_turn,
+                                              WEBUI_MESSAGE_SOURCE_METADATA_KEY: {"kind": "heartbeat"},
                                               **({"voice": audio} if audio else {})}),
                     record=True,
                 )
@@ -717,7 +782,13 @@ def _run_gateway(
             return response
 
         if is_bound_cron_job(job):
-            return await run_bound_cron_job(job, agent=agent, cron=cron)
+            return await run_bound_cron_job(
+                job,
+                agent=agent,
+                cron=cron,
+                deliver_result=_deliver_bound_cron_result,
+                deliver_activity=_deliver_bound_cron_activity,
+            )
 
         reason = "unbound agent cron job must be recreated from a chat session"
         logger.warning(

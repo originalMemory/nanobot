@@ -182,8 +182,10 @@ async def test_unified_history_keeps_voice_link_across_reload(tmp_path, monkeypa
     loop = AgentLoop.from_config(config, provider=Provider(), tool_registry=registry)
     service.sessions = loop.sessions
     monkeypatch.setattr("nanobot.webui.transcript.get_media_dir", lambda: tmp_path / "media")
-    await loop._process_message(InboundMessage(channel="websocket", sender_id="user", chat_id="desktop",
+    response = await loop._process_message(InboundMessage(channel="websocket", sender_id="user", chat_id="desktop",
         content="speak", metadata={"webui_turn_id": "saved-voice"}), session_key="unified:default")
+    assert response is not None
+    assert response.metadata["voice"]["audioId"] == service.path("saved-voice").stem
     release.set()
     await tasks[-1]
     saved = loop.sessions.read_session_file("unified:default")["messages"]

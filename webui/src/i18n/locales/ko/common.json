@@ -1738,6 +1738,7 @@
     "cliRunRan": "사용함",
     "cliRunFailed": "실패",
     "automationSourceFallback": "자동화",
+    "heartbeatSource": "하트비트",
     "automationTriggered": "자동 실행됨"
   },
   "recovery": {

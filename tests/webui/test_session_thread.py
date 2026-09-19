@@ -123,6 +123,19 @@ def test_unified_history_keeps_automation_as_a_separate_sourced_turn():
     assert scheduled["source"] == {"kind": "cron", "label": "drink water"}
 
 
+def test_unified_history_keeps_heartbeat_delivery_as_a_separate_sourced_turn():
+    result = build([
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": "answer"},
+        {"role": "assistant", "content": "heartbeat update", "_channel_delivery": True,
+         "source": {"kind": "heartbeat"}},
+    ])
+    previous, heartbeat = result["messages"][-2:]
+    assert previous["content"] == "answer"
+    assert heartbeat["content"] == "heartbeat update"
+    assert heartbeat["source"] == {"kind": "heartbeat"}
+
+
 def test_completion_markers_survive_rotation_and_exclude_unfinished_turns(tmp_path, monkeypatch):
     monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
     monkeypatch.setattr("nanobot.webui.transcript._ACTIVE_TRANSCRIPT_ROTATE_BYTES", 200)

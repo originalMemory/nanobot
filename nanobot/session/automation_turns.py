@@ -8,6 +8,7 @@ from functools import lru_cache
 from typing import Any, cast
 
 AUTOMATION_HISTORY_META = "_automation_turn"
+AUTOMATION_HISTORY_TURNS = 3
 
 
 @dataclass(frozen=True)
@@ -88,5 +89,6 @@ def is_automation_history_message(message: Mapping[str, Any] | None) -> bool:
 
 def is_automation_kind(value: Any) -> bool:
     return isinstance(value, str) and (
-        value == "trigger" or any(spec.kind == value for spec in _automation_specs())
+        value in {"trigger", "heartbeat"}
+        or any(spec.kind == value for spec in _automation_specs())
     )

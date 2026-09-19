@@ -247,6 +247,36 @@ def test_empty_session_history():
     assert history == []
 
 
+def test_retain_recent_turns_discards_complete_prefix_without_archiving():
+    messages = []
+    for turn in range(4):
+        messages.extend([
+            {"role": "user", "content": f"user-{turn}",
+             "_automation_turn": {"kind": "cron"}},
+            {"role": "assistant", "content": "", "tool_calls": [{
+                "id": f"call-{turn}", "function": {"name": "read_file", "arguments": "{}"},
+            }]},
+            {"role": "tool", "tool_call_id": f"call-{turn}", "name": "read_file",
+             "content": f"result-{turn}"},
+            {"role": "assistant", "content": f"answer-{turn}"},
+        ])
+    session = Session(
+        key="cron:test",
+        messages=messages,
+        metadata={"_last_summary": {"text": "old"}},
+    )
+
+    assert session.retain_recent_turns(3) == 4
+    assert [message["content"] for message in session.messages if message["role"] == "user"] == [
+        "user-1", "user-2", "user-3",
+    ]
+    assert session.messages[0]["role"] == "user"
+    assert session.last_archived == 0
+    assert session.provider_state is None
+    assert "_last_summary" not in session.metadata
+    assert session.metadata["_archive_offset"] == 4
+
+
 def test_get_history_preserves_reasoning_content():
     session = Session(key="test:reasoning")
     session.messages.append({"role": "user", "content": "hi"})

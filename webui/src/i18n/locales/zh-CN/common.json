@@ -1917,6 +1917,7 @@
     "openAttachment": "打开 {{name}}",
     "skill": "技能：{{name}}",
     "automationSourceFallback": "自动化",
+    "heartbeatSource": "心跳",
     "automationTriggered": "自动触发",
     "askAboutSelection": "询问此内容",
     "forkFromHere": "从此处分叉",

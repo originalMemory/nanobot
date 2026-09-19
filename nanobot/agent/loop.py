@@ -664,6 +664,35 @@ class AgentLoop:
     async def submit_cron_turn(self, msg: InboundMessage) -> OutboundMessage | None:
         return await self._cron_turns.submit(msg)
 
+    async def process_cron_turn(
+        self,
+        content: str,
+        *,
+        session_key: str,
+        channel: str,
+        chat_id: str,
+        metadata: Mapping[str, Any],
+    ) -> OutboundMessage | None:
+        from nanobot.session.automation_turns import AUTOMATION_HISTORY_TURNS
+
+        self.retain_session_turns(session_key, AUTOMATION_HISTORY_TURNS)
+        response = await self.process_direct(
+            content,
+            session_key=session_key,
+            channel=channel,
+            chat_id=chat_id,
+            sender_id="cron",
+            metadata=metadata,
+            publish_lifecycle=False,
+        )
+        self.retain_session_turns(session_key, AUTOMATION_HISTORY_TURNS)
+        return response
+
+    def retain_session_turns(self, session_key: str, max_turns: int) -> None:
+        session = self.sessions.get_or_create(session_key)
+        if session.retain_recent_turns(max_turns):
+            self.sessions.save(session)
+
     async def submit_local_trigger_turn(self, msg: InboundMessage) -> OutboundMessage | None:
         return await self._local_trigger_turns.submit(msg)
 
@@ -1619,6 +1648,7 @@ class AgentLoop:
         delivery: TurnDelivery | None = None,
         on_runtime_admitted: Callable[[LLMRuntime], Awaitable[None]] | None = None,
         attributes: Mapping[str, Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
         kind = TurnKind.USER if msg.is_user_input else TurnKind.SYSTEM
@@ -2101,6 +2131,19 @@ class AgentLoop:
             log_content=ctx.require_session().policy.log_content,
             turn_latency_ms=ctx.turn_latency_ms,
         )
+        voice = cast(
+            object,
+            ctx.request_context.attributes.get("voice") if ctx.request_context else None,
+        )
+        if ctx.outbound is not None and isinstance(voice, dict):
+            ctx.outbound.metadata["voice"] = dict(cast(dict[str, Any], voice))
+        if ctx.outbound is not None and ctx.usage is not None:
+            ctx.outbound.metadata["usage"] = ctx.usage.to_turn_dict()
+            ctx.outbound.metadata["round_usages"] = [
+                usage.to_turn_dict() for usage in ctx.round_usages
+            ]
+            if ctx.runtime is not None:
+                ctx.outbound.metadata["context_window_tokens"] = ctx.runtime.context_window_tokens
         if ctx.ephemeral and ctx.outbound is not None:
             ctx.outbound.metadata["_stop_reason"] = ctx.stop_reason
 
@@ -2379,16 +2422,23 @@ class AgentLoop:
         runtime: LLMRuntime | None = None,
         on_runtime_admitted: Callable[[LLMRuntime], Awaitable[None]] | None = None,
         attributes: Mapping[str, Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        publish_lifecycle: bool = True,
     ) -> OutboundMessage | None:
         """Process an external message directly and return the outbound payload."""
         if channel == "system":
             raise ValueError("channel 'system' is reserved for internal messages")
-        metadata: dict[str, Any] = {}
+        message_metadata = dict(metadata or {})
         if not persist_user_message:
-            metadata[turn_continuation.SKIP_USER_PERSIST_META] = True
+            message_metadata[turn_continuation.SKIP_USER_PERSIST_META] = True
         msg = InboundMessage(
             channel=channel, sender_id=sender_id, chat_id=chat_id,
-            content=content, media=media or [], metadata=metadata,
+            content=content, media=media or [], metadata=message_metadata,
+        )
+        delivery = (
+            None
+            if publish_lifecycle
+            else self.turn_delivery_factory.unrouted(msg, session_key)
         )
         # Share the dispatch lock so direct calls serialize with bus turns.
         lock = self._get_session_lock(session_key)
@@ -2415,6 +2465,8 @@ class AgentLoop:
                     kwargs["on_runtime_admitted"] = on_runtime_admitted
                 if attributes is not None:
                     kwargs["attributes"] = dict(attributes)
+                if delivery is not None:
+                    kwargs["delivery"] = delivery
                 return await self._process_message(
                     msg,
                     **kwargs,

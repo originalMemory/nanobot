@@ -49,6 +49,15 @@ describe("ThreadMessages", () => {
     expect(identity.compareDocumentPosition(screen.getByText("scheduled answer"))
       & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  it("places the heartbeat badge beside its own identity", () => {
+    render(<ThreadMessages messages={[
+      { id: "a", role: "assistant", content: "heartbeat update", createdAt: 2,
+        source: { kind: "heartbeat" } },
+    ]} />);
+    expect(within(screen.getByTestId("assistant-turn-identity")).getByText("Heartbeat"))
+      .toBeInTheDocument();
+  });
   it.each([0, -13_000, -14_000, -15_000, 15_000])(
     "keeps the optimistic timer through acknowledgement and output with %i ms server clock skew",
     (clockSkewMs) => {

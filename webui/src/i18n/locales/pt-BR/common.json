@@ -1731,6 +1731,7 @@
     "openAttachment": "Abrir {{name}}",
     "skill": "Habilidade: {{name}}",
     "automationSourceFallback": "Automação",
+    "heartbeatSource": "Verificação periódica",
     "automationTriggered": "Acionada automaticamente",
     "askAboutSelection": "Perguntar sobre isto",
     "forkFromHere": "Fazer fork",

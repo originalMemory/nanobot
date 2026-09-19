@@ -480,6 +480,31 @@ class Session:
             out = kept
         return out
 
+    def retain_recent_turns(self, max_turns: int) -> int:
+        """Keep complete recent user turns and discard the older prefix."""
+        starts = [
+            index
+            for index, message in enumerate(self.messages)
+            if message.get("role") == "user"
+            and not message.get("_command")
+            and not message.get(HIDDEN_HISTORY_META)
+        ]
+        if max_turns < 1:
+            start = len(self.messages)
+        elif len(starts) <= max_turns:
+            return 0
+        else:
+            start = starts[-max_turns]
+        if start <= 0:
+            return 0
+        self.messages = self.messages[start:]
+        self.last_archived = 0
+        self.provider_state = None
+        self.metadata.pop("_last_summary", None)
+        self.metadata["_archive_offset"] = self.metadata.get("_archive_offset", 0) + start
+        self.updated_at = datetime.now()
+        return start
+
     def clear(self) -> None:
         """Clear all messages and reset session to initial state."""
         self.messages = []

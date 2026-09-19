@@ -1737,6 +1737,7 @@
     "cliRunRan": "已使用",
     "cliRunFailed": "失敗",
     "automationSourceFallback": "自動化",
+    "heartbeatSource": "心跳",
     "automationTriggered": "已自動觸發",
     "askAboutSelection": "繼續提問"
   },

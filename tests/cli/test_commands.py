@@ -97,6 +97,10 @@ class _GatewayAgentContractStub:
     def pending_local_trigger_ids_for_session(_session_key: str) -> set[str]:
         return set()
 
+    @staticmethod
+    def retain_session_turns(_session_key: str, _max_turns: int) -> None:
+        return None
+
     async def submit_local_trigger_turn(
         self,
         _msg: InboundMessage,
@@ -3175,6 +3179,8 @@ def test_gateway_unbound_agent_cron_is_skipped(
 def test_gateway_bound_cron_runs_as_session_turn(
     monkeypatch, tmp_path: Path
 ) -> None:
+    from nanobot.session.keys import UNIFIED_SESSION_KEY
+
     config_file = tmp_path / "instance" / "config.json"
     config_file.parent.mkdir(parents=True)
     config_file.write_text("{}")
@@ -3184,6 +3190,7 @@ def test_gateway_bound_cron_runs_as_session_turn(
     provider = _fake_provider()
     bus = MagicMock()
     bus.publish_outbound = AsyncMock()
+    bus.publish_event = AsyncMock()
     seen: dict[str, object] = {"run_records": []}
 
     monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
@@ -3204,7 +3211,22 @@ def test_gateway_bound_cron_runs_as_session_turn(
 
     class _FakeSessionManager:
         def __init__(self, _workspace: Path) -> None:
-            pass
+            self.sessions: dict[str, object] = {}
+            seen["session_manager"] = self
+
+        def get_or_create(self, key: str):
+            if key not in self.sessions:
+                self.sessions[key] = SimpleNamespace(
+                    messages=[],
+                    metadata={},
+                    add_message=lambda role, content, **extra: self.sessions[key].messages.append({
+                        "role": role, "content": content, **extra,
+                    }),
+                )
+            return self.sessions[key]
+
+        def save(self, _session: object) -> None:
+            return None
 
     monkeypatch.setattr("nanobot.session.manager.SessionManager", _FakeSessionManager)
 
@@ -3227,12 +3249,20 @@ def test_gateway_bound_cron_runs_as_session_turn(
             self.tools = {}
             seen["agent"] = self
 
-        async def submit_cron_turn(self, msg: InboundMessage):
-            seen["cron_msg"] = msg
+        async def process_cron_turn(self, content: str, **kwargs: object):
+            seen["cron_content"] = content
+            seen["cron_kwargs"] = kwargs
             return OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
+                channel="cli",
+                chat_id="cron:repo-check",
                 content="Checked the repo.",
+                metadata={
+                    "usage": {"prompt_tokens": 1200, "completion_tokens": 80,
+                              "context_tokens": 1100},
+                    "round_usages": [{"prompt_tokens": 700}, {"prompt_tokens": 1200}],
+                    "context_window_tokens": 32_000,
+                    "latency_ms": 250,
+                },
             )
 
         async def aclose(self) -> None:
@@ -3276,25 +3306,31 @@ def test_gateway_bound_cron_runs_as_session_turn(
     assert isinstance(response, CronRunResult)
     assert response.response == "Checked the repo."
     assert response.run_id == seen["run_records"][-1][0]
-    msg = seen["cron_msg"]
-    assert isinstance(msg, InboundMessage)
-    assert msg.channel == "websocket"
-    assert msg.chat_id == "chat-1"
-    assert msg.sender_id == "cron"
-    assert msg.session_key_override == "websocket:chat-1"
-    assert "Cron job: Check repository health." in msg.content
-    assert msg.metadata["webui"] is True
-    assert msg.metadata[WEBUI_MESSAGE_SOURCE_METADATA_KEY] == {
-        "kind": "cron",
-        "label": "Repo check",
-    }
-    trigger = msg.metadata[CRON_TRIGGER_META]
+    session_manager = seen["session_manager"]
+    unified = session_manager.get_or_create(UNIFIED_SESSION_KEY)
+    assert unified.messages[-1]["content"] == "Checked the repo."
+    assert unified.messages[-1]["source"] == {"kind": "cron", "label": "Repo check"}
+    assert unified.messages[-1]["usage"]["context_tokens"] == 1100
+    assert unified.messages[-1]["round_usages"][-1]["prompt_tokens"] == 1200
+    assert unified.messages[-1]["context_window_tokens"] == 32_000
+    assert unified.messages[-1]["latency_ms"] == 250
+    bus.publish_outbound.assert_not_awaited()
+    bus.publish_event.assert_awaited()
+    kwargs = seen["cron_kwargs"]
+    assert isinstance(kwargs, dict)
+    assert kwargs["session_key"] == "websocket:chat-1"
+    assert kwargs["channel"] == "websocket"
+    assert kwargs["chat_id"] == "chat-1"
+    assert "Cron job: Check repository health." in seen["cron_content"]
+    metadata = kwargs["metadata"]
+    assert isinstance(metadata, dict)
+    trigger = metadata[CRON_TRIGGER_META]
     assert trigger["job_id"] == "repo-check"
     assert trigger["job_name"] == "Repo check"
     assert trigger["persist_content"] == (
         "Scheduled cron job triggered: Repo check\n\nCheck repository health."
     )
-    assert msg.metadata[CRON_DEFER_UNTIL_IDLE_META] is True
+    assert metadata[CRON_DEFER_UNTIL_IDLE_META] is True
     statuses = [record["status"] for _run_id, record in seen["run_records"]]
     assert statuses == ["queued", "ok"]
     assert seen["run_records"][0][0] == seen["run_records"][1][0]
@@ -3320,14 +3356,12 @@ def test_gateway_bound_cron_runs_as_session_turn(
     assert isinstance(response, CronRunResult)
     assert response.response == "Checked the repo."
     assert response.run_id == seen["run_records"][-1][0]
-    msg = seen["cron_msg"]
-    assert isinstance(msg, InboundMessage)
-    assert msg.channel == "discord"
-    assert msg.chat_id == "777"
-    assert msg.session_key_override == "discord:456:thread:777"
-    assert msg.metadata["context_chat_id"] == "456"
-    assert msg.metadata["parent_channel_id"] == "456"
-    assert msg.metadata["thread_id"] == "777"
+    delivered = bus.publish_outbound.await_args.args[0]
+    assert isinstance(delivered, OutboundMessage)
+    assert (delivered.channel, delivered.chat_id) == ("discord", "777")
+    assert delivered.metadata["context_chat_id"] == "456"
+    assert delivered.metadata["parent_channel_id"] == "456"
+    assert delivered.metadata["thread_id"] == "777"
 
     telegram_job = CronJob(
         id="telegram-topic",
@@ -3346,12 +3380,10 @@ def test_gateway_bound_cron_runs_as_session_turn(
     assert isinstance(response, CronRunResult)
     assert response.response == "Checked the repo."
     assert response.run_id == seen["run_records"][-1][0]
-    msg = seen["cron_msg"]
-    assert isinstance(msg, InboundMessage)
-    assert msg.channel == "telegram"
-    assert msg.chat_id == "-100123"
-    assert msg.session_key_override == "telegram:-100123:topic:42"
-    assert msg.metadata["message_thread_id"] == 42
+    delivered = bus.publish_outbound.await_args.args[0]
+    assert isinstance(delivered, OutboundMessage)
+    assert (delivered.channel, delivered.chat_id) == ("telegram", "-100123")
+    assert delivered.metadata["message_thread_id"] == 42
 
     feishu_job = CronJob(
         id="feishu-topic",
@@ -3374,13 +3406,11 @@ def test_gateway_bound_cron_runs_as_session_turn(
     assert isinstance(response, CronRunResult)
     assert response.response == "Checked the repo."
     assert response.run_id == seen["run_records"][-1][0]
-    msg = seen["cron_msg"]
-    assert isinstance(msg, InboundMessage)
-    assert msg.channel == "feishu"
-    assert msg.chat_id == "oc_abc"
-    assert msg.session_key_override == "feishu:oc_abc:om_root123"
-    assert msg.metadata["message_id"] == "om_root123"
-    assert msg.metadata["thread_id"] == "om_root123"
+    delivered = bus.publish_outbound.await_args.args[0]
+    assert isinstance(delivered, OutboundMessage)
+    assert (delivered.channel, delivered.chat_id) == ("feishu", "oc_abc")
+    assert delivered.metadata["message_id"] == "om_root123"
+    assert delivered.metadata["thread_id"] == "om_root123"
 
 
 @pytest.mark.parametrize("setup_error", [None, "No API key configured"])

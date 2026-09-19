@@ -1427,3 +1427,20 @@ def test_load_jobs_skips_null_run_history_elements(tmp_path) -> None:
     assert len(jobs[0].state.run_history) == 1
     assert jobs[0].state.run_history[0].run_at_ms == 1
     assert jobs[0].state.run_history[0].status == "ok"
+
+
+def test_add_job_isolates_unified_cron_session_and_targets_desktop(tmp_path) -> None:
+    service = CronService(tmp_path / "jobs.json")
+
+    job = service.add_job(
+        name="Reminder",
+        schedule=CronSchedule(kind="every", every_ms=60_000),
+        message="check",
+        session_key="unified:default",
+        origin_channel="websocket",
+        origin_chat_id="inbox:unified",
+    )
+
+    assert job.payload.session_key == f"cron:{job.id}"
+    assert job.payload.origin_channel == "websocket"
+    assert job.payload.origin_chat_id == "desktop"

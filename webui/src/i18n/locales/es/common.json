@@ -1739,6 +1739,7 @@
     "cliRunRan": "Usado",
     "cliRunFailed": "Falló",
     "automationSourceFallback": "Automatización",
+    "heartbeatSource": "Latido",
     "automationTriggered": "Activada automáticamente"
   },
   "recovery": {

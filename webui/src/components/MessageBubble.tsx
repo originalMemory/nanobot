@@ -123,7 +123,7 @@ function MessageTimestamp({
           dateTime={new Date(timestamp).toISOString()}
           tabIndex={0}
           className={cn(
-            "cursor-help text-[11px] leading-none text-muted-foreground/70 tabular-nums",
+            "cursor-help text-[11px] leading-none text-muted-foreground tabular-nums",
             "focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             className,
           )}
@@ -189,7 +189,15 @@ function MessageCopyButton({ content }: { content: string }) {
   );
 }
 
-function TurnUsageMeta({ usage, latencyMs }: { usage: TurnUsage; latencyMs?: number }) {
+function TurnUsageMeta({
+  usage,
+  latencyMs,
+  contextWindowTokens,
+}: {
+  usage: TurnUsage;
+  latencyMs?: number;
+  contextWindowTokens?: number;
+}) {
   const { t } = useTranslation();
   const prompt = usage.prompt_tokens;
   const completion = usage.completion_tokens;
@@ -209,6 +217,16 @@ function TurnUsageMeta({ usage, latencyMs }: { usage: TurnUsage; latencyMs?: num
       defaultValue: "{{percent}} cached",
     }));
   }
+  if (typeof usage.context_tokens === "number") {
+    const hasCapacity = typeof contextWindowTokens === "number" && contextWindowTokens > 0;
+    const capacity = hasCapacity
+      ? ` / ${formatCompactTokenCount(contextWindowTokens)} (${Math.min(100, Math.round(usage.context_tokens / contextWindowTokens * 100))}%)`
+      : "";
+    parts.push(t("message.usage.context", {
+      tokens: formatCompactTokenCount(usage.context_tokens),
+      capacity,
+    }));
+  }
   if (typeof latencyMs === "number" && latencyMs >= 0) parts.push(formatTurnLatency(latencyMs));
   if (parts.length === 0) return null;
 
@@ -220,7 +238,7 @@ function TurnUsageMeta({ usage, latencyMs }: { usage: TurnUsage; latencyMs?: num
       data-turn-usage
       tabIndex={estimated ? 0 : undefined}
       className={cn(
-        "text-[11px] leading-none text-muted-foreground/70 tabular-nums",
+        "text-[11px] font-medium leading-none text-muted-foreground tabular-nums",
         estimated && "cursor-help",
       )}
     >
@@ -611,7 +629,11 @@ export function MessageBubble({
                 <TooltipContent side="top" align="center">{forkLabel}</TooltipContent>
               </Tooltip>
               ) : null}
-            {showUsage ? <TurnUsageMeta usage={message.usage!} latencyMs={message.latencyMs} /> : null}
+            {showUsage ? <TurnUsageMeta
+              usage={message.usage!}
+              latencyMs={message.latencyMs}
+              contextWindowTokens={message.contextWindowTokens}
+            /> : null}
             {showAssistantTimestamp ? (
               <MessageTimestamp
                 {...(showCompletedAt ? { "data-assistant-completed-at": true } : {})}
