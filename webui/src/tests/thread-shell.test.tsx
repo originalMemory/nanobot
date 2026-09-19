@@ -488,6 +488,8 @@ describe("ThreadShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh history" }));
 
     await waitFor(() => expect(historyCalls).toBeGreaterThan(1));
+    expect(await screen.findByText("answer-2")).toBeInTheDocument();
+    expect(screen.queryByText("answer-1")).not.toBeInTheDocument();
   });
 
   it("surfaces and retries a deferred trace-detail request failure", async () => {

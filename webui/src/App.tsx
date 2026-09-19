@@ -2661,6 +2661,8 @@ function Shell({
     onRequestRenameProject,
     onNewChatInProject,
     onOpenSettings,
+    onRestart,
+    isRestarting,
     onOpenApps,
     onOpenAutomations,
     onOpenChannels,

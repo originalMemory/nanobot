@@ -12,7 +12,9 @@ import {
   BookOpen,
   CalendarClock,
   MessageCircle,
+  Loader2,
   PanelLeftClose,
+  RotateCcw,
   Search,
   Settings,
   Power,
@@ -70,6 +72,8 @@ interface SidebarProps {
   onRequestRenameProject: (projectKey: string, label: string) => void;
   onNewChatInProject: (projectPath: string, projectName: string) => void;
   onOpenSettings: () => void;
+  onRestart?: () => void;
+  isRestarting?: boolean;
   onOpenApps: () => void;
   onOpenSkills: () => void;
   onOpenWorkspace?: () => void;
@@ -355,17 +359,30 @@ export function Sidebar(props: SidebarProps) {
           collapsed && "w-14 flex-col px-0",
         )}
       >
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.settings")}
-          iconOnly
-          shortcut={sidebarShortcutLabel("settings", apple)}
-          ariaKeyShortcuts={sidebarShortcutAria("settings")}
-          onClick={props.onOpenSettings}
-          onIntent={props.onSettingsIntent}
-          className="w-9"
-          icon={<Settings className="h-4 w-4" />}
-        />
+        <div className={cn("flex items-center gap-1", collapsed && "flex-col")}>
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={t("sidebar.settings")}
+            iconOnly
+            shortcut={sidebarShortcutLabel("settings", apple)}
+            ariaKeyShortcuts={sidebarShortcutAria("settings")}
+            onClick={props.onOpenSettings}
+            onIntent={props.onSettingsIntent}
+            className="w-9"
+            icon={<Settings className="h-4 w-4" />}
+          />
+          {props.onRestart ? <SidebarActionButton
+            collapsed={collapsed}
+            label={t(props.isRestarting ? "app.system.restarting" : "app.system.restart")}
+            iconOnly
+            disabled={props.isRestarting}
+            onClick={props.onRestart}
+            className="w-9"
+            icon={props.isRestarting
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <RotateCcw className="h-4 w-4" />}
+          /> : null}
+        </div>
         <ConnectionBadge />
         {getRuntimeHost().quit ? <SidebarActionButton
           collapsed={collapsed}
@@ -388,6 +405,7 @@ function SidebarActionButton({
   icon,
   onClick,
   active = false,
+  disabled = false,
   className,
   shortcut,
   ariaKeyShortcuts,
@@ -400,6 +418,7 @@ function SidebarActionButton({
   icon: ReactNode;
   onClick: () => void;
   active?: boolean;
+  disabled?: boolean;
   className?: string;
   shortcut?: string;
   ariaKeyShortcuts?: string;
@@ -416,6 +435,7 @@ function SidebarActionButton({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       aria-keyshortcuts={ariaKeyShortcuts}
+      disabled={disabled}
       onClick={() => onClick()}
       onFocus={onIntent}
       onPointerEnter={onIntent}

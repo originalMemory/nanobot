@@ -24,6 +24,7 @@ const requestMutationSpy = vi.fn();
 const discardTemporaryChatSpy = vi.fn();
 const newTemporaryChatSpy = vi.fn<() => Promise<string>>();
 const sendMessageSpy = vi.fn();
+const sendSystemCommandSpy = vi.fn().mockResolvedValue(undefined);
 const statusHandlers = new Set<(status: ConnectionStatus) => void>();
 const runStatusHandlers = new Set<(chatId: string, startedAt: number | null) => void>();
 const sessionUpdateHandlers = new Set<(
@@ -271,6 +272,7 @@ vi.mock("@/lib/nanobot-client", async (importOriginal) => {
     getRunTurnId = () => null;
     getGoalState = () => undefined;
     sendMessage = sendMessageSpy;
+    sendSystemCommand = sendSystemCommandSpy;
     newChat = vi.fn();
     newTemporaryChat = newTemporaryChatSpy;
     attach = attachSpy;
@@ -314,6 +316,7 @@ describe("App layout", () => {
       `00000000-0000-4000-8000-${String(++temporaryChatCounter).padStart(12, "0")}`
     ));
     sendMessageSpy.mockReset();
+    sendSystemCommandSpy.mockReset().mockResolvedValue(undefined);
     statusHandlers.clear();
     runStatusHandlers.clear();
     sessionUpdateHandlers.clear();
@@ -2696,6 +2699,26 @@ describe("App layout", () => {
     expect(screen.getByRole("switch", { name: "Image generation" })).toBeInTheDocument();
     fireEvent.click(within(nav).getByRole("button", { name: "About", exact: true }));
     expect(await screen.findByRole("button", { name: "Check for updates" })).toBeInTheDocument();
+  });
+
+  it("restarts nanobot from the sidebar footer", async () => {
+    mockSessions = [{
+      key: "websocket:chat-a",
+      channel: "websocket",
+      chatId: "chat-a",
+      createdAt: "2026-04-16T10:00:00Z",
+      updatedAt: "2026-04-16T10:00:00Z",
+      preview: "Active chat",
+    }];
+    window.history.replaceState(null, "", `/#/chat/${encodeURIComponent("websocket:chat-a")}`);
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Restart nanobot" }));
+
+    expect(sendSystemCommandSpy).toHaveBeenCalledWith("chat-a", "/restart");
+    expect(within(sidebar).getByRole("button", { name: "Restarting..." })).toBeDisabled();
   });
 
   it("restores the settings section from the URL hash after a page reload", async () => {

@@ -106,7 +106,10 @@ export function ThreadHeader({
         ) : null}
       </div>
 
-      <div className={cn(controlsClassName, "ml-auto shrink-0")}>
+      <div className={cn(
+        controlsClassName,
+        "ml-auto shrink-0 [&_button]:active:translate-y-px [&_button]:active:bg-accent/60 [&_button]:active:text-foreground",
+      )}>
         {onRefreshHistory ? (
           <Button
             type="button"
