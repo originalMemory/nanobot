@@ -6,12 +6,13 @@ WORKDIR /app/webui
 RUN npm ci
 COPY webui/ ./
 COPY packages/client-events/ /app/packages/client-events/
+COPY nanobot/channels/ /app/nanobot/channels/
 RUN mkdir -p /app/nanobot/web && npm run build
 
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates git bubblewrap openssh-client libmagic1 ffmpeg && \
+    apt-get install -y --no-install-recommends ca-certificates git bubblewrap openssh-client libmagic1 ffmpeg ripgrep && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -79,3 +80,17 @@ EXPOSE 18790 8765
 
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["status"]
+
+# NAS dependencies are managed by workspace/scripts/bootstrap.sh at startup.
+FROM runtime AS unraid
+RUN apt-get update && apt-get install -y --no-install-recommends curl jq sqlite3 && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupmod -g 100 -o nanobot && \
+    usermod -u 99 -g 100 nanobot && \
+    chown -R 99:100 /home/nanobot /app/.venv && \
+    git config --system --add safe.directory /home/nanobot/src
+ENV PATH="/app/.venv/bin:/usr/local/bin:/usr/bin:/bin:/home/nanobot/.nanobot/workspace/bin:/home/nanobot/.local/bin"
+USER nanobot
+
+# Keep the upstream image behavior unless --target unraid is selected explicitly.
+FROM runtime AS default

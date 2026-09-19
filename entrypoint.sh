@@ -7,7 +7,7 @@ dir="$HOME/.nanobot"
 # ${VAR} env vars, keeping runtime data on the persistent disk) and appends the
 # --config flag. Logs each decision so a failed start is diagnosable in Render's
 # logs. Privilege dropping is handled below, for every root start (not just here).
-if [ "$RENDER" = "true" ]; then
+if [ "$RENDER" = "true" ] && [ "$(id -u)" != "0" ]; then
     echo "[entrypoint] Render deploy — starting as $(id)"
     mkdir -p "$dir" || echo "[entrypoint] warning: mkdir $dir failed"
     config="$dir/config.json"
@@ -29,10 +29,12 @@ fi
 # re-exec as nanobot. Fail closed: if the privilege drop cannot be performed,
 # exit rather than run the agent as root.
 if [ "$(id -u)" = "0" ]; then
-    chown -R nanobot:nanobot "$dir" 2>/dev/null || echo "[entrypoint] warning: chown $dir failed"
-    if setpriv --reuid=nanobot --regid=nanobot --init-groups true 2>/dev/null; then
+    runtime_uid=$(id -u nanobot) || exit 1
+    runtime_gid=$(id -g nanobot) || exit 1
+    chown -R "$runtime_uid:$runtime_gid" "$dir" 2>/dev/null || echo "[entrypoint] warning: chown $dir failed"
+    if setpriv --reuid="$runtime_uid" --regid="$runtime_gid" --init-groups true 2>/dev/null; then
         echo "[entrypoint] dropping privileges to nanobot via setpriv"
-        exec setpriv --reuid=nanobot --regid=nanobot --init-groups nanobot "$@"
+        exec setpriv --reuid="$runtime_uid" --regid="$runtime_gid" --init-groups sh "$0" "$@"
     fi
     echo "[entrypoint] error: started as root but setpriv privilege drop failed — refusing to run as root" >&2
     exit 1
@@ -45,11 +47,15 @@ if [ -d "$dir" ] && [ ! -w "$dir" ]; then
 Error: $dir is not writable (owned by UID $owner_uid, running as UID $(id -u)).
 
 Fix (pick one):
-  Host:   sudo chown -R 1000:1000 ~/.nanobot
+  Host:   sudo chown -R $(id -u):$(id -g) ~/.nanobot
   Docker: docker run --user \$(id -u):\$(id -g) ...
   Podman: podman run --userns=keep-id ...
 EOF
     exit 1
 fi
 
+bootstrap="$dir/workspace/scripts/bootstrap.sh"
+if [ -f "$bootstrap" ]; then
+    bash "$bootstrap" || exit 1
+fi
 exec nanobot "$@"

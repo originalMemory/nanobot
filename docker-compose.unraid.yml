@@ -1,0 +1,55 @@
+# Standalone deployment: docker compose -f docker-compose.unraid.yml ...
+# Proxy and other private environment values stay in .env.unraid (not Git).
+x-common-config: &common-config
+  image: nanobot-lover-next:unraid
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: unraid
+    args:
+      NANOBOT_CHANNELS: qq,telegram,websocket,weixin
+  user: "99:100"
+  group_add: ["281"]
+  env_file: .env.unraid
+  environment:
+    TZ: Asia/Shanghai
+  volumes:
+    - .:/home/nanobot/src
+    - ./.nanobot:/home/nanobot/.nanobot
+    - ./.nanobot/.ssh:/home/nanobot/.ssh
+    - /mnt/cache/ssd/note:/home/nanobot/note
+    - /mnt/cache/ssd:/nas/ssd
+    - /mnt/cache/appdata:/nas/appdata
+    - /mnt/cache/clouddrive:/clouddrive
+    - /mnt/user/hdd:/nas/hdd
+    - /var/run/docker.sock:/var/run/docker.sock
+  # Preserve the existing NAS bubblewrap and Docker-socket access.
+  cap_drop: [ALL]
+  cap_add: [SYS_ADMIN]
+  security_opt: [apparmor=unconfined, seccomp=unconfined]
+
+services:
+  nanobot-gateway:
+    <<: *common-config
+    container_name: nanobot-gateway
+    command: [gateway]
+    restart: unless-stopped
+    ports: ["18790:18790", "8765:8765"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+  nanobot-api:
+    <<: *common-config
+    container_name: nanobot-api
+    profiles: [api]
+    command: [serve, --host, 0.0.0.0, -w, /home/nanobot/.nanobot/api-workspace]
+    restart: unless-stopped
+    ports: ["127.0.0.1:8900:8900"]
+  nanobot-cli:
+    <<: *common-config
+    profiles: [cli]
+    command: [status]
+    stdin_open: true
+    tty: true

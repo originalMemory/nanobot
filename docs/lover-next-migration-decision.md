@@ -2,7 +2,7 @@
 
 更新：2026-09-18
 
-状态：F01 Electron、F02 统一收件箱、F03 桌面基础体验已完成；F04 聊天展示与设置已确认复用上游，待实际体验。F05 外观、F06 工作区与笔记浏览、F08 自动召回与主题卡、F09 Dream 个人化记忆、F10 原文保护与历史归档已完成；F11 定时任务已确认复用上游并验证，F12 按需桌面感知已完成；F13 MiniMax TTS 已完成；F14 本地伴侣视频已完成；F15/F16 按决定不迁移，F17 workspace 技能已完成并同步 NAS；下一项为 F18 部署收尾。
+状态：F01 Electron、F02 统一收件箱、F03 桌面基础体验已完成；F04 聊天展示与设置已确认复用上游，待实际体验。F05 外观、F06 工作区与笔记浏览、F08 自动召回与主题卡、F09 Dream 个人化记忆、F10 原文保护与历史归档已完成；F11 定时任务已确认复用上游并验证，F12 按需桌面感知已完成；F13 MiniMax TTS 已完成；F14 本地伴侣视频已完成；F15/F16 按决定不迁移，F17 workspace 技能已完成并同步 NAS；F18 部署文件与数据迁移副本验证已完成，待 Linux 镜像构建和 NAS 实机升级验收。
 
 ## 1. 总体方向
 
@@ -635,3 +635,18 @@ TTS 读取活动 MiniMax preset，从活动音色的 languageVoices.ja/default �
 此前本机测试环境已安装 Sudachi 并复制技能与两份既有学习档案（未覆盖原文件）；按用户后续说明，不继续处理本机环境。最终 TTS/材料 5 项定向测试及课程静态数据校验通过。F17 仓库改动尚未提交，NAS 技能更新已完成。
 
 F17 review 修复：恢复 NAS 已在使用的全局音色来源与 --language ja|zh 接口，不再要求 japanese-tutor.private.json；纯文本按语言加标签，已有中日分段保留并按全局音色映射合成。同步修正材料文档和模拟回归，动态修改 ja 音色后生成参数随配置变化。4 项材料/TTS 测试通过；NAS 已重新备份至 //ILLUSION/appdata/nanobot/.nanobot/backups/japanese-tutor-tts-fix-20260919-120044 并更新脚本、测试、材料文档和 manifest，32 文件校验一致，10 个教学/私密文件未变。未调用真实语音服务或 Anki。
+
+F17 已提交为 `063efb0e`（`feat(skills): 迁移日语教学技能并适配全局 MiniMax 音色`），未推送。
+
+## 28. F18 Unraid 部署收尾
+
+权限 review 修复：Unraid target 的 nanobot 同名组也改为 GID 100，用户保持 UID 99；entrypoint 的 root 降权、chown 读取该用户的实际数字 UID/GID，权限提示使用当前身份。保留 Compose 补充组 281，与 lover 的 nobody/users 文件身份一致，不变更 NAS 既有 ACL。6 项启动测试覆盖非 root 与模拟 root 降权、bootstrap 缺失/成功/失败，全部通过；真实 Linux/SMB 权限仍待实机验证。用户明确浏览器依赖暂缓，待知乎脚本调整。
+
+- 新增独立 `docker-compose.unraid.yml`，沿用现有 NAS 的 99:100、Docker 补充组、数据/笔记/磁盘/socket 挂载和 bubblewrap 权限；代理等私密环境值留在忽略的 `.env.unraid`。
+- 基础镜像补齐 rg 和构建阶段的渠道 WebUI 源码；Unraid target 保留持久化工具 PATH，具体技能依赖由 workspace bootstrap 管理。默认镜像仍保持上游用户与启动方式。
+- 恢复 lover 的 workspace bootstrap 入口，不再通过 PYTHONPATH 覆盖完整镜像源码；修改程序后重建镜像。构建上下文排除 `.nanobot`、本地虚拟环境、Electron 和私密 env 文件。
+- 当前 NAS 配置去掉旧根字段 desk_pet 后可通过新版 schema；未改真实配置。65 份旧会话在临时副本中迁移后 SHA-256 全部一致；旧命名会话无法全部由上游 restore-workspace 恢复，回退明确要求保留完整停机备份。NAS cron 已在 workspace 下，无需另搬。
+- 升级、环境验证、验收和回退步骤见 [deploy/UNRAID.md](../deploy/UNRAID.md)。未切换 NAS 分支、镜像或服务。
+- 验证：Compose CLI schema 检查通过，WebUI 生产构建通过，session location 15 项测试通过。本机 Docker daemon 未运行，尚未验证 Linux 镜像构建及 Unraid 实机运行；F18 改动保留未提交以供 review。
+
+F18 review 修复与最终方式：用户确认手动暂停旧服务后迁移，流程先停机备份再切换源码。NAS 已备份并更新 exec 的 PATH/虚拟环境/代理变量，以及 workspace 工具路径。按用户要求，依赖管理沿用 lover 的 `workspace/scripts/bootstrap.sh` 统一入口，entrypoint 降权后执行，失败即停止启动；项目不列举技能依赖，删除此前新增的 deploy/unraid-requirements.txt。公共补充依赖只放 NAS workspace/config/python-requirements.txt，bootstrap 负责安装到容器共用 Python。修正 bootstrap 的虚拟环境 PATH 优先级及缺失 SSH key 导致退出问题，AGENTS.md 同步约定。此次备份位于 `V:/nanobot/.nanobot/backups/bootstrap-entry-20260919-122829`；未重启服务、执行 NAS 安装或移除旧 desk_pet。deploy/verify_unraid.py 只验证实际 ExecTool 的共用 Python 和路径，具体技能验收留在 workspace。Linux 镜像及实机安装仍待部署时验证。
