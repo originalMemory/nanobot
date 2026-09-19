@@ -66,12 +66,12 @@ it("纯文本不显示语音按钮，收到语音后在消息内停止或重播�
   }
 });
 
-it.each(["user", "assistant"] as const)("显示 %s 消息的外部渠道来源", (role) => {
+it.each(["user", "assistant"] as const)("不在 %s 消息底部显示渠道来源", (role) => {
   const { container } = render(<MessageBubble message={{
     id: "external", role, content: "hello", createdAt: 1700000000000,
     source: { kind: "channel", label: "telegram" },
   }} />);
-  expect(container.querySelector("[data-channel-source]")).toHaveTextContent("telegram");
+  expect(container.querySelector("[data-channel-source]")).toBeNull();
 });
 
 const CLI_APPS: CliAppInfo[] = [
@@ -643,7 +643,7 @@ describe("MessageBubble", () => {
     expect(screen.getByText(/not @krita/)).toBeInTheDocument();
   });
 
-  it("places automation metadata after the timestamp and reveals its source on hover", async () => {
+  it("does not place automation metadata in the message footer", () => {
     const completedAt = Date.UTC(2026, 6, 25, 12, 34, 56);
     const message: UIMessage = {
       id: "a-cron",
@@ -658,24 +658,28 @@ describe("MessageBubble", () => {
 
     const footer = container.querySelector("[data-assistant-footer]")!;
     const timestamp = footer.querySelector("[data-message-timestamp]")!;
-    const trigger = footer.querySelector("[data-automation-trigger]")!;
-
     expect(timestamp).toHaveTextContent(formatMessageEndTime(completedAt));
-    expect(trigger).toHaveTextContent("Triggered automatically");
-    expect(trigger.previousElementSibling).toBe(timestamp);
-    expect(trigger).toHaveClass(
-      "text-[11px]",
-      "leading-none",
-      "text-muted-foreground/70",
-      "tabular-nums",
-    );
-    expect(trigger.className).not.toMatch(/(?:^|\s)(?:border|bg-)/);
-    expect(trigger.querySelector("svg")).not.toBeInTheDocument();
+    expect(footer.querySelector("[data-automation-trigger]")).toBeNull();
     expect(screen.queryByText("drink water")).not.toBeInTheDocument();
     expect(screen.getByText("Time to drink water.")).toBeInTheDocument();
+  });
 
-    fireEvent.pointerMove(trigger);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("drink water");
+  it("shows per-turn token usage in the assistant footer", () => {
+    render(<MessageBubble message={{
+      id: "a-usage",
+      role: "assistant",
+      content: "done",
+      createdAt: Date.now(),
+      latencyMs: 18_200,
+      usage: {
+        prompt_tokens: 12_400,
+        completion_tokens: 823,
+        cached_tokens: 9_672,
+      },
+    }} />);
+
+    const usage = screen.getByText(/12\.4K in · 823 out · 78% cached · 18/);
+    expect(usage).toHaveAttribute("data-turn-usage");
   });
 
   it("renders structured CLI app attachments even without the installed catalog", () => {

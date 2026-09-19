@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,6 +17,38 @@ afterEach(() => {
 });
 
 describe("ThreadMessages", () => {
+  it("places the live identity and channel badge above tool activity", () => {
+    render(<ThreadMessages messages={[
+      { id: "u", role: "user", content: "question", createdAt: 1, turnId: "turn" },
+      { id: "t", role: "tool", kind: "trace", content: "tool", traces: ["tool"], createdAt: 2,
+        turnId: "turn", source: { kind: "channel", label: "telegram" } },
+    ]} isStreaming activeTurnId="turn" />);
+    const identity = screen.getByTestId("assistant-turn-identity");
+    expect(within(identity).getByText("Telegram")).toBeInTheDocument();
+    expect(identity.compareDocumentPosition(screen.getByRole("button", { name: /Working for/ }))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the prompt channel on the pending identity", () => {
+    render(<ThreadMessages messages={[
+      { id: "u", role: "user", content: "question", createdAt: 1, turnId: "turn",
+        source: { kind: "channel", label: "telegram" } },
+    ]} isStreaming activeTurnId="turn" />);
+    expect(within(screen.getByTestId("assistant-turn-identity")).getByText("Telegram"))
+      .toBeInTheDocument();
+  });
+
+  it("places the historical cron badge beside identity above the answer", () => {
+    render(<ThreadMessages messages={[
+      { id: "u", role: "user", content: "question", createdAt: 1, turnId: "turn" },
+      { id: "a", role: "assistant", content: "scheduled answer", createdAt: 2, turnId: "turn",
+        source: { kind: "cron", label: "drink water" } },
+    ]} />);
+    const identity = screen.getByTestId("assistant-turn-identity");
+    expect(within(identity).getByText("drink water")).toBeInTheDocument();
+    expect(identity.compareDocumentPosition(screen.getByText("scheduled answer"))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
   it.each([0, -13_000, -14_000, -15_000, 15_000])(
     "keeps the optimistic timer through acknowledgement and output with %i ms server clock skew",
     (clockSkewMs) => {
@@ -41,6 +73,7 @@ describe("ThreadMessages", () => {
       );
 
       expect(screen.getByRole("status", { name: "Working for 0s" })).toBeInTheDocument();
+      expect(screen.getByTestId("assistant-turn-identity")).toBeInTheDocument();
 
       rerender(
         <ThreadMessages
@@ -75,6 +108,7 @@ describe("ThreadMessages", () => {
       );
 
       expect(screen.getByRole("button", { name: "Working for 1s" })).toBeInTheDocument();
+      expect(screen.getByTestId("assistant-turn-identity")).toBeInTheDocument();
     },
   );
 

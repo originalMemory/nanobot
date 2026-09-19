@@ -1225,7 +1225,8 @@ function Shell({
   const temporarySessionsRef = useRef<Record<string, ChatSummary>>({});
   const effectiveRuntimeSurface =
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
-  const showHostChrome = isNativeRuntime(effectiveRuntimeSurface);
+  const nativeHost = isNativeRuntime(effectiveRuntimeSurface);
+  const showHostChrome = nativeHost && !getRuntimeHost(effectiveRuntimeSurface).windowControls;
   const showMainSidebar = view !== "settings";
   const activeTemporarySession = activeKey ? temporarySessions[activeKey] ?? null : null;
   const temporaryChatId = activeTemporarySession?.chatId ?? null;
@@ -2430,7 +2431,7 @@ function Shell({
   );
 
   const headerTitle = fixedKey
-    ? t("sidebar.unifiedInbox", { defaultValue: "Unified inbox" })
+    ? t("sidebar.chat", { defaultValue: "Chat" })
     : temporaryChatActive
     ? deriveTemporaryChatTitle(activeSession?.preview, t("temporaryChat.title"))
     : activeSession
@@ -2689,11 +2690,11 @@ function Shell({
   const hostSidebarFlowWidth = hostSidebarOpen ? sidebarWidth : SIDEBAR_RAIL_WIDTH;
 
   useEffect(() => {
-    document.documentElement.classList.toggle("native-host", showHostChrome);
+    document.documentElement.classList.toggle("native-host", nativeHost);
     return () => {
       document.documentElement.classList.remove("native-host");
     };
-  }, [showHostChrome]);
+  }, [nativeHost]);
 
   return (
     <ThemeProvider theme={theme}>

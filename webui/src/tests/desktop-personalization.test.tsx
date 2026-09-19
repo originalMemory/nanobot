@@ -81,7 +81,7 @@ it("saves display identity and keeps a failed draft for retry", async () => {
 
 it("uses the fixed gateway avatar and falls back to the icon", async () => {
   const api = fixture();
-  renderAppearance(<><DesktopAppearanceSettings /><DesktopIdentity /></>);
+  renderAppearance(<><DesktopAppearanceSettings /><DesktopIdentity message /></>);
   const identity = await screen.findByTestId("desktop-identity");
   const image = identity.querySelector("img")!;
   expect(image).toHaveAttribute("src", "/api/avatar");
@@ -90,6 +90,9 @@ it("uses the fixed gateway avatar and falls back to the icon", async () => {
   fireEvent.error(image);
   expect(identity.querySelector("img")).toBeNull();
   expect(identity).toHaveTextContent("🦊");
+  expect(identity.querySelector("span:last-child")).toHaveClass(
+    "text-base", "text-rose-500/85", "dark:text-rose-300/85",
+  );
   expect(api.choose).not.toHaveBeenCalled();
 });
 

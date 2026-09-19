@@ -41,7 +41,9 @@ import { cn } from "@/lib/utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   fmtDateTime,
+  formatCompactTokenCount,
   formatMessageEndTime,
+  formatTurnLatency,
 } from "@/lib/format";
 import { toMediaAttachment } from "@/lib/media";
 import { matchingSlashCommand } from "@/lib/slash-command";
@@ -58,6 +60,7 @@ import type {
   UIMessage,
   MessageDeliveryErrorKind,
   MessageDeliveryStatus,
+  TurnUsage,
 } from "@/lib/types";
 
 interface MessageBubbleProps {
@@ -68,6 +71,8 @@ interface MessageBubbleProps {
   temporary?: boolean;
   /** When false, hide this message's copy button. Default true. */
   showCopyAction?: boolean;
+  /** Turn message lists render one shared identity header above reasoning/tools/body. */
+  showAssistantIdentity?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
   slashCommands?: SlashCommand[];
@@ -182,6 +187,42 @@ function MessageCopyButton({ content }: { content: string }) {
       <TooltipContent side="top" align="center">{label}</TooltipContent>
     </Tooltip>
   );
+}
+
+function TurnUsageMeta({ usage, latencyMs }: { usage: TurnUsage; latencyMs?: number }) {
+  const { t } = useTranslation();
+  const prompt = usage.prompt_tokens;
+  const completion = usage.completion_tokens;
+  const approximate = (usage.estimated_tokens ?? 0) > 0 ? "~" : "";
+  const parts: string[] = [];
+  if (typeof prompt === "number") parts.push(`${approximate}${formatCompactTokenCount(prompt)} in`);
+  if (typeof completion === "number") parts.push(`${approximate}${formatCompactTokenCount(completion)} out`);
+  if (typeof usage.cached_tokens === "number" && typeof prompt === "number" && prompt > 0) {
+    parts.push(`${Math.round(Math.min(1, usage.cached_tokens / prompt) * 100)}% cached`);
+  }
+  if (typeof latencyMs === "number" && latencyMs >= 0) parts.push(formatTurnLatency(latencyMs));
+  if (parts.length === 0) return null;
+
+  const estimated = approximate
+    ? t("message.usage.estimated", { defaultValue: "Includes estimated usage" })
+    : null;
+  const content = (
+    <span
+      data-turn-usage
+      tabIndex={estimated ? 0 : undefined}
+      className={cn(
+        "text-[11px] leading-none text-muted-foreground/70 tabular-nums",
+        estimated && "cursor-help",
+      )}
+    >
+      {parts.join(" · ")}
+    </span>
+  );
+  if (!estimated) return content;
+  return <Tooltip>
+    <TooltipTrigger asChild>{content}</TooltipTrigger>
+    <TooltipContent side="top" align="start">{estimated}</TooltipContent>
+  </Tooltip>;
 }
 
 function deliveryErrorCopy(
@@ -332,6 +373,7 @@ export function MessageBubble({
   isTurnStreaming = false,
   temporary = false,
   showCopyAction = true,
+  showAssistantIdentity = true,
   cliApps = [],
   mcpPresets = [],
   slashCommands = [],
@@ -339,7 +381,6 @@ export function MessageBubble({
   onForkFromHere,
 }: MessageBubbleProps) {
   const { t } = useTranslation();
-  const channelSource = message.source?.kind === "channel" ? message.source.label?.trim() : null;
   const voice = useVoice();
   const mentionCliApps = useMemo(
     () => mergeCliMentionApps(cliApps, message.cliApps),
@@ -427,10 +468,9 @@ export function MessageBubble({
             {messageText}
           </p>
         ) : null}
-        {channelSource || showDeliveryStatus || showCreatedAt || (hasText && showCopyAction) ? (
+        {showDeliveryStatus || showCreatedAt || (hasText && showCopyAction) ? (
           <TooltipProvider>
             <div className="flex min-h-8 items-center justify-end gap-1.5 text-muted-foreground">
-              {channelSource ? <span data-channel-source className="text-xs">{channelSource}</span> : null}
               {showCreatedAt ? (
                 <MessageTimestamp
                   data-message-created-at
@@ -462,16 +502,6 @@ export function MessageBubble({
   const reasoning = message.role === "assistant" ? message.reasoning ?? "" : "";
   const reasoningStreaming = !!(message.role === "assistant" && message.reasoningStreaming);
   const hasReasoning = reasoning.length > 0 || reasoningStreaming;
-  const automationSourceKind = message.source?.kind;
-  const automationSourceName = message.source?.label?.trim();
-  const automationSourceLabel = (
-    automationSourceKind === "cron"
-    || automationSourceKind === "local_trigger"
-    || automationSourceKind === "trigger"
-  )
-    ? (automationSourceName || t("message.automationSourceFallback"))
-    : "";
-  const automationTriggeredLabel = t("message.automationTriggered");
 
   const showAssistantActions =
     message.role === "assistant" && !message.isStreaming && !isTurnStreaming && !empty;
@@ -498,19 +528,19 @@ export function MessageBubble({
     assistantTimestampLabel.length > 0
     && (!empty || hasReasoning || media.length > 0);
   const assistantTimestampTitle = showAssistantTimestamp ? fmtDateTime(assistantTimestamp) : "";
-  const showAutomationTrigger = showAssistantTimestamp && automationSourceLabel.length > 0;
   const voiceTurnId = message.turnId ?? message.voice?.audioId;
   const showVoiceButton = Boolean(voice && voiceTurnId && (
     message.voice?.url || voice.turn === voiceTurnId || voice.available.has(voiceTurnId)
   ));
+  const showUsage = message.role === "assistant" && !!message.usage && !message.isStreaming;
   const showAssistantFooterRow =
-    showCopyButton || showForkButton || showAssistantTimestamp || Boolean(channelSource) || showVoiceButton;
+    showCopyButton || showForkButton || showAssistantTimestamp || showVoiceButton || showUsage;
   const showAssistantFooterSlot =
     message.role === "assistant"
     && (!empty || hasReasoning || media.length > 0);
   return (
     <div className="w-full text-[15px]" style={{ lineHeight: "var(--cjk-line-height)" }}>
-      <DesktopIdentity />
+      {showAssistantIdentity ? <DesktopIdentity message /> : null}
       {hasReasoning ? (
         <ReasoningBubble
           text={reasoning}
@@ -571,7 +601,8 @@ export function MessageBubble({
                 </TooltipTrigger>
                 <TooltipContent side="top" align="center">{forkLabel}</TooltipContent>
               </Tooltip>
-            ) : null}
+              ) : null}
+            {showUsage ? <TurnUsageMeta usage={message.usage!} latencyMs={message.latencyMs} /> : null}
             {showAssistantTimestamp ? (
               <MessageTimestamp
                 {...(showCompletedAt ? { "data-assistant-completed-at": true } : {})}
@@ -582,13 +613,6 @@ export function MessageBubble({
                 {assistantTimestampLabel}
               </MessageTimestamp>
             ) : null}
-            {showAutomationTrigger ? (
-              <AutomationTriggerMeta
-                label={automationTriggeredLabel}
-                sourceLabel={automationSourceLabel}
-              />
-            ) : null}
-            {channelSource ? <span data-channel-source className="text-xs">{channelSource}</span> : null}
           </div>
         </TooltipProvider>
       ) : null}
@@ -610,26 +634,6 @@ function UserQuotedContext({ text, label }: { text: string; label: string }) {
         {text}
       </p>
     </blockquote>
-  );
-}
-
-function AutomationTriggerMeta({ label, sourceLabel }: { label: string; sourceLabel: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          data-automation-trigger
-          tabIndex={0}
-          className={cn(
-            "shrink-0 cursor-help text-[11px] leading-none text-muted-foreground/70 tabular-nums",
-            "focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          )}
-        >
-          {label}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top" align="center">{sourceLabel}</TooltipContent>
-    </Tooltip>
   );
 }
 

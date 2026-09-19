@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MessageBubble } from "@/components/MessageBubble";
+import { MessageSourceBadge } from "@/components/MessageSourceBadge";
+import { DesktopIdentity } from "@/providers/DesktopAppearanceProvider";
 import { AgentActivityCluster } from "@/components/thread/AgentActivityCluster";
 import { AssistantSelectionAction } from "@/components/thread/AssistantSelectionAction";
 import { projectActivityTimeline, type TurnUnit } from "@/lib/activity-timeline";
@@ -60,6 +62,42 @@ export function assistantForkFlags(units: DisplayUnit[]): boolean[] {
   return flags;
 }
 
+/** Return one identity/source message for the first assistant unit of each turn. */
+export function assistantTurnHeaderMessages(units: DisplayUnit[]): Array<UIMessage | null> {
+  const descriptors: Array<{ index: number; key: string; messages: UIMessage[] }> = [];
+  let fallbackTurn = 0;
+  units.forEach((unit, index) => {
+    if (unit.type === "message" && unit.message.role === "user") {
+      fallbackTurn += 1;
+      return;
+    }
+    if (unit.type === "message" && unit.message.kind === "compaction") return;
+    const messages = unit.type === "activity" ? unit.messages : [unit.message];
+    const turnId = messages.find((message) => message.turnId)?.turnId;
+    descriptors.push({ index, key: turnId ?? `fallback:${fallbackTurn}`, messages });
+  });
+  const sourceByTurn = new Map<string, UIMessage>();
+  for (const descriptor of descriptors) {
+    const candidate = descriptor.messages.find((message) => message.source?.kind)
+      ?? descriptor.messages.find((message) => message.role === "assistant")
+      ?? descriptor.messages[0];
+    if (!candidate) continue;
+    const current = sourceByTurn.get(descriptor.key);
+    if (!current || (!current.source?.kind && candidate.source?.kind)) {
+      sourceByTurn.set(descriptor.key, candidate);
+    }
+  }
+  const headers = new Array<UIMessage | null>(units.length).fill(null);
+  const seen = new Set<string>();
+  for (const descriptor of descriptors) {
+    if (seen.has(descriptor.key)) continue;
+    seen.add(descriptor.key);
+    headers[descriptor.index] = sourceByTurn.get(descriptor.key) ?? null;
+  }
+  return headers;
+}
+
+/** Show one assistant identity before the first activity/answer unit of each turn. */
 export function ThreadMessages({
   messages,
   temporary = false,
@@ -89,6 +127,7 @@ export function ThreadMessages({
     [forkBoundaryMessageCount, units],
   );
   const forkFlags = useMemo(() => assistantForkFlags(units), [units]);
+  const turnHeaders = useMemo(() => assistantTurnHeaderMessages(units), [units]);
   const liveActivityClusterIndices = useMemo(
     () => isStreaming
       ? currentActivityClusterIndices(units, activeTurnId)
@@ -174,6 +213,7 @@ export function ThreadMessages({
             }
             forkIndex={forkIndex}
             showForkBoundary={index === forkBoundaryAfterUnitIndex}
+            assistantIdentityMessage={turnHeaders[index]}
             forkBoundaryLabel={t("thread.forkedFromHistory")}
             temporary={temporary}
             cliApps={cliApps}
@@ -188,6 +228,7 @@ export function ThreadMessages({
       })}
       {pendingActivity ? (
         <div className={units.length > 0 ? "mt-5" : undefined}>
+          <AssistantTurnIdentity source={pendingActivity.source} />
           <AgentActivityCluster
             messages={[]}
             isTurnStreaming
@@ -207,6 +248,7 @@ export function ThreadMessages({
 interface PendingTurnProjection {
   startedAtMs?: number;
   hasVisibleOutput: boolean;
+  source?: UIMessage["source"];
 }
 
 function pendingTurnProjection(
@@ -244,6 +286,7 @@ function pendingTurnProjection(
     ...(typeof prompt.createdAt === "number" && Number.isFinite(prompt.createdAt)
       ? { startedAtMs: prompt.createdAt }
       : {}),
+    ...(prompt.source ? { source: prompt.source } : {}),
     hasVisibleOutput,
   };
 }
@@ -259,6 +302,7 @@ interface ThreadDisplayUnitProps {
   retryStatus: RetryStatus | null;
   forkIndex?: number;
   showForkBoundary: boolean;
+  assistantIdentityMessage: UIMessage | null;
   forkBoundaryLabel: string;
   temporary: boolean;
   cliApps: CliAppInfo[];
@@ -281,6 +325,7 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
   retryStatus,
   forkIndex,
   showForkBoundary,
+  assistantIdentityMessage,
   forkBoundaryLabel,
   temporary,
   cliApps,
@@ -325,7 +370,9 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
         data-thread-display-unit={unitKey}
         data-user-prompt-id={userPromptId}
       >
-        {retainContent ? unit.type === "activity" ? (
+        {retainContent ? <>
+          {assistantIdentityMessage ? <AssistantTurnIdentity source={assistantIdentityMessage.source} /> : null}
+          {unit.type === "activity" ? (
           <AgentActivityCluster
             messages={unit.messages}
             isTurnStreaming={isTurnStreaming}
@@ -342,6 +389,7 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
         ) : (
           <MessageBubble
             message={unit.message}
+            showAssistantIdentity={false}
             isTurnStreaming={isTurnStreaming}
             temporary={temporary}
             cliApps={cliApps}
@@ -350,7 +398,8 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
             onOpenFilePreview={onOpenFilePreview}
             onForkFromHere={forkIndex !== undefined && onForkFromMessage ? onForkFromHere : undefined}
           />
-        ) : null}
+        )}
+        </> : null}
       </div>
       {showForkBoundary ? <ForkBoundaryDivider label={forkBoundaryLabel} /> : null}
     </>
@@ -371,6 +420,7 @@ function threadDisplayUnitPropsEqual(
     && previous.retryStatus === next.retryStatus
     && previous.forkIndex === next.forkIndex
     && previous.showForkBoundary === next.showForkBoundary
+    && previous.assistantIdentityMessage === next.assistantIdentityMessage
     && previous.forkBoundaryLabel === next.forkBoundaryLabel
     && previous.temporary === next.temporary
     && previous.cliApps === next.cliApps
@@ -381,6 +431,13 @@ function threadDisplayUnitPropsEqual(
     && previous.onOpenFilePreview === next.onOpenFilePreview
     && previous.onForkFromMessage === next.onForkFromMessage
   );
+}
+
+function AssistantTurnIdentity({ source }: { source?: UIMessage["source"] }) {
+  return <div data-testid="assistant-turn-identity" className="mb-2 flex min-h-9 items-center gap-1">
+    <DesktopIdentity message />
+    <MessageSourceBadge source={source} />
+  </div>;
 }
 
 function activeTurnStartIndex(units: DisplayUnit[], activeTurnId: string | null): number {

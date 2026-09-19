@@ -511,6 +511,25 @@ def test_save_turn_keeps_multimodal_runtime_context_for_model_replay() -> None:
     assert public_history_message(session.messages[0])["content"] == []
 
 
+def test_save_turn_persists_usage_for_unified_history_projection() -> None:
+    loop = _mk_loop()
+    session = Session(key="unified:default")
+    usage = {"prompt_tokens": 1200, "completion_tokens": 80, "context_tokens": 1100}
+    rounds = [{"prompt_tokens": 700}, {"prompt_tokens": 1200, "completion_tokens": 80}]
+    loop._save_turn(
+        session,
+        [{"role": "assistant", "content": "answer"}],
+        skip=0,
+        usage=usage,
+        round_usages=rounds,
+        context_window_tokens=32_000,
+    )
+    saved = session.messages[-1]
+    assert saved["usage"] == usage
+    assert saved["round_usages"] == rounds
+    assert saved["context_window_tokens"] == 32_000
+
+
 def test_save_turn_commits_summary_boundary_without_rewriting_raw_history() -> None:
     loop = _mk_loop()
     session = Session(key="test:summary-checkpoint")

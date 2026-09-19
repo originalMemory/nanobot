@@ -22,7 +22,7 @@ from loguru import logger
 
 from nanobot.config.paths import get_media_dir, get_webui_dir
 from nanobot.runtime_context import public_history_message
-from nanobot.session.automation_turns import is_automation_kind
+from nanobot.session.automation_turns import AUTOMATION_HISTORY_META, is_automation_kind
 from nanobot.session.history_visibility import is_hidden_history_message
 from nanobot.session.manager import SessionManager
 from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY, WEBUI_TURN_METADATA_KEY
@@ -1618,6 +1618,18 @@ def _session_assistant_event(
         event["media"] = media_paths
     if isinstance(message.get("voice"), dict):
         event["voice"] = dict(message["voice"])
+    usage = _sanitize_turn_usage(message.get("usage"))
+    if usage:
+        event["usage"] = usage
+    raw_round_usages = message.get("round_usages")
+    if isinstance(raw_round_usages, list):
+        round_usages = [item for value in cast(list[object], raw_round_usages)
+                        if (item := _sanitize_turn_usage(value))]
+        if round_usages:
+            event["round_usages"] = round_usages
+    context_window = message.get("context_window_tokens")
+    if isinstance(context_window, int) and context_window > 0:
+        event["context_window_tokens"] = context_window
     latency_ms = message.get("latency_ms")
     if isinstance(latency_ms, int | float) and latency_ms >= 0:
         event["latency_ms"] = int(latency_ms)
@@ -3031,6 +3043,18 @@ def replay_transcript_to_ui_messages(
             lat = rec.get("latency_ms")
             if isinstance(lat, (int, float)) and lat >= 0:
                 extra["latencyMs"] = int(lat)
+            usage = _sanitize_turn_usage(rec.get("usage"))
+            if usage:
+                extra["usage"] = usage
+            raw_round_usages = rec.get("round_usages")
+            if isinstance(raw_round_usages, list):
+                round_usages = [item for value in cast(list[object], raw_round_usages)
+                                if (item := _sanitize_turn_usage(value))]
+                if round_usages:
+                    extra["roundUsages"] = round_usages
+            context_window = rec.get("context_window_tokens")
+            if isinstance(context_window, int) and context_window > 0:
+                extra["contextWindowTokens"] = context_window
             extra.update(_turn_fields(rec, "answer"))
             extra.update(_source_fields(rec))
             absorb_complete(extra, idx, _created_at_ms(rec, idx))
@@ -3324,6 +3348,7 @@ def build_session_thread_response(
     turns: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
     pending_tools: dict[str, dict[str, Any]] = {}
+    turn_source: dict[str, str] | None = None
     chat_id = session_key.split(":", 1)[-1]
 
     def text_content(value: Any) -> str:
@@ -3342,6 +3367,26 @@ def build_session_thread_response(
         return ""
 
     for stored in session_messages:
+        automation = stored.get(AUTOMATION_HISTORY_META)
+        if isinstance(automation, Mapping):
+            automation_data = cast(Mapping[str, Any], automation)
+            if current:
+                turns.append(current)
+            current = []
+            pending_tools = {}
+            kind_value = automation_data.get("kind")
+            kind = kind_value if isinstance(kind_value, str) else None
+            turn_source = (
+                {"kind": kind}
+                if kind is not None and is_automation_kind(kind)
+                else None
+            )
+            if turn_source is not None:
+                label_key = "cron_job_name" if kind == "cron" else "trigger_name"
+                label = automation_data.get(label_key)
+                if isinstance(label, str) and label.strip():
+                    turn_source["label"] = label.strip()
+            continue
         if is_hidden_history_message(stored) or _is_legacy_raw_subagent_result(stored):
             continue
         message = public_history_message(stored)
@@ -3353,13 +3398,19 @@ def build_session_thread_response(
             turns.append(current)
             current = []
             pending_tools = {}
+        if role == "user":
+            turn_source = None
         base: dict[str, Any] = {"chat_id": chat_id, "created_at_ms": 0}
         source_channel = message.get("source_channel")
         if (
             isinstance(source_channel, str) and source_channel
             and (source_channel, message.get("source_chat_id")) != ("websocket", DESKTOP_CHAT_ID)
         ):
-            base["source"] = {"kind": "channel", "label": source_channel}
+            channel_source = {"kind": "channel", "label": source_channel}
+            base["source"] = channel_source
+            turn_source = channel_source
+        elif role != "user" and turn_source is not None:
+            base["source"] = turn_source
         timestamp = message.get("timestamp")
         if isinstance(timestamp, str):
             try:

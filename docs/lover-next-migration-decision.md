@@ -670,3 +670,9 @@ Electron 图标改为 NAS `.nanobot/media/avatar.png` 的项目副本。应用�
 NAS 源码运行恢复 lover 方式：Compose 设置 `PYTHONPATH=/home/nanobot/src`，`/restart` 现有 `os.execv` 会从挂载源码重新加载。普通 Python 改动无需 build；依赖、系统包和 Dockerfile 改动仍需重建，Compose 环境首次变化需重建容器但不重建镜像。
 
 桌面身份不再保存独立 Electron `appearance.name/icon`，设置页直接读取和更新 gateway `agents.defaults.bot_name/bot_icon`；固定头像仍读取 gateway media/avatar。Electron 本地 store 只保留壁纸及其他真正属于本机的偏好。
+
+伴侣面板交互修复：Electron 已有外层 30px 自定义标题栏时，不再渲染 WebUI 内部 44px `HostChrome` 拖拽层；原生环境标记仍保留。此前两层 drag region 重叠覆盖面板标题，导致移动和收起按钮无法命中。
+
+消息身份最终布局：流式与历史回放按 turn 共用一条顶部身份行，完整显示头像、较大昵称和来源徽章；思考、工具活动和正文统一排在身份行下方，同一轮只显示一次。昵称沿用 lover 的 rose 色阶。渠道使用带品牌色的小胶囊，cron 使用 violet 胶囊，其他主动触发使用 amber 胶囊，不再在消息 footer 重复展示来源。
+
+上下文 token 入口修复：统一会话原文投影会带回已保存 usage、round usages 和 context-window；新轮次也把这些字段写入 canonical session。旧历史只有 context_tokens 时使用当前活动模型的 context-window 补齐圆形比例入口。Electron 固定入口的所有可见“统一收件箱”文案改为“聊天”，内部统一会话路由不变。

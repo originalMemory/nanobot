@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 from nanobot.runtime_context import RUNTIME_CONTEXT_HISTORY_META
+from nanobot.session.automation_turns import AUTOMATION_HISTORY_META
 from nanobot.session.history_visibility import HIDDEN_HISTORY_META
 from nanobot.webui.transcript import (
     append_transcript_object,
@@ -83,6 +84,43 @@ def test_empty_and_active_session_do_not_require_display_transcripts():
     result = build([{"role": "user", "content": "running"}], active_turn_id="turn-1", active_turn_started_at=12)
     assert result["has_pending_tool_calls"]
     assert result["active_turn_id"] == "turn-1"
+
+
+def test_unified_history_projects_usage_for_composer_meter():
+    result = build([
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": "answer",
+         "usage": {"prompt_tokens": 1200, "completion_tokens": 80, "context_tokens": 1100},
+         "round_usages": [{"prompt_tokens": 700}, {"prompt_tokens": 1200}],
+         "context_window_tokens": 32_000},
+    ])
+    answer = result["messages"][-1]
+    assert answer["usage"]["context_tokens"] == 1100
+    assert answer["roundUsages"][-1]["prompt_tokens"] == 1200
+    assert answer["contextWindowTokens"] == 32_000
+
+
+def test_unified_history_carries_channel_source_to_assistant():
+    result = build([
+        {"role": "user", "content": "question", "source_channel": "telegram", "source_chat_id": "1"},
+        {"role": "assistant", "content": "answer"},
+    ])
+    assert result["messages"][-1]["source"] == {"kind": "channel", "label": "telegram"}
+
+
+def test_unified_history_keeps_automation_as_a_separate_sourced_turn():
+    result = build([
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "scheduled", AUTOMATION_HISTORY_META: {
+            "kind": "cron", "cron_job_name": "drink water",
+        }},
+        {"role": "assistant", "content": "scheduled answer"},
+    ])
+    previous, scheduled = result["messages"][-2:]
+    assert previous["content"] == "answer"
+    assert scheduled["content"] == "scheduled answer"
+    assert scheduled["source"] == {"kind": "cron", "label": "drink water"}
 
 
 def test_completion_markers_survive_rotation_and_exclude_unfinished_turns(tmp_path, monkeypatch):

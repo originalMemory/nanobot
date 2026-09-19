@@ -22,7 +22,7 @@ function props(): ComponentProps<typeof Sidebar> {
 it.each([false, true])("桌面侧栏只保留统一入口，折叠=%s", (collapsed) => {
   const callbacks = props();
   render(<Sidebar {...callbacks} fixedChatKey="websocket:desktop" collapsed={collapsed} />);
-  const inbox = screen.getByRole("button", { name: "Unified inbox" });
+  const inbox = screen.getByRole("button", { name: "Chat" });
   fireEvent.click(inbox);
   expect(callbacks.onSelect).toHaveBeenCalledWith("websocket:desktop");
   expect(screen.queryByText("Old topic")).not.toBeInTheDocument();
@@ -34,7 +34,7 @@ it.each([false, true])("桌面侧栏只保留统一入口，折叠=%s", (collaps
 it("普通浏览器保留旧话题列表", () => {
   render(<Sidebar {...props()} />);
   expect(screen.getByText("Old topic")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Unified inbox" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Chat" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Quit app" })).not.toBeInTheDocument();
 });
 

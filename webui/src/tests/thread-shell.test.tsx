@@ -731,6 +731,34 @@ describe("ThreadShell", () => {
     }
   });
 
+  it("uses the active model limit when unified history has usage but no saved capacity", async () => {
+    const client = makeClient();
+    const settings = modelSettings("test-model", "deepseek");
+    settings.model_presets.push({
+      ...settings.model_presets[0],
+      name: "small",
+      label: "Small",
+      active: false,
+      is_default: false,
+      context_window_tokens: 32_000,
+    });
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => Promise.resolve(
+      String(input).includes("websocket%3Ausage-fallback/webui-thread")
+        ? httpJson({ schemaVersion: 3, messages: [{
+          id: "answer", role: "assistant", content: "answer", createdAt: 1_000,
+          usage: { context_tokens: 16_000 },
+        }] })
+        : { ok: false, status: 404, json: async () => ({}) },
+    )));
+    render(wrap(client, <ThreadShell
+      session={session("usage-fallback", "small")} title="Usage fallback" onToggleSidebar={() => {}}
+      settingsSnapshot={settings}
+    />));
+    expect(await screen.findByTestId("composer-context-usage")).toHaveAccessibleName(
+      "Context 50%. Open context usage",
+    );
+  });
+
   it("moves the session handle into the pane only when the workbench is split", () => {
     const client = makeClient();
     const portal = document.createElement("div");

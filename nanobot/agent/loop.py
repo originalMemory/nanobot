@@ -179,6 +179,7 @@ class TurnContext:
     visible_run_started_at: float | None = None
     turn_latency_ms: int | None = None
     usage: LLMUsage | None = None
+    round_usages: list[LLMUsage] = field(default_factory=list)
 
     def require_runtime(self) -> LLMRuntime:
         """Return the runtime established by the BUILD stage."""
@@ -2017,6 +2018,7 @@ class AgentLoop:
         ):
             ctx.suppress_response = True
         ctx.usage = result.usage
+        ctx.round_usages = list(result.round_usages)
         ctx.delivery.record_usage(result.round_usages)
         if ctx.kind is TurnKind.USER:
             await turn_continuation.maybe_continue_turn(ctx)
@@ -2049,6 +2051,9 @@ class AgentLoop:
             turn_latency_ms=ctx.turn_latency_ms,
             summary_checkpoint=ctx.summary_checkpoint,
             input_persisted_early=ctx.input_persisted_early,
+            usage=ctx.usage.to_turn_dict() if ctx.usage is not None else None,
+            round_usages=[usage.to_turn_dict() for usage in ctx.round_usages],
+            context_window_tokens=(ctx.runtime.context_window_tokens if ctx.runtime else None),
             voice=(ctx.request_context.attributes.get("voice")
                             if ctx.request_context else None),
         )
@@ -2158,6 +2163,9 @@ class AgentLoop:
         turn_latency_ms: int | None = None,
         summary_checkpoint: SessionSummaryCheckpoint | None = None,
         input_persisted_early: bool = False,
+        usage: dict[str, int] | None = None,
+        round_usages: list[dict[str, int]] | None = None,
+        context_window_tokens: int | None = None,
         voice: dict[str, Any] | None = None,
     ) -> None:
         """Commit new-turn messages and an optional summary boundary."""
@@ -2295,6 +2303,12 @@ class AgentLoop:
             session.commit_summary_checkpoint(summary_checkpoint.summary)
         if turn_latency_ms is not None and last_assistant_idx is not None:
             session.messages[last_assistant_idx]["latency_ms"] = int(turn_latency_ms)
+        if usage and last_assistant_idx is not None:
+            session.messages[last_assistant_idx]["usage"] = dict(usage)
+        if round_usages and last_assistant_idx is not None:
+            session.messages[last_assistant_idx]["round_usages"] = [dict(item) for item in round_usages]
+        if context_window_tokens is not None and last_assistant_idx is not None:
+            session.messages[last_assistant_idx]["context_window_tokens"] = context_window_tokens
         if voice and last_assistant_idx is not None:
             session.messages[last_assistant_idx]["voice"] = dict(voice)
         if saved_followup_ids:

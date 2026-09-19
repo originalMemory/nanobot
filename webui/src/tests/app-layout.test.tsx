@@ -357,6 +357,7 @@ describe("App layout", () => {
       save: vi.fn(), choose: vi.fn(), wallpaper: vi.fn().mockResolvedValue("data:image/jpeg;base64,ZmFrZQ=="),
     };
     window.nanobotHost = { appearance };
+    mockFetchRoutes({ "/api/settings": baseSettingsPayload() });
     const descriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
     vi.mocked(fetchBootstrap).mockRejectedValueOnce(new BootstrapAuthRequiredError());
@@ -2061,6 +2062,20 @@ describe("App layout", () => {
     await waitFor(() => {
       expect(screen.getByTestId("sidebar-brand-mark")).toHaveClass("mt-5");
     });
+    expect(document.documentElement).toHaveClass("native-host");
+  });
+
+  it("does not overlay the Electron titlebar with the WebUI drag region", async () => {
+    Reflect.set(window, "nanobotHost", { windowControls: {
+      isMac: false, read: async () => false, action: vi.fn(), onState: () => () => {},
+    } });
+    mockFetchRoutes({ "/api/settings": baseSettingsPayload() });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    expect(screen.getByTestId("desktop-titlebar")).toBeInTheDocument();
+    expect(document.querySelector(".host-drag-region")).toBeNull();
     expect(document.documentElement).toHaveClass("native-host");
   });
 

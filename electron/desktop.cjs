@@ -18,7 +18,7 @@ function installDesktop({ store, getWindow, showWindow, electron = require('elec
   const tray = new Tray(icon);
   tray.setToolTip('Nanobot');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '显示统一收件箱', click: showWindow },
+    { label: '显示聊天', click: showWindow },
     { type: 'separator' },
     { label: '退出', click: () => app.quit() },
   ]));

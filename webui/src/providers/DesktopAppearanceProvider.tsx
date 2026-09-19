@@ -85,15 +85,17 @@ export function DesktopAppearanceProvider({ children }: { children: ReactNode })
   </AppearanceContext.Provider>;
 }
 
-export function DesktopIdentity({ compact = false }: { compact?: boolean }) {
+export function DesktopIdentity({ compact = false, message = false }: { compact?: boolean; message?: boolean }) {
   const appearance = useDesktopAppearance();
   const config = appearance?.config;
   const [failedAvatar, setFailedAvatar] = useState(false);
   if (!config) return null;
-  return <span className="inline-flex min-w-0 max-w-full items-center gap-2" data-testid="desktop-identity">
+  return <span className={`inline-flex min-w-0 max-w-full items-center gap-2 ${message ? "min-h-9" : ""}`} data-testid="desktop-identity">
     {!failedAvatar
-      ? <img src="/api/avatar" alt="" onError={() => setFailedAvatar(true)} className="h-8 w-8 shrink-0 rounded-full object-cover" />
-      : <span className="flex h-8 w-8 shrink-0 items-center justify-center text-xl" aria-hidden>{config.icon || config.name.slice(0, 1)}</span>}
-    {!compact ? <span className="truncate text-sm font-medium text-foreground">{config.name}</span> : null}
+      ? <img src="/api/avatar" alt="" onError={() => setFailedAvatar(true)} className={`${message ? "h-9 w-9" : "h-8 w-8"} shrink-0 rounded-full object-cover`} />
+      : <span className={`flex ${message ? "h-9 w-9" : "h-8 w-8"} shrink-0 items-center justify-center text-xl`} aria-hidden>{config.icon || config.name.slice(0, 1)}</span>}
+    {!compact ? <span className={message
+      ? "truncate text-base font-medium text-rose-500/85 dark:text-rose-300/85"
+      : "truncate text-sm font-medium text-foreground"}>{config.name}</span> : null}
   </span>;
 }

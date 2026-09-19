@@ -860,10 +860,6 @@ export function ThreadShell({
   }, []);
 
   const displayMessages = useMemo(() => projectWebuiThreadMessages(messages), [messages]);
-  const composerContextUsage = useMemo(
-    () => latestComposerContextUsage(displayMessages),
-    [displayMessages],
-  );
   const composerRoundUsage = useMemo(
     () => recentComposerRoundUsage(displayMessages),
     [displayMessages],
@@ -967,6 +963,18 @@ export function ThreadShell({
       : null)
     || settings?.agent.model_preset
     || "default"
+  );
+  const activeContextWindowTokens = settings?.model_presets.find(
+    (preset) => preset.name === activeModelPreset,
+  )?.context_window_tokens ?? settings?.agent.context_window_tokens;
+  const composerContextUsage = useMemo(
+    () => {
+      const usage = latestComposerContextUsage(displayMessages);
+      if (!usage) return null;
+      return { ...usage, contextWindowTokens: usage.contextWindowTokens
+        ?? activeContextWindowTokens };
+    },
+    [activeContextWindowTokens, displayMessages],
   );
   const handleModelPresetChange = useCallback((name: string) => {
     setLocalModelPreset(name);

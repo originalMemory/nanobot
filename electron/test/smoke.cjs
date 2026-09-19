@@ -288,7 +288,7 @@ async function main() {
       await until(() => chat.evaluate(`Array.from(document.querySelectorAll('button')).some(button => button.textContent === 'README.md')`), 'gateway 目录列表');
       await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'README.md').click()`);
         await until(() => chat.evaluate('document.querySelector("article")?.innerText.includes("Workspace document")'), 'Markdown 预览');
-        assert.equal(await chat.evaluate('Boolean(document.querySelector(".host-drag-region button"))'), false);
+        assert.equal(await chat.evaluate('Boolean(document.querySelector(".host-drag-region"))'), false);
       assert.equal(await chat.evaluate('Boolean(document.querySelector("select[aria-label=Library]"))'), false);
       await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'memory').click()`);
       await until(() => chat.evaluate(`Array.from(document.querySelectorAll('button')).some(button => button.textContent === 'MEMORY.md')`), '展开目录');
@@ -298,7 +298,7 @@ async function main() {
       await until(() => chat.evaluate(`Array.from(document.querySelectorAll('button')).some(button => button.textContent === 'Today’s diary')`), '今日日记入口');
       await chat.evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Today’s diary').click()`);
         await until(() => chat.evaluate('document.querySelector("article")?.innerText.includes("Diary fixture")'), '今日日记预览');
-        assert.equal(await chat.evaluate('Boolean(document.querySelector(".host-drag-region button"))'), false);
+        assert.equal(await chat.evaluate('Boolean(document.querySelector(".host-drag-region"))'), false);
       assert.equal(await chat.evaluate(`['日记', '2026', '09'].every(name => Array.from(document.querySelectorAll('button')).find(button => button.textContent === name)?.getAttribute('aria-expanded') === 'true')`), true);
         await until(() => chat.evaluate('document.querySelector("article img")?.naturalWidth > 0'), '括号文件名图片映射');
         await until(() => chat.evaluate(`document.querySelector('.diary-document img[alt="photo.webp"]')?.naturalWidth === 480`), 'WebP 正文图片');
@@ -364,7 +364,7 @@ async function main() {
     await until(() => calls.includes('/webui/bootstrap'), 'bootstrap');
     await until(() => chat.evaluate('Boolean(document.querySelector("textarea"))'), '上游聊天输入框');
     await until(() => chat.evaluate('document.body.innerText.includes("统一历史已加载")'), '加载统一历史');
-    await until(() => chat.evaluate('Boolean(document.querySelector("nav")?.innerText.match(/Unified inbox|统一收件箱/))'), '统一收件箱入口');
+    await until(() => chat.evaluate('Boolean(document.querySelector("nav")?.innerText.match(/Chat|聊天/))'), '聊天入口');
     assert.equal(await chat.evaluate('document.body.innerText.includes("OLD-TEST-RESIDUE")'), false);
     assert.equal(await chat.evaluate('typeof require'), 'undefined');
     assert.equal(await chat.evaluate('typeof window.desktopSetup'), 'undefined');
@@ -404,7 +404,7 @@ async function main() {
     );
     for (const client of wss.clients) client.send(JSON.stringify({ event: 'session_updated', chat_id: chatId, scope: 'thread' }));
     await until(() => chat.evaluate('document.body.innerText.includes("外部渠道回复已自动同步")'), '外部消息自动同步（不刷新窗口）');
-    assert.equal(await chat.evaluate('document.querySelectorAll("[data-channel-source]").length'), 2);
+    assert.equal(await chat.evaluate('document.querySelectorAll("[data-message-source=channel]").length'), 1);
     for (const client of wss.clients) client.send(JSON.stringify({ event: 'session_updated', chat_id: chatId, scope: 'thread' }));
     await sleep(500);
     assert.equal(await chat.evaluate('document.body.innerText.split("外部渠道回复已自动同步。").length - 1'), 1);

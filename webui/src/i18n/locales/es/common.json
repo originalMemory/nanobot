@@ -116,7 +116,7 @@
   },
   "sidebar": {
     "quit": "Salir de la aplicación",
-    "unifiedInbox": "Bandeja de entrada unificada",
+    "chat": "Chat",
     "resize": "Cambiar el ancho de la barra lateral",
     "navigation": "Navegación de la barra lateral",
     "collapse": "Contraer barra lateral",

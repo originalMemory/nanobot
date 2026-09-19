@@ -225,7 +225,7 @@ export function Sidebar(props: SidebarProps) {
         {props.fixedChatKey && (
           <SidebarActionButton
             collapsed={collapsed}
-            label={t("sidebar.unifiedInbox", { defaultValue: "Unified inbox" })}
+            label={t("sidebar.chat", { defaultValue: "Chat" })}
             onClick={() => props.onSelect(props.fixedChatKey!)}
             active={props.activeKey === props.fixedChatKey}
             selectionRef={activeActionRef}
