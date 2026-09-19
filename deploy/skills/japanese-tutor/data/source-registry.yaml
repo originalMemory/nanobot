@@ -1,0 +1,88 @@
+schema_version: 1
+sources:
+  - id: jlpt-official
+    name: JLPT 官方网站
+    url: https://www.jlpt.jp/
+    license: 官方网站内容；仅作题型、等级与考试信息参考
+    trust: official
+    allowed_uses:
+      - 题型校准
+      - 等级说明
+      - 时效信息核验
+    redistributable: false
+    attribution: JLPT 官方网站
+
+  - id: standard-japanese-publisher
+    name: 新版《中日交流标准日本语》出版社目录
+    url: https://www.pep.com.cn/products/zhytu/dzhtsh/201905/t20190522_1938494.shtml
+    license: 教材与配套音频受版权保护；仅记录目录和等级定位
+    trust: official
+    allowed_uses:
+      - 课程骨架
+      - 等级定位
+    redistributable: false
+    attribution: 人民教育出版社、光村图书出版株式会社
+
+  - id: irodori
+    name: "Irodori: Japanese for Life in Japan"
+    url: https://www.irodori.jpf.go.jp/en/
+    license: 日本国际交流基金会教材；不批量复制内容
+    trust: official
+    allowed_uses:
+      - 入门课程补位
+      - 场景与 Can-do 参考
+    redistributable: false
+    attribution: The Japan Foundation
+
+  - id: jmdict-edrdg
+    name: JMdict/JMnedict/KANJIDIC
+    url: https://www.edrdg.org/jmdict/j_jmdict.html
+    license: CC BY-SA 4.0
+    trust: dictionary
+    allowed_uses:
+      - 词义核验
+      - 词性与读音核验
+      - 例句关联
+    redistributable: true
+    attribution: EDRDG
+
+  - id: ojad
+    name: OJAD 在线日语音调辞典
+    url: https://www.gavo.t.u-tokyo.ac.jp/ojad/eng/pages/home
+    license: 网站内容；仅作音调事实核验
+    trust: dictionary
+    allowed_uses:
+      - 东京式音调核验
+    redistributable: false
+    attribution: 东京大学 OJAD
+
+  - id: yomitan-jlpt-vocab
+    name: Yomitan JLPT 词汇标签
+    url: https://github.com/stephenmk/yomitan-jlpt-vocab
+    license: CC BY-SA 4.0
+    trust: community
+    allowed_uses:
+      - 社区等级候选
+    redistributable: true
+    attribution: Stephen Kraus、Jonathan Waller
+
+  - id: wordfreq
+    name: wordfreq 日语词频
+    url: https://github.com/rspeer/wordfreq
+    license: 使用前核对上游数据许可；本项目只作排序参考
+    trust: community
+    allowed_uses:
+      - 词汇优先级排序
+    redistributable: false
+    attribution: wordfreq contributors
+
+  - id: tatoeba
+    name: Tatoeba 日语例句
+    url: https://tatoeba.org/ja/
+    license: CC BY 2.0 FR；音频许可单独核验
+    trust: corpus
+    allowed_uses:
+      - 例句候选
+      - 搭配核验
+    redistributable: true
+    attribution: Tatoeba contributors

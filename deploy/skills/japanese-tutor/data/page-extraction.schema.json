@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "source", "page_kind", "unit", "lesson", "continuation",
+    "section_titles", "grammar_points", "communication_functions", "pragmatics",
+    "vocabulary_domains", "exercise_types", "uncertain", "verification"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["book_id", "pdf_page", "printed_page"],
+      "properties": {
+        "book_id": {"type": "string"},
+        "pdf_page": {"type": "integer", "minimum": 1},
+        "printed_page": {"type": ["integer", "null"]}
+      }
+    },
+    "page_kind": {
+      "enum": ["unit-overview", "basic-text", "grammar", "expression", "applied-text", "exercise", "vocabulary", "contents", "appendix", "other"]
+    },
+    "unit": {"type": ["integer", "null"], "minimum": 1},
+    "lesson": {"type": ["integer", "null"], "minimum": 1},
+    "continuation": {"type": "boolean"},
+    "section_titles": {"type": "array", "items": {"type": "string"}},
+    "grammar_points": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pattern", "function_cn", "formation", "constraints", "contrasts"],
+        "properties": {
+          "pattern": {"type": "string"},
+          "function_cn": {"type": "string"},
+          "formation": {"type": "string"},
+          "constraints": {"type": "array", "items": {"type": "string"}},
+          "contrasts": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "communication_functions": {"type": "array", "items": {"type": "string"}},
+    "pragmatics": {"type": "array", "items": {"type": "string"}},
+    "vocabulary_domains": {"type": "array", "items": {"type": "string"}},
+    "exercise_types": {"type": "array", "items": {"type": "string"}},
+    "uncertain": {"type": "array", "items": {"type": "string"}},
+    "verification": {"const": "candidate"}
+  }
+}

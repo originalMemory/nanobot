@@ -2,7 +2,7 @@
 
 更新：2026-09-18
 
-状态：F01 Electron、F02 统一收件箱、F03 桌面基础体验已完成；F04 聊天展示与设置已确认复用上游，待实际体验。F05 外观、F06 工作区与笔记浏览、F08 自动召回与主题卡、F09 Dream 个人化记忆、F10 原文保护与历史归档已完成；F11 定时任务已确认复用上游并验证，F12 按需桌面感知已完成；F13 MiniMax TTS 已完成；F14 本地伴侣视频已完成；F15/F16 按决定不迁移，下一项为 F17 技能。
+状态：F01 Electron、F02 统一收件箱、F03 桌面基础体验已完成；F04 聊天展示与设置已确认复用上游，待实际体验。F05 外观、F06 工作区与笔记浏览、F08 自动召回与主题卡、F09 Dream 个人化记忆、F10 原文保护与历史归档已完成；F11 定时任务已确认复用上游并验证，F12 按需桌面感知已完成；F13 MiniMax TTS 已完成；F14 本地伴侣视频已完成；F15/F16 按决定不迁移，F17 workspace 技能已完成并同步 NAS；下一项为 F18 部署收尾。
 
 ## 1. 总体方向
 
@@ -610,3 +610,28 @@ F14 尚未提交，需要重建并重启 Electron；未修改用户当前伴侣�
 F14 review 修复：视频分类变化时撤销旧 pending 与淡入淡出清理计时器，回到当前视频会卸载待加载层；快速反向切换复用同一 URL 时重新挂载待播放层，保证能收到有效加载事件。新增未加载完成与淡入淡出未结束两种反向切换回归。
 
 统一会话运行状态由 DesktopInboxCoordinator 维护并通过独立 companion_state 事件同步到桌面，QQ 等外部渠道可触发工作态；桌面重新订阅时补发当前快照，断线清空客户端缓存。原有聊天 goal_status、消息正文和任务控制不受影响。
+
+
+F14 已提交为 `cd7769ab`（`feat(companion): 迁移本地待机工作视频与统一会话状态`），未推送。
+
+## 27. F17 workspace 技能与 NAS 数据位置核对
+
+用户明确以 Unraid 为实际运行环境，非 TTS 部分可以直接复制现有代码。核对发现 NAS 上 japanese-tutor 比 lover 分支多了后续教材顺序、Anki 边界和 planner 调整，因此仓库 deploy/skills/japanese-tutor 以 NAS 当前非私密 bundle 为底稿，保留这些改动，只适配 tts_media.py 与对应测试，重新生成 POSIX 路径的校验清单。没有加入核心内置技能，也没有新增核心依赖。
+
+TTS 读取活动 MiniMax preset，从活动音色的 languageVoices.ja/default 读取日语音色，保留 --language ja|zh、句子卡 confirmed 和 listening-question 边界。按日语分段生成 PCM，再编码为 MP3；脚本自行用 FFmpeg 完成编码，不依赖 lover-next 新增的 SpeechService，允许技能先于新核心部署。生成失败清理临时文件，不创建 Anki 卡片。
+
+### NAS 审计结果
+
+- 目标为已有 V:/nanobot/.nanobot/workspace；Docker 挂载对应 /home/nanobot/.nanobot/workspace。
+- 42 个业务技能已经位于 workspace/skills；课程与候选、记忆、业务数据已位于 workspace/data、memory 等目录，无需再搬一套。
+- V:/nanobot/nanobot/skills 是程序内置技能，deploy/skills 是部署源码；.agent/.agents/.claude 下的技能是开发工具技能，不混入业务 workspace。旧内置 long-goal 使用已经变化的 long_task/complete_goal 接口，不迁入以免覆盖新核心目标机制。
+- 根目录 images/case 是项目展示资源；扫描未发现需要从源码树搬入 workspace 的 PDF、Anki collection 或业务数据库。日记等外部挂载继续使用原位置。
+- .nanobot/media、认证、cron、WebUI 等为实例运行目录，不搬进 workspace；尤其保留旧 speech.path 引用的音频位置。会话/调度的版本迁移留给 F18 对新核心迁移流程统一验证，不在运行中的 NAS 手工重排。
+
+### 已执行同步
+
+先完整备份 V:/nanobot/.nanobot/workspace/skills/japanese-tutor 到 V:/nanobot/.nanobot/backups/japanese-tutor-20260919-110640，然后仅原子更新 scripts/tts_media.py、tests/test_materials_tts.py 和 bundle-manifest.json。32 个受管理 bundle 文件校验一致，10 个私密配置、学习档案、课程和候选数据文件校验未变。NAS 目录未改名，其他技能未覆盖，未连接真实 Anki、生成付费语音或修改卡片。
+
+此前本机测试环境已安装 Sudachi 并复制技能与两份既有学习档案（未覆盖原文件）；按用户后续说明，不继续处理本机环境。最终 TTS/材料 5 项定向测试及课程静态数据校验通过。F17 仓库改动尚未提交，NAS 技能更新已完成。
+
+F17 review 修复：恢复 NAS 已在使用的全局音色来源与 --language ja|zh 接口，不再要求 japanese-tutor.private.json；纯文本按语言加标签，已有中日分段保留并按全局音色映射合成。同步修正材料文档和模拟回归，动态修改 ja 音色后生成参数随配置变化。4 项材料/TTS 测试通过；NAS 已重新备份至 //ILLUSION/appdata/nanobot/.nanobot/backups/japanese-tutor-tts-fix-20260919-120044 并更新脚本、测试、材料文档和 manifest，32 文件校验一致，10 个教学/私密文件未变。未调用真实语音服务或 Anki。
