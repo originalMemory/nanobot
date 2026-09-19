@@ -14,7 +14,7 @@ npm --prefix electron run dev
 
 先单独启动兼容 v0.3.5 的 gateway，或在连接页输入已有 NAS gateway 的 HTTP(S) origin，例如 `http://nas:8765`。认证密钥在上游登录界面填写，不放进地址。此客户端不启动、停止或修改 NAS gateway。
 
-`dev` 会构建当前 WebUI 再打开 Electron；改 UI 后重新运行即可。仅重新打开已构建界面使用 `npm --prefix electron start`。本阶段不另建 React 项目，也暂不提供 HMR。
+Electron 页面和脚本均从本地包加载，不依赖后端提供网页；纯 UI 更新无需重建后端。`dev` 会构建当前 WebUI 再打开 Electron；改 UI 后重新运行即可。仅重新打开已构建界面使用 `npm --prefix electron start`。本阶段不另建 React 项目，也暂不提供 HMR。
 
 可用环境变量指定初始后端：
 

@@ -656,3 +656,5 @@ F18 review 修复与最终方式：用户确认手动暂停旧服务后迁移，
 额外配置清理：删除 ActiveMemoryConfig 及模型/超时配置传递，恢复 lover 的 OLLAMA_MODEL 与 OLLAMA_TIMEOUT 常量；不再增加 enabled、model、timeoutSeconds 配置项。用户明确要求只迁移既有行为，缺失 Electron 偏好允许重新配置。
 
 AI 语音命名最终决定：界面统一称 AI 语音，组件/服务/事件/API/持久化字段统一使用 voice；文件位置改为 media/voice、Electron voice.json。用户明确不考虑兼容，因此不保留 speech 别名或迁移旧记录，覆盖前文关于旧 speech 字段直接回放的承诺。TTS 仅保留为合成工具、服务配置及厂商模型的技术名称，避免修改外部 API 模型标识。
+
+部署最终边界：用户只需要 Electron。Docker 已移除 Node/WebUI 构建阶段与网页产物复制，构建上下文排除根 webui 和 Electron；运行时沿用现有 NANOBOT_SKIP_WEBUI_BUILD 禁止自动构建。Electron 始终从本地 renderer 加载 UI，缺失资源不回退在线页面。纯 UI 修改只构建/打包 Electron；只有后端或通信协议变化才更新后端镜像。

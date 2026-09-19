@@ -16,5 +16,7 @@ workspace/
 .nanobot/
 .venv/
 electron/
+webui/
+packages/client-events/
 .pytest_cache/
 .ruff_cache/

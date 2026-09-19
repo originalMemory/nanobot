@@ -1,14 +1,3 @@
-FROM node:24-bookworm-slim AS webui-builder
-
-WORKDIR /app
-COPY webui/package.json webui/package-lock.json ./webui/
-WORKDIR /app/webui
-RUN npm ci
-COPY webui/ ./
-COPY packages/client-events/ /app/packages/client-events/
-COPY nanobot/channels/ /app/nanobot/channels/
-RUN mkdir -p /app/nanobot/web && npm run build
-
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
 
 RUN apt-get update && \
@@ -21,6 +10,8 @@ WORKDIR /app
 # channels may install their manifest-declared dependencies at startup.
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
+# Electron bundles its own UI. This image only serves backend APIs/WebSocket.
+ENV NANOBOT_SKIP_WEBUI_BUILD=1
 RUN uv venv --seed "$VIRTUAL_ENV"
 
 # Install Python dependencies first (cached layer). Hatch reads the custom build
@@ -40,7 +31,6 @@ RUN mkdir -p nanobot && touch nanobot/__init__.py && \
 # Copy the full source and install
 COPY nanobot/ nanobot/
 COPY scripts/install_channel_dependencies.py scripts/
-COPY --from=webui-builder /app/nanobot/web/dist/ nanobot/web/dist/
 RUN NANOBOT_SKIP_WEBUI_BUILD=1 uv pip install --python "$VIRTUAL_ENV/bin/python" --no-cache .
 
 # Preinstall selected channel dependencies from their manifests. A comma-separated

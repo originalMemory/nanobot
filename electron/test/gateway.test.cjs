@@ -33,6 +33,7 @@ test('本地静态资源与鉴权 API 共用 origin，bootstrap socket 指向所
   const dir = await mkdtemp(path.join(os.tmpdir(), 'nanobot-desktop-test-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   await writeFile(path.join(dir, 'index.html'), '<h1>local WebUI</h1>');
+  await writeFile(path.join(dir, 'app.js'), 'console.log("bundled locally")');
   const calls = [];
   const handler = createHandler({ rendererDir: dir, gateway: 'https://nas.example:8765',
     fetch: async (url, options) => {
@@ -45,6 +46,9 @@ test('本地静态资源与鉴权 API 共用 origin，bootstrap socket 指向所
   });
   assert.equal(await (await handler(new Request('nanobot://desktop/'))).text(), '<h1>local WebUI</h1>');
   assert.equal(calls.length, 0);
+  assert.equal(await (await handler(new Request('nanobot://desktop/app.js'))).text(), 'console.log("bundled locally")');
+  assert.equal((await handler(new Request('nanobot://desktop/missing.js'))).status, 404);
+  assert.equal(calls.length, 0); // Missing UI assets must never fall back to an online page.
   const bootstrap = await (await handler(new Request('nanobot://desktop/webui/bootstrap', {
     headers: { 'X-Nanobot-Auth': 'secret' },
   }))).json();

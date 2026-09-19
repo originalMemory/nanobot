@@ -8,10 +8,10 @@
 
 - 按用户要求，gateway/API 均不设置 CPU、内存限制或资源预留。其他服务设置沿用 lover；镜像自动命名，不另需 env 文件。
 
-- `Dockerfile` 的 `unraid` target 沿用上游完整前后端构建，预装当前启用的 QQ、Telegram、WebSocket、微信渠道依赖；用户固定 `99:100`，补充组 `281` 保留 Docker socket 权限。
+- `Dockerfile` 的 `unraid` target 仅构建 Python 后端，不构建或打包网页，预装当前启用的 QQ、Telegram、WebSocket、微信渠道依赖；用户固定 `99:100`，补充组 `281` 保留 Docker socket 权限。
 - 与 lover 一样，容器内 nanobot 用户和同名组均映射到宿主 Unraid nobody/users 的数字身份 99:100，供 SMB/Windows 共享按既有权限访问创建的文件。root 降权和所有权修复读取实际 UID/GID，不再使用 1000:1000；不批量修改现有文件权限或共享 ACL。
 - 保留现有数据、SSH、笔记库、SSD、HDD、Clouddrive 和 Docker socket 挂载，以及 NAS 已使用的 bubblewrap 权限。WebSocket 端口仍为 8765，API 仅在 `api` profile 开启时启动。
-- `/home/nanobot/src` 保留为代码访问目录。运行代码和 WebUI 使用镜像中的版本，不设置旧 `PYTHONPATH`；修改代码后重新构建镜像。
+- `/home/nanobot/src` 保留为代码访问目录。后端运行代码使用镜像中的版本，不设置旧 `PYTHONPATH`；修改后端才需要重新构建镜像。Electron 从本地包加载 UI，纯 UI 修改只重新构建/打包 Electron，不依赖 NAS 提供页面。
 - `rg` 和 FFmpeg 在基础镜像中；Unraid 保留 curl 等启动工具。所有技能与网关共用 `/app/.venv`，不为技能新建环境。
 - 与 lover 一样，entrypoint 在非 root 身份下执行 `$HOME/.nanobot/workspace/scripts/bootstrap.sh`，成功后才启动 nanobot；失败则停止启动。root 启动也先降权再执行，不以 root 安装 workspace 技能依赖。
 - 具体依赖、外部工具及安装检查只在 workspace bootstrap 和 `config/python-requirements.txt` 维护，不进入项目 Dockerfile。容器重建后由统一入口补齐；需要联网下载时沿用代理。浏览器等技能的系统依赖也由该环境维护流程负责，不能仅凭 Python 包安装成功认定可用。
@@ -109,3 +109,7 @@ docker compose -f docker-compose.unraid.yml logs --tail=100 nanobot-gateway
 - 实机验收：渠道登录、Electron 连接和统一收件箱、历史展示及新 voice 语音回放、日记召回、定时任务、日语进度、工作区工具与 Docker socket。确认稳定前不要删除回退备份。
 
 本机 Docker daemon 未启动，当前无法做 Linux 镜像构建和 Unraid 实机验收；这些检查必须在实际部署时完成。
+
+## Electron UI 更新
+
+仅改界面：在开发机执行 `npm --prefix electron run build` 后重启 Electron；使用打包程序则执行 `npm --prefix electron run package`。无需重建或重启 NAS 后端。前后端协议一起修改时才同步更新两端。Docker 镜像不包含网页 dist，界面资源缺失时不回退到在线网页。
