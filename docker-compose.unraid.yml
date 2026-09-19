@@ -20,6 +20,7 @@ x-common-config: &common-config
     NO_PROXY: "localhost,127.0.0.1,192.168.31.73,nanobot-gateway,nanobot-api"
     OAUTH_CLI_KIT_TOKEN_PATH: "/home/nanobot/.nanobot/auth/codex.json"
     PYTHONPATH: "/home/nanobot/src"
+  working_dir: /home/nanobot/src
   volumes:
     - .:/home/nanobot/src
     - ./.nanobot:/home/nanobot/.nanobot
