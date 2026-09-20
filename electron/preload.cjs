@@ -61,6 +61,11 @@ if (location.protocol === 'file:') {
       if (pendingScreenshot) { listener(pendingScreenshot); pendingScreenshot = null; }
       return () => { if (screenshotListener === listener) screenshotListener = null; };
     },
+    onFocusComposer: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on('desktop:focus-composer', handler);
+      return () => ipcRenderer.removeListener('desktop:focus-composer', handler);
+    },
     openSocket: (url) => ipcRenderer.invoke('desktop:socket-open', url),
     sendSocket: (id, data) => ipcRenderer.invoke('desktop:socket-send', id, data),
     closeSocket: (id) => ipcRenderer.invoke('desktop:socket-close', id),

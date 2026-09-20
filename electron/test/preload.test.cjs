@@ -53,3 +53,19 @@ test('窗口桥接只暴露固定 IPC，并可解除状态监听', async () => {
     ['desktop:window-state'], ['desktop:window-action', 'maximize'],
   ]);
 });
+
+test('聊天页桥接唤起后的输入框聚焦事件', () => {
+  const ipcRenderer = new EventEmitter();
+  let host;
+  runInNewContext(readFileSync(require.resolve('../preload.cjs'), 'utf8'), {
+    location: { protocol: 'nanobot:', host: 'desktop', hash: '#/chat/websocket%3Adesktop' },
+    process: { platform: 'darwin' },
+    require: () => ({ ipcRenderer, contextBridge: { exposeInMainWorld: (_name, api) => { host = api; } } }),
+  });
+  let focused = 0;
+  const off = host.onFocusComposer(() => { focused++; });
+  ipcRenderer.emit('desktop:focus-composer');
+  off();
+  ipcRenderer.emit('desktop:focus-composer');
+  assert.equal(focused, 1);
+});

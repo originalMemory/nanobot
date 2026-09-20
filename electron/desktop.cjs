@@ -100,6 +100,8 @@ function installDesktop({ store, getWindow, showWindow, electron = require('elec
   function showDesktopWindow() {
     clearUnread();
     showWindow();
+    const win = getWindow();
+    if (win && !win.isDestroyed()) win.webContents.send('desktop:focus-composer');
   }
 
   function toggle() {

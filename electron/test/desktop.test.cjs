@@ -66,6 +66,7 @@ test('关闭隐藏到托盘，明确退出才能关闭；快捷键可再次隐�
   assert.equal(prevented, 1); assert.equal(f.win.visible, false);
   f.shortcuts.get('CommandOrControl+Shift+E')();
   assert.equal(f.shown(), 1);
+  assert.deepEqual(f.sent.at(-1), ['desktop:focus-composer']);
   f.shortcuts.get('CommandOrControl+Shift+E')();
   assert.equal(f.win.visible, false);
   f.app.emit('before-quit');
@@ -132,8 +133,7 @@ test('外部渠道完成通知使用 session_updated 摘要', () => {
 test('截图只发附件事件，不发送聊天消息，并恢复窗口', async () => {
   const f = fixture();
   await f.controller.capture();
-  assert.equal(f.sent.length, 1);
-  assert.equal(f.sent[0][0], 'desktop:screenshot');
+  assert.deepEqual(f.sent.map(([event]) => event), ['desktop:screenshot', 'desktop:focus-composer']);
   assert.match(f.sent[0][1], /^data:image\/jpeg;base64,/);
   assert.equal(f.win.hidden, 1); assert.equal(f.shown(), 1);
 });

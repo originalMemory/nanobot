@@ -34,6 +34,7 @@ export interface RuntimeHost {
   appearance?: DesktopAppearanceApi;
   tray?: DesktopTrayApi;
   onScreenshot?: (listener: (dataUrl: string) => void) => () => void;
+  onFocusComposer?: (listener: () => void) => () => void;
   /** 桌面伴侣的固定通信入口；普通浏览器不设置。 */
   fixedChatId?: string;
   surface: RuntimeSurface;
@@ -104,6 +105,7 @@ interface NanobotHostApi {
   windowControls?: DesktopWindowControls;
   appearance?: DesktopAppearanceApi;
   onScreenshot?(listener: (dataUrl: string) => void): () => void;
+  onFocusComposer?(listener: () => void): () => void;
   fixedChatId?: string;
   getRuntimeInfo?(): Promise<HostRuntimeInfo>;
   restartEngine?(): Promise<void>;
@@ -200,6 +202,7 @@ export function createRuntimeHost(
     companion: api?.companion,
     fixedChatId: api?.fixedChatId,
     onScreenshot: api?.onScreenshot?.bind(api),
+    onFocusComposer: api?.onFocusComposer?.bind(api),
     capabilities: mergedCapabilities,
     socketFactory: bridge ? createHostWebSocket : undefined,
     pickFolder: api?.pickFolder?.bind(api),
