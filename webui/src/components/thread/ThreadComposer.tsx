@@ -9,6 +9,12 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type Ref,
 } from "react";
+import EmojiPicker, {
+  EmojiStyle,
+  SuggestionMode,
+  Theme,
+  type EmojiClickData,
+} from "emoji-picker-react";
 
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import { getRuntimeHost } from "@/lib/runtime";
@@ -41,6 +47,7 @@ import {
   Quote,
   RotateCw,
   Shield,
+  Smile,
   Sparkles,
   Square,
   SquarePen,
@@ -90,6 +97,8 @@ import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
 import { useComposerMentionInput } from "@/hooks/useComposerMentionInput";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useThemeValue } from "@/hooks/useTheme";
+import { normalizeLocale } from "@/i18n/config";
 import type { SendAttachment, SendOptions } from "@/hooks/useNanobotStream";
 import { useVoiceRecorder, type VoiceRecorderErrorKey } from "@/hooks/useVoiceRecorder";
 import type {
@@ -121,6 +130,17 @@ import {
   readDraggedSession,
 } from "@/lib/session-drag";
 import { formatQuotedUserMessage } from "@/lib/user-message-quote";
+import {
+  parseEmojiColonQuery,
+  type EmojiColonCandidate,
+  type EmojiColonQuery,
+} from "@/lib/emoji-colon";
+import {
+  filterEmojiColonCandidates,
+  getEmojiColonCandidates,
+  getEmojiPickerData,
+  recordEmojiSuggestion,
+} from "@/lib/emoji-picker-data";
 import { cn } from "@/lib/utils";
 
 const VOICE_SHORTCUT_CODE = "KeyD";
@@ -938,7 +958,11 @@ export function ThreadComposer({
   focusRequest = 0,
   onQuotedContextChange,
 }: ThreadComposerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const currentTheme = useThemeValue();
+  const isZhLocale = normalizeLocale(i18n.resolvedLanguage ?? i18n.language) === "zh-CN";
+  const emojiPickerData = useMemo(() => getEmojiPickerData(isZhLocale), [isZhLocale]);
+  const emojiPickerTheme = currentTheme === "dark" ? Theme.DARK : Theme.LIGHT;
   const [value, setValue] = useState("");
   const [composerFocused, setComposerFocused] = useState(false);
   const blurFrame = useRef<number | null>(null);
@@ -956,7 +980,10 @@ export function ThreadComposer({
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [cliAppMenuDismissed, setCliAppMenuDismissed] = useState(false);
+  const [emojiMenuDismissed, setEmojiMenuDismissed] = useState(false);
   const [selectedCliAppIndex, setSelectedCliAppIndex] = useState(0);
+  const [selectedEmojiIndex, setSelectedEmojiIndex] = useState(0);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [recentSlashCommands, setRecentSlashCommands] = useState<string[]>(() => readSlashRecents());
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
@@ -964,6 +991,8 @@ export function ThreadComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mentionOverlayRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
   const [compactControls, setCompactControls] = useState(false);
 
   useLayoutEffect(() => {
@@ -1337,6 +1366,7 @@ export function ThreadComposer({
     setValue(next);
     setSlashMenuDismissed(false);
     setCliAppMenuDismissed(false);
+    setEmojiMenuDismissed(false);
     setCursorPosition(cursor);
   }, []);
   const mentionInput = useComposerMentionInput({
@@ -1453,8 +1483,26 @@ export function ThreadComposer({
     return groups.flatMap(({ candidates }, index) => candidates.slice(0, counts[index]));
   }, [activeSessionMentions, availableSessionMentions, cliAppMention, cliApps, mcpPresets]);
 
+  const emojiColonMention = useMemo<EmojiColonQuery | null>(() => {
+    if (interactionDisabled || emojiMenuDismissed) return null;
+    return parseEmojiColonQuery(value, cursorPosition);
+  }, [cursorPosition, emojiMenuDismissed, interactionDisabled, value]);
+  const emojiColonCandidates = useMemo(
+    () => getEmojiColonCandidates(isZhLocale),
+    [isZhLocale],
+  );
+  const filteredEmojiColonCandidates = useMemo(() => {
+    if (!emojiColonMention) return [];
+    return filterEmojiColonCandidates(
+      emojiColonCandidates,
+      emojiColonMention.query,
+      isZhLocale,
+    );
+  }, [emojiColonCandidates, emojiColonMention, isZhLocale]);
+
   const showCliAppMenu = filteredMentionCandidates.length > 0;
-  const showAnyPalette = showSlashMenu || showCliAppMenu;
+  const showEmojiColonMenu = filteredEmojiColonCandidates.length > 0;
+  const showAnyPalette = showSlashMenu || showCliAppMenu || showEmojiColonMenu;
   const hasMentionDecorations = displayMentionSegments.some(
     (segment) => segment.kind !== "text",
   );
@@ -1488,6 +1536,10 @@ export function ThreadComposer({
   }, [cliAppMention?.query]);
 
   useEffect(() => {
+    setSelectedEmojiIndex(0);
+  }, [emojiColonMention?.query]);
+
+  useEffect(() => {
     if (selectedCommandIndex >= filteredSlashCommands.length) {
       setSelectedCommandIndex(0);
     }
@@ -1500,6 +1552,12 @@ export function ThreadComposer({
   }, [filteredMentionCandidates.length, selectedCliAppIndex]);
 
   useEffect(() => {
+    if (selectedEmojiIndex >= filteredEmojiColonCandidates.length) {
+      setSelectedEmojiIndex(0);
+    }
+  }, [filteredEmojiColonCandidates.length, selectedEmojiIndex]);
+
+  useEffect(() => {
     if (!showAnyPalette) return;
 
     const dismissOnPointerDown = (event: PointerEvent) => {
@@ -1507,6 +1565,7 @@ export function ThreadComposer({
       if (target instanceof Node && formRef.current?.contains(target)) return;
       setSlashMenuDismissed(true);
       setCliAppMenuDismissed(true);
+      setEmojiMenuDismissed(true);
     };
 
     document.addEventListener("pointerdown", dismissOnPointerDown, true);
@@ -1553,7 +1612,32 @@ export function ThreadComposer({
       window.removeEventListener("resize", updateLayout);
       document.removeEventListener("scroll", updateLayout, true);
     };
-  }, [filteredMentionCandidates.length, filteredSlashCommands.length, showAnyPalette]);
+  }, [
+    filteredEmojiColonCandidates.length,
+    filteredMentionCandidates.length,
+    filteredSlashCommands.length,
+    showAnyPalette,
+  ]);
+
+  useEffect(() => {
+    if (!emojiPickerOpen) return;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (emojiPickerRef.current?.contains(target)) return;
+      if (emojiButtonRef.current?.contains(target)) return;
+      setEmojiPickerOpen(false);
+    };
+    const closeOnKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEmojiPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnPointerDown, true);
+    document.addEventListener("keydown", closeOnKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown, true);
+      document.removeEventListener("keydown", closeOnKeyDown);
+    };
+  }, [emojiPickerOpen]);
 
   const resizeTextarea = useCallback((restoreFocus = true) => {
     requestAnimationFrame(() => {
@@ -1583,6 +1667,7 @@ export function ThreadComposer({
     setInlineError(null);
     setSlashMenuDismissed(false);
     setCliAppMenuDismissed(false);
+    setEmojiMenuDismissed(false);
     setCursorPosition(0);
     clear();
     requestAnimationFrame(() => {
@@ -1604,6 +1689,7 @@ export function ThreadComposer({
     });
     setSlashMenuDismissed(false);
     setCliAppMenuDismissed(false);
+    setEmojiMenuDismissed(false);
     setInlineError(null);
     resizeTextarea();
   }, [resizeTextarea]);
@@ -1682,6 +1768,7 @@ export function ThreadComposer({
         setValue("");
         setSlashMenuDismissed(true);
         setCliAppMenuDismissed(false);
+        setEmojiMenuDismissed(false);
         setInlineError(null);
         resizeTextarea();
         return;
@@ -1705,6 +1792,7 @@ export function ThreadComposer({
       }
       setSlashMenuDismissed(true);
       setCliAppMenuDismissed(false);
+      setEmojiMenuDismissed(false);
       setInlineError(null);
       resizeTextarea();
     },
@@ -1731,6 +1819,7 @@ export function ThreadComposer({
       replaceMentionInput(insertion.value, insertion.cursor);
       setCliAppMenuDismissed(true);
       setSlashMenuDismissed(false);
+      setEmojiMenuDismissed(false);
       setInlineError(null);
       resizeTextarea();
     },
@@ -1743,6 +1832,38 @@ export function ThreadComposer({
       insertMentionCandidate(candidate, cliAppMention.start, cliAppMention.end);
     },
     [cliAppMention, insertMentionCandidate],
+  );
+
+  const chooseEmojiColonCandidate = useCallback(
+    (candidate: EmojiColonCandidate) => {
+      if (!emojiColonMention) return;
+      const suffix = value.slice(emojiColonMention.end);
+      const insertion = `${candidate.native}${suffix.startsWith(" ") ? "" : " "}`;
+      const next = `${value.slice(0, emojiColonMention.start)}${insertion}${suffix}`;
+      const nextCursor = emojiColonMention.start + insertion.length;
+      replaceMentionInput(next, nextCursor);
+      recordEmojiSuggestion(candidate.unified);
+      setEmojiMenuDismissed(true);
+      setSlashMenuDismissed(false);
+      setCliAppMenuDismissed(false);
+      setInlineError(null);
+      resizeTextarea();
+    },
+    [emojiColonMention, replaceMentionInput, resizeTextarea, value],
+  );
+
+  const insertEmoji = useCallback(
+    (emoji: EmojiClickData) => {
+      const { start, end } = rawSelection();
+      const next = `${value.slice(0, start)}${emoji.emoji}${value.slice(end)}`;
+      const nextCursor = start + emoji.emoji.length;
+      replaceMentionInput(next, nextCursor);
+      recordEmojiSuggestion(emoji.unified);
+      setEmojiPickerOpen(false);
+      setEmojiMenuDismissed(true);
+      resizeTextarea();
+    },
+    [rawSelection, replaceMentionInput, resizeTextarea, value],
   );
 
   const handleSessionDrop = useCallback((event: React.DragEvent) => {
@@ -1826,6 +1947,7 @@ export function ThreadComposer({
     setInlineError(null);
     setSlashMenuDismissed(false);
     setCliAppMenuDismissed(false);
+    setEmojiMenuDismissed(false);
     setCursorPosition(0);
     resizeTextarea(restoreFocus);
   }, [resizeTextarea]);
@@ -1883,6 +2005,7 @@ export function ThreadComposer({
     setInlineError(null);
     setSlashMenuDismissed(false);
     setCliAppMenuDismissed(false);
+    setEmojiMenuDismissed(false);
     onQuotedContextChange?.(prompt.quotedContext ?? null);
     if (prompt.images?.length) {
       restoreReadyImages(prompt.images as RestoredReadyImage[]);
@@ -2110,6 +2233,33 @@ export function ThreadComposer({
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     mentionInput.onKeyDown(e);
     if (e.defaultPrevented || e.nativeEvent.isComposing || mentionInput.isComposing) return;
+    if (showEmojiColonMenu) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedEmojiIndex((index) => (
+          (index + 1) % filteredEmojiColonCandidates.length
+        ));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedEmojiIndex((index) => (
+          (index - 1 + filteredEmojiColonCandidates.length)
+          % filteredEmojiColonCandidates.length
+        ));
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        chooseEmojiColonCandidate(filteredEmojiColonCandidates[selectedEmojiIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setEmojiMenuDismissed(true);
+        return;
+      }
+    }
     if (showCliAppMenu) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -2382,6 +2532,16 @@ export function ThreadComposer({
           onChoose={chooseMentionCandidate}
         />
       ) : null}
+      {showEmojiColonMenu ? (
+        <EmojiColonPalette
+          candidates={filteredEmojiColonCandidates}
+          selectedIndex={selectedEmojiIndex}
+          layout={slashPaletteLayout}
+          isHero={isHero}
+          onHover={setSelectedEmojiIndex}
+          onChoose={chooseEmojiColonCandidate}
+        />
+      ) : null}
       <div
         ref={surfaceRef}
         data-compact={compactIdle || undefined}
@@ -2576,6 +2736,48 @@ export function ThreadComposer({
             >
               <Plus className={cn(isHero ? "h-[18px] w-[18px]" : "h-4 w-4")} />
             </Button>
+            <div className="relative">
+              {emojiPickerOpen ? (
+                <div
+                  ref={emojiPickerRef}
+                  className="absolute bottom-full left-0 z-30 mb-2 overflow-hidden rounded-prominent shadow-2xl"
+                >
+                  <EmojiPicker
+                    open
+                    emojiData={emojiPickerData}
+                    onEmojiClick={insertEmoji}
+                    theme={emojiPickerTheme}
+                    emojiStyle={EmojiStyle.NATIVE}
+                    suggestedEmojisMode={SuggestionMode.FREQUENT}
+                    searchPlaceholder={t("thread.composer.emoji.search", {
+                      defaultValue: "Search",
+                    })}
+                    previewConfig={{ showPreview: true }}
+                    width={352}
+                    height={450}
+                  />
+                </div>
+              ) : null}
+              <Button
+                ref={emojiButtonRef}
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={interactionDisabled}
+                aria-label={t("thread.composer.emoji.button", {
+                  defaultValue: "Insert emoji",
+                })}
+                aria-pressed={emojiPickerOpen}
+                onClick={() => setEmojiPickerOpen((open) => !open)}
+                className={cn(
+                  "thread-composer-action touch-target rounded-full text-muted-foreground hover:text-foreground",
+                  isHero ? "h-8 w-8" : "h-9 w-9",
+                  emojiPickerOpen && "bg-primary/10 text-primary hover:bg-primary/12",
+                )}
+              >
+                <Smile className={cn(isHero ? "h-4 w-4" : "h-[15px] w-[15px]")} />
+              </Button>
+            </div>
             {voiceRecorder.isRecording ? (
               <VoiceRecordingMeter
                 ariaLabel={voiceRecordingStatusLabel}
@@ -2969,6 +3171,15 @@ interface CliAppMentionPaletteProps {
   onChoose: (candidate: MentionCandidate) => void;
 }
 
+interface EmojiColonPaletteProps {
+  candidates: EmojiColonCandidate[];
+  selectedIndex: number;
+  layout: SlashPaletteLayout;
+  isHero: boolean;
+  onHover: (index: number) => void;
+  onChoose: (candidate: EmojiColonCandidate) => void;
+}
+
 function useSelectedOptionScroll(selectedIndex: number) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -2984,6 +3195,77 @@ function useSelectedOptionScroll(selectedIndex: number) {
   }, [selectedIndex]);
 
   return containerRef;
+}
+
+function EmojiColonPalette({
+  candidates,
+  selectedIndex,
+  layout,
+  isHero,
+  onHover,
+  onChoose,
+}: EmojiColonPaletteProps) {
+  const { t } = useTranslation();
+  const listMaxHeight = Math.max(0, layout.maxHeight - SLASH_PALETTE_CHROME_PX);
+  const listRef = useSelectedOptionScroll(selectedIndex);
+  return (
+    <div
+      role="listbox"
+      aria-label={t("thread.composer.emoji.colonAriaLabel", {
+        defaultValue: "Emoji shortcodes",
+      })}
+      style={{ maxHeight: layout.maxHeight }}
+      className={cn(
+        floatingSurfaceVisualClassName,
+        "absolute left-1/2 z-30 w-[calc(100%-0.5rem)] -translate-x-1/2 overflow-hidden",
+        layout.placement === "above" ? "bottom-full mb-2" : "top-full mt-2",
+        isHero ? "max-w-[var(--composer-hero-width,58rem)]" : "max-w-[var(--content-column-width)]",
+      )}
+    >
+      <div className="px-2 pb-1 pt-1 text-[12px] font-medium text-muted-foreground/72">
+        {t("thread.composer.emoji.colonLabel", { defaultValue: "Emoji" })}
+      </div>
+      <div ref={listRef} className="overflow-y-auto" style={{ maxHeight: listMaxHeight }}>
+        {candidates.map((candidate, index) => {
+          const selected = index === selectedIndex;
+          return (
+            <button
+              key={candidate.unified}
+              type="button"
+              role="option"
+              data-palette-index={index}
+              aria-selected={selected}
+              aria-label={`${candidate.name} :${candidate.id}`}
+              onMouseEnter={() => onHover(index)}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                onChoose(candidate);
+              }}
+              className={cn(
+                floatingItemClassName,
+                "flex min-h-10 w-full items-center gap-2.5 px-2.5 py-1 text-left transition-colors",
+                selected
+                  ? "bg-foreground/[0.055] text-foreground"
+                  : "text-foreground/90 hover:bg-foreground/[0.04]",
+              )}
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[22px] leading-none">
+                {candidate.native}
+              </span>
+              <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                <span className="truncate text-[15px] font-medium text-foreground">
+                  {candidate.name}
+                </span>
+                <span className="truncate font-mono text-[13px] text-muted-foreground/72">
+                  :{candidate.id}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function CliAppMentionPalette({

@@ -1811,6 +1811,12 @@
           }
         }
       },
+      "emoji": {
+        "button": "插入表情",
+        "colonLabel": "表情",
+        "colonAriaLabel": "表情短码",
+        "search": "搜索"
+      },
       "mentions": {
         "ariaLabel": "提及",
         "label": "应用",

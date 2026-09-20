@@ -347,6 +347,29 @@ function renderPresetComposer(
 }
 
 describe("ThreadComposer", () => {
+  it("opens the emoji picker from the composer toolbar", async () => {
+    render(<ThreadComposer onSend={vi.fn()} />);
+
+    const button = screen.getByRole("button", { name: "Insert emoji" });
+    fireEvent.click(button);
+
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByPlaceholderText("Search")).toBeInTheDocument();
+  });
+
+  it("replaces a typed emoji query from the keyboard", async () => {
+    render(<ThreadComposer onSend={vi.fn()} />);
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: ":smi", selectionStart: 4 } });
+
+    expect(await screen.findByRole("listbox", { name: "Emoji shortcodes" }))
+      .toBeInTheDocument();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect((input as HTMLTextAreaElement).value).not.toContain(":smi");
+    expect((input as HTMLTextAreaElement).value).toMatch(/\p{Extended_Pictographic}/u);
+  });
+
   it("focuses the input when the desktop host restores the window", async () => {
     let requestFocus: (() => void) | null = null;
     window.nanobotHost = {

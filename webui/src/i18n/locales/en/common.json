@@ -1812,6 +1812,12 @@
           }
         }
       },
+      "emoji": {
+        "button": "Insert emoji",
+        "colonLabel": "Emoji",
+        "colonAriaLabel": "Emoji shortcodes",
+        "search": "Search"
+      },
       "mentions": {
         "ariaLabel": "Mentions",
         "label": "Apps",
