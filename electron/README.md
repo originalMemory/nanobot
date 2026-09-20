@@ -32,7 +32,23 @@ npm --prefix electron run test:smoke
 npm --prefix electron run package
 ```
 
-打包输出在 `electron/out/`，默认面向当前系统和架构；这是可运行的应用目录，尚未签名、公证或生成安装器。WebUI 必须先有依赖，桌面依赖和构建产物已忽略，不进入 Git。
+通用打包输出在 `electron/out/`，默认面向当前系统和架构。WebUI 必须先有依赖，桌面依赖和构建产物已忽略，不进入 Git。
+
+macOS 使用专用命令生成带正式图标、固定 bundle ID `ai.nanobot.desktop` 和可执行文件名 `nanobot` 的签名应用：
+
+```sh
+npm --prefix electron run package:mac
+```
+
+默认优先使用钥匙串中的 `Nanobot Local Code Signing`，没有该证书时回退 ad-hoc 签名；也可通过 `NANOBOT_MAC_SIGN_IDENTITY` 指定其他身份。输出路径为当前架构对应的 `electron/out/Nanobot-darwin-<arch>/Nanobot.app`。本地签名用于稳定权限身份和本机安装，不等于 Apple 公证或对外分发签名。
+
+确认要替换 `/Applications/Nanobot.app` 时运行：
+
+```sh
+npm --prefix electron run package:install:mac
+```
+
+安装脚本会重新构建并签名、校验 bundle ID/可执行文件/完整签名，在 `/Applications` 同磁盘暂存，要求旧进程完全退出后再替换。旧应用先改名保留；新应用启动失败时自动恢复，启动成功后才删除备份。脚本不会修改 `~/Library/Application Support/Nanobot` 中的用户数据。
 
 应用图标源自 `assets/avatar.png`：`icon.ico` 用于 Windows，`icon.icns` 用于 macOS，`icon.png` 用于窗口和应用内展示。图标使用轻微圆角和透明留白，适配任务栏、Dock 与系统圆角表现；Windows 托盘使用近景彩色 `tray.png`，macOS 菜单栏继续使用单色 template 图标。
 

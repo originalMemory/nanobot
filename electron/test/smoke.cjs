@@ -110,6 +110,7 @@ async function main() {
     };
     else if (route === '/api/settings/api-service') body = { installed: false, running: false, managed: false, host: '127.0.0.1', port: 8900, timeout: 120, endpoint: 'http://127.0.0.1:8900/v1', command: 'nanobot serve' };
     else if (route === '/api/settings/usage') body = { days: [], total_tokens: 0, models: [], sources: {} };
+    else if (route === '/api/voice/settings') body = { preset: null, voice: null, presets: [] };
     else if (route === '/api/settings') body = {
       agent: { model: 'smoke-model', provider: 'custom', model_preset: 'default', has_api_key: true, max_tokens: 4096, context_window_tokens: 200000 },
       providers: [{ name: 'custom', label: 'Mock', configured: true }],
