@@ -62,6 +62,29 @@ export function assistantForkFlags(units: DisplayUnit[]): boolean[] {
   return flags;
 }
 
+function assistantFooterFlags(units: DisplayUnit[]): boolean[] {
+  const flags = new Array<boolean>(units.length).fill(false);
+  const seenTurns = new Set<string>();
+  let fallbackTurn = 0;
+  for (let index = units.length - 1; index >= 0; index -= 1) {
+    const unit = units[index];
+    if (unit.type === "message" && unit.message.role === "user") {
+      fallbackTurn += 1;
+      continue;
+    }
+    if (
+      unit.type !== "message"
+      || unit.message.role !== "assistant"
+      || unit.message.kind === "compaction"
+    ) continue;
+    const turn = unit.message.turnId ?? `fallback:${fallbackTurn}`;
+    if (seenTurns.has(turn)) continue;
+    seenTurns.add(turn);
+    flags[index] = true;
+  }
+  return flags;
+}
+
 /** Return one identity/source message for the first assistant unit of each turn. */
 export function assistantTurnHeaderMessages(units: DisplayUnit[]): Array<UIMessage | null> {
   const descriptors: Array<{ index: number; key: string; messages: UIMessage[] }> = [];
@@ -127,6 +150,7 @@ export function ThreadMessages({
     [forkBoundaryMessageCount, units],
   );
   const forkFlags = useMemo(() => assistantForkFlags(units), [units]);
+  const footerFlags = useMemo(() => assistantFooterFlags(units), [units]);
   const turnHeaders = useMemo(() => assistantTurnHeaderMessages(units), [units]);
   const liveActivityClusterIndices = useMemo(
     () => isStreaming
@@ -158,9 +182,10 @@ export function ThreadMessages({
       />
       {units.map((unit, index) => {
         const prev = units[index - 1];
+        const assistantIdentityMessage = turnHeaders[index];
         const marginTop =
           index > 0
-            ? marginAfterPrevUnit(prev)
+            ? marginAfterPrevUnit(prev, unit, assistantIdentityMessage !== null)
             : "";
         const next = units[index + 1];
         const hasBodyBelow =
@@ -212,8 +237,9 @@ export function ThreadMessages({
                 : null
             }
             forkIndex={forkIndex}
+            showAssistantFooter={footerFlags[index]}
             showForkBoundary={index === forkBoundaryAfterUnitIndex}
-            assistantIdentityMessage={turnHeaders[index]}
+            assistantIdentityMessage={assistantIdentityMessage}
             forkBoundaryLabel={t("thread.forkedFromHistory")}
             temporary={temporary}
             cliApps={cliApps}
@@ -301,6 +327,7 @@ interface ThreadDisplayUnitProps {
   isTurnStreaming: boolean;
   retryStatus: RetryStatus | null;
   forkIndex?: number;
+  showAssistantFooter: boolean;
   showForkBoundary: boolean;
   assistantIdentityMessage: UIMessage | null;
   forkBoundaryLabel: string;
@@ -324,6 +351,7 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
   isTurnStreaming,
   retryStatus,
   forkIndex,
+  showAssistantFooter,
   showForkBoundary,
   assistantIdentityMessage,
   forkBoundaryLabel,
@@ -397,6 +425,7 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
             slashCommands={slashCommands}
             onOpenFilePreview={onOpenFilePreview}
             onForkFromHere={forkIndex !== undefined && onForkFromMessage ? onForkFromHere : undefined}
+            showAssistantFooter={showAssistantFooter}
           />
         )}
         </> : null}
@@ -419,6 +448,7 @@ function threadDisplayUnitPropsEqual(
     && previous.isTurnStreaming === next.isTurnStreaming
     && previous.retryStatus === next.retryStatus
     && previous.forkIndex === next.forkIndex
+    && previous.showAssistantFooter === next.showAssistantFooter
     && previous.showForkBoundary === next.showForkBoundary
     && previous.assistantIdentityMessage === next.assistantIdentityMessage
     && previous.forkBoundaryLabel === next.forkBoundaryLabel
@@ -580,10 +610,17 @@ function stableTurnMessageKey(message: UIMessage | undefined, fallbackPhase?: st
   return `turn-${message.turnId}-${phase}`;
 }
 
-function marginAfterPrevUnit(prev: DisplayUnit): string {
-  if (prev.type === "activity") {
-    return "mt-4";
-  }
+function marginAfterPrevUnit(
+  prev: DisplayUnit,
+  current: DisplayUnit,
+  startsAssistantTurn: boolean,
+): string {
+  if (
+    startsAssistantTurn
+    || (current.type === "message" && current.message.role === "user")
+  ) return "mt-5";
+  if (prev.type === "activity") return "mt-1";
+  if (current.type === "activity" && prev.message.role === "assistant") return "mt-2";
   const p = prev.message;
   const denseP =
     p.kind === "trace"

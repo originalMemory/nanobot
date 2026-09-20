@@ -7,7 +7,7 @@ import { ClientProvider } from "@/providers/ClientProvider";
 import { VoiceSettings } from "@/providers/VoiceProvider";
 import { NanobotClient } from "@/lib/nanobot-client";
 
-const config: DesktopAppearance = { name: "nanobot", icon: "🦊", source: "none", url: "", directory: "", order: "sequential", intervalMinutes: 1, opacity: 0.8 };
+const config: DesktopAppearance = { name: "nanobot", icon: "🦊", source: "none", url: "", directory: "", order: "sequential", intervalMinutes: 1, opacity: 0.8, contentWidth: 1152 };
 function fixture(overrides: Partial<DesktopAppearance> = {}) {
   const value = { ...config, ...overrides };
   const api = { read: vi.fn().mockResolvedValue(value), save: vi.fn(async (next: DesktopAppearance) => next),
@@ -77,6 +77,27 @@ it("saves display identity and keeps a failed draft for retry", async () => {
   expect(mounted.mutate).toHaveBeenCalledWith("settings.runtime_config.update", { values: {
     "agents.defaults.bot_name": "Homura", "agents.defaults.bot_icon": "🦊",
   } }, 20_000);
+});
+
+it("saves one shared conversation width for messages and the composer", async () => {
+  const api = fixture();
+  const mounted = renderAppearance(<DesktopAppearanceSettings />);
+  const width = await screen.findByRole("spinbutton", { name: "Conversation width" });
+  expect(width).toHaveValue(1152);
+  expect(document.documentElement.style.getPropertyValue("--desktop-content-column-width"))
+    .toBe("1152px");
+
+  fireEvent.change(width, { target: { value: "960" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({
+    contentWidth: 960,
+  })));
+  await waitFor(() => expect(document.documentElement.style.getPropertyValue("--desktop-content-column-width"))
+    .toBe("960px"));
+  mounted.view.unmount();
+  expect(document.documentElement.style.getPropertyValue("--desktop-content-column-width"))
+    .toBe("");
 });
 
 it("uses the fixed gateway avatar and falls back to the icon", async () => {

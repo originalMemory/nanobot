@@ -1003,6 +1003,7 @@ export function ThreadComposer({
   const voiceShortcutDownRef = useRef(false);
   const voiceErrorFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHero = variant === "hero";
+  const hideWorkspaceControls = workspaceControlsHidden || Boolean(getRuntimeHost().fixedChatId);
   const voiceShortcutLabel = useMemo(getVoiceShortcutLabel, []);
   const queuedPromptStorageKey = useMemo(
     () => queuedPromptsStorageKey(pendingQueueKey),
@@ -1013,7 +1014,7 @@ export function ThreadComposer({
     && !!workspaceDefaultScope
     && !!onWorkspaceScopeChange
     && workspaceControls?.can_change_project !== false;
-  const showProjectPicker = projectPickerAvailable && !workspaceControlsHidden;
+  const showProjectPicker = projectPickerAvailable && !hideWorkspaceControls;
 
   useEffect(() => {
     secondEnterPromptIdRef.current = null;
@@ -2265,7 +2266,7 @@ export function ThreadComposer({
     observer?.observe(actions);
     return () => observer?.disconnect();
   }, [compactControls, compactWhenIdle, modelLabel, voiceRecorder.isRecording, workspaceScope]);
-  const accessControl = workspaceScope && !workspaceControlsHidden ? (
+  const accessControl = workspaceScope && !hideWorkspaceControls ? (
     <WorkspaceAccessMenu
       scope={workspaceScope}
       disabled={interactionDisabled || workspaceScopeDisabled}

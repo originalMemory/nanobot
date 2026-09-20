@@ -157,6 +157,8 @@
       "identity": "Thông tin hiển thị",
       "name": "Tên hiển thị",
       "icon": "Biểu tượng hoặc tên viết tắt",
+      "layout": "Bố cục",
+      "contentWidth": "Chiều rộng cuộc trò chuyện",
       "choose": "Chọn…",
       "wallpaper": "Hình nền",
       "source": "Nguồn",

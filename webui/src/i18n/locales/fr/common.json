@@ -157,6 +157,8 @@
       "identity": "Identité du bureau",
       "name": "Nom affiché",
       "icon": "Émoji ou initiales",
+      "layout": "Disposition",
+      "contentWidth": "Largeur de la conversation",
       "choose": "Choisir…",
       "wallpaper": "Fond d’écran",
       "source": "Source",

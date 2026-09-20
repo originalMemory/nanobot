@@ -43,6 +43,15 @@ export function DesktopAppearanceSettings() {
       </SettingsGroup>
     </section>
     <section>
+      <SettingsSectionTitle>{label("layout")}</SettingsSectionTitle>
+      <SettingsGroup>
+        <SettingsRow title={label("contentWidth")}>
+          <NumberInput ariaLabel={label("contentWidth")} min={640} max={1440} suffix="px"
+            value={value.contentWidth} onChange={(next) => update("contentWidth", next)} />
+        </SettingsRow>
+      </SettingsGroup>
+    </section>
+    <section>
       <SettingsSectionTitle>{label("wallpaper")}</SettingsSectionTitle>
       <SettingsGroup>
         <SettingsRow title={label("source")}>

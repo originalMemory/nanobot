@@ -157,6 +157,8 @@
       "identity": "Desktop identity",
       "name": "Display name",
       "icon": "Emoji or initials",
+      "layout": "Layout",
+      "contentWidth": "Conversation width",
       "choose": "Choose…",
       "wallpaper": "Wallpaper",
       "source": "Source",

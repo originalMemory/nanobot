@@ -1,7 +1,10 @@
 const path = require('node:path');
 const { readFile, readdir, realpath, stat } = require('node:fs/promises');
 const MAX_IMAGE = 12 * 1024 * 1024;
-const DEFAULTS = { source: 'none', url: '', directory: '', order: 'sequential', intervalMinutes: 5, opacity: 0.8 };
+const DEFAULTS = {
+  source: 'none', url: '', directory: '', order: 'sequential', intervalMinutes: 5,
+  opacity: 0.8, contentWidth: 1152,
+};
 
 function normalize(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid appearance settings');
@@ -22,6 +25,12 @@ function normalize(value) {
       throw new Error(`Invalid ${key}`);
     }
     result[key] = value[key];
+  }
+  if (value.contentWidth !== undefined) {
+    if (!Number.isInteger(value.contentWidth) || value.contentWidth < 640 || value.contentWidth > 1440) {
+      throw new Error('Invalid contentWidth');
+    }
+    result.contentWidth = value.contentWidth;
   }
   if (result.url) {
     try {
@@ -56,7 +65,12 @@ function createAppearance({ store, nativeImage, dialog, fetchImage = fetch }) {
     if (!config) {
       const appearance = store.get('appearance', {});
       const wallpaper = appearance.wallpaper ?? {};
-      config = normalize({ ...wallpaper, opacity: appearance.opacity, order: wallpaper.localOrder });
+      config = normalize({
+        ...wallpaper,
+        opacity: appearance.opacity,
+        contentWidth: appearance.contentWidth,
+        order: wallpaper.localOrder,
+      });
     }
     return { ...config };
   }
@@ -78,7 +92,7 @@ function createAppearance({ store, nativeImage, dialog, fetchImage = fetch }) {
     const operation = saving.then(async () => {
       const previous = await read(); const next = normalize(value);
       if (next.directory && next.directory !== previous.directory && next.directory !== selectedDirectory) throw new Error('Choose the folder through the desktop dialog');
-      store.set({ 'appearance.opacity': next.opacity, 'appearance.wallpaper': {
+      store.set({ 'appearance.opacity': next.opacity, 'appearance.contentWidth': next.contentWidth, 'appearance.wallpaper': {
           ...store.get('appearance.wallpaper', {}), source: next.source, url: next.url,
           directory: next.directory, localOrder: next.order, intervalMinutes: next.intervalMinutes,
         } });

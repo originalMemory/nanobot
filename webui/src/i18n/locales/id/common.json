@@ -157,6 +157,8 @@
       "identity": "Identitas desktop",
       "name": "Nama tampilan",
       "icon": "Emoji atau inisial",
+      "layout": "Tata letak",
+      "contentWidth": "Lebar percakapan",
       "choose": "Pilih…",
       "wallpaper": "Wallpaper",
       "source": "Sumber",

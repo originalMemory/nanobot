@@ -157,6 +157,8 @@
       "identity": "데스크톱 표시 정보",
       "name": "표시 이름",
       "icon": "이모지 또는 약칭",
+      "layout": "레이아웃",
+      "contentWidth": "대화 영역 너비",
       "choose": "선택…",
       "wallpaper": "배경 화면",
       "source": "출처",

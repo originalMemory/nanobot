@@ -9,6 +9,7 @@ export interface DesktopAppearance {
   order: "sequential" | "random";
   intervalMinutes: number;
   opacity: number;
+  contentWidth: number;
 }
 export interface DesktopAppearanceApi {
   read(): Promise<Omit<DesktopAppearance, "name" | "icon">>;

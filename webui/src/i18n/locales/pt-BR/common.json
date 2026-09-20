@@ -157,6 +157,8 @@
       "identity": "Identidade do desktop",
       "name": "Nome de exibição",
       "icon": "Emoji ou iniciais",
+      "layout": "Layout",
+      "contentWidth": "Largura da conversa",
       "choose": "Escolher…",
       "wallpaper": "Papel de parede",
       "source": "Origem",

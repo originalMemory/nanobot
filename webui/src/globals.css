@@ -322,6 +322,20 @@
     line-height: var(--cjk-line-height);
   }
 
+  .assistant-response,
+  .assistant-response .markdown-content {
+    line-height: 1.65;
+  }
+
+  .assistant-response .markdown-content > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.625rem;
+  }
+
+  .assistant-response .markdown-content p {
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+  }
+
   .markdown-content .contains-task-list {
     @apply list-none pl-0;
   }
@@ -1585,9 +1599,9 @@ html.native-host[data-wallpaper="on"] .companion-panel-header {
 
 /* 桌面统一收件箱沿用 lover 的消息列与输入框宽度。 */
 .desktop-unified .thread-workspace {
-  --content-column-width: 72rem;
-  --composer-hero-width: 72rem;
-  --thread-layout-width: 74rem;
+  --content-column-width: var(--desktop-content-column-width, 72rem);
+  --composer-hero-width: var(--desktop-content-column-width, 72rem);
+  --thread-layout-width: calc(var(--desktop-content-column-width, 72rem) + 2rem);
 }
 
 /* 日记库：只复刻 Blue Topaz 中最常用的 callout 层次，不加载 Obsidian 主题。 */

@@ -103,7 +103,7 @@ export function normalizeActivityTimeline(
       activeTurnStartedAtMs = validCreatedAtMs(message.createdAt);
       continue;
     }
-    if (message.turnId && activeTurnId && message.turnId !== activeTurnId) flushTurn();
+    if (message.turnId && turnMessages.length > 0 && message.turnId !== activeTurnId) flushTurn();
     if (message.turnId) activeTurnId = message.turnId;
     turnMessages.push(message);
   }

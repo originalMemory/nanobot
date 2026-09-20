@@ -8,7 +8,9 @@ import {
   unitKeysForDisplay,
 } from "@/components/thread/ThreadMessages";
 import { preloadMarkdownText } from "@/components/MarkdownText";
+import { NanobotClient } from "@/lib/nanobot-client";
 import type { UIMessage } from "@/lib/types";
+import { ClientProvider } from "@/providers/ClientProvider";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -17,6 +19,32 @@ afterEach(() => {
 });
 
 describe("ThreadMessages", () => {
+  it("shows one active voice control for a segmented assistant turn", async () => {
+    window.nanobotHost = { voice: { active: vi.fn(async () => {}), settings: vi.fn() } };
+    const client = new NanobotClient({ url: "ws://test", reconnect: false });
+    const listen = vi.spyOn(client, "onVoice");
+    render(
+      <ClientProvider client={client} token="test">
+        <ThreadMessages messages={[
+          { id: "u", role: "user", content: "question", createdAt: 1, turnId: "turn" },
+          { id: "a1", role: "assistant", content: "first segment", createdAt: 2, turnId: "turn" },
+          { id: "t", role: "tool", kind: "trace", content: "tts()", traces: ["tts()"], createdAt: 3, turnId: "turn" },
+          { id: "a2", role: "assistant", content: "last segment", createdAt: 4, turnId: "turn" },
+        ]} isStreaming activeTurnId="turn" />
+      </ClientProvider>,
+    );
+
+    await act(async () => {
+      listen.mock.calls[0][0]({ event: "voice", chat_id: "desktop", turn_id: "turn", phase: "start" });
+    });
+
+    expect(screen.getAllByRole("button", { name: "停止回复语音" })).toHaveLength(1);
+    const first = screen.getByText("first segment").closest("[data-thread-display-unit]");
+    const last = screen.getByText("last segment").closest("[data-thread-display-unit]");
+    expect(first?.querySelector("[data-assistant-footer]")).toBeNull();
+    expect(last?.querySelector("[data-assistant-footer]")).not.toBeNull();
+  });
+
   it("places the live identity and channel badge above tool activity", () => {
     render(<ThreadMessages messages={[
       { id: "u", role: "user", content: "question", createdAt: 1, turnId: "turn" },
@@ -71,6 +99,21 @@ describe("ThreadMessages", () => {
     expect(within(identities[1]).getByText("test job")).toBeInTheDocument();
     expect(screen.getByText("scheduled")).toBeInTheDocument();
     expect(screen.getByText("cron result")).toBeInTheDocument();
+  });
+
+  it("keeps a sourced heartbeat separate after legacy replies without turn ids", () => {
+    const { container } = render(<ThreadMessages messages={[
+      { id: "u", role: "user", content: "question", createdAt: 1 },
+      { id: "a", role: "assistant", content: "ordinary answer", createdAt: 2 },
+      { id: "heartbeat", role: "assistant", content: "heartbeat update", createdAt: 3,
+        turnId: "sourced:heartbeat", source: { kind: "heartbeat" } },
+    ]} />);
+
+    expect(container.querySelectorAll("[data-assistant-selectable]")).toHaveLength(2);
+    const identities = screen.getAllByTestId("assistant-turn-identity");
+    expect(identities).toHaveLength(2);
+    expect(within(identities[0]).queryByText("Heartbeat")).toBeNull();
+    expect(within(identities[1]).getByText("Heartbeat")).toBeInTheDocument();
   });
   it.each([0, -13_000, -14_000, -15_000, 15_000])(
     "keeps the optimistic timer through acknowledgement and output with %i ms server clock skew",
@@ -668,7 +711,25 @@ describe("ThreadMessages", () => {
 
     expect(rows).toHaveLength(2);
     expect(rows[0]).not.toHaveClass("mt-2", "mt-4", "mt-5");
-    expect(rows[1]).toHaveClass("mt-4");
+    expect(rows[1]).toHaveClass("mt-1");
+  });
+
+  it("keeps activity transitions compact within one assistant turn", () => {
+    const { container } = render(<ThreadMessages messages={[
+      { id: "u", role: "user", content: "question", createdAt: 1, turnId: "turn" },
+      { id: "a1", role: "assistant", content: "first answer", createdAt: 2, turnId: "turn" },
+      { id: "t", role: "tool", kind: "trace", content: "search()", traces: ["search()"], createdAt: 3, turnId: "turn" },
+      { id: "a2", role: "assistant", content: "second answer", createdAt: 4, turnId: "turn" },
+      { id: "heartbeat", role: "assistant", content: "heartbeat", createdAt: 5,
+        turnId: "heartbeat", source: { kind: "heartbeat" } },
+    ]} />);
+    const rows = Array.from(container.firstElementChild?.children ?? []);
+
+    expect(rows).toHaveLength(5);
+    expect(rows[1]).toHaveClass("mt-5");
+    expect(rows[2]).toHaveClass("mt-2");
+    expect(rows[3]).toHaveClass("mt-1");
+    expect(rows[4]).toHaveClass("mt-5");
   });
 
   it("renders a fork boundary divider after the copied history", () => {
@@ -1488,7 +1549,7 @@ describe("ThreadMessages", () => {
       />,
     );
 
-    expect(screen.getAllByRole("button", { name: "Copy" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Copy" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Fork" })).toHaveLength(1);
     expect(screen.getByText("starting…").closest("[data-testid='activity-model-message']")).toBeNull();
     expect(screen.getByText("final reply").closest("[data-testid='activity-model-message']")).toBeNull();
@@ -1588,7 +1649,7 @@ describe("ThreadMessages", () => {
 
     rerender(<ThreadMessages {...props} isStreaming={false} activeTurnId={null} />);
 
-    expect(container.querySelectorAll('[data-assistant-footer] [aria-label="Copy"]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-assistant-footer] [aria-label="Copy"]')).toHaveLength(2);
     expect(container.querySelectorAll('[data-assistant-footer] [aria-label="Fork"]')).toHaveLength(2);
   });
 

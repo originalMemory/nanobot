@@ -21,7 +21,7 @@ async function fixture(t) {
 
 test('appearance validates bounds, URLs and image payloads', () => {
   assert.equal(normalize({}).source, 'none');
-  for (const patch of [{ source: 'url', url: 'https://example.com/image', opacity: 0 }, { source: 'url', url: 'https://example.com/image', intervalMinutes: NaN }, { source: 'other' }, { source: 'url' }, { source: 'url', url: 'file:///etc/passwd' }, { source: 'url', url: 'https://a:b@example.com/' }]) {
+  for (const patch of [{ contentWidth: 639 }, { contentWidth: 1441 }, { contentWidth: 900.5 }, { source: 'url', url: 'https://example.com/image', opacity: 0 }, { source: 'url', url: 'https://example.com/image', intervalMinutes: NaN }, { source: 'other' }, { source: 'url' }, { source: 'url', url: 'file:///etc/passwd' }, { source: 'url', url: 'https://a:b@example.com/' }]) {
     assert.throws(() => normalize({ ...DEFAULTS, ...patch }));
   }
 });
@@ -32,9 +32,10 @@ test('reads lover wallpaper keys and preserves unrelated store settings', async 
     appearance: { theme: 'ink', wallpaper: { source: 'url', url: 'https://example.com/image', localOrder: 'random', intervalMinutes: 3, localIndex: 7 } } });
   const value = await f.api.read();
   assert.equal(value.order, 'random'); assert.equal(value.intervalMinutes, 3);
-  await f.api.save({ ...value, opacity: 0.7 });
+  await f.api.save({ ...value, opacity: 0.7, contentWidth: 960 });
   const reopened = new Store({ cwd: f.directory, projectVersion: '0.3.5' });
   assert.equal(reopened.get('appearance.theme'), 'ink');
+  assert.equal(reopened.get('appearance.contentWidth'), 960);
   assert.equal(reopened.get('appearance.wallpaper.localOrder'), 'random');
   assert.equal(reopened.get('appearance.wallpaper.localIndex'), 7);
   assert.equal(reopened.get('gateway.url'), 'http://nas:8765');

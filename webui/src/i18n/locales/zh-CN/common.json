@@ -157,6 +157,8 @@
       "identity": "桌面身份",
       "name": "显示名称",
       "icon": "表情或简称",
+      "layout": "布局",
+      "contentWidth": "对话区域宽度",
       "choose": "选择…",
       "wallpaper": "壁纸",
       "source": "来源",

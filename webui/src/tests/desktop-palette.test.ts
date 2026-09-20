@@ -22,6 +22,13 @@ function luminance(hsl: string) {
   return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
 }
 
+it("keeps the desktop message list and composer on the configured conversation width", () => {
+  const layout = declarations(".desktop-unified .thread-workspace");
+  expect(layout["content-column-width"]).toBe("var(--desktop-content-column-width, 72rem)");
+  expect(layout["composer-hero-width"]).toBe("var(--desktop-content-column-width, 72rem)");
+  expect(layout["thread-layout-width"]).toBe("calc(var(--desktop-content-column-width, 72rem) + 2rem)");
+});
+
 it.each(THEME_CHOICES)("%s supplies current UI surfaces and readable foreground/background pairs", (theme) => {
   const colors = { ...declarations("html.native-host[data-theme]"),
     ...declarations(`html.native-host[data-theme="${theme}"]`) };

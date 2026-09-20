@@ -1282,6 +1282,25 @@ describe("ThreadComposer", () => {
     );
   });
 
+  it("hides workspace access controls in the fixed desktop inbox", () => {
+    window.nanobotHost = { fixedChatId: "desktop" };
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        workspaceScope={{
+          project_path: "/tmp/project",
+          project_name: "project",
+          access_mode: "restricted",
+          restrict_to_workspace: true,
+        }}
+        workspaceControls={{ can_change_project: true, can_use_full_access: true }}
+        onWorkspaceScopeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /Workspace access mode/ })).toBeNull();
+  });
+
   it("exposes full and compact workspace labels for container-driven compression", () => {
     render(
       <ThreadComposer

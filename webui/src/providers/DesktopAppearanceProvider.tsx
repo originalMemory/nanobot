@@ -31,7 +31,9 @@ export function DesktopAppearanceProvider({ children }: { children: ReactNode })
       const runtime = settings.runtime_config ?? {};
       const name = runtime["agents.defaults.bot_name"];
       const icon = runtime["agents.defaults.bot_icon"];
-      if (!cancelled) { setConfig({ ...value, name: typeof name === "string" ? name : "nanobot",
+      if (!cancelled) { setConfig({ ...value,
+        contentWidth: Number.isInteger(value.contentWidth) ? value.contentWidth : 1152,
+        name: typeof name === "string" ? name : "nanobot",
         icon: typeof icon === "string" ? icon : "🐈" }); setLoadFailed(false); }
     },
       () => { if (!cancelled) setLoadFailed(true); });
@@ -66,6 +68,12 @@ export function DesktopAppearanceProvider({ children }: { children: ReactNode })
     root.style.setProperty("--desktop-panel-opacity", String(config?.opacity ?? 0.8));
     return () => { delete root.dataset.wallpaper; root.style.removeProperty("--desktop-panel-opacity"); };
   }, [image, config?.opacity]);
+  useEffect(() => {
+    if (!config) return;
+    const root = document.documentElement;
+    root.style.setProperty("--desktop-content-column-width", `${config.contentWidth}px`);
+    return () => { root.style.removeProperty("--desktop-content-column-width"); };
+  }, [config?.contentWidth]);
   const save = useCallback(async (value: DesktopAppearance) => {
     if (!api) return;
     const { name, icon, ...localValue } = value;

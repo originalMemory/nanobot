@@ -74,6 +74,8 @@ interface MessageBubbleProps {
   showCopyAction?: boolean;
   /** Turn message lists render one shared identity header above reasoning/tools/body. */
   showAssistantIdentity?: boolean;
+  /** Only the final visible answer segment owns the shared action/footer row. */
+  showAssistantFooter?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
   slashCommands?: SlashCommand[];
@@ -402,6 +404,7 @@ export function MessageBubble({
   temporary = false,
   showCopyAction = true,
   showAssistantIdentity = true,
+  showAssistantFooter = true,
   cliApps = [],
   mcpPresets = [],
   slashCommands = [],
@@ -533,7 +536,11 @@ export function MessageBubble({
   const hasReasoning = reasoning.length > 0 || reasoningStreaming;
 
   const showAssistantActions =
-    message.role === "assistant" && !message.isStreaming && !isTurnStreaming && !empty;
+    showAssistantFooter
+    && message.role === "assistant"
+    && !message.isStreaming
+    && !isTurnStreaming
+    && !empty;
   const showCopyButton = showCopyAction && showAssistantActions;
   const showForkButton = showAssistantActions && !!onForkFromHere;
   const forkLabel = t("message.forkFromHere");
@@ -569,10 +576,11 @@ export function MessageBubble({
     showCopyButton || showForkButton || showAssistantTimestamp || showVoiceButton || showUsage
     || showResponseModel;
   const showAssistantFooterSlot =
-    message.role === "assistant"
+    showAssistantFooter
+    && message.role === "assistant"
     && (!empty || hasReasoning || media.length > 0);
   return (
-    <div className="w-full text-[15px]" style={{ lineHeight: "var(--cjk-line-height)" }}>
+    <div className="assistant-response w-full text-[15px]">
       {showAssistantIdentity ? <DesktopIdentity message /> : null}
       {hasReasoning ? (
         <ReasoningBubble

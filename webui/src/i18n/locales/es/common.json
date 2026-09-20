@@ -157,6 +157,8 @@
       "identity": "Identidad de escritorio",
       "name": "Nombre visible",
       "icon": "Emoji o iniciales",
+      "layout": "Diseño",
+      "contentWidth": "Ancho de la conversación",
       "choose": "Elegir…",
       "wallpaper": "Fondo de pantalla",
       "source": "Origen",
