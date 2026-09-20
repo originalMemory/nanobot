@@ -94,8 +94,9 @@ export function ImageLightbox({
         />
         <DialogPrimitive.Content
           aria-label={current.name ?? t("lightbox.title")}
+          aria-describedby={undefined}
           className={cn(
-            "fixed inset-0 z-50 flex items-center justify-center",
+            "host-no-drag fixed inset-0 z-50 flex items-center justify-center",
             "focus:outline-none",
             "data-[state=open]:animate-in data-[state=closed]:animate-out",
             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
@@ -120,7 +121,7 @@ export function ImageLightbox({
               alt={current.name ?? ""}
               decoding="async"
               draggable={false}
-              className="max-h-[92vh] max-w-[94vw] select-none rounded-compact object-contain shadow-2xl"
+              className="max-h-[92vh] max-w-[94vw] select-none rounded-[6px] object-contain shadow-2xl"
             />
           </div>
 
@@ -151,7 +152,7 @@ export function ImageLightbox({
           <DialogPrimitive.Close
             aria-label={t("lightbox.close")}
             className={cn(
-              "absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full",
+              "absolute right-7 top-7 z-10 grid h-9 w-9 place-items-center rounded-full",
               "bg-black/55 text-white/90 hover:bg-black/70 hover:text-white",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
               "transition-colors motion-reduce:transition-none",
@@ -186,7 +187,7 @@ function NavButton({ side, label, onClick }: NavButtonProps) {
       onClick={onClick}
       aria-label={label}
       className={cn(
-        "absolute top-1/2 -translate-y-1/2 grid h-11 w-11 place-items-center rounded-full",
+        "absolute top-1/2 z-10 -translate-y-1/2 grid h-11 w-11 place-items-center rounded-full",
         "bg-black/55 text-white/90 hover:bg-black/70 hover:text-white",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
         "transition-colors motion-reduce:transition-none",

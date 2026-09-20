@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next";
 import { CalendarDays, ChevronDown, ChevronRight, FileText, Folder, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AttachmentTile } from "@/components/AttachmentTile";
 import { MarkdownText } from "@/components/MarkdownText";
 import { LibraryDocument } from "@/components/library/LibraryDocument";
 import { CodeBlock } from "@/components/CodeBlock";
@@ -139,7 +140,7 @@ export function LibraryView({ source, onBack }: { source: LibrarySource; onBack:
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {loading ? <p>{tx("loading")}</p> : error ? <p role="alert">{error}</p> : !preview ? <p className="text-muted-foreground">{tx("select")}</p> : <>
             {preview.truncated ? <p role="status" className="mb-3 text-destructive">{tx("truncated")}</p> : null}
-            {preview.kind === "image" ? <img src={preview.url} alt={preview.path} className="max-w-full rounded-control" /> : null}
+            {preview.kind === "image" ? <AttachmentTile attachment={{ kind: "image", url: preview.url, name: preview.path }} /> : null}
             {preview.kind === "text" ? <>
               {!!preview.images_omitted && <p role="status" className="mb-3 text-muted-foreground">{t("library.imagesOmitted", { count: preview.images_omitted })}</p>}
               {preview.frontmatter && (source !== "notes" || !Object.keys(preview.properties ?? {}).length) ? <details className="mb-4"><summary>{tx("properties")}</summary><CodeBlock code={preview.frontmatter} language="yaml" /></details> : null}

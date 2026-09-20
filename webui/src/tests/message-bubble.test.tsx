@@ -1178,9 +1178,11 @@ describe("MessageBubble", () => {
       "border-border/60",
       "focus-visible:ring-2",
     );
-    expect(imageButton).not.toHaveClass("hover:scale-[1.01]");
-    expect(imageButton).not.toHaveClass("hover:ring-2");
-    expect(imageButton).not.toHaveClass("hover:ring-primary/25");
+    expect(imageButton).toHaveClass(
+      "hover:scale-[1.01]",
+      "hover:ring-2",
+      "hover:ring-primary/25",
+    );
     expect(imageButton).not.toHaveAttribute("title");
     expect(container.querySelector("img")).toHaveClass("h-auto", "w-full", "object-contain");
   });

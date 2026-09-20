@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { FileIcon, ImageIcon, PlaySquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { cn } from "@/lib/utils";
 import type { UIMediaAttachment } from "@/lib/types";
 
@@ -15,40 +16,53 @@ interface AttachmentTileProps {
 export function AttachmentTile({ attachment, className, inline = false, variant = "default" }: AttachmentTileProps) {
   const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
+  const [imageOpen, setImageOpen] = useState(false);
   const hasUrl = typeof attachment.url === "string" && attachment.url.length > 0;
   const label = attachmentLabel(attachment, t);
 
   if (attachment.kind === "image" && hasUrl && !failed) {
     return (
-      <AttachmentFrame
-        attachment={attachment}
-        className={className}
-        inline={inline}
-        variant={variant}
-      >
-        <a
-          href={attachment.url}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="block bg-muted/20"
-          aria-label={attachment.name
-            ? t("message.openAttachment", { name: attachment.name })
-            : t("lightbox.open", { defaultValue: "Open image" })}
+      <>
+        <AttachmentFrame
+          attachment={attachment}
+          className={className}
+          inline={inline}
+          variant={variant}
         >
-          <img
-            src={attachment.url}
-            alt={attachment.name ?? ""}
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            onError={() => setFailed(true)}
+          <button
+            type="button"
+            onClick={() => setImageOpen(true)}
             className={cn(
-              "block h-auto max-w-full bg-background object-contain",
-              variant === "compact" ? "max-h-40" : "max-h-[34rem]",
+              "block cursor-zoom-in bg-muted/20 transition-transform duration-150",
+              "hover:scale-[1.01] hover:ring-2 hover:ring-primary/25",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+              "motion-reduce:transition-none",
             )}
-          />
-        </a>
-      </AttachmentFrame>
+            aria-label={attachment.name
+              ? t("message.openAttachment", { name: attachment.name })
+              : t("lightbox.open", { defaultValue: "Open image" })}
+          >
+            <img
+              src={attachment.url}
+              alt={attachment.name ?? ""}
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              onError={() => setFailed(true)}
+              className={cn(
+                "block h-auto max-w-full bg-background object-contain",
+                variant === "compact" ? "max-h-40" : "max-h-[34rem]",
+              )}
+            />
+          </button>
+        </AttachmentFrame>
+        <ImageLightbox
+          images={[{ url: attachment.url, name: attachment.name }]}
+          index={imageOpen ? 0 : null}
+          onIndexChange={() => {}}
+          onOpenChange={setImageOpen}
+        />
+      </>
     );
   }
 
