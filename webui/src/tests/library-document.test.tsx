@@ -30,6 +30,21 @@ it("keeps nested callout columns and suppresses only the real timeline placehold
   expect(screen.getByText('<div class="timeline-container"></div>')).toBeInTheDocument();
 });
 
+it("renders the Obsidian day-of-year timeline without loading vault CSS", () => {
+  const { container } = render(<MarkdownTextRenderer document localImages={{}}>{
+    '<div class="timeline-container" data-dv-key="timeline274"></div>'
+  }</MarkdownTextRenderer>);
+
+  const timeline = screen.getByRole("img", { name: "Day 274 of 365" });
+  expect(timeline).toHaveAttribute("data-testid", "diary-timeline");
+  expect(timeline).toHaveTextContent("1月");
+  expect(timeline).toHaveTextContent("12月");
+  expect(container.querySelector('[data-diary-timeline-day="274"]')).toBeNull();
+  expect(timeline.querySelector<HTMLElement>('.bg-red-500')).toHaveStyle({
+    left: `${((274 - 0.5) / 365) * 100}%`,
+  });
+});
+
 it("does not interpret callouts in ordinary chat or render unsafe banner protocols", () => {
   const view = render(<LibraryDocument path="note.md" properties={{ banner: "javascript:alert(1)" }} onOpenFilePreview={() => {}}>text</LibraryDocument>);
   expect(view.container.querySelector("img")).toBeNull();

@@ -111,6 +111,60 @@ function InferredFileReferenceChip({
 }
 
 const SAFE_INLINE_HTML_TAGS = new Set(["mark", "sub", "sup"]);
+const DIARY_TIMELINE_MONTHS = [
+  ["1月", 31, "#cfe2f3"],
+  ["2月", 28, "#a2b1c9"],
+  ["3月", 31, "#76a5af"],
+  ["4月", 30, "#93c47d"],
+  ["5月", 31, "#6aa84f"],
+  ["6月", 30, "#8fce00"],
+  ["7月", 31, "#ffd966"],
+  ["8月", 31, "#f1c232"],
+  ["9月", 30, "#ce7e00"],
+  ["10月", 31, "#e06666"],
+  ["11月", 30, "#f4cccc"],
+  ["12月", 31, "#eeeeee"],
+] as const;
+
+function DiaryTimeline({ day }: { day: number }) {
+  const totalDays = day === 366 ? 366 : 365;
+  const progress = Math.min(100, Math.max(0, ((day - 0.5) / totalDays) * 100));
+  const columns = DIARY_TIMELINE_MONTHS.map(([, days]) => `${days}fr`).join(" ");
+  return (
+    <div
+      role="img"
+      aria-label={`Day ${day} of ${totalDays}`}
+      data-testid="diary-timeline"
+      className="not-prose my-5 w-full"
+    >
+      <div className="relative">
+        <div
+          className="grid h-1.5 gap-px overflow-hidden rounded-full"
+          style={{ gridTemplateColumns: columns }}
+          aria-hidden
+        >
+          {DIARY_TIMELINE_MONTHS.map(([month, , color]) => (
+            <span key={month} style={{ backgroundColor: color }} />
+          ))}
+        </div>
+        <span
+          className="absolute top-[-3px] h-3 w-0.5 -translate-x-1/2 rounded-full bg-red-500 shadow-sm"
+          style={{ left: `${progress}%` }}
+          aria-hidden
+        />
+      </div>
+      <div
+        className="mt-1.5 grid gap-px text-[8px] leading-none text-muted-foreground sm:text-[9px]"
+        style={{ gridTemplateColumns: columns }}
+        aria-hidden
+      >
+        {DIARY_TIMELINE_MONTHS.map(([month]) => (
+          <span key={month} className="truncate">{month}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function extensionOf(value: string): string {
   const clean = value.split(/[?#]/, 1)[0]?.trim() ?? "";
@@ -337,7 +391,24 @@ function remarkDiaryDocument() {
           title.data = { hName: "div", hProperties: { className: ["callout-title"] } };
         }
       }
-      node.children = node.children?.filter((child) => !(child.type === "html" && /^<div\s+class=["']timeline-container["']\s*><\/div>\s*$/.test(child.value ?? "")));
+      node.children = node.children?.flatMap((child) => {
+        if (child.type !== "html" || typeof child.value !== "string") return [child];
+        const html = child.value.trim();
+        if (!/^<div\b[^>]*><\/div>$/i.test(html)) return [child];
+        const classes = /\bclass=["']([^"']*)["']/i.exec(html)?.[1]?.split(/\s+/) ?? [];
+        if (!classes.includes("timeline-container")) return [child];
+        const rawDay = /\bdata-dv-key=["']timeline(\d{1,3})["']/i.exec(html)?.[1];
+        const day = rawDay ? Number(rawDay) : NaN;
+        if (!Number.isInteger(day) || day < 1 || day > 366) return [];
+        return [{
+          type: "nanobotDiaryTimeline",
+          data: {
+            hName: "div",
+            hProperties: { "data-diary-timeline-day": day },
+          },
+          children: [],
+        }];
+      });
       node.children?.forEach(visit);
     };
     visit(tree);
@@ -611,6 +682,15 @@ export default function MarkdownTextRenderer({
   );
   const components = useMemo<Components>(
     () => ({
+      div({ children: markdownChildren, node: _node, ...props }) {
+        void _node;
+        const rawDay = (props as Record<string, unknown>)["data-diary-timeline-day"];
+        const day = typeof rawDay === "number" ? rawDay : Number(rawDay);
+        if (document && Number.isInteger(day) && day >= 1 && day <= 366) {
+          return <DiaryTimeline day={day} />;
+        }
+        return <div {...props}>{markdownChildren}</div>;
+      },
       code({ className: cls, children: kids, node: _node, ...props }) {
         void _node;
         const match = /language-(\w+)/.exec(cls || "");
