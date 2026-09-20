@@ -48,6 +48,8 @@ import { cn } from "@/lib/utils";
 interface SettingsPageProps {
   registerExitGuard?: (guard: SettingsExitGuard | null) => void;
   controller: SettingsController;
+  activeModelName?: string | null;
+  activeModelPreset?: string | null;
   theme: "light" | "dark";
   showSidebar: boolean;
   mainNavigationExpanded: boolean;
@@ -71,6 +73,8 @@ interface SettingsPageProps {
 export function SettingsPage({
   registerExitGuard,
   controller,
+  activeModelName = null,
+  activeModelPreset = null,
   theme,
   showSidebar,
   mainNavigationExpanded,
@@ -325,6 +329,8 @@ export function SettingsPage({
         return (
           <OverviewSettings
             settings={settings}
+            activeModelName={activeModelName}
+            activeModelPreset={activeModelPreset}
             showBrandLogos={localPrefs.brandLogos}
             onSelectSection={selectSection}
           />

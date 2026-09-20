@@ -12,6 +12,8 @@ interface SettingsViewProps {
   theme: "light" | "dark";
   initialSection?: SettingsSectionKey;
   initialSettings?: SettingsPayload | null;
+  activeModelName?: string | null;
+  activeModelPreset?: string | null;
   showSidebar?: boolean;
   mainNavigationExpanded?: boolean;
   onToggleTheme: () => void;
@@ -41,6 +43,8 @@ export function SettingsView({
   theme,
   initialSection = "overview",
   initialSettings = null,
+  activeModelName = null,
+  activeModelPreset = null,
   showSidebar = true,
   mainNavigationExpanded = false,
   onToggleTheme,
@@ -73,6 +77,8 @@ export function SettingsView({
     <SettingsPage
       registerExitGuard={registerExitGuard}
       controller={controller}
+      activeModelName={activeModelName}
+      activeModelPreset={activeModelPreset}
       theme={theme}
       showSidebar={showSidebar}
       mainNavigationExpanded={mainNavigationExpanded}

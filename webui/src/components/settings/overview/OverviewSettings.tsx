@@ -48,26 +48,40 @@ import { useClient } from "@/providers/ClientProvider";
 
 export function OverviewSettings({
   settings,
+  activeModelName,
+  activeModelPreset,
   onSelectSection,
   showBrandLogos,
 }: {
   settings: SettingsPayload;
+  activeModelName?: string | null;
+  activeModelPreset?: string | null;
   onSelectSection: (section: SettingsSectionKey) => void;
   showBrandLogos: boolean;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
-  const activePresetName = settings.agent.model_preset;
+  const activePresetName = activeModelPreset?.trim() || settings.agent.model_preset;
+  const activePresetRow = activePresetName
+    ? settings.model_presets.find((preset) => preset.name === activePresetName)
+    : null;
   const activePreset =
     activePresetName && activePresetName !== "default"
-      ? settings.model_presets.find((preset) => preset.name === activePresetName)?.name ??
-        activePresetName
+      ? activePresetRow?.name ?? activePresetName
       : null;
-  const activeProvider = settings.agent.resolved_provider ?? settings.agent.provider;
-  const activeProviderConfigured = settingsProviderConfigured(settings, activeProvider);
+  const configuredProvider = activePresetRow?.provider ?? settings.agent.provider;
+  const resolvedProvider = activePresetRow?.resolved_provider ?? settings.agent.resolved_provider;
+  const activeProvider = configuredProvider === "auto"
+    ? resolvedProvider ?? configuredProvider
+    : configuredProvider;
+  const activeProviderConfigured = settingsProviderConfigured(
+    settings,
+    configuredProvider,
+    resolvedProvider,
+  );
   const activeProviderLabel = providerDisplayLabel(settings.providers, activeProvider);
   const activeModelValue = activeProviderConfigured
-    ? settings.agent.model
+    ? activePresetRow?.model || activeModelName || settings.agent.model
     : tx("settings.values.notConfigured", "Not configured");
   const activeModelCaption = activeProviderConfigured
     ? [activeProvider, activePreset].filter(Boolean).join(" · ")

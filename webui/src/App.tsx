@@ -1116,7 +1116,7 @@ function Shell({
   onNativeEngineRestart: () => Promise<string>;
 }) {
   const { t, i18n } = useTranslation();
-  const { client, getToken } = useClient();
+  const { client, getToken, modelName } = useClient();
   const { theme, selectedTheme, toggle, setTheme } = useTheme();
   const {
     sessions,
@@ -2973,6 +2973,10 @@ function Shell({
                     onSelectTheme={setTheme}
                     initialSection={settingsInitialSection}
                     initialSettings={settingsSnapshot}
+                    activeModelName={modelName}
+                    activeModelPreset={activeSession?.chatId
+                      ? client.getChatModelPreset(activeSession.chatId) ?? activeSession.modelPreset
+                      : null}
                     showSidebar={view === "settings"}
                     mainNavigationExpanded={showMainSidebar && hostSidebarOpen}
                     onToggleTheme={toggle}
