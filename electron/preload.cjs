@@ -45,6 +45,11 @@ if (location.protocol === 'file:') {
       settings: (value) => ipcRenderer.invoke('desktop:voice-settings', value),
       active: (value) => ipcRenderer.invoke('desktop:voice-active', value),
     },
+    tray: {
+      notifyIncoming: (notificationId, payload) => ipcRenderer.invoke(
+        'desktop:notify-incoming', notificationId, payload,
+      ),
+    },
     appearance: {
       read: () => ipcRenderer.invoke('desktop:appearance-read'),
       save: (value) => ipcRenderer.invoke('desktop:appearance-save', value),

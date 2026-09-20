@@ -265,7 +265,7 @@ describe("MarkdownTextRenderer", () => {
 
     const image = screen.getByRole("img", { name: "Diagram" });
     expect(image).toHaveAttribute("src", "/api/media/sig/payload");
-    fireEvent.click(screen.getByRole("button", { name: "Open Diagram" }));
+    fireEvent.click(screen.getByRole("button", { name: "View image: Diagram" }));
     expect(screen.getByRole("dialog", { name: "Diagram" })).toHaveClass("host-no-drag");
   });
 
@@ -379,10 +379,8 @@ describe("MarkdownTextRenderer", () => {
       "src",
       "/api/media/sig/payload",
     );
-    expect(screen.getByRole("link", { name: "Open Diagram" })).toHaveAttribute(
-      "href",
-      "/api/media/sig/payload",
-    );
+    expect(screen.getByRole("button", { name: "View image: Diagram" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Open Diagram" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Code" })).not.toBeInTheDocument();
   });
 

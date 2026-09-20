@@ -1865,6 +1865,18 @@ describe("NanobotClient", () => {
       "metadata",
       expect.objectContaining({ project_path: "/tmp/project" }),
     );
+    lastSocket().fakeMessage({
+      event: "session_updated",
+      chat_id: "chat-title",
+      scope: "thread",
+      notification_id: "external-turn",
+    });
+    expect(globalHandler).toHaveBeenLastCalledWith(
+      "chat-title",
+      "thread",
+      undefined,
+      "external-turn",
+    );
     expect(chatHandler).not.toHaveBeenCalled();
   });
 

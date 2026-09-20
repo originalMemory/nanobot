@@ -1478,6 +1478,7 @@ export type InboundEvent =
       chat_id: string;
       scope?: "metadata" | "thread" | string;
       workspace_scope?: WorkspaceScopePayload;
+      notification_id?: string;
     }
   | {
       event: "sidebar_state_updated";

@@ -28,7 +28,12 @@ function makeClient() {
   const runtimeModelHandlers = new Set<
     (modelName: string | null, modelPreset?: string | null) => void
   >();
-  const sessionUpdateHandlers = new Set<(chatId: string, scope?: string) => void>();
+  const sessionUpdateHandlers = new Set<(
+    chatId: string,
+    scope?: string,
+    workspaceScope?: import("@/lib/types").WorkspaceScopePayload,
+    notificationId?: string,
+  ) => void>();
   const runStatusHandlers = new Set<(chatId: string, startedAt: number | null) => void>();
   const runStartedAtByChatId = new Map<string, number>();
   const runGenerationByChatId = new Map<string, number>();
@@ -150,7 +155,12 @@ function makeClient() {
         errorHandlers.delete(handler);
       };
     },
-    onSessionUpdate: (handler: (chatId: string, scope?: string) => void) => {
+    onSessionUpdate: (handler: (
+      chatId: string,
+      scope?: string,
+      workspaceScope?: import("@/lib/types").WorkspaceScopePayload,
+      notificationId?: string,
+    ) => void) => {
       sessionUpdateHandlers.add(handler);
       return () => {
         sessionUpdateHandlers.delete(handler);
@@ -189,8 +199,8 @@ function makeClient() {
     _emitRuntimeModelUpdate(modelName: string | null, modelPreset?: string | null) {
       for (const h of runtimeModelHandlers) h(modelName, modelPreset);
     },
-    _emitSessionUpdate(chatId: string, scope?: string) {
-      for (const h of sessionUpdateHandlers) h(chatId, scope);
+    _emitSessionUpdate(chatId: string, scope?: string, notificationId?: string) {
+      for (const h of sessionUpdateHandlers) h(chatId, scope, undefined, notificationId);
     },
     sendMessage,
     sendSystemCommand: vi.fn().mockResolvedValue(undefined),
@@ -490,6 +500,53 @@ describe("ThreadShell", () => {
     await waitFor(() => expect(historyCalls).toBeGreaterThan(1));
     expect(await screen.findByText("answer-2")).toBeInTheDocument();
     expect(screen.queryByText("answer-1")).not.toBeInTheDocument();
+  });
+
+  it("uses refreshed external assistant text for queued desktop notifications", async () => {
+    const client = makeClient();
+    const notifyIncoming = vi.fn().mockResolvedValue(undefined);
+    Reflect.set(window, "nanobotHost", { tray: { notifyIncoming } });
+    let historyCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes("websocket%3Adesktop-notify/webui-thread")) {
+        historyCalls += 1;
+        const messages = [
+          { role: "user" as const, content: "question" },
+          { role: "assistant" as const, content: "old answer" },
+          ...(historyCalls > 1 ? [
+            { role: "user" as const, content: "QQ question 1" },
+            { role: "assistant" as const, content: "QQ reply 1" },
+            { role: "user" as const, content: "QQ question 2" },
+            { role: "assistant" as const, content: "QQ reply 2" },
+          ] : []),
+        ];
+        return Promise.resolve(httpJson(transcriptFromSimpleMessages(messages)));
+      }
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+    }));
+    render(wrap(client, <ThreadShell
+      session={session("desktop-notify")}
+      title="Desktop notify"
+      onToggleSidebar={() => {}}
+    />));
+    expect(await screen.findByText("old answer")).toBeInTheDocument();
+
+    act(() => {
+      client._emitSessionUpdate("desktop-notify", "thread", "external-turn-1");
+      client._emitSessionUpdate("desktop-notify", "thread", "external-turn-2");
+    });
+
+    await waitFor(() => expect(notifyIncoming).toHaveBeenNthCalledWith(
+      1,
+      "external-turn-1",
+      { text: "QQ reply 1", hasMedia: false },
+    ));
+    expect(notifyIncoming).toHaveBeenNthCalledWith(
+      2,
+      "external-turn-2",
+      { text: "QQ reply 2", hasMedia: false },
+    );
+    Reflect.deleteProperty(window, "nanobotHost");
   });
 
   it("surfaces and retries a deferred trace-detail request failure", async () => {

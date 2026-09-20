@@ -55,6 +55,7 @@ import type {
 } from "@/lib/types";
 import { projectWebuiThreadMessages } from "@/lib/thread-display-compat";
 import { ThreadMessageCache } from "@/lib/thread-message-cache";
+import { getRuntimeHost } from "@/lib/runtime";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
@@ -72,6 +73,18 @@ interface PendingCanonicalHydrate {
 interface PendingHistoryLineageCommit {
   lineage: number;
   messages: UIMessage[];
+}
+
+interface PendingDesktopNotification {
+  assistantId: string | null;
+  historyVersion: number;
+  notificationId: string;
+}
+
+function latestAssistant(messages: UIMessage[]): UIMessage | null {
+  return [...messages].reverse().find(
+    (message) => message.role === "assistant" && message.kind !== "trace",
+  ) ?? null;
 }
 
 interface PendingCanonicalCommit {
@@ -673,6 +686,7 @@ export function ThreadShell({
     return typeof response.path === "string" ? response.path : null;
   }, [client]);
   const [fallbackModelName, setFallbackModelName] = useState<string | null>(null);
+  const pendingDesktopNotificationsRef = useRef<PendingDesktopNotification[]>([]);
   const [booting, setBooting] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const cliApps = useInstalledSettingItems({
@@ -1269,16 +1283,70 @@ export function ThreadShell({
   }, [chatId, client, historyKey, historyLineage, historyVersion, refreshHistory]);
 
   useEffect(() => {
+    pendingDesktopNotificationsRef.current = [];
+  }, [chatId]);
+
+  useEffect(() => {
     if (!historyKey || !chatId) return;
-    return client.onSessionUpdate((updatedChatId, scope) => {
+    return client.onSessionUpdate((updatedChatId, scope, _workspaceScope, notificationId) => {
       if (updatedChatId !== chatId) return;
       if (scope === "metadata") return;
+      if (notificationId && getRuntimeHost().tray) {
+        pendingDesktopNotificationsRef.current.push({
+          notificationId,
+          historyVersion,
+          assistantId: latestAssistant(historical)?.id ?? null,
+        });
+      }
       // A turn-end thread refresh can arrive while the viewport is easing the
       // final layout change. User-driven scrolling already disables following,
       // so keep an active programmatic follow alive across canonical hydration.
       refreshCanonicalHistory();
     });
-  }, [chatId, client, historyKey, refreshCanonicalHistory]);
+  }, [chatId, client, historical, historyKey, historyVersion, refreshCanonicalHistory]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (historyError) {
+      const pending = pendingDesktopNotificationsRef.current;
+      pendingDesktopNotificationsRef.current = [];
+      for (const notification of pending) {
+        void getRuntimeHost().tray?.notifyIncoming(notification.notificationId, {});
+      }
+      return;
+    }
+    const ready = pendingDesktopNotificationsRef.current.filter(
+      (pending) => historyVersion > pending.historyVersion,
+    );
+    if (ready.length === 0) return;
+    const waiting = pendingDesktopNotificationsRef.current.filter(
+      (pending) => historyVersion <= pending.historyVersion,
+    );
+    const assistants = historical.filter(
+      (message) => message.role === "assistant" && message.kind !== "trace",
+    );
+    let assistantIndex = assistants.length - 1;
+    const deliveries: Array<{ pending: PendingDesktopNotification; answer: UIMessage }> = [];
+    for (let index = ready.length - 1; index >= 0; index -= 1) {
+      const pending = ready[index];
+      const baselineIndex = pending.assistantId
+        ? assistants.findIndex((message) => message.id === pending.assistantId)
+        : -1;
+      if (assistantIndex <= baselineIndex) {
+        waiting.push(pending);
+        continue;
+      }
+      deliveries.push({ pending, answer: assistants[assistantIndex] });
+      assistantIndex -= 1;
+    }
+    pendingDesktopNotificationsRef.current = waiting;
+    for (const { pending, answer } of deliveries.reverse()) {
+      void getRuntimeHost().tray?.notifyIncoming(pending.notificationId, {
+        ...(answer.content.trim() ? { text: answer.content } : {}),
+        hasMedia: Boolean(answer.media?.length || answer.voice),
+      });
+    }
+  }, [historical, historyError, historyVersion, loading]);
 
   const wasPageHiddenRef = useRef(document.visibilityState === "hidden");
   useEffect(() => {

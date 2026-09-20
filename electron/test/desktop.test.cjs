@@ -4,24 +4,34 @@ const { EventEmitter } = require('node:events');
 const { completionKey, installDesktop } = require('../desktop.cjs');
 
 function fixture() {
-  const app = Object.assign(new EventEmitter(), { isPackaged: false, quit() { this.emit('before-quit'); } });
+  const app = Object.assign(new EventEmitter(), {
+    isPackaged: false, getLocale: () => 'zh-CN', quit() { this.emit('before-quit'); },
+  });
   const win = Object.assign(new EventEmitter(), {
     focused: true, visible: true, hidden: 0,
     isVisible() { return this.visible; }, isFocused() { return this.focused; },
     hide() { this.hidden++; this.visible = false; }, isDestroyed: () => false,
+    setProgressBar: (...args) => progress.push(args),
     webContents: { getURL: () => 'nanobot://desktop/', send: (...args) => sent.push(args) },
   });
-  const sent = []; const notices = []; const shortcuts = new Map();
+  const sent = []; const notices = []; const shortcuts = new Map(); const progress = [];
+  const trayImages = []; const tooltips = [];
   let shown = 0;
   let trayIcon = '';
-  class Tray extends EventEmitter { constructor(icon) { super(); trayIcon = icon.path; } setToolTip() {} setContextMenu() {} destroy() {} }
+  class Tray extends EventEmitter {
+    constructor(icon) { super(); trayIcon = icon.path; }
+    setImage(icon) { trayImages.push(icon.path); }
+    setToolTip(value) { tooltips.push(value); }
+    setContextMenu() {} destroy() {} isDestroyed() { return false; }
+  }
   class Notification extends EventEmitter {
+    constructor(options) { super(); this.options = options; }
     static isSupported() { return true; }
     show() { notices.push(this); }
   }
   const electron = {
     app, Tray, Notification, Menu: { buildFromTemplate: (value) => value },
-    nativeImage: { createFromPath: (file) => ({ path: file, setTemplateImage() {} }) },
+    nativeImage: { createFromPath: (file) => ({ path: file, isEmpty: () => false, setTemplateImage() {} }) },
     globalShortcut: { register: (key, fn) => { shortcuts.set(key, fn); return true; }, unregister: (key) => shortcuts.delete(key) },
     screen: { getCursorScreenPoint: () => ({}), getDisplayNearestPoint: () => ({ id: 1, size: { width: 100, height: 80 } }) },
     desktopCapturer: { getSources: async () => [{ display_id: '1', thumbnail: { isEmpty: () => false, toJPEG: () => Buffer.from('fixture') } }] },
@@ -29,12 +39,18 @@ function fixture() {
   };
   const controller = installDesktop({ getWindow: () => win, showWindow: () => { shown++; win.visible = true; }, electron });
   controller.bindWindow(win);
-  return { app, win, sent, notices, shortcuts, controller, shown: () => shown, trayIcon: () => trayIcon };
+  return {
+    app, win, sent, notices, shortcuts, controller, progress, trayImages, tooltips,
+    shown: () => shown, trayIcon: () => trayIcon,
+  };
 }
 
-test('Windows 托盘使用彩色头像图标', () => {
+test('托盘使用当前平台图标', () => {
   const f = fixture();
-  assert.match(f.trayIcon(), /assets[\\/]tray\.png$/);
+  assert.match(
+    f.trayIcon(),
+    process.platform === 'darwin' ? /assets[\\/]trayTemplate\.png$/ : /assets[\\/]tray\.png$/,
+  );
 });
 
 test('只识别桌面完成事件，开始同步和其他会话不提醒', () => {
@@ -67,6 +83,50 @@ test('通知去重，聚焦时不打扰；点击通知唤起窗口', () => {
   f.controller.notify(frame); f.controller.notify(frame);
   assert.equal(f.notices.length, 1);
   f.notices[0].emit('click'); assert.equal(f.shown(), 1);
+});
+
+test('直播状态切换托盘图和任务栏进度', () => {
+  const f = fixture();
+  f.controller.handleFrame({ event: 'goal_status', chat_id: 'desktop', status: 'running' });
+  assert.match(f.trayImages.at(-1), /trayStreamingTemplate\.png$/);
+  assert.equal(f.tooltips.at(-1), 'Nanobot · 正在回复');
+  assert.deepEqual(f.progress.at(-1), [2, { mode: 'indeterminate' }]);
+  f.controller.handleFrame({ event: 'goal_status', chat_id: 'desktop', status: 'idle' });
+  assert.match(f.trayImages.at(-1), /trayTemplate\.png$/);
+  f.controller.handleFrame({ event: 'companion_state', working: true });
+  assert.match(f.trayImages.at(-1), /trayStreamingTemplate\.png$/);
+  f.controller.handleFrame({ event: 'companion_state', working: false });
+  assert.match(f.trayImages.at(-1), /trayTemplate\.png$/);
+});
+
+test('完成通知使用本轮回复正文', () => {
+  const f = fixture();
+  f.win.focused = false;
+  f.controller.handleFrame({ event: 'delta', chat_id: 'desktop', turn_id: 't1', text: '**完成**' });
+  f.controller.handleFrame({ event: 'turn_end', chat_id: 'desktop', turn_id: 't1' });
+  assert.equal(f.notices.at(-1).options.body, '完成');
+});
+
+test('无 delta 时使用 stream_end 正文且不重复已有摘要', () => {
+  const f = fixture();
+  f.win.focused = false;
+  f.controller.handleFrame({ event: 'stream_end', chat_id: 'desktop', turn_id: 't1', text: '完整回复' });
+  f.controller.handleFrame({ event: 'turn_end', chat_id: 'desktop', turn_id: 't1' });
+  assert.equal(f.notices.at(-1).options.body, '完整回复');
+
+  f.controller.handleFrame({ event: 'delta', chat_id: 'desktop', turn_id: 't2', text: '流式回复' });
+  f.controller.handleFrame({ event: 'stream_end', chat_id: 'desktop', turn_id: 't2', text: '流式回复' });
+  f.controller.handleFrame({ event: 'turn_end', chat_id: 'desktop', turn_id: 't2' });
+  assert.equal(f.notices.at(-1).options.body, '流式回复');
+});
+
+test('外部渠道完成通知使用 session_updated 摘要', () => {
+  const f = fixture();
+  f.win.focused = false;
+  f.controller.handleFrame({ event: 'session_updated', chat_id: 'desktop', notification_id: 'external-1' });
+  assert.equal(f.notices.length, 0);
+  f.controller.notifyIncoming('external-1', { text: 'QQ 回复内容', hasMedia: true });
+  assert.equal(f.notices.at(-1).options.body, 'QQ 回复内容');
 });
 
 test('截图只发附件事件，不发送聊天消息，并恢复窗口', async () => {

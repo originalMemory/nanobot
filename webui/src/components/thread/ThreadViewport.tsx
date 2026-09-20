@@ -12,7 +12,6 @@ import {
 import { ArrowDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { PromptRail } from "@/components/thread/PromptRail";
 import { ThreadMessages } from "@/components/thread/ThreadMessages";
 import { isAgentActivityMember } from "@/components/thread/AgentActivityCluster";
 import { ThreadCameraController } from "@/components/thread/thread-camera";
@@ -973,15 +972,6 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
         </div>
         {!hasMessages ? <div ref={bottomRef} aria-hidden className="h-px" /> : null}
       </div>
-
-      {hasMessages ? (
-        <PromptRail
-          messages={visibleMessages}
-          scrollRef={scrollRef}
-          bottomOffset={scrollButtonBottom}
-          onJumpToPrompt={navigateToVisiblePrompt}
-        />
-      ) : null}
 
       {showScrollToBottomButton && !atBottom && (
         <div

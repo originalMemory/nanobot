@@ -247,6 +247,17 @@ if (!app.requestSingleInstanceLock()) {
       trustedChat(event);
       setImmediate(() => app.quit());
     });
+    ipcMain.handle('desktop:notify-incoming', (event, notificationId, payload) => {
+      trustedChat(event);
+      if (typeof notificationId !== 'string' || !notificationId || notificationId.length > 256) {
+        throw new Error('Invalid notification id');
+      }
+      const text = typeof payload?.text === 'string' ? payload.text.slice(0, 1000) : undefined;
+      desktop.notifyIncoming(notificationId, {
+        ...(text?.trim() ? { text } : {}),
+        hasMedia: payload?.hasMedia === true,
+      });
+    });
     // 仅主窗口的聊天页或连接页可操作自身窗口，附件页无此权限。
     const trustedWindow = (event) => {
       if (event.senderFrame?.url === pathToFileURL(setupFile).href) trustedSetup(event);
@@ -299,12 +310,13 @@ if (!app.requestSingleInstanceLock()) {
             });
             return;
           }
-          try { if (window?.webContents === owner) desktop.notify(JSON.parse(message.data)); } catch { /* 非 JSON 帧交给原客户端处理。 */ }
+          try { if (window?.webContents === owner && frame) desktop.handleFrame(frame); } catch { /* 状态提示失败不影响原客户端。 */ }
           emit({ type: 'message', data: message.data });
         }
       });
       socket.addEventListener('error', () => emit({ type: 'error', message: 'WebSocket 连接失败' }));
       socket.addEventListener('close', (close) => {
+        if (window?.webContents === owner) desktop.disconnected();
         unsubscribeDesktop();
         sockets.delete(id); emit({ type: 'close', code: close.code, reason: close.reason });
       });

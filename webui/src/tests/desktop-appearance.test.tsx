@@ -6,15 +6,17 @@ import { DEFAULT_LOCAL_PREFS } from "@/lib/local-preferences";
 
 afterEach(() => { delete window.nanobotHost; });
 
-it("offers all nine desktop themes and selects the requested palette", () => {
+it("offers all nine desktop themes and selects the requested palette", async () => {
   window.nanobotHost = { fixedChatId: "desktop" };
   const select = vi.fn();
-  const view = render(<AppearanceSettings theme="dark" selectedTheme="midnight"
+  render(<AppearanceSettings theme="dark" selectedTheme="midnight"
     onToggleTheme={vi.fn()} onSelectTheme={select} localPrefs={DEFAULT_LOCAL_PREFS}
     onChangeLocalPrefs={vi.fn()} />);
-  expect(view.container.querySelectorAll("[data-theme-choice]")).toHaveLength(9);
-  expect(screen.getByRole("button", { name: "Midnight" })).toHaveAttribute("aria-pressed", "true");
-  fireEvent.click(screen.getByRole("button", { name: "Desert" }));
+  const themes = screen.getByRole("combobox", { name: "Theme" });
+  expect(themes).toHaveTextContent("Midnight");
+  fireEvent.keyDown(themes, { key: "ArrowDown" });
+  expect(await screen.findAllByRole("option")).toHaveLength(9);
+  fireEvent.click(screen.getByRole("option", { name: "Desert" }));
   expect(select).toHaveBeenCalledWith("desert");
 });
 
@@ -34,10 +36,12 @@ it("translates desktop theme names when switching to Chinese", async () => {
     onChangeLocalPrefs={vi.fn()} />);
   try {
     await act(async () => { await setAppLanguage("zh-CN"); });
-    expect(screen.getByRole("button", { name: "深海蓝" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "棉花糖" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "云石白" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "石墨灰" })).toBeVisible();
+    const themes = screen.getByRole("combobox", { name: "主题" });
+    expect(themes).toHaveTextContent("深海蓝");
+    fireEvent.keyDown(themes, { key: "ArrowDown" });
+    expect(await screen.findByRole("option", { name: "棉花糖" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "云石白" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "石墨灰" })).toBeVisible();
   } finally {
     view.unmount();
     await act(async () => { await setAppLanguage("en"); });

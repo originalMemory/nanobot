@@ -74,6 +74,7 @@ type SessionUpdateHandler = (
   chatId: string,
   scope?: SessionUpdateScope,
   workspaceScope?: WorkspaceScopePayload,
+  notificationId?: string,
 ) => void;
 type SidebarStateUpdateHandler = (state: SidebarStatePayload) => void;
 type RunStatusHandler = (chatId: string, startedAt: number | null) => void;
@@ -1270,7 +1271,12 @@ export class NanobotClient {
     }
 
     if (parsed.event === "session_updated") {
-      this.emitSessionUpdate(parsed.chat_id, parsed.scope, parsed.workspace_scope);
+      this.emitSessionUpdate(
+        parsed.chat_id,
+        parsed.scope,
+        parsed.workspace_scope,
+        parsed.notification_id,
+      );
       return;
     }
 
@@ -1329,9 +1335,14 @@ export class NanobotClient {
     chatId: string,
     scope?: SessionUpdateScope,
     workspaceScope?: WorkspaceScopePayload,
+    notificationId?: string,
   ): void {
     for (const handler of this.sessionUpdateHandlers) {
-      handler(chatId, scope, workspaceScope);
+      if (notificationId !== undefined) {
+        handler(chatId, scope, workspaceScope, notificationId);
+      } else {
+        handler(chatId, scope, workspaceScope);
+      }
     }
   }
 

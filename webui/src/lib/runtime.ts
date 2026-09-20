@@ -31,6 +31,7 @@ export interface RuntimeHost {
   quit?: () => Promise<void>;
   windowControls?: DesktopWindowControls;
   appearance?: DesktopAppearanceApi;
+  tray?: DesktopTrayApi;
   onScreenshot?: (listener: (dataUrl: string) => void) => () => void;
   /** 桌面伴侣的固定通信入口；普通浏览器不设置。 */
   fixedChatId?: string;
@@ -46,6 +47,13 @@ export interface RuntimeHost {
 export interface DesktopVoiceApi {
   settings(value?: boolean): Promise<{ pauseSystemMedia: boolean; support: string }>;
   active(value: boolean): Promise<void>;
+}
+
+export interface DesktopTrayApi {
+  notifyIncoming(
+    notificationId: string,
+    payload: { text?: string; hasMedia?: boolean },
+  ): Promise<void>;
 }
 
 export interface CompanionPrefs {
@@ -90,6 +98,7 @@ interface NanobotHostApi {
   config?: DesktopConfigApi;
   companion?: CompanionApi;
   voice?: DesktopVoiceApi;
+  tray?: DesktopTrayApi;
   quit?(): Promise<void>;
   windowControls?: DesktopWindowControls;
   appearance?: DesktopAppearanceApi;
@@ -186,6 +195,7 @@ export function createRuntimeHost(
     windowControls: api?.windowControls,
     appearance: api?.appearance,
     voice: api?.voice,
+    tray: api?.tray,
     companion: api?.companion,
     fixedChatId: api?.fixedChatId,
     onScreenshot: api?.onScreenshot?.bind(api),
