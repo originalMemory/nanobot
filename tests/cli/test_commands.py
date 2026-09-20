@@ -2100,7 +2100,7 @@ def _patch_cli_command_runtime(
         monkeypatch.setattr("nanobot.config.paths.get_cron_dir", get_cron_dir)
 
 
-def test_heartbeat_empty_response_is_not_evaluated(
+def test_heartbeat_empty_response_is_silent(
     monkeypatch, tmp_path: Path,
 ) -> None:
     config_file = _write_instance_config(tmp_path)
@@ -2163,9 +2163,6 @@ def test_heartbeat_empty_response_is_not_evaluated(
         def __init__(self, *_args, **_kwargs) -> None:
             self.enabled_channels = ["telegram"]
 
-    async def _unexpected_evaluator(*_args, **_kwargs) -> bool:
-        raise AssertionError("empty heartbeat response must not be evaluated")
-
     _patch_cli_command_runtime(
         monkeypatch,
         config,
@@ -2177,8 +2174,6 @@ def test_heartbeat_empty_response_is_not_evaluated(
     monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _FakeChannelManager)
     monkeypatch.setattr("nanobot.cli.gateway_runtime.read_webui_sidebar_state", lambda: {})
-    monkeypatch.setattr("nanobot.cli.gateway_runtime.evaluate_response", _unexpected_evaluator)
-
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
 
     assert isinstance(result.exception, _StopGatewayError)
@@ -2186,6 +2181,135 @@ def test_heartbeat_empty_response_is_not_evaluated(
     response = asyncio.run(cron.on_job(CronJob(id="heartbeat", name="heartbeat")))
 
     assert response is None
+
+
+def test_heartbeat_message_keeps_full_text_and_attaches_summary_voice(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    from nanobot.agent.tools.context import RequestContext, request_context
+    from nanobot.agent.tools.message import MessageTool
+    from nanobot.session.manager import SessionManager
+    from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
+
+    config_file = _write_instance_config(tmp_path)
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "workspace")
+    config.workspace_path.mkdir(parents=True)
+    (config.workspace_path / "HEARTBEAT.md").write_text(
+        "## Active Tasks\n\n- Send a greeting\n",
+        encoding="utf-8",
+    )
+    bus = MagicMock()
+    bus.publish_outbound = AsyncMock()
+    sessions = SessionManager(config.workspace_path)
+    seen: dict[str, object] = {}
+
+    class _Sessions:
+        def __new__(cls, _workspace: Path):
+            return sessions
+
+    sessions.list_sessions = lambda: [{"key": "telegram:u1"}]  # type: ignore[method-assign]
+
+    class _FakeCron:
+        def __init__(self, _store_path: Path) -> None:
+            self.on_job = None
+            seen["cron"] = self
+
+        def status(self) -> dict[str, int]:
+            return {"jobs": 0}
+
+        def register_system_job(self, _job: CronJob) -> None:
+            raise _StopGatewayError("stop")
+
+    class _FakeAgentLoop(_GatewayAgentContractStub):
+        @classmethod
+        def from_config(cls, config, bus=None, **extra):
+            return cls(config=config, **extra)
+
+        def __init__(self, *, config, tool_registry, session_manager, **kwargs) -> None:
+            self.model = "test-model"
+            self.provider = kwargs.get("provider", object())
+            self.sessions = session_manager
+            self.tools = tool_registry
+            self.tools.register(MessageTool(workspace=config.workspace_path))
+
+        async def process_direct(self, *_args, channel, chat_id, metadata, **_kwargs):
+            context = RequestContext(
+                channel=channel,
+                chat_id=chat_id,
+                session_key="heartbeat",
+                turn_id=metadata[WEBUI_TURN_METADATA_KEY],
+                metadata=metadata,
+            )
+            with request_context(context):
+                await self.tools.get("message").execute(content="完整问候")
+                visible = self.sessions.get_or_create("telegram:u1")
+                visible.add_message("assistant", "并发消息")
+                self.sessions.save(visible)
+                await self.tools.get("tts").execute(text="语音摘要")
+            heartbeat = self.sessions.get_or_create("heartbeat")
+            heartbeat.add_message(
+                "assistant",
+                "内部短句",
+                usage={"prompt_tokens": 1200, "completion_tokens": 80},
+                round_usages=[{"prompt_tokens": 1200}],
+                context_window_tokens=32_000,
+                latency_ms=250,
+                response_model="test-model",
+                response_provider="test-provider",
+            )
+            self.sessions.save(heartbeat)
+            return SimpleNamespace(content="内部短句")
+
+        async def aclose(self) -> None:
+            return None
+
+        async def run(self) -> None:
+            return None
+
+        def stop(self) -> None:
+            return None
+
+    class _FakeChannelManager:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.enabled_channels = ["telegram"]
+
+    def _submit(_self, chat_id, turn_id, text, **kwargs):
+        seen["voice"] = (chat_id, turn_id, text, kwargs)
+        return {"audioId": "voice-1", "path": "/voice.mp3", "durationMs": 0}
+
+    _patch_cli_command_runtime(
+        monkeypatch,
+        config,
+        make_provider=lambda _config: _fake_provider(),
+        message_bus=lambda: bus,
+        session_manager=_Sessions,
+        cron_service=_FakeCron,
+    )
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _FakeChannelManager)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.read_webui_sidebar_state", lambda: {})
+    monkeypatch.setattr("nanobot.agent.voice.VoiceService.submit", _submit)
+
+    result = runner.invoke(app, ["gateway", "--config", str(config_file)])
+    assert isinstance(result.exception, _StopGatewayError)
+    response = asyncio.run(seen["cron"].on_job(CronJob(id="heartbeat", name="heartbeat")))
+
+    assert response == "内部短句"
+    delivered = bus.publish_outbound.await_args.args[0]
+    assert delivered.content == "完整问候"
+    assert seen["voice"][2] == "语音摘要"
+    visible_messages = sessions.get_or_create("telegram:u1").messages
+    saved = next(item for item in visible_messages if item.get("content") == "完整问候")
+    assert saved["content"] == "完整问候"
+    assert saved["source"] == {"kind": "heartbeat"}
+    assert saved["voice"]["audioId"] == "voice-1"
+    assert saved["usage"] == {"prompt_tokens": 1200, "completion_tokens": 80}
+    assert saved["context_window_tokens"] == 32_000
+    assert saved["latency_ms"] == 250
+    assert saved["response_model"] == "test-model"
+    assert "_heartbeat_delivery_turn_id" not in saved
+    assert "voice" not in next(item for item in visible_messages if item.get("content") == "并发消息")
 
 
 def test_webui_yes_creates_config_and_enables_local_websocket(
@@ -3133,19 +3257,9 @@ def test_gateway_unbound_agent_cron_is_skipped(
         def __init__(self, *_args, **_kwargs) -> None:
             raise _StopGatewayError("stop")
 
-    async def _capture_evaluate_response(
-        *_args,
-        **_kwargs,
-    ) -> bool:
-        raise AssertionError("unbound cron job must not be evaluated for delivery")
-
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCron)
     monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _StopAfterCronSetup)
-    monkeypatch.setattr(
-        "nanobot.cli.gateway_runtime.evaluate_response",
-        _capture_evaluate_response,
-    )
 
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
 
@@ -3278,13 +3392,9 @@ def test_gateway_bound_cron_runs_as_session_turn(
         def __init__(self, *_args, **_kwargs) -> None:
             raise _StopGatewayError("stop")
 
-    async def _unexpected_evaluator(*_args, **_kwargs) -> bool:
-        raise AssertionError("bound cron must not use legacy response evaluator")
-
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCron)
     monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _StopAfterCronSetup)
-    monkeypatch.setattr("nanobot.cli.gateway_runtime.evaluate_response", _unexpected_evaluator)
 
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
     assert isinstance(result.exception, _StopGatewayError)

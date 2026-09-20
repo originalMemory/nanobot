@@ -92,7 +92,7 @@ async def test_voice_background_replay_failure_and_heartbeat_gate(tmp_path, monk
     token = DEFERRED_VOICE.set(pending)
     try:
         with request_context(RequestContext(channel="qq", chat_id="qq-group", session_key="heartbeat", turn_id="heartbeat-turn")):
-            assert "获准" in await tool.execute("greeting")
+            assert "message" in await tool.execute("greeting")
         assert pending == ["greeting"] and len(tasks) == before
     finally:
         DEFERRED_VOICE.reset(token)

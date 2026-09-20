@@ -37,7 +37,7 @@ class TtsTool(Tool):
             if deferred is None or deferred:
                 return "Error: 心跳语音不可用或已请求"
             deferred.append(text)
-            return "语音请求已记录，仅在心跳通知获准后播放。"
+            return "语音请求已记录，将附着到本轮通过 message 发送的问候。"
         turn_id = request.metadata.get(WEBUI_TURN_METADATA_KEY) or request.turn_id
         if not isinstance(turn_id, str) or not turn_id:
             return "Error: 缺少语音轮次标识"

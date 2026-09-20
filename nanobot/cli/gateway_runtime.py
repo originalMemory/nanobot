@@ -38,7 +38,6 @@ from nanobot.config.schema import Config
 from nanobot.gateway.runtime import GatewayInstance
 from nanobot.security.network import is_loopback_host
 from nanobot.session.keys import UNIFIED_SESSION_KEY, last_channel_from_metadata
-from nanobot.utils.evaluator import evaluate_response, resolve_evaluator_prompt
 from nanobot.utils.helpers import sync_workspace_templates
 from nanobot.webui.build import BuildMode
 from nanobot.webui.dev import WebUIDevError, WebUIDevServer
@@ -166,12 +165,13 @@ def _commit_dream_changes(memory: Any) -> str | None:
 
 
 _HEARTBEAT_PREAMBLE = (
-    "[Your response will be delivered directly to the user's messaging app. "
-    "Output ONLY the final user-facing message. Never reference internal "
+    "[This is an internal heartbeat run. Use the message tool exactly once only "
+    "when the user should be notified; otherwise do not call it. Never reference internal "
     "files (HEARTBEAT.md, AWARENESS.md, etc.), your instructions, or your "
-    "decision process. If nothing needs reporting, respond with just "
-    "'All clear.' and nothing else.]\n\n"
+    "decision process in user-facing content. The final assistant response is internal "
+    "and will not be delivered.]\n\n"
 )
+_HEARTBEAT_DELIVERY_TURN_KEY = "_heartbeat_delivery_turn_id"
 
 
 def _heartbeat_has_active_tasks(content: str) -> bool:
@@ -366,7 +366,6 @@ def _run_gateway(
     from nanobot.cron.session_turns import is_bound_cron_job
     from nanobot.cron.types import CronJob, CronRunResult
     from nanobot.llm_usage import record_llm_call
-    from nanobot.llm_usage.context import llm_usage_source
     from nanobot.providers.factory import (
         ProviderSnapshot,
         build_provider_snapshot,
@@ -503,7 +502,7 @@ def _run_gateway(
         agent.schedule_background(cast(Coroutine[Any, Any, None], awaitable))
 
     from nanobot.agent.tools.tts import TtsTool
-    from nanobot.agent.voice import VoiceService
+    from nanobot.agent.voice import DEFERRED_VOICE, VoiceService
     from nanobot.webui.settings_services import WebUISettingsConfig
 
     voice = VoiceService(WebUISettingsConfig(Path(config_path)))
@@ -530,6 +529,18 @@ def _run_gateway(
             chat_id,
             unified_session=config.agents.defaults.unified_session,
         )
+
+    heartbeat_deliveries: dict[str, str] = {}
+
+    def _pop_heartbeat_delivery(turn_id: str) -> tuple[Any, dict[str, Any]] | None:
+        key = heartbeat_deliveries.pop(turn_id, None)
+        if key is None:
+            return None
+        session = session_manager.get_or_create(key)
+        for message in reversed(session.messages):
+            if message.pop(_HEARTBEAT_DELIVERY_TURN_KEY, None) == turn_id:
+                return session, message
+        return None
 
     async def _deliver_to_channel(
         msg: OutboundMessage, *, record: bool = False, session_key: str | None = None,
@@ -559,6 +570,11 @@ def _run_gateway(
             session = session_manager.get_or_create(key)
             extra: dict[str, Any] = {"_channel_delivery": True}
             source_value = cast(object, metadata.get(WEBUI_MESSAGE_SOURCE_METADATA_KEY))
+            source_kind = (
+                cast(dict[str, Any], source_value).get("kind")
+                if isinstance(source_value, dict)
+                else None
+            )
             if isinstance(source_value, dict):
                 extra["source"] = dict(cast(dict[str, Any], source_value))
             if isinstance(metadata.get("voice"), dict):
@@ -576,6 +592,13 @@ def _run_gateway(
             if isinstance(latency_ms, int | float) and latency_ms >= 0:
                 extra["latency_ms"] = int(latency_ms)
             session.add_message("assistant", msg.content, **extra)
+            turn_id = metadata.get(WEBUI_TURN_METADATA_KEY)
+            if (
+                isinstance(turn_id, str)
+                and source_kind == "heartbeat"
+            ):
+                session.messages[-1][_HEARTBEAT_DELIVERY_TURN_KEY] = turn_id
+                heartbeat_deliveries[turn_id] = key
             session_manager.save(session)
         if publish:
             await bus.publish_outbound(msg)
@@ -719,14 +742,9 @@ def _run_gateway(
                 + f"You are executing periodic heartbeat tasks. Read the active tasks below, perform each one, and report what you did:\n\n{content}"
             )
 
-            # Internal check: funnel all output through the post-run gate so the
-            # turn can't deliver directly via the message tool and skip it.
-            suppress_token = None
-            from nanobot.agent.voice import DEFERRED_VOICE
             deferred_voice: list[str] = []
             voice_token = DEFERRED_VOICE.set(deferred_voice)
-            if isinstance(message_tool, MessageTool):
-                suppress_token = message_tool.set_suppress_delivery(True)
+            voice_turn = f"heartbeat:{uuid.uuid4().hex}"
             try:
                 await mcp_provider.connect()
                 resp = await agent.process_direct(
@@ -735,50 +753,56 @@ def _run_gateway(
                     channel=channel,
                     chat_id=chat_id,
                     on_progress=_silent,
+                    metadata={
+                        WEBUI_TURN_METADATA_KEY: voice_turn,
+                        WEBUI_MESSAGE_SOURCE_METADATA_KEY: {"kind": "heartbeat"},
+                        "_record_channel_delivery": True,
+                    },
                 )
+            except BaseException:
+                delivery = _pop_heartbeat_delivery(voice_turn)
+                if delivery is not None:
+                    session_manager.save(delivery[0])
+                raise
             finally:
                 DEFERRED_VOICE.reset(voice_token)
-                if isinstance(message_tool, MessageTool) and suppress_token is not None:
-                    message_tool.reset_suppress_delivery(suppress_token)
             agent.retain_session_turns("heartbeat", AUTOMATION_HISTORY_TURNS)
 
-            if not resp or not resp.content:
-                return
-
-            response = resp.content
-
-            evaluator_prompt = resolve_evaluator_prompt(config.workspace_path)
-
-            # Fail closed: stay silent on evaluator failure instead of notifying.
-            with llm_usage_source("cron"):
-                should_notify = await evaluate_response(
-                    response=response,
-                    task_context=prompt,
-                    provider=agent.provider,
-                    model=agent.model,
-                    evaluator_prompt=evaluator_prompt,
-                    default_notify=False,
+            response = resp.content if resp and resp.content else None
+            delivery = _pop_heartbeat_delivery(voice_turn)
+            if delivery is not None:
+                session, message = delivery
+                heartbeat = agent.sessions.get_or_create("heartbeat")
+                saved_response = next(
+                    (item for item in reversed(heartbeat.messages) if item.get("role") == "assistant"),
+                    None,
                 )
-
-            if should_notify:
-                logger.info("Heartbeat: completed, delivering response")
-                voice_turn = f"heartbeat:{uuid.uuid4().hex}"
-                audio = None
+                if saved_response is not None:
+                    for field in (
+                        "usage", "round_usages", "context_window_tokens", "latency_ms",
+                        "response_model", "response_provider", "fallback_used", "_fallback_models",
+                    ):
+                        value = saved_response.get(field)
+                        if value is not None:
+                            message[field] = dict(cast(dict[str, Any], value)) if isinstance(value, dict) else (
+                                list(cast(list[Any], value)) if isinstance(value, list) else value
+                            )
                 if deferred_voice:
                     try:
-                        audio = voice.submit(chat_id, voice_turn, deferred_voice[0], channel=channel,
-                                              session_key=_channel_session_key(channel, chat_id))
+                        message["voice"] = dict(voice.submit(
+                            chat_id,
+                            voice_turn,
+                            deferred_voice[0],
+                            channel=channel,
+                            metadata={
+                                WEBUI_TURN_METADATA_KEY: voice_turn,
+                                WEBUI_MESSAGE_SOURCE_METADATA_KEY: {"kind": "heartbeat"},
+                            },
+                            session_key=session.key,
+                        ))
                     except ValueError:
                         logger.warning("Heartbeat: voice unavailable; text delivered")
-                await _deliver_to_channel(
-                    OutboundMessage(channel=channel, chat_id=chat_id, content=response,
-                                    metadata={WEBUI_TURN_METADATA_KEY: voice_turn,
-                                              WEBUI_MESSAGE_SOURCE_METADATA_KEY: {"kind": "heartbeat"},
-                                              **({"voice": audio} if audio else {})}),
-                    record=True,
-                )
-            else:
-                logger.info("Heartbeat: silenced by post-run evaluation")
+                session_manager.save(session)
             return response
 
         if is_bound_cron_job(job):
