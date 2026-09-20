@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { completionKey, installDesktop } = require('../desktop.cjs');
 
-function fixture() {
+function fixture({ platform = process.platform, windowsFocus } = {}) {
   const app = Object.assign(new EventEmitter(), {
     hidden: 0, isPackaged: false, getLocale: () => 'zh-CN',
     hide() { this.hidden++; }, quit() { this.emit('before-quit'); },
@@ -12,6 +12,7 @@ function fixture() {
     focused: true, visible: true, hidden: 0,
     isVisible() { return this.visible; }, isFocused() { return this.focused; },
     hide() { this.hidden++; this.visible = false; }, isDestroyed: () => false,
+    getNativeWindowHandle: () => Buffer.from([0x39, 0x30, 0, 0]),
     setProgressBar: (...args) => progress.push(args),
     webContents: { getURL: () => 'nanobot://desktop/', send: (...args) => sent.push(args) },
   });
@@ -45,7 +46,13 @@ function fixture() {
     desktopCapturer: { getSources: async () => [{ display_id: '1', thumbnail: { isEmpty: () => false, toJPEG: () => Buffer.from('fixture') } }] },
     dialog: { showErrorBox: () => assert.fail('unexpected capture error') },
   };
-  const controller = installDesktop({ getWindow: () => win, showWindow: () => { shown++; win.visible = true; }, electron });
+  const controller = installDesktop({
+    getWindow: () => win,
+    showWindow: () => { shown++; win.visible = true; win.focused = true; },
+    electron,
+    platform,
+    ...(windowsFocus ? { windowsFocus } : {}),
+  });
   controller.bindWindow(win);
   return {
     app, win, auxiliary, sent, notices, shortcuts, controller, progress, trayImages, tooltips,
@@ -86,6 +93,37 @@ test('关闭隐藏到托盘，明确退出才能关闭；快捷键隐藏后恢�
   f.win.emit('close', { preventDefault: () => prevented++ });
   assert.equal(prevented, 1);
   f.app.emit('will-quit'); assert.equal(f.shortcuts.size, 0);
+});
+
+test('Windows 快捷键记录并恢复唤起前的窗口', async () => {
+  const captured = [];
+  const restored = [];
+  const f = fixture({
+    platform: 'win32',
+    windowsFocus: {
+      nativeWindowHandleValue: () => '12345',
+      captureWindowsForegroundWindow: async (excluded) => {
+        captured.push(excluded);
+        return '67890';
+      },
+      restoreWindowsForegroundWindow: async (handle) => {
+        restored.push(handle);
+        return true;
+      },
+    },
+  });
+  f.win.visible = false;
+  f.win.focused = false;
+
+  f.shortcuts.get('CommandOrControl+Shift+E')();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(captured, ['12345']);
+  assert.equal(f.shown(), 1);
+
+  f.shortcuts.get('CommandOrControl+Shift+E')();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(restored, ['67890']);
+  assert.equal(f.win.visible, false);
 });
 
 test('通知去重，聚焦时不打扰；点击通知唤起窗口', () => {

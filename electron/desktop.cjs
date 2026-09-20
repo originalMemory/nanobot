@@ -1,5 +1,6 @@
 const path = require('node:path');
 const { notificationBody } = require('./notification-text.cjs');
+const defaultWindowsFocus = require('./windows-focus.cjs');
 
 const STREAMING_INTERVAL_MS = 800;
 const UNREAD_INTERVAL_MS = 600;
@@ -11,7 +12,14 @@ function completionKey(frame) {
   return null;
 }
 
-function installDesktop({ store, getWindow, showWindow, electron = require('electron') }) {
+function installDesktop({
+  store,
+  getWindow,
+  showWindow,
+  electron = require('electron'),
+  platform = process.platform,
+  windowsFocus = defaultWindowsFocus,
+}) {
   const {
     app, BrowserWindow, Tray, Menu, nativeImage, globalShortcut,
     desktopCapturer, screen, Notification, dialog,
@@ -21,26 +29,27 @@ function installDesktop({ store, getWindow, showWindow, electron = require('elec
   let directWorking = false;
   let companionWorking = false;
   let unread = false;
+  let previousWindowsForegroundHandle = null;
   let alternateFrame = false;
   let animationTimer = null;
   const notified = new Set();
   const previews = new Map();
-  const iconName = process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png';
+  const iconName = platform === 'darwin' ? 'trayTemplate.png' : 'tray.png';
   const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', iconName));
-  if (process.platform === 'darwin') icon.setTemplateImage(true);
+  if (platform === 'darwin') icon.setTemplateImage(true);
   const loadStatusIcon = (name) => {
     const candidate = nativeImage.createFromPath(path.join(__dirname, 'assets', name));
     if (candidate.isEmpty?.()) return icon;
-    if (process.platform === 'darwin') candidate.setTemplateImage(true);
+    if (platform === 'darwin') candidate.setTemplateImage(true);
     return candidate;
   };
-  const statusIcons = process.platform === 'darwin' ? {
+  const statusIcons = platform === 'darwin' ? {
     idle: icon,
     streaming: loadStatusIcon('trayStreamingTemplate.png'),
     streamingAlt: loadStatusIcon('trayStreamingAltTemplate.png'),
     unread: loadStatusIcon('trayUnreadTemplate.png'),
   } : { idle: icon, streaming: icon, streamingAlt: icon, unread: icon };
-  const animateTray = process.platform === 'darwin';
+  const animateTray = platform === 'darwin';
   const tray = new Tray(icon);
   tray.setToolTip('Nanobot');
   tray.setContextMenu(Menu.buildFromTemplate([
@@ -110,7 +119,14 @@ function installDesktop({ store, getWindow, showWindow, electron = require('elec
   function hideDesktopWindowAndRestoreFocus() {
     const win = getWindow();
     if (!win || win.isDestroyed()) return;
-    if (process.platform !== 'darwin') {
+    if (platform === 'win32') {
+      const handle = previousWindowsForegroundHandle;
+      previousWindowsForegroundHandle = null;
+      win.hide();
+      if (handle) void windowsFocus.restoreWindowsForegroundWindow(handle);
+      return;
+    }
+    if (platform !== 'darwin') {
       win.hide();
       return;
     }
@@ -126,10 +142,19 @@ function installDesktop({ store, getWindow, showWindow, electron = require('elec
     });
   }
 
-  function toggle() {
+  async function toggle() {
     const win = getWindow();
-    if (win?.isVisible() && win.isFocused()) hideDesktopWindowAndRestoreFocus();
-    else showDesktopWindow();
+    if (win?.isVisible() && win.isFocused()) {
+      hideDesktopWindowAndRestoreFocus();
+      return;
+    }
+    if (platform === 'win32') {
+      const ownHandle = win && !win.isDestroyed()
+        ? windowsFocus.nativeWindowHandleValue(win.getNativeWindowHandle())
+        : null;
+      previousWindowsForegroundHandle = await windowsFocus.captureWindowsForegroundWindow(ownHandle);
+    }
+    showDesktopWindow();
   }
 
   async function capture() {
@@ -217,9 +242,9 @@ function installDesktop({ store, getWindow, showWindow, electron = require('elec
     notify(frame, preview);
   }
 
-  const supportsStartup = app.isPackaged && ['darwin', 'win32'].includes(process.platform);
+  const supportsStartup = app.isPackaged && ['darwin', 'win32'].includes(platform);
   const shortcut = process.env.NANOBOT_RAISE_SHORTCUT ?? store?.get('shortcuts.raiseInbox') ?? 'CommandOrControl+Shift+E';
-  const registered = Boolean(shortcut) && globalShortcut.register(shortcut, toggle);
+  const registered = Boolean(shortcut) && globalShortcut.register(shortcut, () => void toggle());
   if (shortcut && !registered) console.warn(`快捷键 ${shortcut} 已被占用，请通过托盘显示窗口。`);
   app.on('before-quit', () => { quitting = true; });
   app.on('will-quit', () => {
@@ -248,10 +273,13 @@ function installDesktop({ store, getWindow, showWindow, electron = require('elec
         if (!quitting) { event.preventDefault(); win.hide(); }
       });
       win.on('focus', clearUnread);
+      win.on('blur', () => {
+        if (platform === 'win32') previousWindowsForegroundHandle = null;
+      });
       win.on('show', updateTaskbar);
     },
     menu: { label: '桌面', submenu: [
-      { label: registered ? `显示/隐藏窗口（${shortcut}）` : '显示/隐藏窗口（全局快捷键未启用）', click: toggle },
+      { label: registered ? `显示/隐藏窗口（${shortcut}）` : '显示/隐藏窗口（全局快捷键未启用）', click: () => void toggle() },
       { label: '截图并附加', accelerator: 'CommandOrControl+Shift+S', click: () => void capture() },
       { type: 'separator' },
       { label: '开机启动', type: 'checkbox', enabled: supportsStartup,
