@@ -159,6 +159,25 @@ const SLASH_COMMANDS: SlashCommand[] = [
 ];
 
 describe("MessageBubble", () => {
+  it("keeps user images as compact cropped thumbnails", () => {
+    const { container } = render(<MessageBubble message={{
+      id: "user-long-image",
+      role: "user",
+      content: "sent",
+      createdAt: Date.now(),
+      media: [{
+        kind: "image",
+        url: "/api/media/sig/long-image",
+        name: "long.jpg",
+      }],
+    }} />);
+
+    const image = container.querySelector('img[src="/api/media/sig/long-image"]');
+    expect(image).toHaveClass("h-full", "w-full", "object-cover");
+    expect(image?.closest("button")).toHaveClass("h-24", "w-24");
+    expect(container.querySelector(".message-media-grid")).toBeNull();
+  });
+
   it("copies the localized compact reply instead of the stored English text", async () => {
     await setAppLanguage("zh-CN");
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -1060,6 +1079,12 @@ describe("MessageBubble", () => {
     expect(video.tagName).toBe("VIDEO");
     expect(video).toHaveAttribute("src", "/api/media/sig/payload");
     expect(video).toHaveAttribute("preload", "metadata");
+    expect(video).toHaveClass("bg-transparent", "max-h-none");
+    expect(video.closest("figure")).not.toHaveAttribute("style");
+    expect(video.parentElement).toHaveClass(
+      "rounded-md",
+      "shadow-[0_5px_16px_-10px_rgba(0,0,0,0.45)]",
+    );
     expect(container.querySelector("video[controls]")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Enlarge video preview" }));
     const dialog = screen.getByRole("dialog", { name: "demo.mp4" });
@@ -1080,7 +1105,11 @@ describe("MessageBubble", () => {
       ],
     };
 
-    render(<MessageBubble message={message} />);
+    const { container } = render(<MessageBubble message={message} />);
+    expect(container.querySelector(".message-media-container")).toHaveClass("max-w-[64rem]");
+    expect(Array.from(container.querySelectorAll("[data-media-item]")).map(
+      (item) => item.getAttribute("data-media-kind"),
+    )).toEqual(["video", "image"]);
     fireEvent.click(screen.getByRole("button", { name: "Enlarge video preview" }));
     expect(screen.getByRole("dialog", { name: "first.mp4" })).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "ArrowRight" });
@@ -1088,6 +1117,24 @@ describe("MessageBubble", () => {
     expect(imageDialog).toBeInTheDocument();
     expect(imageDialog.querySelector("video")).toBeNull();
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
+  });
+
+  it("uses the same lightweight masonry container for three media items", () => {
+    const { container } = render(<MessageBubble message={{
+      id: "three-portraits",
+      role: "assistant",
+      content: "portraits",
+      createdAt: Date.now(),
+      media: [1, 2, 3].map((index) => ({
+        kind: "image" as const,
+        url: `/api/media/sig/portrait-${index}`,
+        name: `portrait-${index}.jpg`,
+      })),
+    }} />);
+
+    expect(container.querySelector(".message-media-grid")).toBeInTheDocument();
+    expect(container.querySelector(".message-media-container")).toHaveClass("max-w-[64rem]");
+    expect(container.querySelectorAll("[data-media-item]")).toHaveLength(3);
   });
 
   it("renders streaming reasoning as one compact activity line", () => {
@@ -1212,11 +1259,19 @@ describe("MessageBubble", () => {
     const { container } = render(<MessageBubble message={message} />);
 
     const imageButton = screen.getByRole("button", { name: /view image/i });
-    expect(imageButton).toHaveClass("w-[min(100%,34rem)]", "rounded-panel");
+    const imageFrame = imageButton.closest("figure");
+    expect(container.querySelector(".message-media-container")).toHaveClass("max-w-[31.625rem]");
+    expect(imageFrame).toHaveClass(
+      "w-full",
+      "overflow-visible",
+      "rounded-none",
+      "border-0",
+      "bg-transparent",
+    );
+    expect(imageButton).toHaveClass("w-full", "focus-visible:ring-2");
     expect(imageButton).toHaveClass(
-      "border",
-      "border-border/60",
-      "focus-visible:ring-2",
+      "rounded-md",
+      "shadow-[0_5px_16px_-10px_rgba(0,0,0,0.45)]",
     );
     expect(imageButton).toHaveClass(
       "hover:scale-[1.01]",

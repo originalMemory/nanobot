@@ -11,7 +11,7 @@ interface AttachmentTileProps {
   className?: string;
   inline?: boolean;
   onPreview?: () => void;
-  variant?: "default" | "compact";
+  variant?: "default" | "compact" | "gallery";
 }
 
 export function AttachmentTile({ attachment, className, inline = false, onPreview, variant = "default" }: AttachmentTileProps) {
@@ -36,12 +36,17 @@ export function AttachmentTile({ attachment, className, inline = false, onPrevie
             onClick={() => onPreview ? onPreview() : setPreviewOpen(true)}
             className={cn(
               "block cursor-zoom-in bg-muted/20 transition-transform duration-150",
+              variant === "gallery" && cn(
+                "flex w-full justify-center overflow-hidden rounded-md bg-transparent",
+                "shadow-[0_5px_16px_-10px_rgba(0,0,0,0.45)]",
+                "dark:shadow-[0_5px_18px_-10px_rgba(0,0,0,0.75)]",
+              ),
               "hover:scale-[1.01] hover:ring-2 hover:ring-primary/25",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
               "motion-reduce:transition-none",
             )}
             aria-label={attachment.name
-              ? t("message.openAttachment", { name: attachment.name })
+              ? `${t("lightbox.open", { defaultValue: "Open image" })}: ${attachment.name}`
               : t("lightbox.open", { defaultValue: "Open image" })}
           >
             <img
@@ -54,6 +59,7 @@ export function AttachmentTile({ attachment, className, inline = false, onPrevie
               className={cn(
                 "block h-auto max-w-full bg-background object-contain",
                 variant === "compact" ? "max-h-40" : "max-h-[34rem]",
+                variant === "gallery" && "w-full max-h-none bg-transparent",
               )}
             />
           </button>
@@ -82,7 +88,14 @@ export function AttachmentTile({ attachment, className, inline = false, onPrevie
           inline={inline}
           variant={variant}
         >
-          <span className="relative block">
+          <span className={cn(
+            "relative block",
+            variant === "gallery" && cn(
+              "overflow-hidden rounded-md",
+              "shadow-[0_5px_16px_-10px_rgba(0,0,0,0.45)]",
+              "dark:shadow-[0_5px_18px_-10px_rgba(0,0,0,0.75)]",
+            ),
+          )}>
             <video
               ref={videoRef}
               src={attachment.url}
@@ -91,6 +104,7 @@ export function AttachmentTile({ attachment, className, inline = false, onPrevie
               className={cn(
                 "block w-full bg-black",
                 variant === "compact" ? "max-h-40" : "max-h-[26rem]",
+                variant === "gallery" && "h-auto max-h-none rounded-[inherit] bg-transparent",
               )}
               aria-label={attachment.name ? `${t("message.videoAttachment", { defaultValue: "Video attachment" })}: ${attachment.name}` : t("message.videoAttachment", { defaultValue: "Video attachment" })}
             />
@@ -176,15 +190,17 @@ function AttachmentFrame({
   children: ReactNode;
   className?: string;
   inline?: boolean;
-  variant?: "default" | "compact";
+  variant?: "default" | "compact" | "gallery";
 }) {
   const frameClassName = cn(
     "not-prose my-3 block w-fit max-w-full overflow-hidden rounded-control",
     "border border-border/60 bg-muted/40",
     attachment.kind === "image" && "bg-background/85",
-    attachment.kind === "video" ? "w-[min(100%,32rem)]" : "",
+    attachment.kind === "video" && variant === "default" ? "w-[min(100%,32rem)]" : "",
     variant === "compact" && "my-1 rounded-xl shadow-none",
     variant === "compact" && attachment.kind === "video" && "w-[min(100%,20rem)]",
+    variant === "gallery"
+      && "mx-auto my-0 w-full overflow-visible rounded-none border-0 bg-transparent",
     className,
   );
   const bodyClassName = "block max-w-full";
