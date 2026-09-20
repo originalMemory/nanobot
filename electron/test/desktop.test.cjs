@@ -5,7 +5,8 @@ const { completionKey, installDesktop } = require('../desktop.cjs');
 
 function fixture() {
   const app = Object.assign(new EventEmitter(), {
-    isPackaged: false, getLocale: () => 'zh-CN', quit() { this.emit('before-quit'); },
+    hidden: 0, isPackaged: false, getLocale: () => 'zh-CN',
+    hide() { this.hidden++; }, quit() { this.emit('before-quit'); },
   });
   const win = Object.assign(new EventEmitter(), {
     focused: true, visible: true, hidden: 0,
@@ -16,6 +17,12 @@ function fixture() {
   });
   const sent = []; const notices = []; const shortcuts = new Map(); const progress = [];
   const trayImages = []; const tooltips = [];
+  const auxiliary = {
+    inactiveShows: 0,
+    isDestroyed: () => false,
+    isVisible: () => true,
+    showInactive() { this.inactiveShows++; },
+  };
   let shown = 0;
   let trayIcon = '';
   class Tray extends EventEmitter {
@@ -30,7 +37,8 @@ function fixture() {
     show() { notices.push(this); }
   }
   const electron = {
-    app, Tray, Notification, Menu: { buildFromTemplate: (value) => value },
+    app, BrowserWindow: { getAllWindows: () => [win, auxiliary] },
+    Tray, Notification, Menu: { buildFromTemplate: (value) => value },
     nativeImage: { createFromPath: (file) => ({ path: file, isEmpty: () => false, setTemplateImage() {} }) },
     globalShortcut: { register: (key, fn) => { shortcuts.set(key, fn); return true; }, unregister: (key) => shortcuts.delete(key) },
     screen: { getCursorScreenPoint: () => ({}), getDisplayNearestPoint: () => ({ id: 1, size: { width: 100, height: 80 } }) },
@@ -40,7 +48,7 @@ function fixture() {
   const controller = installDesktop({ getWindow: () => win, showWindow: () => { shown++; win.visible = true; }, electron });
   controller.bindWindow(win);
   return {
-    app, win, sent, notices, shortcuts, controller, progress, trayImages, tooltips,
+    app, win, auxiliary, sent, notices, shortcuts, controller, progress, trayImages, tooltips,
     shown: () => shown, trayIcon: () => trayIcon,
   };
 }
@@ -60,7 +68,7 @@ test('只识别桌面完成事件，开始同步和其他会话不提醒', () =>
   assert.equal(completionKey({ event: 'turn_end', chat_id: 'other', turn_id: 't' }), null);
 });
 
-test('关闭隐藏到托盘，明确退出才能关闭；快捷键可再次隐藏', () => {
+test('关闭隐藏到托盘，明确退出才能关闭；快捷键隐藏后恢复原应用焦点', async () => {
   const f = fixture(); let prevented = 0;
   f.win.emit('close', { preventDefault: () => prevented++ });
   assert.equal(prevented, 1); assert.equal(f.win.visible, false);
@@ -69,6 +77,11 @@ test('关闭隐藏到托盘，明确退出才能关闭；快捷键可再次隐�
   assert.deepEqual(f.sent.at(-1), ['desktop:focus-composer']);
   f.shortcuts.get('CommandOrControl+Shift+E')();
   assert.equal(f.win.visible, false);
+  if (process.platform === 'darwin') {
+    assert.equal(f.app.hidden, 1);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(f.auxiliary.inactiveShows, 1);
+  }
   f.app.emit('before-quit');
   f.win.emit('close', { preventDefault: () => prevented++ });
   assert.equal(prevented, 1);

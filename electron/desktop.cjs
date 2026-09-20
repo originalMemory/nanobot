@@ -12,7 +12,10 @@ function completionKey(frame) {
 }
 
 function installDesktop({ store, getWindow, showWindow, electron = require('electron') }) {
-  const { app, Tray, Menu, nativeImage, globalShortcut, desktopCapturer, screen, Notification, dialog } = electron;
+  const {
+    app, BrowserWindow, Tray, Menu, nativeImage, globalShortcut,
+    desktopCapturer, screen, Notification, dialog,
+  } = electron;
   let quitting = false;
   let capturing = false;
   let directWorking = false;
@@ -104,9 +107,28 @@ function installDesktop({ store, getWindow, showWindow, electron = require('elec
     if (win && !win.isDestroyed()) win.webContents.send('desktop:focus-composer');
   }
 
+  function hideDesktopWindowAndRestoreFocus() {
+    const win = getWindow();
+    if (!win || win.isDestroyed()) return;
+    if (process.platform !== 'darwin') {
+      win.hide();
+      return;
+    }
+    const auxiliaryWindows = BrowserWindow.getAllWindows().filter(
+      (candidate) => candidate !== win && !candidate.isDestroyed() && candidate.isVisible(),
+    );
+    win.hide();
+    app.hide();
+    setImmediate(() => {
+      for (const candidate of auxiliaryWindows) {
+        if (!candidate.isDestroyed()) candidate.showInactive();
+      }
+    });
+  }
+
   function toggle() {
     const win = getWindow();
-    if (win?.isVisible() && win.isFocused()) win.hide();
+    if (win?.isVisible() && win.isFocused()) hideDesktopWindowAndRestoreFocus();
     else showDesktopWindow();
   }
 
