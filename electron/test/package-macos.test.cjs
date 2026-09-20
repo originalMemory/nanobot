@@ -34,6 +34,7 @@ test('macOS install script parses and contains rollback guards', () => {
   const syntax = spawnSync('/bin/bash', ['-n', scriptPath], { encoding: 'utf8' });
   assert.equal(syntax.status, 0, syntax.stderr);
   for (const value of ['codesign --verify --deep --strict', 'REPLACEMENT_STARTED=1',
+    'for _ in {1..80}',
     'mv "$INSTALL_APP" "$BACKUP_APP"', 'mv "$BACKUP_APP" "$INSTALL_APP"',
     'tell application id "ai.nanobot.desktop" to quit']) {
     assert.equal(script.includes(value), true, value);

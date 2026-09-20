@@ -54,7 +54,9 @@ echo "[3/6] 创建同磁盘暂存副本"
 
 echo "[4/6] 退出正在运行的 Nanobot"
 /usr/bin/osascript -e 'tell application id "ai.nanobot.desktop" to quit' >/dev/null 2>&1 || true
-for _ in {1..20}; do
+# Media-control cleanup can wait up to eight seconds per platform command.
+# Give the app enough time to release playback state before treating quit as failed.
+for _ in {1..80}; do
   if ! /usr/bin/pgrep -f "$EXECUTABLE_PATTERN" >/dev/null; then
     break
   fi
