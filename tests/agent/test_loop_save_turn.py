@@ -523,11 +523,49 @@ def test_save_turn_persists_usage_for_unified_history_projection() -> None:
         usage=usage,
         round_usages=rounds,
         context_window_tokens=32_000,
+        response_model="test-model",
+        response_provider="test-provider",
     )
     saved = session.messages[-1]
     assert saved["usage"] == usage
     assert saved["round_usages"] == rounds
     assert saved["context_window_tokens"] == 32_000
+    assert saved["response_model"] == "test-model"
+    assert saved["response_provider"] == "test-provider"
+    assert session.get_history() == [{"role": "assistant", "content": "answer"}]
+
+
+@pytest.mark.asyncio
+async def test_process_message_persists_the_last_successful_response_runtime(
+    tmp_path: Path,
+) -> None:
+    loop = _make_full_loop(tmp_path)
+    loop.provider.provider_name = "primary-provider"
+
+    async def fake_run_agent_loop(transcript_input, **kwargs):
+        request = kwargs["request_context"]
+        request.attributes["response_model"] = "fallback-model"
+        request.attributes["response_provider"] = "fallback-provider"
+        initial = _assembled_messages(loop.context, transcript_input)
+        return _agent_run_result(
+            "answer",
+            [*initial, {"role": "assistant", "content": "answer"}],
+            stop_reason="stop",
+        )
+
+    loop._run_agent_loop = fake_run_agent_loop  # type: ignore[method-assign]
+    await loop._process_message(
+        InboundMessage(
+            channel="websocket",
+            sender_id="user",
+            chat_id="desktop",
+            content="question",
+        )
+    )
+
+    saved = loop.sessions.get_or_create("websocket:desktop").messages[-1]
+    assert saved["response_model"] == "fallback-model"
+    assert saved["response_provider"] == "fallback-provider"
 
 
 def test_save_turn_commits_summary_boundary_without_rewriting_raw_history() -> None:

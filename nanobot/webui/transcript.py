@@ -1633,6 +1633,12 @@ def _session_assistant_event(
     latency_ms = message.get("latency_ms")
     if isinstance(latency_ms, int | float) and latency_ms >= 0:
         event["latency_ms"] = int(latency_ms)
+    response_model = message.get("response_model")
+    if isinstance(response_model, str) and response_model:
+        event["response_model"] = response_model
+    response_provider = message.get("response_provider")
+    if isinstance(response_provider, str) and response_provider:
+        event["response_provider"] = response_provider
     return event
 
 
@@ -2502,6 +2508,8 @@ def replay_transcript_to_ui_messages(
         usage: dict[str, int] | None = None,
         round_usages: list[dict[str, int]] | None = None,
         context_window_tokens: int | None = None,
+        response_model: str | None = None,
+        response_provider: str | None = None,
     ) -> None:
         for i in range(len(messages) - 1, -1, -1):
             if messages[i].get("role") == "assistant" and messages[i].get("kind") != "trace":
@@ -2514,6 +2522,10 @@ def replay_transcript_to_ui_messages(
                     completion["roundUsages"] = round_usages
                 if context_window_tokens is not None:
                     completion["contextWindowTokens"] = context_window_tokens
+                if response_model:
+                    completion["responseModel"] = response_model
+                if response_provider:
+                    completion["responseProvider"] = response_provider
                 messages[i] = {
                     **messages[i],
                     **completion,
@@ -3055,6 +3067,12 @@ def replay_transcript_to_ui_messages(
             context_window = rec.get("context_window_tokens")
             if isinstance(context_window, int) and context_window > 0:
                 extra["contextWindowTokens"] = context_window
+            response_model = rec.get("response_model")
+            if isinstance(response_model, str) and response_model:
+                extra["responseModel"] = response_model
+            response_provider = rec.get("response_provider")
+            if isinstance(response_provider, str) and response_provider:
+                extra["responseProvider"] = response_provider
             extra.update(_turn_fields(rec, "answer"))
             extra.update(_source_fields(rec))
             absorb_complete(extra, idx, _created_at_ms(rec, idx))
@@ -3090,6 +3108,8 @@ def replay_transcript_to_ui_messages(
                 else None
             )
             context_window = rec.get("context_window_tokens")
+            response_model = rec.get("response_model")
+            response_provider = rec.get("response_provider")
             stamp_completion(
                 latency_ms=int(lat) if isinstance(lat, (int, float)) and lat >= 0 else None,
                 usage=sanitized_usage,
@@ -3098,6 +3118,12 @@ def replay_transcript_to_ui_messages(
                     int(context_window)
                     if isinstance(context_window, (int, float)) and context_window >= 0
                     else None
+                ),
+                response_model=(
+                    response_model if isinstance(response_model, str) else None
+                ),
+                response_provider=(
+                    response_provider if isinstance(response_provider, str) else None
                 ),
             )
             buffer_message_id = None

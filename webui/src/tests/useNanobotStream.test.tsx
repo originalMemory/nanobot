@@ -3428,6 +3428,32 @@ describe("useNanobotStream", () => {
     dateNow.mockRestore();
   });
 
+  it("does not stamp a failed turn model onto the previous assistant", () => {
+    const fake = fakeClient();
+    const initial: UIMessage[] = [
+      { id: "old-answer", role: "assistant", content: "old", createdAt: 1 },
+      { id: "new-question", role: "user", content: "new", createdAt: 2, turnId: "turn-2" },
+    ];
+    const { result } = renderHook(() => useNanobotStream("chat-failed", initial), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-failed", {
+        event: "turn_end",
+        chat_id: "chat-failed",
+        turn_id: "turn-2",
+        outcome: "failed",
+        failure_kind: "model",
+        response_model: "failed-model",
+        response_provider: "failed-provider",
+      });
+    });
+
+    expect(result.current.messages[0]).not.toHaveProperty("responseModel");
+    expect(result.current.messages[0]).not.toHaveProperty("responseProvider");
+  });
+
   it("clears runStartedAt on turn_end even without idle", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-g", EMPTY_MESSAGES), {

@@ -7,7 +7,9 @@ from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.context import current_request_context
 from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
 from nanobot.agent.voice import DEFERRED_VOICE, VoiceService
+from nanobot.session.keys import UNIFIED_SESSION_KEY
 from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
+from nanobot.webui.session_identity import DESKTOP_CHAT_ID
 
 
 @tool_parameters(tool_parameters_schema(
@@ -43,7 +45,13 @@ class TtsTool(Tool):
             return "Error: 缺少语音轮次标识"
         try:
             audio = self.voice.submit(request.chat_id, turn_id, text, channel=request.channel,
-                               metadata=request.metadata, session_key=request.session_key)
+                               metadata=request.metadata, session_key=request.session_key,
+                               playback_chat_id=(
+                                   DESKTOP_CHAT_ID
+                                   if request.session_key == UNIFIED_SESSION_KEY
+                                   and request.channel != "websocket"
+                                   else None
+                               ))
         except ValueError as exc:
             return f"Error: {exc}"
         request.attributes["voice"] = audio

@@ -92,12 +92,15 @@ def test_unified_history_projects_usage_for_composer_meter():
         {"role": "assistant", "content": "answer",
          "usage": {"prompt_tokens": 1200, "completion_tokens": 80, "context_tokens": 1100},
          "round_usages": [{"prompt_tokens": 700}, {"prompt_tokens": 1200}],
-         "context_window_tokens": 32_000},
+         "context_window_tokens": 32_000,
+         "response_model": "deepseek-v4-flash", "response_provider": "deepseek"},
     ])
     answer = result["messages"][-1]
     assert answer["usage"]["context_tokens"] == 1100
     assert answer["roundUsages"][-1]["prompt_tokens"] == 1200
     assert answer["contextWindowTokens"] == 32_000
+    assert answer["responseModel"] == "deepseek-v4-flash"
+    assert answer["responseProvider"] == "deepseek"
 
 
 def test_unified_history_carries_channel_source_to_assistant():

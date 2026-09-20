@@ -199,6 +199,7 @@ async def test_runtime_event_publisher_consumes_turn_metadata_on_complete() -> N
     second_round = LLMUsage.reported(input_tokens=60, output_tokens=3)
     publisher.record_turn_usage("cli:direct", [first_round])
     publisher.record_turn_usage("cli:direct", [second_round])
+    publisher.record_response_runtime("cli:direct", "fallback-model", "fallback-provider")
 
     await publisher.turn_completed(
         channel="cli",
@@ -224,6 +225,8 @@ async def test_runtime_event_publisher_consumes_turn_metadata_on_complete() -> N
     assert first.runtime == "runtime"
     assert first.usage == first_round + second_round
     assert first.round_usages == (first_round, second_round)
+    assert first.response_model == "fallback-model"
+    assert first.response_provider == "fallback-provider"
     assert first.outcome == "failed"
     assert first.failure_kind == "model"
     assert first.failure_error_kind == "billing"
@@ -231,6 +234,8 @@ async def test_runtime_event_publisher_consumes_turn_metadata_on_complete() -> N
     assert second.latency_ms is None
     assert second.runtime is None
     assert second.usage is None
+    assert second.response_model is None
+    assert second.response_provider is None
 
 
 @pytest.mark.asyncio

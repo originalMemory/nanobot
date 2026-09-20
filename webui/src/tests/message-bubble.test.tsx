@@ -684,6 +684,21 @@ describe("MessageBubble", () => {
     expect(usage).toHaveAttribute("data-turn-usage");
   });
 
+  it("shows the concrete response model in the assistant footer", () => {
+    const { container } = render(<MessageBubble message={{
+      id: "a-model",
+      role: "assistant",
+      content: "done",
+      createdAt: Date.now(),
+      responseModel: "deepseek-v4-flash",
+      responseProvider: "deepseek",
+    }} />);
+
+    const model = container.querySelector("[data-response-model]");
+    expect(model).toHaveTextContent("deepseek-v4-flash");
+    expect(model).toHaveAttribute("title", "deepseek · deepseek-v4-flash");
+  });
+
   it("localizes per-turn token usage", async () => {
     await act(() => setAppLanguage("zh-CN"));
     render(<MessageBubble message={{

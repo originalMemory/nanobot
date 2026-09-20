@@ -63,6 +63,8 @@ class TurnEndEvent(AgentEvent):
     usage: LLMUsage | None = None
     round_usages: tuple[LLMUsage, ...] = ()
     context_window_tokens: int | None = None
+    response_model: str | None = None
+    response_provider: str | None = None
     outcome: str = "completed"
     failure_kind: str | None = None
     failure_error_kind: str | None = None

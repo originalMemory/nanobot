@@ -416,6 +416,22 @@ describe("NanobotClient", () => {
     await expect(creation).resolves.toBe("server-temporary-chat");
   });
 
+  it("remembers the canonical model preset from attach", () => {
+    const client = new NanobotClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+    lastSocket().fakeMessage({
+      event: "attached",
+      chat_id: "desktop",
+      model_preset: "Deep Research",
+    });
+    expect(client.getChatModelPreset("desktop")).toBe("Deep Research");
+  });
+
   it("forgets every temporary chat when the socket drops", async () => {
     const client = new NanobotClient({
       url: "ws://test",
@@ -1816,6 +1832,7 @@ describe("NanobotClient", () => {
       model_preset: "Deep Research",
       fallback: true,
     });
+    expect(client.getChatModelPreset("chat-a")).toBe("Deep Research");
   });
 
   it("dispatches session updates globally", () => {

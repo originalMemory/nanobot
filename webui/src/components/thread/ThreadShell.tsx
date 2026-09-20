@@ -947,9 +947,28 @@ export function ThreadShell({
   const wasShowingHeroComposerRef = useRef(showHeroComposer);
   const sessionModelPreset = session?.modelPreset?.trim() || null;
   const [localModelPreset, setLocalModelPreset] = useState<string | null>(null);
+  const [runtimeModelPreset, setRuntimeModelPreset] = useState<string | null>(
+    chatId ? client.getChatModelPreset?.(chatId) ?? null : null,
+  );
   useEffect(() => {
     setLocalModelPreset(null);
   }, [session?.key, sessionModelPreset]);
+  useEffect(() => {
+    if (!chatId) {
+      setRuntimeModelPreset(null);
+      return;
+    }
+    setRuntimeModelPreset(client.getChatModelPreset?.(chatId) ?? null);
+    return client.onChat(chatId, (event) => {
+      if (
+        (event.event === "attached" || event.event === "turn_model_updated")
+        && typeof event.model_preset === "string"
+        && event.model_preset.trim()
+      ) {
+        setRuntimeModelPreset(event.model_preset.trim());
+      }
+    });
+  }, [chatId, client]);
   const configuredPresetNames = useMemo(
     () => new Set(settings?.model_presets.map((preset) => preset.name) ?? []),
     [settings],
@@ -957,6 +976,9 @@ export function ThreadShell({
   const activeModelPreset = (
     (localModelPreset && (!settings || configuredPresetNames.has(localModelPreset))
       ? localModelPreset
+      : null)
+    || (runtimeModelPreset && (!settings || configuredPresetNames.has(runtimeModelPreset))
+      ? runtimeModelPreset
       : null)
     || (sessionModelPreset && (!settings || configuredPresetNames.has(sessionModelPreset))
       ? sessionModelPreset

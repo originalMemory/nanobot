@@ -124,15 +124,20 @@ export function stampLastAssistantCompletion(
   completion: Pick<
     UIMessage,
     "latencyMs" | "completedAt" | "usage" | "roundUsages" | "contextWindowTokens"
+      | "responseModel" | "responseProvider"
   >,
   turnId?: string,
 ): UIMessage[] {
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const m = prev[i];
+    if (m.role === "user") {
+      if (turnId && m.turnId === turnId) continue;
+      return prev;
+    }
     if (
       m.role === "assistant"
       && m.kind !== "trace"
-      && (!turnId || !m.turnId || m.turnId === turnId)
+      && (!turnId || m.turnId === turnId)
     ) {
       const merged: UIMessage = { ...m, ...completion, isStreaming: false };
       return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];

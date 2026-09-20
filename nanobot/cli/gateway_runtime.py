@@ -16,6 +16,7 @@ from nanobot import __logo__, __version__
 from nanobot.agent.hook import AgentHook, AgentRunHookContext
 from nanobot.agent.hooks import create_file_edit_activity_hook
 from nanobot.agent.loop import AgentLoop
+from nanobot.agent.tools.context import current_request_context
 from nanobot.agent.tools.mcp import MCPProvider
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.cli import terminal as cli_terminal
@@ -36,6 +37,7 @@ from nanobot.cli.webui_support import (
 from nanobot.config.paths import is_default_workspace
 from nanobot.config.schema import Config
 from nanobot.gateway.runtime import GatewayInstance
+from nanobot.llm_usage.models import LLMCallRecord
 from nanobot.security.network import is_loopback_host
 from nanobot.session.keys import UNIFIED_SESSION_KEY, last_channel_from_metadata
 from nanobot.utils.helpers import sync_workspace_templates
@@ -47,6 +49,16 @@ from nanobot.webui.sidebar_state import read_webui_sidebar_state
 __all__ = ["_run_gateway"]
 
 console = Console()
+
+
+def _capture_response_runtime(record: LLMCallRecord) -> None:
+    """Keep the last successful physical model call on the active turn."""
+    if record.finish_reason == "error":
+        return
+    request = current_request_context()
+    if request is not None:
+        request.attributes["response_model"] = record.model
+        request.attributes["response_provider"] = record.provider
 
 
 class _MCPReadinessHook(AgentHook):
@@ -412,8 +424,12 @@ def _run_gateway(
     bus = MessageBus()
     fallback_model_observer = build_webui_fallback_model_observer(bus)
 
+    def _record_gateway_llm_call(record: LLMCallRecord) -> None:
+        _capture_response_runtime(record)
+        record_llm_call(record)
+
     def _observe_provider(snapshot: ProviderSnapshot) -> ProviderSnapshot:
-        snapshot.provider.set_llm_call_observer(record_llm_call)
+        snapshot.provider.set_llm_call_observer(_record_gateway_llm_call)
         if isinstance(snapshot.provider, FallbackProvider):
             snapshot.provider.set_fallback_model_observer(fallback_model_observer)
         return snapshot

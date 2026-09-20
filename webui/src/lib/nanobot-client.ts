@@ -227,6 +227,8 @@ export class NanobotClient {
   private static readonly COMPLETED_TURN_FENCE_MAX = 256;
   /** Latest ``goal_state`` snapshot per ``chat_id`` (multi-session isolation). */
   private goalStateByChatId = new Map<string, GoalStateWsPayload>();
+  /** Canonical session model restored by attach and refreshed at turn admission. */
+  private modelPresetByChatId = new Map<string, string>();
   private pendingNewChat: PendingChatRequest | null = null;
   private pendingTranscriptions = new Map<string, PendingRequest<string>>();
   private pendingSystemCommands = new Map<string, PendingRequest<void>>();
@@ -278,6 +280,10 @@ export class NanobotClient {
 
   get fixedChatId(): string | null {
     return this.options.fixedChatId ?? null;
+  }
+
+  getChatModelPreset(chatId: string): string | null {
+    return this.modelPresetByChatId.get(chatId) ?? null;
   }
 
   /** Swap the URL (e.g. after fetching a fresh token) then reconnect. */
@@ -1228,6 +1234,9 @@ export class NanobotClient {
     }
 
     if (parsed.event === "attached") {
+      if (typeof parsed.model_preset === "string" && parsed.model_preset.trim()) {
+        this.modelPresetByChatId.set(parsed.chat_id, parsed.model_preset.trim());
+      }
       if (parsed.temporary === true) {
         this.temporaryChatIds.add(parsed.chat_id);
       } else {
@@ -1294,6 +1303,13 @@ export class NanobotClient {
 
     const chatId = (parsed as { chat_id?: string }).chat_id;
     if (chatId) {
+      if (
+        parsed.event === "turn_model_updated"
+        && typeof parsed.model_preset === "string"
+        && parsed.model_preset.trim()
+      ) {
+        this.modelPresetByChatId.set(chatId, parsed.model_preset.trim());
+      }
       if (this.isCanonicalCompletedTurnEvent(chatId, parsed)) return;
       const supersededRunCompletion = this.isSupersededRunCompletion(chatId, parsed);
       this.recordGoalStatusForRunStrip(chatId, parsed);

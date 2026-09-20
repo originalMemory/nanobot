@@ -2076,6 +2076,20 @@ class AgentLoop:
         ctx.turn_latency_ms = max(0, int((time.time() - latency_started_at) * 1000))
         if ctx.usage is not None and not ctx.ephemeral:
             session.metadata["_last_usage"] = ctx.usage.to_dict()
+        response_model = (
+            ctx.request_context.attributes.get("response_model")
+            if ctx.request_context is not None
+            else None
+        )
+        response_provider = (
+            ctx.request_context.attributes.get("response_provider")
+            if ctx.request_context is not None
+            else None
+        )
+        if not isinstance(response_model, str) or not response_model:
+            response_model = ctx.runtime.model if ctx.runtime else None
+        if not isinstance(response_provider, str) or not response_provider:
+            response_provider = ctx.runtime.provider.provider_name if ctx.runtime else None
         self._save_turn(
             session, ctx.all_messages, ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
@@ -2084,9 +2098,13 @@ class AgentLoop:
             usage=ctx.usage.to_turn_dict() if ctx.usage is not None else None,
             round_usages=[usage.to_turn_dict() for usage in ctx.round_usages],
             context_window_tokens=(ctx.runtime.context_window_tokens if ctx.runtime else None),
+            response_model=response_model,
+            response_provider=response_provider,
             voice=(ctx.request_context.attributes.get("voice")
                             if ctx.request_context else None),
         )
+        if response_model and response_provider:
+            ctx.delivery.record_response_runtime(response_model, response_provider)
         if (
             not ctx.ephemeral
             and ctx.provider_compaction_applied
@@ -2209,6 +2227,8 @@ class AgentLoop:
         usage: dict[str, int] | None = None,
         round_usages: list[dict[str, int]] | None = None,
         context_window_tokens: int | None = None,
+        response_model: str | None = None,
+        response_provider: str | None = None,
         voice: dict[str, Any] | None = None,
     ) -> None:
         """Commit new-turn messages and an optional summary boundary."""
@@ -2352,6 +2372,10 @@ class AgentLoop:
             session.messages[last_assistant_idx]["round_usages"] = [dict(item) for item in round_usages]
         if context_window_tokens is not None and last_assistant_idx is not None:
             session.messages[last_assistant_idx]["context_window_tokens"] = context_window_tokens
+        if response_model and last_assistant_idx is not None:
+            session.messages[last_assistant_idx]["response_model"] = response_model
+        if response_provider and last_assistant_idx is not None:
+            session.messages[last_assistant_idx]["response_provider"] = response_provider
         if voice and last_assistant_idx is not None:
             session.messages[last_assistant_idx]["voice"] = dict(voice)
         if saved_followup_ids:

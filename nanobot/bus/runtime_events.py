@@ -67,6 +67,8 @@ class TurnCompleted(AgentEvent):
     usage: LLMUsage | None = None
     # Logical model rounds in display order; recovery dispatches are aggregated.
     round_usages: tuple[LLMUsage, ...] = ()
+    response_model: str | None = None
+    response_provider: str | None = None
     outcome: str = "completed"
     failure_kind: str | None = None
     failure_error_kind: str | None = None
@@ -111,6 +113,7 @@ class RuntimeEventPublisher:
         self._turn_runtime: dict[str, LLMRuntime] = {}
         self._turn_usage: dict[str, LLMUsage] = {}
         self._turn_round_usages: dict[str, tuple[LLMUsage, ...]] = {}
+        self._turn_response_runtime: dict[str, tuple[str, str]] = {}
 
     @staticmethod
     def _context(
@@ -131,6 +134,9 @@ class RuntimeEventPublisher:
 
     def record_turn_runtime(self, session_key: str, runtime: LLMRuntime) -> None:
         self._turn_runtime[session_key] = runtime
+
+    def record_response_runtime(self, session_key: str, model: str, provider: str) -> None:
+        self._turn_response_runtime[session_key] = (model, provider)
 
     def record_turn_latency(self, session_key: str, latency_ms: int | None) -> None:
         if latency_ms is not None:
@@ -159,6 +165,7 @@ class RuntimeEventPublisher:
         self._turn_runtime.pop(session_key, None)
         self._turn_usage.pop(session_key, None)
         self._turn_round_usages.pop(session_key, None)
+        self._turn_response_runtime.pop(session_key, None)
 
     async def user_input_accepted(
         self,
@@ -268,6 +275,7 @@ class RuntimeEventPublisher:
         failure_error_kind: str | None = None,
         failure_attempts: int | None = None,
     ) -> None:
+        response_runtime = self._turn_response_runtime.pop(session_key, None)
         await self.bus.publish(
             TurnCompleted(
                 context=self._context(
@@ -280,6 +288,8 @@ class RuntimeEventPublisher:
                 runtime=self._turn_runtime.pop(session_key, None),
                 usage=self._turn_usage.pop(session_key, None),
                 round_usages=self._turn_round_usages.pop(session_key, ()),
+                response_model=response_runtime[0] if response_runtime is not None else None,
+                response_provider=response_runtime[1] if response_runtime is not None else None,
                 outcome=outcome,
                 failure_kind=failure_kind,
                 failure_error_kind=failure_error_kind,

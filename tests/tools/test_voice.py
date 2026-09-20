@@ -98,14 +98,16 @@ async def test_voice_background_replay_failure_and_heartbeat_gate(tmp_path, monk
         DEFERRED_VOICE.reset(token)
     service.deliver = AsyncMock()
     fail = False
-    with request_context(RequestContext(channel="qq", chat_id="qq-group", turn_id="qq-turn", metadata={"message_id": "source-msg"})):
+    with request_context(RequestContext(channel="qq", chat_id="qq-group", session_key="unified:default",
+                                        turn_id="qq-turn", metadata={"message_id": "source-msg"})):
         assert "已触发" in await tool.execute("QQ voice")
     await tasks[-1]
     delivery = service.deliver.call_args.args[0]
     assert delivery.channel == "qq" and delivery.chat_id == "qq-group"
     assert delivery.metadata["message_id"] == "source-msg"
     assert delivery.media == [str(service.path("qq-turn"))]
-    assert service.emit.call_args.args[1]["turn_id"] != "qq-turn"
+    assert service.emit.call_args.args[0] == "desktop"
+    assert service.emit.call_args.args[1]["turn_id"] == "qq-turn"
     assert "mode" not in service.settings()
     with pytest.raises(ValueError):
         service.update({"mode": "agent", "preset": "other", "voice": "voice"})

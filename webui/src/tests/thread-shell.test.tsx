@@ -1030,6 +1030,28 @@ describe("ThreadShell", () => {
     expect(screen.queryByLabelText("Default")).not.toBeInTheDocument();
   });
 
+  it("restores the composer model from the attached unified session", async () => {
+    const client = makeClient();
+    render(
+      wrap(
+        client,
+        <ThreadShell
+          session={session("desktop")}
+          title="Desktop"
+          onToggleSidebar={() => {}}
+          settingsSnapshot={settingsWithFastPreset()}
+        />,
+      ),
+    );
+
+    act(() => client._emitChat("desktop", {
+      event: "attached",
+      chat_id: "desktop",
+      model_preset: "fast",
+    }));
+    expect(await screen.findByLabelText("fast")).toBeInTheDocument();
+  });
+
   it("falls back to the current preset while a renamed session reference is stale", async () => {
     const client = makeClient();
     const settings = settingsWithFastPreset();

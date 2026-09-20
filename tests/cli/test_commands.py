@@ -44,6 +44,31 @@ from nanobot.webui.metadata import (
 runner = CliRunner()
 
 
+def test_gateway_captures_the_last_successful_physical_model_call() -> None:
+    from nanobot.agent.tools.context import RequestContext, request_context
+    from nanobot.llm_usage.models import LLMCallRecord
+
+    def record(model: str, provider: str, finish_reason: str) -> LLMCallRecord:
+        return LLMCallRecord(
+            started_at_ms=1,
+            duration_ms=1,
+            provider=provider,
+            model=model,
+            source="user",
+            stream=False,
+            finish_reason=finish_reason,
+        )
+
+    request = RequestContext(channel="websocket", chat_id="desktop")
+    with request_context(request):
+        cli_gateway_runtime._capture_response_runtime(record("primary", "p1", "stop"))
+        cli_gateway_runtime._capture_response_runtime(record("fallback", "p2", "tool_calls"))
+        cli_gateway_runtime._capture_response_runtime(record("failed", "p3", "error"))
+
+    assert request.attributes["response_model"] == "fallback"
+    assert request.attributes["response_provider"] == "p2"
+
+
 def _without_rendered_line_breaks(output: str) -> str:
     return "".join(output.splitlines())
 

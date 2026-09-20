@@ -709,6 +709,8 @@ class WebuiTurnCoordinator:
             context_window_tokens=(
                 event.runtime.context_window_tokens if event.runtime is not None else None
             ),
+            response_model=event.response_model,
+            response_provider=event.response_provider,
             outcome=event.outcome,
             failure_kind=event.failure_kind,
             failure_error_kind=event.failure_error_kind,
@@ -756,6 +758,8 @@ class WebuiTurnCoordinator:
         usage: LLMUsage | None = None,
         round_usages: tuple[LLMUsage, ...] = (),
         context_window_tokens: int | None = None,
+        response_model: str | None = None,
+        response_provider: str | None = None,
         outcome: str = "completed",
         failure_kind: str | None = None,
         failure_error_kind: str | None = None,
@@ -775,6 +779,8 @@ class WebuiTurnCoordinator:
                     usage=usage,
                     round_usages=round_usages,
                     context_window_tokens=context_window_tokens,
+                    response_model=response_model,
+                    response_provider=response_provider,
                     outcome=outcome,
                     failure_kind=failure_kind,
                     failure_error_kind=failure_error_kind,

@@ -81,7 +81,8 @@ class VoiceService:
         return self.directory / (hashlib.sha256(turn_id.encode()).hexdigest() + ".mp3")
 
     def submit(self, chat_id: str, turn_id: str, text: str, *, channel: str = "websocket",
-               metadata: dict[str, Any] | None = None, session_key: str | None = None) -> dict[str, Any]:
+               metadata: dict[str, Any] | None = None, session_key: str | None = None,
+               playback_chat_id: str | None = None) -> dict[str, Any]:
         path = self.path(turn_id)
         text = re.sub(r"<[^>]+>", "", text).strip()
         if not text or len(text) > 10000:
@@ -107,7 +108,8 @@ class VoiceService:
             return audio
         self.active.add(turn_id)
         task = self._generate(chat_id, turn_id, text, preset.config.model_dump(), voice.language_voices,
-                              channel=channel, metadata=dict(metadata or {}), audio=audio, session_key=session_key)
+                              channel=channel, metadata=dict(metadata or {}), audio=audio,
+                              session_key=session_key, playback_chat_id=playback_chat_id)
         try:
             self.schedule(task)
         except BaseException:
@@ -118,13 +120,15 @@ class VoiceService:
 
     async def _generate(self, chat_id: str, turn_id: str, text: str,
                         settings: dict[str, Any], voices: dict[str, str], *,
-                        channel: str, metadata: dict[str, Any], audio: dict[str, Any], session_key: str | None) -> None:
+                        channel: str, metadata: dict[str, Any], audio: dict[str, Any],
+                        session_key: str | None, playback_chat_id: str | None) -> None:
         path = self.path(turn_id)
         temporary = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
         wav_temporary = temporary.with_suffix(".wav")
         async def emit(phase: str, **fields: Any) -> None:
-            if channel == "websocket" and self.emit:
-                await self.emit(chat_id, {"turn_id": turn_id, "phase": phase, **fields})
+            target = chat_id if channel == "websocket" else playback_chat_id
+            if target and self.emit:
+                await self.emit(target, {"turn_id": turn_id, "phase": phase, **fields})
         try:
             async with self.lock:
                 key = repr((settings, voices))

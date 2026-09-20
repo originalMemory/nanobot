@@ -125,6 +125,9 @@ export interface UIMessage {
   roundUsages?: RoundUsage[];
   /** Configured context-window capacity for the model used by this turn. */
   contextWindowTokens?: number;
+  /** Concrete model/provider that produced this assistant turn. */
+  responseModel?: string;
+  responseProvider?: string;
   /** Lightweight provenance for proactive assistant messages. */
   source?: UIMessageSource;
   /** Structured provenance for a message delivered by another session. */
@@ -1348,6 +1351,7 @@ export type InboundEvent =
       temporary?: boolean;
       recovery_state?: RecoveryState;
       usage?: TurnUsage;
+      model_preset?: string | null;
     }
   | {
       event: "message_accepted";
@@ -1446,6 +1450,8 @@ export type InboundEvent =
       usage?: TurnUsage;
       round_usages?: RoundUsage[];
       context_window_tokens?: number;
+      response_model?: string;
+      response_provider?: string;
       /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
       goal_state?: GoalStateWsPayload;
       outcome?: "completed" | "failed" | "cancelled" | "interrupted";

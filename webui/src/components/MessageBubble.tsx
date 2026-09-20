@@ -560,8 +560,12 @@ export function MessageBubble({
     message.voice?.url || voice.turn === voiceTurnId || voice.available.has(voiceTurnId)
   ));
   const showUsage = message.role === "assistant" && !!message.usage && !message.isStreaming;
+  const showResponseModel = message.role === "assistant"
+    && !!message.responseModel
+    && !message.isStreaming;
   const showAssistantFooterRow =
-    showCopyButton || showForkButton || showAssistantTimestamp || showVoiceButton || showUsage;
+    showCopyButton || showForkButton || showAssistantTimestamp || showVoiceButton || showUsage
+    || showResponseModel;
   const showAssistantFooterSlot =
     message.role === "assistant"
     && (!empty || hasReasoning || media.length > 0);
@@ -634,6 +638,15 @@ export function MessageBubble({
               latencyMs={message.latencyMs}
               contextWindowTokens={message.contextWindowTokens}
             /> : null}
+            {showResponseModel ? (
+              <span
+                data-response-model
+                className="text-xs"
+                title={[message.responseProvider, message.responseModel].filter(Boolean).join(" · ")}
+              >
+                {message.responseModel}
+              </span>
+            ) : null}
             {showAssistantTimestamp ? (
               <MessageTimestamp
                 {...(showCompletedAt ? { "data-assistant-completed-at": true } : {})}

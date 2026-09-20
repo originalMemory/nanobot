@@ -1050,6 +1050,8 @@ export function useNanobotStream(
               ...(typeof ev.context_window_tokens === "number"
                 ? { contextWindowTokens: ev.context_window_tokens }
                 : {}),
+              ...(ev.response_model ? { responseModel: ev.response_model } : {}),
+              ...(ev.response_provider ? { responseProvider: ev.response_provider } : {}),
               completedAt,
             },
             ev.turn_id,

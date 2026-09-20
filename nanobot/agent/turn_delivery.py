@@ -256,6 +256,13 @@ class TurnDelivery:
     def record_usage(self, round_usages: list[LLMUsage]) -> None:
         self.runtime_event_publisher.record_turn_usage(self.session_key, round_usages)
 
+    def record_response_runtime(self, model: str, provider: str) -> None:
+        self.runtime_event_publisher.record_response_runtime(
+            self.session_key,
+            model,
+            provider,
+        )
+
     def record_stop_reason(
         self,
         stop_reason: str,

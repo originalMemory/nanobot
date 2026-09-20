@@ -90,6 +90,8 @@ class TurnEndWirePayload(_ChatWirePayload):
     usage: NotRequired[dict[str, int]]
     round_usages: NotRequired[list[dict[str, int]]]
     context_window_tokens: NotRequired[int]
+    response_model: NotRequired[str]
+    response_provider: NotRequired[str]
     outcome: NotRequired[str]
     failure_kind: NotRequired[str]
     failure_error_kind: NotRequired[str]
@@ -218,6 +220,10 @@ def encode_turn_end(
         payload["round_usages"] = [item.to_turn_dict() for item in event.round_usages]
     if event.context_window_tokens is not None:
         payload["context_window_tokens"] = int(event.context_window_tokens)
+    if event.response_model:
+        payload["response_model"] = event.response_model
+    if event.response_provider:
+        payload["response_provider"] = event.response_provider
     if event.outcome != "completed":
         payload["outcome"] = event.outcome
     if event.failure_kind is not None:
