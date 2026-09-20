@@ -6,8 +6,14 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import type { UIImage } from "@/lib/types";
 
-interface ImageLightboxProps {
-  images: UIImage[];
+export type PreviewMedia = UIImage & { kind?: "image" } | {
+  kind: "video";
+  name?: string;
+  url: string;
+};
+
+interface MediaLightboxProps {
+  items: PreviewMedia[];
   index: number | null;
   onIndexChange: (index: number) => void;
   onOpenChange: (open: boolean) => void;
@@ -27,16 +33,16 @@ interface ImageLightboxProps {
  * - Respects `prefers-reduced-motion` by dropping the fade + zoom-in
  *   keyframes via `motion-reduce:*` variants.
  */
-export function ImageLightbox({
-  images,
+export function MediaLightbox({
+  items,
   index,
   onIndexChange,
   onOpenChange,
-}: ImageLightboxProps) {
+}: MediaLightboxProps) {
   const { t } = useTranslation();
   const open = index !== null;
-  const total = images.length;
-  const current = index !== null ? images[index] : null;
+  const total = items.length;
+  const current = index !== null ? items[index] : null;
 
   const go = useCallback(
     (delta: number) => {
@@ -50,6 +56,7 @@ export function ImageLightbox({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLMediaElement) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         go(-1);
@@ -71,10 +78,10 @@ export function ImageLightbox({
   // Neighbours we want the browser to decode eagerly.
   const preload = useMemo(() => {
     if (index === null || total <= 1) return [] as UIImage[];
-    const prev = images[(index - 1 + total) % total];
-    const next = images[(index + 1) % total];
-    return [prev, next].filter((i) => i && i.url);
-  }, [images, index, total]);
+    const prev = items[(index - 1 + total) % total];
+    const next = items[(index + 1) % total];
+    return [prev, next].filter((item) => item && item.url && item.kind !== "video");
+  }, [items, index, total]);
 
   if (!current || !current.url) return null;
 
@@ -115,14 +122,25 @@ export function ImageLightbox({
               willChange: "transform",
             }}
           >
-            <img
-              key={current.url}
-              src={current.url}
-              alt={current.name ?? ""}
-              decoding="async"
-              draggable={false}
-              className="max-h-[92vh] max-w-[94vw] select-none rounded-[6px] object-contain shadow-2xl"
-            />
+            {current.kind === "video" ? (
+              <video
+                key={current.url}
+                src={current.url}
+                controls
+                preload="metadata"
+                className="max-h-[92vh] max-w-[94vw] rounded-[6px] bg-black object-contain shadow-2xl"
+                aria-label={current.name ?? t("videoPreview.title")}
+              />
+            ) : (
+              <img
+                key={current.url}
+                src={current.url}
+                alt={current.name ?? ""}
+                decoding="async"
+                draggable={false}
+                className="max-h-[92vh] max-w-[94vw] select-none rounded-[6px] object-contain shadow-2xl"
+              />
+            )}
           </div>
 
           {hasMany ? (
@@ -163,8 +181,8 @@ export function ImageLightbox({
 
           {/* Invisible preload — browser decodes adjacent images so prev/next swap is instant. */}
           <div aria-hidden className="hidden">
-            {preload.map((img, i) => (
-              <img key={`${img.url}-${i}`} src={img.url} alt="" />
+            {preload.map((item, i) => (
+              <img key={`${item.url}-${i}`} src={item.url} alt="" />
             ))}
           </div>
         </DialogPrimitive.Content>

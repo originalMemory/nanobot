@@ -1956,10 +1956,11 @@
   "lightbox": {
     "title": "图片预览",
     "open": "查看图片",
-    "prev": "上一张",
-    "next": "下一张",
-    "close": "关闭预览"
+    "prev": "上一个媒体",
+    "next": "下一个媒体",
+    "close": "关闭媒体预览"
   },
+  "videoPreview": { "title": "视频预览", "open": "放大预览视频" },
   "filePreview": {
     "aria": "文件预览",
     "breadcrumb": "文件路径",

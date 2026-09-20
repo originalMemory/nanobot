@@ -277,6 +277,9 @@ describe("MarkdownTextRenderer", () => {
     expect(video).toHaveAttribute("src", "/api/media/sig/video");
     expect(video).toHaveAttribute("controls");
     expect(screen.queryByRole("img", { name: "nanobot-intro.mp4" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Enlarge video preview" }));
+    expect(screen.getByRole("dialog", { name: "nanobot-intro.mp4" }).querySelector("video[controls]"))
+      .toHaveAttribute("src", "/api/media/sig/video");
   });
 
   it("renders markdown links with file-looking names as file attachments", () => {

@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from "react";
-import { FileIcon, ImageIcon, PlaySquare } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
+import { FileIcon, ImageIcon, Maximize2, PlaySquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { ImageLightbox } from "@/components/ImageLightbox";
+import { MediaLightbox } from "@/components/ImageLightbox";
 import { cn } from "@/lib/utils";
 import type { UIMediaAttachment } from "@/lib/types";
 
@@ -10,13 +10,15 @@ interface AttachmentTileProps {
   attachment: UIMediaAttachment;
   className?: string;
   inline?: boolean;
+  onPreview?: () => void;
   variant?: "default" | "compact";
 }
 
-export function AttachmentTile({ attachment, className, inline = false, variant = "default" }: AttachmentTileProps) {
+export function AttachmentTile({ attachment, className, inline = false, onPreview, variant = "default" }: AttachmentTileProps) {
   const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
-  const [imageOpen, setImageOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const hasUrl = typeof attachment.url === "string" && attachment.url.length > 0;
   const label = attachmentLabel(attachment, t);
 
@@ -31,7 +33,7 @@ export function AttachmentTile({ attachment, className, inline = false, variant 
         >
           <button
             type="button"
-            onClick={() => setImageOpen(true)}
+            onClick={() => onPreview ? onPreview() : setPreviewOpen(true)}
             className={cn(
               "block cursor-zoom-in bg-muted/20 transition-transform duration-150",
               "hover:scale-[1.01] hover:ring-2 hover:ring-primary/25",
@@ -56,35 +58,59 @@ export function AttachmentTile({ attachment, className, inline = false, variant 
             />
           </button>
         </AttachmentFrame>
-        <ImageLightbox
-          images={[{ url: attachment.url, name: attachment.name }]}
-          index={imageOpen ? 0 : null}
+        {!onPreview ? <MediaLightbox
+          items={[{ kind: "image", url: attachment.url, name: attachment.name }]}
+          index={previewOpen ? 0 : null}
           onIndexChange={() => {}}
-          onOpenChange={setImageOpen}
-        />
+          onOpenChange={setPreviewOpen}
+        /> : null}
       </>
     );
   }
 
   if (attachment.kind === "video" && hasUrl) {
+    const openPreview = () => {
+      videoRef.current?.pause();
+      if (onPreview) onPreview();
+      else setPreviewOpen(true);
+    };
     return (
-      <AttachmentFrame
-        attachment={attachment}
-        className={className}
-        inline={inline}
-        variant={variant}
-      >
-        <video
-          src={attachment.url}
-          controls
-          preload="metadata"
-          className={cn(
-            "block w-full bg-black",
-            variant === "compact" ? "max-h-40" : "max-h-[26rem]",
-          )}
-          aria-label={attachment.name ? `${t("message.videoAttachment", { defaultValue: "Video attachment" })}: ${attachment.name}` : t("message.videoAttachment", { defaultValue: "Video attachment" })}
-        />
-      </AttachmentFrame>
+      <>
+        <AttachmentFrame
+          attachment={attachment}
+          className={className}
+          inline={inline}
+          variant={variant}
+        >
+          <span className="relative block">
+            <video
+              ref={videoRef}
+              src={attachment.url}
+              controls
+              preload="metadata"
+              className={cn(
+                "block w-full bg-black",
+                variant === "compact" ? "max-h-40" : "max-h-[26rem]",
+              )}
+              aria-label={attachment.name ? `${t("message.videoAttachment", { defaultValue: "Video attachment" })}: ${attachment.name}` : t("message.videoAttachment", { defaultValue: "Video attachment" })}
+            />
+            <button
+              type="button"
+              aria-label={t("videoPreview.open")}
+              onClick={openPreview}
+              className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white/90 hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+            >
+              <Maximize2 className="h-4 w-4" aria-hidden />
+            </button>
+          </span>
+        </AttachmentFrame>
+        {!onPreview ? <MediaLightbox
+          items={[{ kind: "video", url: attachment.url!, name: attachment.name }]}
+          index={previewOpen ? 0 : null}
+          onIndexChange={() => {}}
+          onOpenChange={setPreviewOpen}
+        /> : null}
+      </>
     );
   }
 

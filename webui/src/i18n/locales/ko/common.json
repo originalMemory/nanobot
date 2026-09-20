@@ -1756,10 +1756,11 @@
   "lightbox": {
     "title": "이미지 미리보기",
     "open": "이미지 보기",
-    "prev": "이전 이미지",
-    "next": "다음 이미지",
-    "close": "미리보기 닫기"
+    "prev": "이전 미디어",
+    "next": "다음 미디어",
+    "close": "미디어 미리보기 닫기"
   },
+  "videoPreview": { "title": "동영상 미리보기", "open": "동영상 크게 보기" },
   "filePreview": {
     "aria": "파일 미리보기",
     "breadcrumb": "파일 경로",

@@ -1756,10 +1756,11 @@
   "lightbox": {
     "title": "Pratinjau gambar",
     "open": "Lihat gambar",
-    "prev": "Gambar sebelumnya",
-    "next": "Gambar berikutnya",
-    "close": "Tutup pratinjau"
+    "prev": "Media sebelumnya",
+    "next": "Media berikutnya",
+    "close": "Tutup pratinjau media"
   },
+  "videoPreview": { "title": "Pratinjau video", "open": "Perbesar video" },
   "filePreview": {
     "aria": "Pratinjau file",
     "breadcrumb": "Jalur file",

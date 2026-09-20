@@ -1046,8 +1046,33 @@ describe("MessageBubble", () => {
     expect(video).toHaveAttribute("src", "/api/media/sig/payload");
     expect(video).toHaveAttribute("preload", "metadata");
     expect(container.querySelector("video[controls]")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Enlarge video preview" }));
+    const dialog = screen.getByRole("dialog", { name: "demo.mp4" });
+    expect(dialog.querySelector("video[controls]")).toHaveAttribute("src", "/api/media/sig/payload");
     expect(screen.queryByText("Preview")).not.toBeInTheDocument();
     expect(screen.queryByText("Code")).not.toBeInTheDocument();
+  });
+
+  it("keeps same-turn images and videos in one ordered media lightbox", () => {
+    const message: UIMessage = {
+      id: "mixed-media",
+      role: "assistant",
+      content: "mixed",
+      createdAt: Date.now(),
+      media: [
+        { kind: "video", url: "/api/media/sig/video", name: "first.mp4" },
+        { kind: "image", url: "/api/media/sig/image", name: "second.png" },
+      ],
+    };
+
+    render(<MessageBubble message={message} />);
+    fireEvent.click(screen.getByRole("button", { name: "Enlarge video preview" }));
+    expect(screen.getByRole("dialog", { name: "first.mp4" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    const imageDialog = screen.getByRole("dialog", { name: "second.png" });
+    expect(imageDialog).toBeInTheDocument();
+    expect(imageDialog.querySelector("video")).toBeNull();
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
   });
 
   it("renders streaming reasoning as one compact activity line", () => {

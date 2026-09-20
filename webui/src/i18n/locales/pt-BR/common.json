@@ -1770,10 +1770,11 @@
   "lightbox": {
     "title": "Pré-visualização de imagem",
     "open": "Ver imagem",
-    "prev": "Imagem anterior",
-    "next": "Próxima imagem",
-    "close": "Fechar pré-visualização"
+    "prev": "Mídia anterior",
+    "next": "Próxima mídia",
+    "close": "Fechar prévia da mídia"
   },
+  "videoPreview": { "title": "Prévia do vídeo", "open": "Ampliar vídeo" },
   "filePreview": {
     "aria": "Pré-visualização de arquivo",
     "breadcrumb": "Caminho do arquivo",

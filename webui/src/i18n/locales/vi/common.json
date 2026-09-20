@@ -1756,10 +1756,11 @@
   "lightbox": {
     "title": "Xem trước ảnh",
     "open": "Xem ảnh",
-    "prev": "Ảnh trước",
-    "next": "Ảnh tiếp theo",
-    "close": "Đóng xem trước"
+    "prev": "Nội dung trước",
+    "next": "Nội dung tiếp theo",
+    "close": "Đóng bản xem trước nội dung"
   },
+  "videoPreview": { "title": "Xem trước video", "open": "Phóng to video" },
   "filePreview": {
     "aria": "Xem trước tệp",
     "breadcrumb": "Đường dẫn tệp",

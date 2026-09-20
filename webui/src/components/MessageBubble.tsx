@@ -25,7 +25,7 @@ import { DisclosureContent } from "@/components/ui/disclosure";
 
 import { AttachmentTile } from "@/components/AttachmentTile";
 import { SessionHandleLabel } from "@/components/SessionHandleLabel";
-import { ImageLightbox } from "@/components/ImageLightbox";
+import { MediaLightbox, type PreviewMedia } from "@/components/ImageLightbox";
 import { MarkdownText } from "@/components/MarkdownText";
 import { SlashCommandText } from "@/components/SlashCommandText";
 import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
@@ -738,18 +738,29 @@ function MessageMedia({
   media: UIMediaAttachment[];
   align: "left" | "right";
 }) {
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   if (media.length === 0) return null;
   const images: UIImage[] = [];
-  const nonImages: UIMediaAttachment[] = [];
+  const imagePreviewIndices: number[] = [];
+  const nonImages: Array<{ item: UIMediaAttachment; previewIndex?: number }> = [];
+  const previewItems: PreviewMedia[] = [];
   for (const item of media) {
     const normalized = toMediaAttachment(item);
     if (normalized.kind === "image") {
       images.push({ url: normalized.url, name: normalized.name });
+      if (normalized.url) {
+        imagePreviewIndices.push(previewItems.length);
+        previewItems.push({ kind: "image", url: normalized.url, name: normalized.name });
+      } else {
+        imagePreviewIndices.push(-1);
+      }
     } else {
-      nonImages.push(normalized);
+      const previewIndex = normalized.kind === "video" && normalized.url
+        ? previewItems.push({ kind: "video", url: normalized.url, name: normalized.name }) - 1
+        : undefined;
+      nonImages.push({ item: normalized, previewIndex });
     }
   }
-
   return (
     <div
       className={cn(
@@ -758,11 +769,29 @@ function MessageMedia({
       )}
     >
       {images.length > 0 ? (
-        <UserImages images={images} align={align} size={align === "left" ? "large" : "compact"} />
+        <UserImages
+          images={images}
+          align={align}
+          size={align === "left" ? "large" : "compact"}
+          onOpenImage={(index) => {
+            const previewIndex = imagePreviewIndices[index];
+            if (previewIndex >= 0) setLightboxIndex(previewIndex);
+          }}
+        />
       ) : null}
-      {nonImages.map((item, i) => (
-        <AttachmentTile key={`${item.url ?? item.name ?? item.kind}-${i}`} attachment={item} />
+      {nonImages.map(({ item, previewIndex }, i) => (
+        <AttachmentTile
+          key={`${item.url ?? item.name ?? item.kind}-${i}`}
+          attachment={item}
+          onPreview={previewIndex === undefined ? undefined : () => setLightboxIndex(previewIndex)}
+        />
       ))}
+      <MediaLightbox
+        items={previewItems}
+        index={lightboxIndex}
+        onIndexChange={setLightboxIndex}
+        onOpenChange={(open) => { if (!open) setLightboxIndex(null); }}
+      />
     </div>
   );
 }
@@ -781,10 +810,12 @@ function UserImages({
   images,
   align = "right",
   size = "compact",
+  onOpenImage,
 }: {
   images: UIImage[];
   align?: "left" | "right";
   size?: "compact" | "large";
+  onOpenImage?: (index: number) => void;
 }) {
   const { t } = useTranslation();
   // Only real-URL images can open in the lightbox; historical-replay
@@ -818,20 +849,20 @@ function UserImages({
             openLabel={t("lightbox.open")}
             onOpen={
               originalToViewable.has(i)
-                ? () => setLightboxIndex(originalToViewable.get(i)!)
+                ? () => onOpenImage ? onOpenImage(i) : setLightboxIndex(originalToViewable.get(i)!)
                 : undefined
             }
           />
         ))}
       </div>
-      <ImageLightbox
-        images={viewableImages}
+      {!onOpenImage ? <MediaLightbox
+        items={viewableImages.map((image) => ({ ...image, kind: "image" as const }))}
         index={lightboxIndex}
         onIndexChange={setLightboxIndex}
         onOpenChange={(open) => {
           if (!open) setLightboxIndex(null);
         }}
-      />
+      /> : null}
     </>
   );
 }

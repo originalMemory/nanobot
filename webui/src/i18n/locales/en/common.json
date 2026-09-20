@@ -1956,10 +1956,11 @@
   "lightbox": {
     "title": "Image preview",
     "open": "View image",
-    "prev": "Previous image",
-    "next": "Next image",
-    "close": "Close image preview"
+    "prev": "Previous media",
+    "next": "Next media",
+    "close": "Close media preview"
   },
+  "videoPreview": { "title": "Video preview", "open": "Enlarge video preview" },
   "filePreview": {
     "aria": "File preview",
     "breadcrumb": "File path",

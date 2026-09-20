@@ -1756,10 +1756,11 @@
   "lightbox": {
     "title": "Aperçu de l’image",
     "open": "Voir l’image",
-    "prev": "Image précédente",
-    "next": "Image suivante",
-    "close": "Fermer l’aperçu"
+    "prev": "Média précédent",
+    "next": "Média suivant",
+    "close": "Fermer l’aperçu du média"
   },
+  "videoPreview": { "title": "Aperçu vidéo", "open": "Agrandir la vidéo" },
   "filePreview": {
     "aria": "Aperçu du fichier",
     "breadcrumb": "Chemin du fichier",

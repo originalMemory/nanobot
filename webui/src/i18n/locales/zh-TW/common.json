@@ -1756,10 +1756,11 @@
   "lightbox": {
     "title": "圖片預覽",
     "open": "檢視圖片",
-    "prev": "上一張",
-    "next": "下一張",
-    "close": "關閉預覽"
+    "prev": "上一個媒體",
+    "next": "下一個媒體",
+    "close": "關閉媒體預覽"
   },
+  "videoPreview": { "title": "影片預覽", "open": "放大預覽影片" },
   "filePreview": {
     "aria": "檔案預覽",
     "breadcrumb": "檔案路徑",
