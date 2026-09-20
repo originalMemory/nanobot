@@ -1123,13 +1123,6 @@ export function ThreadComposer({
     });
   }, [addFiles, interactionDisabled]);
 
-  useEffect(() => {
-    if (interactionDisabled) return;
-    return getRuntimeHost().onFocusComposer?.(() => {
-      requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
-    });
-  }, [interactionDisabled]);
-
   const {
     isDragging,
     onPaste,

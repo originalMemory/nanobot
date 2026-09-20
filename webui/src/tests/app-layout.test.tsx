@@ -2732,6 +2732,36 @@ describe("App layout", () => {
     expect(window.location.hash).toBe("#/settings?section=voice");
   });
 
+  it("returns from settings to the fixed inbox and focuses its composer when raised", async () => {
+    let raiseInbox: (() => void) | null = null;
+    Reflect.set(window, "nanobotHost", {
+      fixedChatId: "desktop",
+      onFocusComposer: (listener: () => void) => {
+        raiseInbox = listener;
+        return () => { raiseInbox = null; };
+      },
+    });
+    mockSessions = [{
+      key: "websocket:desktop",
+      channel: "websocket",
+      chatId: "desktop",
+      createdAt: "2026-09-20T08:00:00Z",
+      updatedAt: "2026-09-20T08:00:00Z",
+      preview: "",
+    }];
+    mockFetchRoutes({ "/api/settings": baseSettingsPayload() });
+    window.history.replaceState(null, "", "/#/settings");
+
+    render(<App />);
+    await screen.findByRole("navigation", { name: "Settings sections" });
+
+    act(() => raiseInbox?.());
+
+    const composer = await screen.findByRole("textbox", { name: "Message input" });
+    await waitFor(() => expect(composer).toHaveFocus());
+    expect(window.location.hash).toBe("#/chat/websocket%3Adesktop");
+  });
+
   it("keeps the backend timezone without writing settings on mount", async () => {
     const initialSettings = baseSettingsPayload();
     mockFetchRoutes({

@@ -433,6 +433,7 @@ interface ThreadShellProps {
   composerPortalTarget?: HTMLElement | null;
   composerActive?: boolean;
   composerInputAriaLabel?: string;
+  composerFocusRequest?: number;
   emptyComposerVariant?: "hero" | "thread";
   workspaceScope?: WorkspaceScopePayload | null;
   workspaceDefaultScope?: WorkspaceScopePayload | null;
@@ -641,6 +642,7 @@ export function ThreadShell({
   composerPortalTarget,
   composerActive = true,
   composerInputAriaLabel,
+  composerFocusRequest = 0,
   emptyComposerVariant = "hero",
   workspaceScope = null,
   workspaceDefaultScope = null,
@@ -1696,7 +1698,7 @@ export function ThreadShell({
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
           ingressLimits={ingressLimits}
           quotedContext={quotedContext}
-          focusRequest={composerFocusSignal}
+          focusRequest={composerFocusSignal + composerFocusRequest}
           onQuotedContextChange={setQuotedContext}
         />
       ) : (

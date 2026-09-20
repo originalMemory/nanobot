@@ -1209,6 +1209,8 @@ function Shell({
     options?: SendOptions;
   } | null>(null);
   const settingsExitGuardRef = useRef<SettingsExitGuard | null>(null);
+  const pendingHostComposerFocusRef = useRef(false);
+  const [hostComposerFocusRequest, setHostComposerFocusRequest] = useState(0);
   const currentShellRouteRef = useRef<ShellRoute>({ view, activeKey, settingsSection: settingsInitialSection });
   currentShellRouteRef.current = { view, activeKey, settingsSection: settingsInitialSection };
   const registerSettingsExitGuard = useCallback((guard: SettingsExitGuard | null) => {
@@ -2140,6 +2142,24 @@ function Shell({
     });
   }, [activeKey, navigate, topicSessions]);
 
+  useEffect(() => {
+    return getRuntimeHost().onFocusComposer?.(() => {
+      setMobileSidebarOpen(false);
+      if (currentShellRouteRef.current.view === "chat") {
+        setHostComposerFocusRequest((request) => request + 1);
+        return;
+      }
+      pendingHostComposerFocusRef.current = true;
+      onBackToChat();
+    });
+  }, [onBackToChat]);
+
+  useEffect(() => {
+    if (view !== "chat" || !pendingHostComposerFocusRef.current) return;
+    pendingHostComposerFocusRef.current = false;
+    setHostComposerFocusRequest((request) => request + 1);
+  }, [view]);
+
   const onRestart = useCallback(() => {
     const chatId = activeSession?.chatId ?? client.defaultChatId;
     if (!chatId) return;
@@ -2888,6 +2908,7 @@ function Shell({
                             onToggleTheme={toggle}
                             hideSidebarToggleForHostChrome
                             hideHeader={false}
+                            composerFocusRequest={hostComposerFocusRequest}
                             workspaceScope={activeWorkspaceScope}
                             workspaceDefaultScope={workspaces?.default_scope ?? null}
                             workspaceControls={workspaces?.controls ?? null}
@@ -2937,6 +2958,7 @@ function Shell({
                           composerInputAriaLabel={t("workbench.composerAria", {
                             title: pane.title,
                           })}
+                          composerFocusRequest={context.active ? hostComposerFocusRequest : 0}
                           emptyComposerVariant="thread"
                           workspaceScope={paneScope}
                           workspaceDefaultScope={workspaces?.default_scope ?? null}

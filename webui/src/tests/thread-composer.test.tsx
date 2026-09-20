@@ -370,23 +370,6 @@ describe("ThreadComposer", () => {
     expect((input as HTMLTextAreaElement).value).toMatch(/\p{Extended_Pictographic}/u);
   });
 
-  it("focuses the input when the desktop host restores the window", async () => {
-    let requestFocus: (() => void) | null = null;
-    window.nanobotHost = {
-      onFocusComposer: (listener) => {
-        requestFocus = listener;
-        return () => { requestFocus = null; };
-      },
-    };
-    render(<ThreadComposer onSend={vi.fn()} />);
-    const input = screen.getByLabelText("Message input");
-    input.blur();
-
-    requestFocus?.();
-
-    await waitFor(() => expect(input).toHaveFocus());
-  });
-
   it("locks an async send and keeps the draft when it is rejected", async () => {
     let resolveSend!: (accepted: boolean) => void;
     const onSend = vi.fn(() => new Promise<boolean>((resolve) => {
