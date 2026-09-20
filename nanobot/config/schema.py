@@ -328,6 +328,7 @@ class HeartbeatConfig(Base):
 
     enabled: bool = True
     interval_s: int = 30 * 60  # 30 minutes
+    context_turns: int = Field(default=6, ge=0, le=20)
 
 
 class ApiConfig(Base):

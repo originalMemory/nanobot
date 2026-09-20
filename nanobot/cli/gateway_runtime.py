@@ -38,8 +38,13 @@ from nanobot.config.paths import is_default_workspace
 from nanobot.config.schema import Config
 from nanobot.gateway.runtime import GatewayInstance
 from nanobot.llm_usage.models import LLMCallRecord
+from nanobot.runtime_context import RUNTIME_CONTEXT_INPUT_META
 from nanobot.security.network import is_loopback_host
 from nanobot.session.keys import UNIFIED_SESSION_KEY, last_channel_from_metadata
+from nanobot.session.recent_conversation import (
+    heartbeat_recent_conversation_block,
+    remove_runtime_context_block,
+)
 from nanobot.utils.helpers import sync_workspace_templates
 from nanobot.webui.build import BuildMode
 from nanobot.webui.dev import WebUIDevError, WebUIDevServer
@@ -757,6 +762,11 @@ def _run_gateway(
                 _HEARTBEAT_PREAMBLE
                 + f"You are executing periodic heartbeat tasks. Read the active tasks below, perform each one, and report what you did:\n\n{content}"
             )
+            recent_context = heartbeat_recent_conversation_block(
+                session_manager,
+                unified_session=config.agents.defaults.unified_session,
+                max_turns=config.gateway.heartbeat.context_turns,
+            )
 
             deferred_voice: list[str] = []
             voice_token = DEFERRED_VOICE.set(deferred_voice)
@@ -773,6 +783,7 @@ def _run_gateway(
                         WEBUI_TURN_METADATA_KEY: voice_turn,
                         WEBUI_MESSAGE_SOURCE_METADATA_KEY: {"kind": "heartbeat"},
                         "_record_channel_delivery": True,
+                        **({RUNTIME_CONTEXT_INPUT_META: [recent_context]} if recent_context else {}),
                     },
                 )
             except BaseException:
@@ -782,6 +793,10 @@ def _run_gateway(
                 raise
             finally:
                 DEFERRED_VOICE.reset(voice_token)
+            if recent_context is not None:
+                heartbeat_session = agent.sessions.get_or_create("heartbeat")
+                if remove_runtime_context_block(heartbeat_session, recent_context):
+                    agent.sessions.save(heartbeat_session)
             agent.retain_session_turns("heartbeat", AUTOMATION_HISTORY_TURNS)
 
             response = resp.content if resp and resp.content else None

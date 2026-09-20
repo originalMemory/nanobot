@@ -2213,11 +2213,19 @@ def test_heartbeat_message_keeps_full_text_and_attaches_summary_voice(
 ) -> None:
     from nanobot.agent.tools.context import RequestContext, request_context
     from nanobot.agent.tools.message import MessageTool
+    from nanobot.runtime_context import (
+        RUNTIME_CONTEXT_HISTORY_META,
+        RUNTIME_CONTEXT_INPUT_META,
+        append_runtime_context,
+    )
+    from nanobot.session.keys import LAST_CHANNEL_METADATA_KEY, UNIFIED_SESSION_KEY
     from nanobot.session.manager import SessionManager
+    from nanobot.session.recent_conversation import HEARTBEAT_RECENT_CONTEXT_SOURCE
     from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 
     config_file = _write_instance_config(tmp_path)
     config = Config()
+    config.agents.defaults.unified_session = True
     config.agents.defaults.workspace = str(tmp_path / "workspace")
     config.workspace_path.mkdir(parents=True)
     (config.workspace_path / "HEARTBEAT.md").write_text(
@@ -2227,13 +2235,18 @@ def test_heartbeat_message_keeps_full_text_and_attaches_summary_voice(
     bus = MagicMock()
     bus.publish_outbound = AsyncMock()
     sessions = SessionManager(config.workspace_path)
+    unified = sessions.get_or_create(UNIFIED_SESSION_KEY)
+    unified.metadata[LAST_CHANNEL_METADATA_KEY] = "telegram:u1"
+    unified.add_message("user", "最近在调试桌面端", source_channel="telegram")
+    unified.add_message("assistant", "记得看新的托盘状态")
+    sessions.save(unified)
     seen: dict[str, object] = {}
 
     class _Sessions:
         def __new__(cls, _workspace: Path):
             return sessions
 
-    sessions.list_sessions = lambda: [{"key": "telegram:u1"}]  # type: ignore[method-assign]
+    sessions.list_sessions = lambda: [{"key": UNIFIED_SESSION_KEY}]  # type: ignore[method-assign]
 
     class _FakeCron:
         def __init__(self, _store_path: Path) -> None:
@@ -2258,7 +2271,8 @@ def test_heartbeat_message_keeps_full_text_and_attaches_summary_voice(
             self.tools = tool_registry
             self.tools.register(MessageTool(workspace=config.workspace_path))
 
-        async def process_direct(self, *_args, channel, chat_id, metadata, **_kwargs):
+        async def process_direct(self, prompt, channel, chat_id, metadata, **_kwargs):
+            seen["heartbeat_metadata"] = metadata
             context = RequestContext(
                 channel=channel,
                 chat_id=chat_id,
@@ -2273,6 +2287,15 @@ def test_heartbeat_message_keeps_full_text_and_attaches_summary_voice(
                 self.sessions.save(visible)
                 await self.tools.get("tts").execute(text="语音摘要")
             heartbeat = self.sessions.get_or_create("heartbeat")
+            merged, marker = append_runtime_context(
+                prompt,
+                metadata.get(RUNTIME_CONTEXT_INPUT_META, []),
+            )
+            heartbeat.add_message(
+                "user",
+                merged,
+                **({RUNTIME_CONTEXT_HISTORY_META: marker} if marker else {}),
+            )
             heartbeat.add_message(
                 "assistant",
                 "内部短句",
@@ -2321,10 +2344,18 @@ def test_heartbeat_message_keeps_full_text_and_attaches_summary_voice(
     response = asyncio.run(seen["cron"].on_job(CronJob(id="heartbeat", name="heartbeat")))
 
     assert response == "内部短句"
+    context_blocks = seen["heartbeat_metadata"][RUNTIME_CONTEXT_INPUT_META]
+    assert len(context_blocks) == 1
+    assert context_blocks[0].source == HEARTBEAT_RECENT_CONTEXT_SOURCE
+    assert "最近在调试桌面端" in context_blocks[0].content
+    heartbeat_user = next(item for item in sessions.get_or_create("heartbeat").messages
+                          if item.get("role") == "user")
+    assert HEARTBEAT_RECENT_CONTEXT_SOURCE not in heartbeat_user["content"]
+    assert RUNTIME_CONTEXT_HISTORY_META not in heartbeat_user
     delivered = bus.publish_outbound.await_args.args[0]
     assert delivered.content == "完整问候"
     assert seen["voice"][2] == "语音摘要"
-    visible_messages = sessions.get_or_create("telegram:u1").messages
+    visible_messages = sessions.get_or_create(UNIFIED_SESSION_KEY).messages
     saved = next(item for item in visible_messages if item.get("content") == "完整问候")
     assert saved["content"] == "完整问候"
     assert saved["source"] == {"kind": "heartbeat"}
@@ -2334,7 +2365,8 @@ def test_heartbeat_message_keeps_full_text_and_attaches_summary_voice(
     assert saved["latency_ms"] == 250
     assert saved["response_model"] == "test-model"
     assert "_heartbeat_delivery_turn_id" not in saved
-    assert "voice" not in next(item for item in visible_messages if item.get("content") == "并发消息")
+    concurrent_messages = sessions.get_or_create("telegram:u1").messages
+    assert "voice" not in next(item for item in concurrent_messages if item.get("content") == "并发消息")
 
 
 def test_webui_yes_creates_config_and_enables_local_websocket(
