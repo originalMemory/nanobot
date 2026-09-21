@@ -10,6 +10,7 @@ describe("DiffSyntaxHighlight with Prism", () => {
       <ThemeProvider theme="light">
         <DiffSyntaxHighlight
           language="tsx"
+          wrapLongLines
           lines={[
             {
               kind: "context",
@@ -75,6 +76,7 @@ describe("DiffSyntaxHighlight with Prism", () => {
       <ThemeProvider theme="light">
         <DiffSyntaxHighlight
           language="markdown"
+          wrapLongLines
           lines={lines.map((content, index) => ({
             kind: "add" as const,
             old_lineno: null,

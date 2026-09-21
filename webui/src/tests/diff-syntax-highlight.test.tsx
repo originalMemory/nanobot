@@ -62,6 +62,7 @@ describe("DiffSyntaxHighlight", () => {
       <ThemeProvider theme="light">
         <DiffSyntaxHighlight
           language="typescript"
+          wrapLongLines
           lines={[
             { kind: "context", old_lineno: 4, new_lineno: 4, content: "export function run() {" },
             { kind: "delete", old_lineno: 5, new_lineno: null, content: "  return oldValue;" },
@@ -88,5 +89,31 @@ describe("DiffSyntaxHighlight", () => {
     );
     expect(screen.getAllByText("5")).toHaveLength(2);
     expect(screen.getAllByTestId("syntax-token").some((node) => node.textContent?.endsWith("\n"))).toBe(false);
+    expect(screen.getByText("return newValue;", { exact: false }).closest("table"))
+      .toHaveClass("table-fixed", "w-full");
+    expect(screen.getAllByTestId("syntax-token")[0]?.parentElement)
+      .toHaveClass("whitespace-pre-wrap");
+  });
+
+  it("gives unwrapped diff lines an explicit horizontal scroll width", async () => {
+    render(
+      <ThemeProvider theme="light">
+        <DiffSyntaxHighlight
+          language="text"
+          wrapLongLines={false}
+          lines={[{
+            kind: "add",
+            old_lineno: null,
+            new_lineno: 1,
+            content: "x".repeat(500),
+          }]}
+        />
+      </ThemeProvider>,
+    );
+
+    const highlighted = await screen.findByTestId("syntax-highlighted-diff-hunk");
+    expect(highlighted.querySelector("table")).toHaveClass("w-max", "min-w-full");
+    expect(screen.getByTestId("syntax-token").parentElement)
+      .toHaveClass("whitespace-pre", "[overflow-wrap:normal]");
   });
 });

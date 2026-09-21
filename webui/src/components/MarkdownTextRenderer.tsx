@@ -15,6 +15,7 @@ import { Streamdown, type Components, type StreamdownProps } from "streamdown";
 
 import { AttachmentTile } from "@/components/AttachmentTile";
 import { CodeBlock } from "@/components/CodeBlock";
+import { useCodeWrap } from "@/hooks/useCodeWrap";
 import {
   INLINE_TOKEN_HIGHLIGHT_COLOR,
   InlineTokenHighlight,
@@ -666,6 +667,7 @@ export default function MarkdownTextRenderer({
   document = false,
 }: MarkdownTextRendererProps) {
   const { t } = useTranslation();
+  const codeWrap = useCodeWrap();
   const [mathPlugin, setMathPlugin] = useState(() => loadedMathPlugin);
   const needsMath = /\$|\\[([]/.test(children);
   useEffect(() => {
@@ -703,6 +705,7 @@ export default function MarkdownTextRenderer({
               className="my-3"
               highlight={highlightCode}
               showLineNumbers={code.includes("\n")}
+              wrapLongLines={codeWrap}
             />
           );
         }
@@ -721,8 +724,11 @@ export default function MarkdownTextRenderer({
           return (
             <code
               className={cn(
-                "block min-w-0 max-w-full overflow-x-auto whitespace-pre bg-transparent p-0 font-mono text-[0.8125rem]",
+                "block min-w-0 max-w-full overflow-x-auto bg-transparent p-0 font-mono text-[0.8125rem]",
                 "leading-snug text-inherit",
+                codeWrap
+                  ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                  : "whitespace-pre [overflow-wrap:normal]",
                 cls,
               )}
               {...props}
@@ -759,6 +765,7 @@ export default function MarkdownTextRenderer({
               className="my-3"
               highlight={highlightCode}
               showLineNumbers={fence.code.includes("\n")}
+              wrapLongLines={codeWrap}
             />
           );
         }
@@ -767,7 +774,9 @@ export default function MarkdownTextRenderer({
             className={cn(
               "my-3 overflow-x-auto rounded-lg border border-border/60 bg-muted/35",
               "p-3 font-mono text-[0.8125rem] leading-snug text-foreground/90",
-              "whitespace-pre [overflow-wrap:normal]",
+              codeWrap
+                ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                : "whitespace-pre [overflow-wrap:normal]",
             )}
           >
             {markdownChildren}
@@ -973,7 +982,7 @@ export default function MarkdownTextRenderer({
         );
       },
     }),
-    [highlightCode, onOpenFilePreview, localImages, document, t],
+    [codeWrap, highlightCode, onOpenFilePreview, localImages, document, t],
   );
 
   return (

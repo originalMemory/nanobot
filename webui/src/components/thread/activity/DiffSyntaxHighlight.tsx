@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 interface DiffSyntaxHighlightProps {
   language: string;
   lines: RenderableFileDiffLine[];
+  wrapLongLines: boolean;
 }
 
 interface LoadedDiffSyntaxHighlightProps extends DiffSyntaxHighlightProps {
@@ -46,6 +47,7 @@ const LazyDiffSyntaxHighlight = lazy(async () => {
       language,
       lines,
       isDark,
+      wrapLongLines,
     }: LoadedDiffSyntaxHighlightProps) {
       const theme = isDark ? oneDark : oneLight;
       const code = lines.map((line) => line.content || " ").join("\n");
@@ -75,6 +77,7 @@ const LazyDiffSyntaxHighlight = lazy(async () => {
           renderer={({ rows, stylesheet, useInlineStyles }) => (
             <DiffLineTable
               lines={lines}
+              wrapLongLines={wrapLongLines}
               renderCode={(line, index) => {
                 const node = rows[index];
                 if (!node) return line.content || " ";
@@ -95,19 +98,31 @@ const LazyDiffSyntaxHighlight = lazy(async () => {
   };
 });
 
-export function DiffSyntaxHighlight({ language, lines }: DiffSyntaxHighlightProps) {
+export function DiffSyntaxHighlight({ language, lines, wrapLongLines }: DiffSyntaxHighlightProps) {
   const isDark = useThemeValue() === "dark";
   return (
-    <Suspense fallback={<PlainDiffLines lines={lines} />}>
-      <LazyDiffSyntaxHighlight language={language} lines={lines} isDark={isDark} />
+    <Suspense fallback={<PlainDiffLines lines={lines} wrapLongLines={wrapLongLines} />}>
+      <LazyDiffSyntaxHighlight
+        language={language}
+        lines={lines}
+        isDark={isDark}
+        wrapLongLines={wrapLongLines}
+      />
     </Suspense>
   );
 }
 
-function PlainDiffLines({ lines }: { lines: RenderableFileDiffLine[] }) {
+function PlainDiffLines({
+  lines,
+  wrapLongLines,
+}: Pick<DiffSyntaxHighlightProps, "lines" | "wrapLongLines">) {
   return (
     <div data-testid="plain-diff-hunk">
-      <DiffLineTable lines={lines} renderCode={(line) => line.content || " "} />
+      <DiffLineTable
+        lines={lines}
+        wrapLongLines={wrapLongLines}
+        renderCode={(line) => line.content || " "}
+      />
     </div>
   );
 }
@@ -115,17 +130,23 @@ function PlainDiffLines({ lines }: { lines: RenderableFileDiffLine[] }) {
 function DiffLineTable({
   lines,
   renderCode,
+  wrapLongLines,
 }: {
   lines: RenderableFileDiffLine[];
   renderCode: (line: RenderableFileDiffLine, index: number) => ReactNode;
+  wrapLongLines: boolean;
 }) {
   return (
-    <table className="w-full border-collapse font-mono text-[11px] leading-5">
+    <table className={cn(
+      "border-collapse font-mono text-[11px] leading-5",
+      wrapLongLines ? "w-full table-fixed" : "w-max min-w-full",
+    )}>
       <tbody>
         {lines.map((line, index) => (
           <DiffLineRow
             key={`${line.old_lineno ?? ""}:${line.new_lineno ?? ""}:${index}`}
             line={line}
+            wrapLongLines={wrapLongLines}
           >
             {renderCode(line, index)}
           </DiffLineRow>
@@ -138,9 +159,11 @@ function DiffLineTable({
 function DiffLineRow({
   line,
   children,
+  wrapLongLines,
 }: {
   line: RenderableFileDiffLine;
   children: ReactNode;
+  wrapLongLines: boolean;
 }) {
   const kind = line.kind === "add" || line.kind === "delete" ? line.kind : "context";
   const marker = kind === "add" ? "+" : kind === "delete" ? "-" : " ";
@@ -168,8 +191,12 @@ function DiffLineRow({
       >
         {marker}
       </td>
-      <td className="min-w-[16rem] px-1.5 text-foreground/86">
-        <span className="whitespace-pre">{children}</span>
+      <td className={cn("px-1.5 text-foreground/86", wrapLongLines ? "min-w-0" : "min-w-[16rem]")}>
+        <span className={cn(
+          wrapLongLines
+            ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+            : "whitespace-pre [overflow-wrap:normal]",
+        )}>{children}</span>
       </td>
     </tr>
   );

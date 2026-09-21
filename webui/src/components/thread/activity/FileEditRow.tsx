@@ -7,6 +7,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useCodeWrap } from "@/hooks/useCodeWrap";
 
 import { FileReferenceChip } from "@/components/FileReferenceChip";
 import { codeLanguageFromPath } from "@/lib/code-language";
@@ -170,6 +171,7 @@ function FileUnifiedDiff({
   const [hasOpened, setHasOpened] = useState(false);
   const contentId = useId();
   const [expandedLines, setExpandedLines] = useState(false);
+  const wrapLongLines = useCodeWrap();
   const renderableDiff = useMemo(() => parseRenderableFileDiff(diff), [diff]);
   const language = useMemo(() => codeLanguageFromPath(previewPath), [previewPath]);
   const totalLineCount = useMemo(() => countDiffLines(renderableDiff), [renderableDiff]);
@@ -225,8 +227,12 @@ function FileUnifiedDiff({
           className={cn("min-w-0", index > 0 && "border-t border-border/45")}
         >
           {skippedBefore > 0 ? <DiffHunkGap lineCount={skippedBefore} /> : null}
-          <div className="overflow-x-auto">
-            <DiffSyntaxHighlight language={language} lines={hunk.lines} />
+          <div className="overflow-x-auto overscroll-x-contain">
+            <DiffSyntaxHighlight
+              language={language}
+              lines={hunk.lines}
+              wrapLongLines={wrapLongLines}
+            />
           </div>
         </div>
       ))}

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { CodeBlock } from "@/components/CodeBlock";
 import { ThemeProvider } from "@/hooks/useTheme";
+import { DEFAULT_LOCAL_PREFS, writeLocalPreferences } from "@/lib/local-preferences";
 
 const mockedStyles = vi.hoisted(() => ({
   dark: { pre: { background: "#111" } },
@@ -15,15 +16,18 @@ vi.mock("react-syntax-highlighter/dist/esm/prism-async-light", () => ({
     children,
     language,
     style,
+    wrapLongLines,
   }: {
     children: string;
     language?: string;
     style: Record<string, unknown>;
+    wrapLongLines?: boolean;
   }) => (
     <pre
       data-testid="highlighted-code"
       data-language={language}
       data-theme={style === mockedStyles.dark ? "dark" : "light"}
+      data-wrap-long-lines={String(wrapLongLines)}
     >
       <code>{children}</code>
     </pre>
@@ -39,6 +43,17 @@ vi.mock("react-syntax-highlighter/dist/esm/styles/prism/one-light", () => ({
 }));
 
 describe("CodeBlock", () => {
+  it("follows the local code wrapping preference", async () => {
+    writeLocalPreferences({ ...DEFAULT_LOCAL_PREFS, codeWrap: false });
+    render(<CodeBlock code={"const value = '" + "x".repeat(200) + "';"} language="typescript" />);
+    expect(await screen.findByTestId("highlighted-code"))
+      .toHaveAttribute("data-wrap-long-lines", "false");
+
+    act(() => writeLocalPreferences({ ...DEFAULT_LOCAL_PREFS, codeWrap: true }));
+    await waitFor(() => expect(screen.getByTestId("highlighted-code"))
+      .toHaveAttribute("data-wrap-long-lines", "true"));
+  });
+
   it("renders and copies a large code block in full without pagination", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);

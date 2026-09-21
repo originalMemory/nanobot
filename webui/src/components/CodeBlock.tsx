@@ -3,6 +3,7 @@ import { Check, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { useThemeValue } from "@/hooks/useTheme";
+import { useCodeWrap } from "@/hooks/useCodeWrap";
 import { hasAnsi, parseAnsiSegments, stripAnsi } from "@/lib/ansi";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { normalizeCodeLanguage } from "@/lib/code-language";
@@ -127,6 +128,7 @@ function CodeTextBlock({
   code,
   chrome,
   showLineNumbers,
+  wrapLongLines,
   testId,
   className,
   renderText = renderPlainText,
@@ -134,6 +136,7 @@ function CodeTextBlock({
   code: string;
   chrome: "default" | "none";
   showLineNumbers: boolean;
+  wrapLongLines: boolean;
   testId: string;
   className?: string;
   renderText?: (value: string) => ReactNode;
@@ -143,7 +146,9 @@ function CodeTextBlock({
     <pre
       className={cn(
         "m-0 overflow-x-auto bg-transparent font-mono text-[13px] text-foreground/90",
-        showLineNumbers ? "whitespace-pre" : "whitespace-pre-wrap",
+        wrapLongLines
+          ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+          : "whitespace-pre [overflow-wrap:normal]",
         chrome === "default"
           ? "py-4 pl-5 pr-14 leading-[1.6]"
           : "p-3 leading-[1.55]",
@@ -154,11 +159,15 @@ function CodeTextBlock({
       <code className="text-inherit">
         {showLineNumbers ? (
           lines.map((line, index) => (
-            <span key={index} className="flex min-w-max">
+            <span key={index} className={cn("flex items-start", wrapLongLines ? "min-w-0" : "min-w-max")}>
               <span className="w-10 shrink-0 select-none pr-4 text-right text-muted-foreground/60">
                 {index + 1}
               </span>
-              <span className="whitespace-pre">{renderText(line || " ")}</span>
+              <span className={cn(
+                wrapLongLines
+                  ? "min-w-0 flex-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                  : "whitespace-pre [overflow-wrap:normal]",
+              )}>{renderText(line || " ")}</span>
               {index < lines.length - 1 ? "\n" : null}
             </span>
           ))
@@ -180,13 +189,15 @@ export function CodeBlock({
   chrome = "default",
   highlight = true,
   showLineNumbers = false,
-  wrapLongLines = true,
+  wrapLongLines,
 }: CodeBlockProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const renderAnsi = useMemo(() => shouldRenderAnsi(language, code), [language, code]);
   const plainCode = useMemo(() => renderAnsi ? stripAnsi(code) : code, [renderAnsi, code]);
   const isDark = useThemeValue() === "dark";
+  const preferredWrapLongLines = useCodeWrap();
+  const resolvedWrapLongLines = wrapLongLines ?? preferredWrapLongLines;
   const hasChrome = chrome === "default";
   const syntaxLanguage = normalizeCodeLanguage(language);
   const copyLabel = copied ? t("code.copied") : t("code.copyAria");
@@ -213,6 +224,7 @@ export function CodeBlock({
           code={code}
           chrome={chrome}
           showLineNumbers={showLineNumbers}
+          wrapLongLines={resolvedWrapLongLines}
           testId="ansi-code"
           renderText={renderAnsiText}
         />
@@ -223,6 +235,7 @@ export function CodeBlock({
               code={code}
               chrome={chrome}
               showLineNumbers={showLineNumbers}
+              wrapLongLines={resolvedWrapLongLines}
               testId="plain-code-fallback"
             />
           }
@@ -233,7 +246,7 @@ export function CodeBlock({
             isDark={isDark}
             chrome={chrome}
             showLineNumbers={showLineNumbers}
-            wrapLongLines={wrapLongLines}
+            wrapLongLines={resolvedWrapLongLines}
           />
         </Suspense>
       ) : (
@@ -241,6 +254,7 @@ export function CodeBlock({
           code={code}
           chrome={chrome}
           showLineNumbers={showLineNumbers}
+          wrapLongLines={resolvedWrapLongLines}
           testId="plain-code-fallback"
         />
       )}
