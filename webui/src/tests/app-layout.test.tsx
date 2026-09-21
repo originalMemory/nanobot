@@ -37,6 +37,10 @@ const chatHandlers = new Map<string, Set<(
   event: import("@/lib/types").InboundEvent,
 ) => void>>();
 const chatModelPresets = new Map<string, string>();
+const hydratedChatModelPresets = new Set<string>();
+const chatModelPresetHandlers = new Map<string, Set<(
+  snapshot: import("@/lib/nanobot-client").ChatModelPresetSnapshot,
+) => void>>();
 let mockSessions: ChatSummary[] = [];
 const HERO_GREETING_PATTERN =
   /What should we work on\?|Where should we start\?|What are we building today\?|What should we tackle together\?/;
@@ -78,10 +82,13 @@ function currentMonthTimestamp(day: number, hour = 10, minute = 0): number {
 }
 
 function emitChatEvent(chatId: string, event: import("@/lib/types").InboundEvent): void {
-  if (event.event === "attached") {
+  if (event.event === "attached" || event.event === "turn_model_updated") {
     const preset = typeof event.model_preset === "string" ? event.model_preset.trim() : "";
+    hydratedChatModelPresets.add(chatId);
     if (preset) chatModelPresets.set(chatId, preset);
     else chatModelPresets.delete(chatId);
+    const snapshot = { hydrated: true, preset: preset || null };
+    for (const handler of chatModelPresetHandlers.get(chatId) ?? []) handler(snapshot);
   }
   for (const handler of chatHandlers.get(chatId) ?? []) handler(event);
 }
@@ -292,7 +299,23 @@ vi.mock("@/lib/nanobot-client", async (importOriginal) => {
     getRunStartedAt = () => null;
     getRunTurnId = () => null;
     getGoalState = () => undefined;
-    getChatModelPreset = (chatId: string) => chatModelPresets.get(chatId) ?? null;
+    getChatModelPresetSnapshot = (chatId: string) => ({
+      hydrated: hydratedChatModelPresets.has(chatId),
+      preset: chatModelPresets.get(chatId) ?? null,
+    });
+    onChatModelPreset = (
+      chatId: string,
+      handler: (snapshot: import("@/lib/nanobot-client").ChatModelPresetSnapshot) => void,
+    ) => {
+      const handlers = chatModelPresetHandlers.get(chatId) ?? new Set();
+      handlers.add(handler);
+      chatModelPresetHandlers.set(chatId, handlers);
+      handler(this.getChatModelPresetSnapshot(chatId));
+      return () => {
+        handlers.delete(handler);
+        if (handlers.size === 0) chatModelPresetHandlers.delete(chatId);
+      };
+    };
     sendMessage = sendMessageSpy;
     sendSystemCommand = sendSystemCommandSpy;
     newChat = vi.fn();
@@ -345,6 +368,8 @@ describe("App layout", () => {
     sidebarStateUpdateHandlers.clear();
     chatHandlers.clear();
     chatModelPresets.clear();
+    hydratedChatModelPresets.clear();
+    chatModelPresetHandlers.clear();
     window.history.replaceState(null, "", "/");
     Reflect.deleteProperty(window, "nanobotHost");
     setNavigatorPlatform("Linux x86_64");

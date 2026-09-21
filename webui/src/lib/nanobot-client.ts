@@ -69,6 +69,11 @@ type Unsubscribe = () => void;
 type EventHandler = (ev: InboundEvent) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
 type RuntimeModelHandler = (modelName: string | null, modelPreset?: string | null) => void;
+export interface ChatModelPresetSnapshot {
+  hydrated: boolean;
+  preset: string | null;
+}
+type ChatModelPresetHandler = (snapshot: ChatModelPresetSnapshot) => void;
 type SessionUpdateScope = "metadata" | "thread" | string;
 type SessionUpdateHandler = (
   chatId: string,
@@ -232,6 +237,7 @@ export class NanobotClient {
   private modelPresetByChatId = new Map<string, string>();
   /** Chats whose authoritative preset snapshot has arrived on this client. */
   private modelPresetHydratedChatIds = new Set<string>();
+  private modelPresetHandlersByChatId = new Map<string, Set<ChatModelPresetHandler>>();
   private pendingNewChat: PendingChatRequest | null = null;
   private pendingTranscriptions = new Map<string, PendingRequest<string>>();
   private pendingSystemCommands = new Map<string, PendingRequest<void>>();
@@ -285,12 +291,22 @@ export class NanobotClient {
     return this.options.fixedChatId ?? null;
   }
 
-  getChatModelPreset(chatId: string): string | null {
-    return this.modelPresetByChatId.get(chatId) ?? null;
+  getChatModelPresetSnapshot(chatId: string): ChatModelPresetSnapshot {
+    return {
+      hydrated: this.modelPresetHydratedChatIds.has(chatId),
+      preset: this.modelPresetByChatId.get(chatId) ?? null,
+    };
   }
 
-  hasChatModelPresetSnapshot(chatId: string): boolean {
-    return this.modelPresetHydratedChatIds.has(chatId);
+  onChatModelPreset(chatId: string, handler: ChatModelPresetHandler): Unsubscribe {
+    const handlers = this.modelPresetHandlersByChatId.get(chatId) ?? new Set();
+    handlers.add(handler);
+    this.modelPresetHandlersByChatId.set(chatId, handlers);
+    handler(this.getChatModelPresetSnapshot(chatId));
+    return () => {
+      handlers.delete(handler);
+      if (handlers.size === 0) this.modelPresetHandlersByChatId.delete(chatId);
+    };
   }
 
   /** Swap the URL (e.g. after fetching a fresh token) then reconnect. */
@@ -1241,12 +1257,10 @@ export class NanobotClient {
     }
 
     if (parsed.event === "attached") {
-      this.modelPresetHydratedChatIds.add(parsed.chat_id);
       const modelPreset = typeof parsed.model_preset === "string"
         ? parsed.model_preset.trim()
         : "";
-      if (modelPreset) this.modelPresetByChatId.set(parsed.chat_id, modelPreset);
-      else this.modelPresetByChatId.delete(parsed.chat_id);
+      this.updateChatModelPreset(parsed.chat_id, modelPreset || null);
       if (parsed.temporary === true) {
         this.temporaryChatIds.add(parsed.chat_id);
       } else {
@@ -1323,8 +1337,7 @@ export class NanobotClient {
         && typeof parsed.model_preset === "string"
         && parsed.model_preset.trim()
       ) {
-        this.modelPresetHydratedChatIds.add(chatId);
-        this.modelPresetByChatId.set(chatId, parsed.model_preset.trim());
+        this.updateChatModelPreset(chatId, parsed.model_preset.trim());
       }
       if (this.isCanonicalCompletedTurnEvent(chatId, parsed)) return;
       const supersededRunCompletion = this.isSupersededRunCompletion(chatId, parsed);
@@ -1365,6 +1378,18 @@ export class NanobotClient {
   private emitRunStatus(chatId: string, startedAt: number | null): void {
     for (const handler of this.runStatusHandlers) {
       handler(chatId, startedAt);
+    }
+  }
+
+  private updateChatModelPreset(chatId: string, preset: string | null): void {
+    const previous = this.getChatModelPresetSnapshot(chatId);
+    this.modelPresetHydratedChatIds.add(chatId);
+    if (preset) this.modelPresetByChatId.set(chatId, preset);
+    else this.modelPresetByChatId.delete(chatId);
+    if (previous.hydrated && previous.preset === preset) return;
+    const snapshot = { hydrated: true, preset };
+    for (const handler of this.modelPresetHandlersByChatId.get(chatId) ?? []) {
+      handler(snapshot);
     }
   }
 
@@ -1566,6 +1591,7 @@ export class NanobotClient {
     this.goalStateByChatId.delete(chatId);
     this.modelPresetHydratedChatIds.delete(chatId);
     this.modelPresetByChatId.delete(chatId);
+    this.modelPresetHandlersByChatId.delete(chatId);
     for (const key of [...this.runStartedAtByTurnKey.keys()]) {
       if (key.startsWith(`${chatId}\u0000`)) this.runStartedAtByTurnKey.delete(key);
     }

@@ -25,6 +25,11 @@ function makeClient() {
   const errorHandlers = new Set<(err: StreamError) => void>();
   const statusHandlers = new Set<(status: ConnectionStatus) => void>();
   const chatHandlers = new Map<string, Set<(ev: import("@/lib/types").InboundEvent) => void>>();
+  const modelPresetHandlers = new Map<string, Set<(
+    snapshot: import("@/lib/nanobot-client").ChatModelPresetSnapshot,
+  ) => void>>();
+  const modelPresets = new Map<string, string>();
+  const hydratedModelPresets = new Set<string>();
   const runtimeModelHandlers = new Set<
     (modelName: string | null, modelPreset?: string | null) => void
   >();
@@ -138,6 +143,23 @@ function makeClient() {
     canReconcileCanonicalCompletion,
     reconcileCanonicalCompletion,
     getGoalState: (chatId: string) => goalStateByChatId.get(chatId),
+    getChatModelPresetSnapshot: (chatId: string) => ({
+      hydrated: hydratedModelPresets.has(chatId),
+      preset: modelPresets.get(chatId) ?? null,
+    }),
+    onChatModelPreset: (
+      chatId: string,
+      handler: (snapshot: import("@/lib/nanobot-client").ChatModelPresetSnapshot) => void,
+    ) => {
+      const handlers = modelPresetHandlers.get(chatId) ?? new Set();
+      handlers.add(handler);
+      modelPresetHandlers.set(chatId, handlers);
+      handler({
+        hydrated: hydratedModelPresets.has(chatId),
+        preset: modelPresets.get(chatId) ?? null,
+      });
+      return () => handlers.delete(handler);
+    },
     onChat: (chatId: string, handler: (ev: import("@/lib/types").InboundEvent) => void) => {
       let handlers = chatHandlers.get(chatId);
       if (!handlers) {
@@ -193,6 +215,14 @@ function makeClient() {
       }
       if (ev.event === "goal_state") {
         goalStateByChatId.set(chatId, ev.goal_state);
+      }
+      if (ev.event === "attached" || ev.event === "turn_model_updated") {
+        const preset = typeof ev.model_preset === "string" ? ev.model_preset.trim() : "";
+        hydratedModelPresets.add(chatId);
+        if (preset) modelPresets.set(chatId, preset);
+        else modelPresets.delete(chatId);
+        const snapshot = { hydrated: true, preset: preset || null };
+        for (const h of modelPresetHandlers.get(chatId) ?? []) h(snapshot);
       }
       for (const h of chatHandlers.get(chatId) ?? []) h(ev);
     },
@@ -1091,7 +1121,6 @@ describe("ThreadShell", () => {
     const client = makeClient();
     Object.assign(client, {
       fixedChatId: "desktop",
-      hasChatModelPresetSnapshot: () => false,
     });
     render(
       wrap(

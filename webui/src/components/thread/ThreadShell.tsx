@@ -21,6 +21,7 @@ import {
 import { ThreadHeader } from "@/components/thread/ThreadHeader";
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadViewport, type ThreadViewportHandle } from "@/components/thread/ThreadViewport";
+import { useChatModelPreset } from "@/hooks/useChatModelPreset";
 import { useNanobotStream, type SendAttachment, type SendOptions } from "@/hooks/useNanobotStream";
 import { useSessionHistory } from "@/hooks/useSessions";
 import {
@@ -963,46 +964,10 @@ export function ThreadShell({
   const wasShowingHeroComposerRef = useRef(showHeroComposer);
   const sessionModelPreset = session?.modelPreset?.trim() || null;
   const [localModelPreset, setLocalModelPreset] = useState<string | null>(null);
-  const [runtimeModelPreset, setRuntimeModelPreset] = useState<string | null>(
-    chatId ? client.getChatModelPreset?.(chatId) ?? null : null,
-  );
-  const [runtimeModelHydrated, setRuntimeModelHydrated] = useState(
-    () => !chatId
-      || client.fixedChatId !== chatId
-      || client.hasChatModelPresetSnapshot?.(chatId) === true,
-  );
+  const runtimeModel = useChatModelPreset(client, chatId, sessionModelPreset);
   useEffect(() => {
     setLocalModelPreset(null);
   }, [session?.key, sessionModelPreset]);
-  useEffect(() => {
-    if (!chatId) {
-      setRuntimeModelPreset(null);
-      setRuntimeModelHydrated(true);
-      return;
-    }
-    setRuntimeModelPreset(client.getChatModelPreset?.(chatId) ?? null);
-    setRuntimeModelHydrated(
-      client.fixedChatId !== chatId
-      || client.hasChatModelPresetSnapshot?.(chatId) === true,
-    );
-    return client.onChat(chatId, (event) => {
-      if (event.event === "attached") {
-        setRuntimeModelHydrated(true);
-        setRuntimeModelPreset(
-          typeof event.model_preset === "string" && event.model_preset.trim()
-            ? event.model_preset.trim()
-            : null,
-        );
-      } else if (
-        event.event === "turn_model_updated"
-        && typeof event.model_preset === "string"
-        && event.model_preset.trim()
-      ) {
-        setRuntimeModelHydrated(true);
-        setRuntimeModelPreset(event.model_preset.trim());
-      }
-    });
-  }, [chatId, client]);
   const configuredPresetNames = useMemo(
     () => new Set(settings?.model_presets.map((preset) => preset.name) ?? []),
     [settings],
@@ -1011,8 +976,8 @@ export function ThreadShell({
     (localModelPreset && (!settings || configuredPresetNames.has(localModelPreset))
       ? localModelPreset
       : null)
-    || (runtimeModelPreset && (!settings || configuredPresetNames.has(runtimeModelPreset))
-      ? runtimeModelPreset
+    || (runtimeModel.preset && (!settings || configuredPresetNames.has(runtimeModel.preset))
+      ? runtimeModel.preset
       : null)
     || (sessionModelPreset && (!settings || configuredPresetNames.has(sessionModelPreset))
       ? sessionModelPreset
@@ -1055,7 +1020,7 @@ export function ThreadShell({
   const modelBadgeLabel = modelBadge.needsSetup
     ? t("thread.composer.chooseAI", { defaultValue: "Choose your AI" })
     : modelBadge.label;
-  const restoringFixedModel = client.fixedChatId === chatId && !runtimeModelHydrated;
+  const restoringFixedModel = client.fixedChatId === chatId && !runtimeModel.hydrated;
   const visibleModelLabel = restoringFixedModel
     ? t("thread.composer.restoringModel", { defaultValue: "Restoring model…" })
     : modelBadgeLabel;

@@ -424,22 +424,36 @@ describe("NanobotClient", () => {
     });
     client.connect();
     lastSocket().fakeOpen();
-    expect(client.hasChatModelPresetSnapshot("desktop")).toBe(false);
+    const snapshots: import("@/lib/nanobot-client").ChatModelPresetSnapshot[] = [];
+    client.onChatModelPreset("desktop", (snapshot) => snapshots.push(snapshot));
+    expect(client.getChatModelPresetSnapshot("desktop")).toEqual({
+      hydrated: false,
+      preset: null,
+    });
     lastSocket().fakeMessage({
       event: "attached",
       chat_id: "desktop",
       model_preset: "Deep Research",
     });
-    expect(client.getChatModelPreset("desktop")).toBe("Deep Research");
-    expect(client.hasChatModelPresetSnapshot("desktop")).toBe(true);
+    expect(client.getChatModelPresetSnapshot("desktop")).toEqual({
+      hydrated: true,
+      preset: "Deep Research",
+    });
 
     lastSocket().fakeMessage({
       event: "attached",
       chat_id: "desktop",
       model_preset: null,
     });
-    expect(client.getChatModelPreset("desktop")).toBeNull();
-    expect(client.hasChatModelPresetSnapshot("desktop")).toBe(true);
+    expect(client.getChatModelPresetSnapshot("desktop")).toEqual({
+      hydrated: true,
+      preset: null,
+    });
+    expect(snapshots).toEqual([
+      { hydrated: false, preset: null },
+      { hydrated: true, preset: "Deep Research" },
+      { hydrated: true, preset: null },
+    ]);
   });
 
   it("forgets every temporary chat when the socket drops", async () => {
@@ -1842,7 +1856,10 @@ describe("NanobotClient", () => {
       model_preset: "Deep Research",
       fallback: true,
     });
-    expect(client.getChatModelPreset("chat-a")).toBe("Deep Research");
+    expect(client.getChatModelPresetSnapshot("chat-a")).toEqual({
+      hydrated: true,
+      preset: "Deep Research",
+    });
   });
 
   it("dispatches session updates globally", () => {
