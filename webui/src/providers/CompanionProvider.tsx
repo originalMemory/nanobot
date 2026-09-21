@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type PointerEvent } from "react";
-import { ChevronDown, ChevronUp, Maximize2, X } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode, type PointerEvent } from "react";
+import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useClient } from "./ClientProvider";
 import { getRuntimeHost, type CompanionPrefs, type CompanionVideos, type CompanionApi } from "@/lib/runtime";
@@ -12,11 +12,18 @@ type Mode = "idle" | "working";
 type Panel = CompanionPrefs["panel"];
 const Context = createContext<{ api: CompanionApi; prefs: CompanionPrefs | null; videos: CompanionVideos | null; saving: boolean; error: boolean; save: (patch: Partial<CompanionPrefs>) => Promise<boolean>; reload: () => void } | null>(null);
 
-export function clampCompanionPanel(panel: Panel, width: number, height: number, minX = 0): Panel {
+export function clampCompanionPanel(
+  panel: Panel,
+  width: number,
+  height: number,
+  minX = 0,
+  aspectRatio = 4 / 3,
+): Panel {
   const availableWidth = Math.max(1, width - minX);
-  const limit = Math.max(1, Math.min(1120, availableWidth, panel.collapsed ? 1120 : (height - 78) * 4 / 3));
+  const ratio = Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 4 / 3;
+  const limit = Math.max(1, Math.min(1120, availableWidth, panel.collapsed ? 1120 : (height - 78) * ratio));
   const size = Math.min(limit, Math.max(200, Math.round(panel.width)));
-  const panelHeight = panel.collapsed ? 32 : size * 3 / 4 + 32;
+  const panelHeight = panel.collapsed ? 32 : size / ratio + 32;
   return { ...panel, width: size,
     x: Math.max(minX, Math.min(width - size, panel.x ?? width - size - 24)),
     y: Math.max(38, Math.min(height - panelHeight - 8, panel.y ?? height - panelHeight - 24)) };
@@ -74,7 +81,11 @@ export function CompanionProvider({ children }: { children: ReactNode }) {
   </Context.Provider>;
 }
 
-function CompanionVideo({ videos, mode }: { videos: CompanionVideos; mode: Mode }) {
+function CompanionVideo({ videos, mode, onAspectRatio }: {
+  videos: CompanionVideos;
+  mode: Mode;
+  onAspectRatio: (ratio: number) => void;
+}) {
   const { t } = useTranslation();
   const [sources, setSources] = useState<[string, string]>(["", ""]);
   const [loadVersions, setLoadVersions] = useState([0, 0]);
@@ -118,19 +129,22 @@ function CompanionVideo({ videos, mode }: { videos: CompanionVideos; mode: Mode 
     setSources(old => layer === 0 ? [url, old[1]] : [old[0], url]);
   }, [signature, mode, retry]);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  const ready = (layer: number, url: string) => {
+  const ready = (layer: number, url: string, video: HTMLVideoElement) => {
     const next = pending.current;
     if (!next || next.layer !== layer || next.url !== url) return;
     pending.current = null; current.current = url;
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      onAspectRatio(video.videoWidth / video.videoHeight);
+    }
     recent.current = [...recent.current, url].slice(-3);
     activeLayer.current = layer; setActive(layer); setFade(next.fade);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => { setSources(old => layer === 0 ? [old[0], ""] : ["", old[1]]); setFade(false); }, next.fade ? 350 : 0);
   };
-  return <div className="relative aspect-[4/3] overflow-hidden bg-muted">
+  return <div className="relative overflow-hidden bg-black/85" style={{ aspectRatio: "var(--companion-aspect-ratio, 4 / 3)" }}>
     {sources.map((url, index) => url && <video key={`${index}:${loadVersions[index]}`} src={url} autoPlay muted playsInline loop={loop}
       className={`absolute inset-0 h-full w-full object-contain ${fade ? "transition-opacity duration-300" : ""} ${active === index ? "opacity-100" : "opacity-0"}`}
-      onLoadedData={() => ready(index, url)} onEnded={() => { if (index === activeLayer.current) { ended.current = true; setRetry(v => v + 1); } }}
+      onLoadedData={event => ready(index, url, event.currentTarget)} onEnded={() => { if (index === activeLayer.current) { ended.current = true; setRetry(v => v + 1); } }}
       onError={() => { bad.current.add(url); if (current.current === url) current.current = ""; setRetry(v => v + 1); }} />)}
     {failed && <div role="status" className="absolute inset-0 grid place-content-center bg-muted px-4 text-center text-sm text-muted-foreground">{t("companion.noVideo")}</div>}
   </div>;
@@ -138,30 +152,35 @@ function CompanionVideo({ videos, mode }: { videos: CompanionVideos; mode: Mode 
 
 function CompanionPanel({ prefs, videos, mode, save }: { prefs: CompanionPrefs; videos: CompanionVideos | null; mode: Mode; save: (patch: Partial<CompanionPrefs>) => Promise<boolean> }) {
   const { t } = useTranslation();
+  const [aspectRatio, setAspectRatio] = useState(4 / 3);
   const clamp = useCallback((value: Panel) => clampCompanionPanel(value, innerWidth, innerHeight,
-    document.querySelector<HTMLElement>(".desktop-main")?.getBoundingClientRect().left ?? 0), []);
+    document.querySelector<HTMLElement>(".desktop-main")?.getBoundingClientRect().left ?? 0, aspectRatio), [aspectRatio]);
   const [panel, setPanel] = useState(() => clamp(prefs.panel));
-  const drag = useRef<{ x: number; y: number; panel: Panel; resize: boolean } | null>(null);
+  const drag = useRef<{ x: number; y: number; panel: Panel; resize: "left" | "right" | null } | null>(null);
   useEffect(() => { setPanel(clamp(prefs.panel)); }, [clamp, prefs.panel]);
   useEffect(() => { const resize = () => setPanel(value => clamp(value)); window.addEventListener("resize", resize); return () => window.removeEventListener("resize", resize); }, [clamp]);
-  const start = (event: PointerEvent<HTMLElement>, resize: boolean) => {
+  const start = (event: PointerEvent<HTMLElement>, resize: "left" | "right" | null) => {
     if (event.button !== 0 || (!resize && (event.target as HTMLElement).closest("button"))) return;
     drag.current = { x: event.clientX, y: event.clientY, panel, resize };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const persist = (next: Panel) => { next = clamp(next); setPanel(next); void save({ panel: next }); };
-  return <div className="companion-panel fixed z-30 overflow-hidden rounded-2xl border border-border/70 bg-transparent shadow-xl" style={{ left: panel.x ?? 0, top: panel.y ?? 38, width: panel.width }}
-    onPointerMove={event => { const base = drag.current; if (!base) return; setPanel(clamp({ ...base.panel, ...(base.resize ? { width: base.panel.width + event.clientX - base.x } : { x: (base.panel.x ?? 0) + event.clientX - base.x, y: (base.panel.y ?? 0) + event.clientY - base.y }) })); }}
+  const resizeWithKeyboard = (edge: "left" | "right", delta: number) => {
+    const width = panel.width + (edge === "left" ? -delta : delta);
+    persist({ ...panel, width, ...(edge === "left" ? { x: (panel.x ?? 0) + panel.width - width } : {}) });
+  };
+  return <div className="companion-panel fixed z-30 overflow-hidden rounded-lg border border-border/70 bg-transparent shadow-xl" style={{ left: panel.x ?? 0, top: panel.y ?? 38, width: panel.width, "--companion-aspect-ratio": aspectRatio } as CSSProperties}
+    onPointerMove={event => { const base = drag.current; if (!base) return; const delta = event.clientX - base.x; const width = base.panel.width + (base.resize === "left" ? -delta : delta); setPanel(clamp({ ...base.panel, ...(base.resize ? { width, ...(base.resize === "left" ? { x: (base.panel.x ?? 0) + base.panel.width - width } : {}) } : { x: (base.panel.x ?? 0) + delta, y: (base.panel.y ?? 0) + event.clientY - base.y }) })); }}
     onPointerUp={() => { if (drag.current) { drag.current = null; void save({ panel }); } }} onPointerCancel={() => { drag.current = null; }}>
     <div className="companion-panel-header flex h-8 touch-none select-none items-center justify-between bg-background/90 px-2 backdrop-blur cursor-move" tabIndex={0} aria-label={t("companion.move")}
-      onPointerDown={event => start(event, false)} onKeyDown={event => { if (event.target !== event.currentTarget || !event.key.startsWith("Arrow")) return; event.preventDefault(); persist({ ...panel, x: (panel.x ?? 0) + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0), y: (panel.y ?? 0) + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0) }); }}>
+      onPointerDown={event => start(event, null)} onKeyDown={event => { if (event.target !== event.currentTarget || !event.key.startsWith("Arrow")) return; event.preventDefault(); persist({ ...panel, x: (panel.x ?? 0) + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0), y: (panel.y ?? 0) + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0) }); }}>
       <button type="button" title={t(panel.collapsed ? "companion.expand" : "companion.collapse")} aria-label={t(panel.collapsed ? "companion.expand" : "companion.collapse")} onClick={() => persist({ ...panel, collapsed: !panel.collapsed })}>{panel.collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
       <span className="text-xs text-muted-foreground">{t(`companion.${mode}`)}</span>
       <button type="button" title={t("companion.hide")} aria-label={t("companion.hide")} onClick={() => void save({ enabled: false })}><X size={16} /></button>
     </div>
-    {!panel.collapsed && <>{videos ? <CompanionVideo videos={videos} mode={mode} /> : <div className="aspect-[4/3] bg-muted" />}
-      <button type="button" className="absolute bottom-0 right-0 flex h-6 w-6 touch-none cursor-nwse-resize items-center justify-center rounded-tl bg-background/50" aria-label={t("companion.resize")} title={t("companion.resize")}
-        onPointerDown={event => start(event, true)} onKeyDown={event => { if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return; event.preventDefault(); persist({ ...panel, width: panel.width + (event.key === 'ArrowRight' ? 20 : -20) }); }}><Maximize2 size={12} /></button>
+    {!panel.collapsed && <>{videos ? <CompanionVideo videos={videos} mode={mode} onAspectRatio={setAspectRatio} /> : <div className="bg-muted" style={{ aspectRatio }} />}
+      {(["left", "right"] as const).map(edge => <button key={edge} type="button" className={`absolute bottom-0 z-10 h-5 w-5 touch-none bg-transparent ${edge === "left" ? "left-0 cursor-nesw-resize" : "right-0 cursor-nwse-resize"}`} aria-label={t("companion.resize")}
+        data-resize-edge={edge} onPointerDown={event => start(event, edge)} onKeyDown={event => { if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return; event.preventDefault(); resizeWithKeyboard(edge, event.key === 'ArrowRight' ? 20 : -20); }} />)}
     </>}
   </div>;
 }

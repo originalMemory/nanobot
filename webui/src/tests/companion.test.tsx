@@ -38,6 +38,8 @@ it('keeps the panel visible after resize and avoids immediate video repeats', ()
   expect(panel.y! + panel.width * 3 / 4 + 32).toBeLessThanOrEqual(540);
   expect(clampCompanionPanel({ ...panel, x: -100 }, 760, 540).x).toBe(0);
   expect(clampCompanionPanel({ ...panel, x: 0 }, 760, 540, 240).x).toBe(240);
+  const wide = clampCompanionPanel({ x: 0, y: 38, width: 320, collapsed: false }, 760, 540, 0, 16 / 9);
+  expect(wide.y! + wide.width / (16 / 9) + 32).toBeLessThanOrEqual(540);
   expect(pickCompanionVideo(['a', 'b', 'c'], ['a', 'b'], 'b')).toBe('c');
 });
 
@@ -51,7 +53,21 @@ it('loads local videos, switches only idle/working, and persists collapse/disabl
   vi.spyOn(client, 'onRunStatus').mockImplementation(handler => { run = handler; return () => {}; });
   const view = render(<ClientProvider client={client} token="test"><CompanionSettings /></ClientProvider>);
   await waitFor(() => expect(view.container.querySelector('video')).toHaveAttribute('src', 'idle.mp4'));
+  const firstVideo = view.container.querySelector('video')!;
+  Object.defineProperties(firstVideo, {
+    videoWidth: { configurable: true, value: 1120 },
+    videoHeight: { configurable: true, value: 832 },
+  });
+  fireEvent.loadedData(firstVideo);
+  await waitFor(() => expect(Number.parseFloat(
+    (view.container.querySelector('.companion-panel') as HTMLElement)
+      .style.getPropertyValue('--companion-aspect-ratio'),
+  )).toBeCloseTo(1120 / 832));
   expect(view.container.querySelector('.companion-panel-header')).toHaveClass('bg-background/90', 'backdrop-blur');
+  const resizeHandles = view.container.querySelectorAll('button[data-resize-edge]');
+  expect(Array.from(resizeHandles).map(button => button.getAttribute('data-resize-edge')))
+    .toEqual(['left', 'right']);
+  expect(Array.from(resizeHandles).every(button => !button.hasAttribute('title') && button.childElementCount === 0)).toBe(true);
   vi.spyOn(Math, 'random').mockReturnValue(0);
   fireEvent.error(view.container.querySelector('video')!);
   await waitFor(() => expect(view.container.querySelector('video[src="fallback.mp4"]')).not.toBeNull());

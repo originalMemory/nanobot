@@ -28,6 +28,9 @@ test('本地资源只通过清单 URL 读取，支持 Range 和场景时段回�
     assert.equal(videos.idle.length, 1);
     assert.notEqual(videos.idle[0], videos.fallback.idle[0]);
     assert.deepEqual(videos.working, videos.fallback.working);
+    store.set('avatarCompanion.videoDirectory', '');
+    assert.equal((await api.read()).directory, '');
+    store.set('avatarCompanion.videoDirectory', selected);
     const response = await api.serve(new Request(videos.fallback.idle[0], { headers: { range: 'bytes=2-5' } }));
     assert.equal(response.status, 206);
     assert.equal(response.headers.get('content-range'), 'bytes 2-5/10');

@@ -28,15 +28,12 @@ function normalize(raw = {}) {
 }
 
 function createCompanion({ store, bundledRoot, dialog }) {
-  let config; let chosenDirectory; let saving = Promise.resolve();
+  let chosenDirectory; let saving = Promise.resolve();
   const files = new Map();
   async function read() {
-    if (!config) {
-      const saved = store.get('avatarCompanion', {});
-      config = normalize({ ...DEFAULTS, ...saved, directory: saved.videoDirectory ?? '',
-        schedule: saved.timeSchedule ?? SCHEDULE });
-    }
-    return structuredClone(config);
+    const saved = store.get('avatarCompanion', {});
+    return normalize({ ...DEFAULTS, ...saved, directory: saved.videoDirectory ?? '',
+      schedule: saved.timeSchedule ?? SCHEDULE });
   }
   function save(patch) {
     const operation = saving.then(async () => {
@@ -45,7 +42,6 @@ function createCompanion({ store, bundledRoot, dialog }) {
       if (next.directory && next.directory !== previous.directory && next.directory !== chosenDirectory) throw new Error('Choose a video folder using the desktop dialog');
       store.set('avatarCompanion', { ...store.get('avatarCompanion', {}), enabled: next.enabled,
         videoDirectory: next.directory, timeSchedule: next.schedule, panel: next.panel });
-      config = next;
       if (previous.directory !== next.directory) files.clear();
       return structuredClone(next);
     });
