@@ -456,8 +456,10 @@ export function useSessionHistory(key: string | null): {
         });
         if (cancelled) return;
         if (body === cachedBody && cachedBody !== undefined) {
+          historyVersionRef.current += 1;
+          const responseVersion = historyVersionRef.current;
           setState((prev) => prev.key === key
-            ? { ...prev, loading: false, error: null }
+            ? { ...prev, loading: false, error: null, version: responseVersion }
             : prev);
           return;
         }

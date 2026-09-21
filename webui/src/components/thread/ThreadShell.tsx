@@ -891,6 +891,9 @@ export function ThreadShell({
   const turnActive = messagesReady
     && !recoveryNeedsDecision
     && (isStreaming || currentRunStartedAt !== null);
+  useEffect(() => {
+    if (!turnActive) setFallbackModelName(null);
+  }, [turnActive]);
   const restoredViewportTurnId = useMemo(
     () => turnActive ? latestActiveTurnId(displayMessages, currentRunStartedAt) : null,
     [currentRunStartedAt, displayMessages, turnActive],

@@ -617,6 +617,32 @@ describe("useSessions", () => {
     second.unmount();
   });
 
+  it("advances history version when a refresh confirms the cached revision", async () => {
+    const cached = {
+      schemaVersion: 3,
+      revision: "rev-complete",
+      active_turn_id: null,
+      has_pending_tool_calls: false,
+      completed_turn_ids: ["turn-complete"],
+      messages: [
+        { id: "a1", role: "assistant" as const, content: "complete", createdAt: 1 },
+      ],
+    };
+    vi.mocked(api.fetchWebuiThread).mockResolvedValue(cached);
+
+    const { result } = renderHook(() => useSessionHistory("websocket:complete"), {
+      wrapper: wrap(fakeClient()),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const initialVersion = result.current.version;
+
+    act(() => result.current.refresh());
+
+    await waitFor(() => expect(result.current.version).toBeGreaterThan(initialVersion));
+    expect(result.current.completedTurnIds).toEqual(["turn-complete"]);
+    expect(result.current.hasPendingToolCalls).toBe(false);
+  });
+
   it("keeps rendered history visible when its LRU entry was evicted before refresh", async () => {
     const loaded = {
       schemaVersion: 3,

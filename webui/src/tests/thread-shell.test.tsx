@@ -3603,7 +3603,9 @@ describe("ThreadShell", () => {
             title="Visible chat"
             onToggleSidebar={() => {}}
             onNewChat={() => {}}
+            settingsSnapshot={modelSettings("openai-codex/gpt-5.5", "openai_codex")}
           />,
+          "openai-codex/gpt-5.5",
         ),
       );
       await waitFor(() => expect(screen.getByText("question")).toBeInTheDocument());
@@ -3616,7 +3618,14 @@ describe("ThreadShell", () => {
           started_at: 6_000,
           turn_id: turnId,
         });
+        client._emitChat("visible-chat", {
+          event: "turn_model_updated",
+          chat_id: "visible-chat",
+          model_name: "deepseek/deepseek-chat",
+          fallback: true,
+        });
       });
+      expect(await screen.findByText("deepseek-chat")).toBeInTheDocument();
 
       act(() => {
         setDocumentVisibility("hidden");
@@ -3632,6 +3641,8 @@ describe("ThreadShell", () => {
       await waitFor(() =>
         expect(screen.getByText("answer completed in background")).toBeInTheDocument(),
       );
+      expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
+      expect(screen.queryByText("deepseek-chat")).not.toBeInTheDocument();
     } finally {
       restoreDocumentVisibility(visibilityDescriptor);
     }
