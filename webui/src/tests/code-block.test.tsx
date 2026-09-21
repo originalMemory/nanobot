@@ -4,7 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { CodeBlock } from "@/components/CodeBlock";
 import { ThemeProvider } from "@/hooks/useTheme";
-import { DEFAULT_LOCAL_PREFS, writeLocalPreferences } from "@/lib/local-preferences";
+import {
+  DEFAULT_LOCAL_PREFS,
+  LOCAL_PREFS_CHANGED_EVENT,
+  writeLocalPreferences,
+} from "@/lib/local-preferences";
 
 const mockedStyles = vi.hoisted(() => ({
   dark: { pre: { background: "#111" } },
@@ -43,6 +47,23 @@ vi.mock("react-syntax-highlighter/dist/esm/styles/prism/one-light", () => ({
 }));
 
 describe("CodeBlock", () => {
+  it("shares one local preference listener across code blocks", () => {
+    const add = vi.spyOn(window, "addEventListener");
+    const remove = vi.spyOn(window, "removeEventListener");
+    const view = render(<>
+      <CodeBlock code="one" highlight={false} />
+      <CodeBlock code="two" highlight={false} />
+    </>);
+
+    expect(add.mock.calls.filter(([name]) => name === LOCAL_PREFS_CHANGED_EVENT))
+      .toHaveLength(1);
+    view.unmount();
+    expect(remove.mock.calls.filter(([name]) => name === LOCAL_PREFS_CHANGED_EVENT))
+      .toHaveLength(1);
+    add.mockRestore();
+    remove.mockRestore();
+  });
+
   it("follows the local code wrapping preference", async () => {
     writeLocalPreferences({ ...DEFAULT_LOCAL_PREFS, codeWrap: false });
     render(<CodeBlock code={"const value = '" + "x".repeat(200) + "';"} language="typescript" />);
