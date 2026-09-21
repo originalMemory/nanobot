@@ -1235,9 +1235,11 @@ export class NanobotClient {
     }
 
     if (parsed.event === "attached") {
-      if (typeof parsed.model_preset === "string" && parsed.model_preset.trim()) {
-        this.modelPresetByChatId.set(parsed.chat_id, parsed.model_preset.trim());
-      }
+      const modelPreset = typeof parsed.model_preset === "string"
+        ? parsed.model_preset.trim()
+        : "";
+      if (modelPreset) this.modelPresetByChatId.set(parsed.chat_id, modelPreset);
+      else this.modelPresetByChatId.delete(parsed.chat_id);
       if (parsed.temporary === true) {
         this.temporaryChatIds.add(parsed.chat_id);
       } else {

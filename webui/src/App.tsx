@@ -1400,6 +1400,45 @@ function Shell({
     if (temporarySessions[activeKey]) return temporarySessions[activeKey];
     return sessions.find((s) => s.key === activeKey) ?? null;
   }, [sessions, activeKey, temporarySessions]);
+  const activeModelChatId = activeSession?.chatId ?? client.fixedChatId;
+  const [activeSessionModel, setActiveSessionModel] = useState<{
+    chatId: string;
+    preset: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!activeModelChatId) {
+      setActiveSessionModel(null);
+      return;
+    }
+    const update = (preset: string | null) => {
+      setActiveSessionModel({ chatId: activeModelChatId, preset });
+    };
+    update(
+      client.getChatModelPreset(activeModelChatId)
+      ?? activeSession?.modelPreset
+      ?? null,
+    );
+    return client.onChat(activeModelChatId, (event) => {
+      if (event.event === "attached") {
+        update(
+          typeof event.model_preset === "string" && event.model_preset.trim()
+            ? event.model_preset.trim()
+            : null,
+        );
+      } else if (
+        event.event === "turn_model_updated"
+        && typeof event.model_preset === "string"
+        && event.model_preset.trim()
+      ) {
+        update(event.model_preset.trim());
+      }
+    });
+  }, [activeModelChatId, activeSession?.modelPreset, client]);
+  const activeSessionModelPreset = activeSessionModel?.chatId === activeModelChatId
+    ? activeSessionModel.preset
+    : activeModelChatId
+      ? client.getChatModelPreset(activeModelChatId) ?? activeSession?.modelPreset ?? null
+      : null;
   const activeTabMatch = useMemo(() => (
     activeKey && !temporarySessions[activeKey]
       ? workbenchTabForPane(workbenchState, activeKey)
@@ -2996,9 +3035,7 @@ function Shell({
                     initialSection={settingsInitialSection}
                     initialSettings={settingsSnapshot}
                     activeModelName={modelName}
-                    activeModelPreset={activeSession?.chatId
-                      ? client.getChatModelPreset(activeSession.chatId) ?? activeSession.modelPreset
-                      : null}
+                    activeModelPreset={activeSessionModelPreset}
                     showSidebar={view === "settings"}
                     mainNavigationExpanded={showMainSidebar && hostSidebarOpen}
                     onToggleTheme={toggle}

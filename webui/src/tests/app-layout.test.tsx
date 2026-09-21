@@ -33,6 +33,10 @@ const sessionUpdateHandlers = new Set<(
   workspaceScope?: WorkspaceScopePayload,
 ) => void>();
 const sidebarStateUpdateHandlers = new Set<(state: SidebarStatePayload) => void>();
+const chatHandlers = new Map<string, Set<(
+  event: import("@/lib/types").InboundEvent,
+) => void>>();
+const chatModelPresets = new Map<string, string>();
 let mockSessions: ChatSummary[] = [];
 const HERO_GREETING_PATTERN =
   /What should we work on\?|Where should we start\?|What are we building today\?|What should we tackle together\?/;
@@ -71,6 +75,15 @@ function mockFetchRoutes(routes: Record<string, unknown>): void {
 function currentMonthTimestamp(day: number, hour = 10, minute = 0): number {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), day, hour, minute).getTime();
+}
+
+function emitChatEvent(chatId: string, event: import("@/lib/types").InboundEvent): void {
+  if (event.event === "attached") {
+    const preset = typeof event.model_preset === "string" ? event.model_preset.trim() : "";
+    if (preset) chatModelPresets.set(chatId, preset);
+    else chatModelPresets.delete(chatId);
+  }
+  for (const handler of chatHandlers.get(chatId) ?? []) handler(event);
 }
 
 function baseSettingsPayload() {
@@ -251,7 +264,15 @@ vi.mock("@/lib/nanobot-client", async (importOriginal) => {
     };
     onRuntimeModelUpdate = () => () => {};
     onError = () => () => {};
-    onChat = () => () => {};
+    onChat = (chatId: string, handler: (event: import("@/lib/types").InboundEvent) => void) => {
+      const handlers = chatHandlers.get(chatId) ?? new Set();
+      handlers.add(handler);
+      chatHandlers.set(chatId, handlers);
+      return () => {
+        handlers.delete(handler);
+        if (handlers.size === 0) chatHandlers.delete(chatId);
+      };
+    };
     onSessionUpdate = (handler: (
       chatId: string,
       scope?: string,
@@ -271,6 +292,7 @@ vi.mock("@/lib/nanobot-client", async (importOriginal) => {
     getRunStartedAt = () => null;
     getRunTurnId = () => null;
     getGoalState = () => undefined;
+    getChatModelPreset = (chatId: string) => chatModelPresets.get(chatId) ?? null;
     sendMessage = sendMessageSpy;
     sendSystemCommand = sendSystemCommandSpy;
     newChat = vi.fn();
@@ -321,6 +343,8 @@ describe("App layout", () => {
     runStatusHandlers.clear();
     sessionUpdateHandlers.clear();
     sidebarStateUpdateHandlers.clear();
+    chatHandlers.clear();
+    chatModelPresets.clear();
     window.history.replaceState(null, "", "/");
     Reflect.deleteProperty(window, "nanobotHost");
     setNavigatorPlatform("Linux x86_64");
@@ -2730,6 +2754,45 @@ describe("App layout", () => {
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     expect(await screen.findByRole("dialog", { name: "Transcription" })).toBeInTheDocument();
     expect(window.location.hash).toBe("#/settings?section=voice");
+  });
+
+  it("updates the settings overview when fixed-inbox attach restores its preset", async () => {
+    Reflect.set(window, "nanobotHost", { fixedChatId: "desktop" });
+    const settings = baseSettingsPayload();
+    settings.agent.model = "zhipu/glm-5.3-flash";
+    settings.agent.model_preset = "glm5-3flash";
+    settings.model_presets = [
+      {
+        ...settings.model_presets[0],
+        name: "glm5-3flash",
+        label: "GLM 5.3 Flash",
+        model: "zhipu/glm-5.3-flash",
+      },
+      {
+        ...settings.model_presets[0],
+        name: "gpt-5-6-sol",
+        label: "GPT 5.6 Sol",
+        active: false,
+        model: "openai-codex/gpt-5.6-sol",
+        provider: "openai_codex",
+        resolved_provider: "openai_codex",
+      },
+    ];
+    mockFetchRoutes({ "/api/settings": settings });
+    window.history.replaceState(null, "", "/#/settings");
+
+    render(<App />);
+    await screen.findByText("zhipu/glm-5.3-flash");
+
+    act(() => emitChatEvent("desktop", {
+      event: "attached",
+      chat_id: "desktop",
+      model_preset: "gpt-5-6-sol",
+    }));
+
+    expect(await screen.findByText("openai-codex/gpt-5.6-sol"))
+      .toBeInTheDocument();
+    expect(screen.queryByText("zhipu/glm-5.3-flash")).not.toBeInTheDocument();
   });
 
   it("returns from settings to the fixed inbox and focuses its composer when raised", async () => {

@@ -1107,6 +1107,13 @@ describe("ThreadShell", () => {
       model_preset: "fast",
     }));
     expect(await screen.findByLabelText("fast")).toBeInTheDocument();
+
+    act(() => client._emitChat("desktop", {
+      event: "attached",
+      chat_id: "desktop",
+      model_preset: null,
+    }));
+    expect(await screen.findByLabelText("Default")).toBeInTheDocument();
   });
 
   it("falls back to the current preset while a renamed session reference is stale", async () => {

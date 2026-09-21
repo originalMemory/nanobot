@@ -976,8 +976,14 @@ export function ThreadShell({
     }
     setRuntimeModelPreset(client.getChatModelPreset?.(chatId) ?? null);
     return client.onChat(chatId, (event) => {
-      if (
-        (event.event === "attached" || event.event === "turn_model_updated")
+      if (event.event === "attached") {
+        setRuntimeModelPreset(
+          typeof event.model_preset === "string" && event.model_preset.trim()
+            ? event.model_preset.trim()
+            : null,
+        );
+      } else if (
+        event.event === "turn_model_updated"
         && typeof event.model_preset === "string"
         && event.model_preset.trim()
       ) {
