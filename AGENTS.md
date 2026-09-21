@@ -1,5 +1,15 @@
 This file provides guidance to AI coding agents working with this repository.
 
+## 排查与修复约束（必须遵守）
+
+- 禁止凭猜测修改代码或宣布根因。明确区分已观察事实、待验证假设与尚未确认的信息。
+- 对用户操作、复现条件、预期行为等有不确定之处，先询问用户，不得自行补全前提。
+- 代码阅读或现有数据不足以定位时，先补诊断日志并采集真实复现；记录事件接收、状态变化、丢弃原因与关联 ID，不记录正文、媒体载荷或密钥。
+- 未建立可信因果链前，只做只读排查与必要日志，不叠加兜底或行为补丁。假设被否定后立即撤回该结论，重新取证。
+- 单测通过、构建成功、重启后暂时正常，都不能代替原始问题的复现验证。未验证消失时不得宣称已修复。
+- 多次修复无效时，先保留复现日志、核对改动基线，再按用户决定回滚和整体重写；不得擅自扩大回滚范围。
+- “打包”包含构建、签名、替换本机应用与启动核验，不自动包含 Git 推送。
+
 ## Project Overview
 
 nanobot is a lightweight, open-source AI agent framework written in Python with a React/TypeScript WebUI. It centers around a small agent loop that receives messages from chat channels, invokes an LLM provider, executes tools, and manages session memory.
