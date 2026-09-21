@@ -1089,6 +1089,10 @@ describe("ThreadShell", () => {
 
   it("restores the composer model from the attached unified session", async () => {
     const client = makeClient();
+    Object.assign(client, {
+      fixedChatId: "desktop",
+      hasChatModelPresetSnapshot: () => false,
+    });
     render(
       wrap(
         client,
@@ -1100,6 +1104,8 @@ describe("ThreadShell", () => {
         />,
       ),
     );
+
+    expect(await screen.findByLabelText("Restoring model…")).toBeInTheDocument();
 
     act(() => client._emitChat("desktop", {
       event: "attached",

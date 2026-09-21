@@ -966,17 +966,28 @@ export function ThreadShell({
   const [runtimeModelPreset, setRuntimeModelPreset] = useState<string | null>(
     chatId ? client.getChatModelPreset?.(chatId) ?? null : null,
   );
+  const [runtimeModelHydrated, setRuntimeModelHydrated] = useState(
+    () => !chatId
+      || client.fixedChatId !== chatId
+      || client.hasChatModelPresetSnapshot?.(chatId) === true,
+  );
   useEffect(() => {
     setLocalModelPreset(null);
   }, [session?.key, sessionModelPreset]);
   useEffect(() => {
     if (!chatId) {
       setRuntimeModelPreset(null);
+      setRuntimeModelHydrated(true);
       return;
     }
     setRuntimeModelPreset(client.getChatModelPreset?.(chatId) ?? null);
+    setRuntimeModelHydrated(
+      client.fixedChatId !== chatId
+      || client.hasChatModelPresetSnapshot?.(chatId) === true,
+    );
     return client.onChat(chatId, (event) => {
       if (event.event === "attached") {
+        setRuntimeModelHydrated(true);
         setRuntimeModelPreset(
           typeof event.model_preset === "string" && event.model_preset.trim()
             ? event.model_preset.trim()
@@ -987,6 +998,7 @@ export function ThreadShell({
         && typeof event.model_preset === "string"
         && event.model_preset.trim()
       ) {
+        setRuntimeModelHydrated(true);
         setRuntimeModelPreset(event.model_preset.trim());
       }
     });
@@ -1043,6 +1055,10 @@ export function ThreadShell({
   const modelBadgeLabel = modelBadge.needsSetup
     ? t("thread.composer.chooseAI", { defaultValue: "Choose your AI" })
     : modelBadge.label;
+  const restoringFixedModel = client.fixedChatId === chatId && !runtimeModelHydrated;
+  const visibleModelLabel = restoringFixedModel
+    ? t("thread.composer.restoringModel", { defaultValue: "Restoring model…" })
+    : modelBadgeLabel;
   useEffect(() => {
     if (showHeroComposer && !wasShowingHeroComposerRef.current) {
       setHeroGreetingKey(randomHeroGreetingKey());
@@ -1668,16 +1684,18 @@ export function ThreadShell({
               ? t("thread.composer.placeholderHero")
               : t("thread.composer.placeholderThread")
           }
-          modelLabel={modelBadgeLabel}
-          modelDetail={modelBadge.model}
-          modelPreset={activeModelPreset}
-          modelPresets={modelPresetOptions}
+          modelLabel={visibleModelLabel}
+          modelDetail={restoringFixedModel ? null : modelBadge.model}
+          modelPreset={restoringFixedModel ? null : activeModelPreset}
+          modelPresets={restoringFixedModel ? [] : modelPresetOptions}
           onModelPresetChange={handleModelPresetChange}
-          modelProvider={modelBadge.provider}
-          modelProviderLabel={modelBadge.providerLabel}
-          modelNeedsSetup={modelBadge.needsSetup}
-          fallbackModelName={fallbackModelName}
-          onModelBadgeClick={modelBadge.needsSetup ? onOpenModelSettings : undefined}
+          modelProvider={restoringFixedModel ? null : modelBadge.provider}
+          modelProviderLabel={restoringFixedModel ? null : modelBadge.providerLabel}
+          modelNeedsSetup={restoringFixedModel ? false : modelBadge.needsSetup}
+          fallbackModelName={restoringFixedModel ? null : fallbackModelName}
+          onModelBadgeClick={
+            !restoringFixedModel && modelBadge.needsSetup ? onOpenModelSettings : undefined
+          }
           onManageModels={onOpenModelSettings}
           contextUsage={composerContextUsage}
           recentRoundUsage={composerRoundUsage}
@@ -1718,16 +1736,18 @@ export function ThreadShell({
               ? t("thread.composer.placeholderOpening")
               : t("thread.composer.placeholderHero")
           }
-          modelLabel={modelBadgeLabel}
-          modelDetail={modelBadge.model}
-          modelPreset={activeModelPreset}
-          modelPresets={modelPresetOptions}
+          modelLabel={visibleModelLabel}
+          modelDetail={restoringFixedModel ? null : modelBadge.model}
+          modelPreset={restoringFixedModel ? null : activeModelPreset}
+          modelPresets={restoringFixedModel ? [] : modelPresetOptions}
           onModelPresetChange={handleModelPresetChange}
-          modelProvider={modelBadge.provider}
-          modelProviderLabel={modelBadge.providerLabel}
-          modelNeedsSetup={modelBadge.needsSetup}
-          fallbackModelName={fallbackModelName}
-          onModelBadgeClick={modelBadge.needsSetup ? onOpenModelSettings : undefined}
+          modelProvider={restoringFixedModel ? null : modelBadge.provider}
+          modelProviderLabel={restoringFixedModel ? null : modelBadge.providerLabel}
+          modelNeedsSetup={restoringFixedModel ? false : modelBadge.needsSetup}
+          fallbackModelName={restoringFixedModel ? null : fallbackModelName}
+          onModelBadgeClick={
+            !restoringFixedModel && modelBadge.needsSetup ? onOpenModelSettings : undefined
+          }
           onManageModels={onOpenModelSettings}
           contextUsage={composerContextUsage}
           recentRoundUsage={composerRoundUsage}

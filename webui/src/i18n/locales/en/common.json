@@ -1675,6 +1675,7 @@
       "chooseAI": "Choose your AI",
       "switchModel": "Switch model for this chat",
       "manageModels": "Manage models",
+      "restoringModel": "Restoring model…",
       "context": {
         "tooltip": "Context {{percent}}%",
         "detailsLabel": "Open context usage",

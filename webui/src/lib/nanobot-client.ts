@@ -230,6 +230,8 @@ export class NanobotClient {
   private goalStateByChatId = new Map<string, GoalStateWsPayload>();
   /** Canonical session model restored by attach and refreshed at turn admission. */
   private modelPresetByChatId = new Map<string, string>();
+  /** Chats whose authoritative preset snapshot has arrived on this client. */
+  private modelPresetHydratedChatIds = new Set<string>();
   private pendingNewChat: PendingChatRequest | null = null;
   private pendingTranscriptions = new Map<string, PendingRequest<string>>();
   private pendingSystemCommands = new Map<string, PendingRequest<void>>();
@@ -285,6 +287,10 @@ export class NanobotClient {
 
   getChatModelPreset(chatId: string): string | null {
     return this.modelPresetByChatId.get(chatId) ?? null;
+  }
+
+  hasChatModelPresetSnapshot(chatId: string): boolean {
+    return this.modelPresetHydratedChatIds.has(chatId);
   }
 
   /** Swap the URL (e.g. after fetching a fresh token) then reconnect. */
@@ -1235,6 +1241,7 @@ export class NanobotClient {
     }
 
     if (parsed.event === "attached") {
+      this.modelPresetHydratedChatIds.add(parsed.chat_id);
       const modelPreset = typeof parsed.model_preset === "string"
         ? parsed.model_preset.trim()
         : "";
@@ -1316,6 +1323,7 @@ export class NanobotClient {
         && typeof parsed.model_preset === "string"
         && parsed.model_preset.trim()
       ) {
+        this.modelPresetHydratedChatIds.add(chatId);
         this.modelPresetByChatId.set(chatId, parsed.model_preset.trim());
       }
       if (this.isCanonicalCompletedTurnEvent(chatId, parsed)) return;
@@ -1556,6 +1564,8 @@ export class NanobotClient {
     this.unsettledRunTurnIdsByChatId.delete(chatId);
     this.canonicalCompletedTurnIdsByChatId.delete(chatId);
     this.goalStateByChatId.delete(chatId);
+    this.modelPresetHydratedChatIds.delete(chatId);
+    this.modelPresetByChatId.delete(chatId);
     for (const key of [...this.runStartedAtByTurnKey.keys()]) {
       if (key.startsWith(`${chatId}\u0000`)) this.runStartedAtByTurnKey.delete(key);
     }

@@ -424,12 +424,14 @@ describe("NanobotClient", () => {
     });
     client.connect();
     lastSocket().fakeOpen();
+    expect(client.hasChatModelPresetSnapshot("desktop")).toBe(false);
     lastSocket().fakeMessage({
       event: "attached",
       chat_id: "desktop",
       model_preset: "Deep Research",
     });
     expect(client.getChatModelPreset("desktop")).toBe("Deep Research");
+    expect(client.hasChatModelPresetSnapshot("desktop")).toBe(true);
 
     lastSocket().fakeMessage({
       event: "attached",
@@ -437,6 +439,7 @@ describe("NanobotClient", () => {
       model_preset: null,
     });
     expect(client.getChatModelPreset("desktop")).toBeNull();
+    expect(client.hasChatModelPresetSnapshot("desktop")).toBe(true);
   });
 
   it("forgets every temporary chat when the socket drops", async () => {
