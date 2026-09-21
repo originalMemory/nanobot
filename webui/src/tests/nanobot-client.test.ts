@@ -1830,7 +1830,7 @@ describe("NanobotClient", () => {
     expect(handler).toHaveBeenCalledWith("openai/gpt-4.1", "fast");
   });
 
-  it("dispatches turn model updates to the active chat", () => {
+  it("keeps automation turn models transient but accepts ordinary turn presets", () => {
     const client = new NanobotClient({
       url: "ws://test",
       reconnect: false,
@@ -1840,25 +1840,45 @@ describe("NanobotClient", () => {
     client.onChat("chat-a", chatHandler);
     client.connect();
     lastSocket().fakeOpen();
+    lastSocket().fakeMessage({
+      event: "attached",
+      chat_id: "chat-a",
+      model_preset: "Deep Research",
+    });
+    chatHandler.mockClear();
 
     lastSocket().fakeMessage({
       event: "turn_model_updated",
       chat_id: "chat-a",
       model_name: "deepseek/deepseek-chat",
-      model_preset: "Deep Research",
-      fallback: true,
+      model_preset: "Background Fast",
+      turn_id: "heartbeat:run-1",
+      source: { kind: "heartbeat" },
     });
 
     expect(chatHandler).toHaveBeenCalledWith({
       event: "turn_model_updated",
       chat_id: "chat-a",
       model_name: "deepseek/deepseek-chat",
-      model_preset: "Deep Research",
-      fallback: true,
+      model_preset: "Background Fast",
+      turn_id: "heartbeat:run-1",
+      source: { kind: "heartbeat" },
     });
     expect(client.getChatModelPresetSnapshot("chat-a")).toEqual({
       hydrated: true,
       preset: "Deep Research",
+    });
+
+    lastSocket().fakeMessage({
+      event: "turn_model_updated",
+      chat_id: "chat-a",
+      model_name: "openai-codex/gpt-5.6-sol",
+      model_preset: "Chat Sol",
+      turn_id: "user-turn-1",
+    });
+    expect(client.getChatModelPresetSnapshot("chat-a")).toEqual({
+      hydrated: true,
+      preset: "Chat Sol",
     });
   });
 

@@ -1003,7 +1003,9 @@ export function ThreadShell({
   const handleModelPresetChange = useCallback((name: string) => {
     setLocalModelPreset(name);
     if (chatId) {
-      void client.sendSystemCommand(chatId, `/model ${name}`).catch(() => {});
+      void client.sendSystemCommand(chatId, `/model ${name}`)
+        .then(() => client.confirmChatModelPreset(chatId, name))
+        .catch(() => setLocalModelPreset(null));
     }
   }, [chatId, client]);
   const modelPresetOptions = useMemo(

@@ -309,6 +309,10 @@ export class NanobotClient {
     };
   }
 
+  confirmChatModelPreset(chatId: string, preset: string): void {
+    this.updateChatModelPreset(chatId, preset.trim() || null);
+  }
+
   /** Swap the URL (e.g. after fetching a fresh token) then reconnect. */
   updateUrl(url: string, socketFactory?: (url: string) => WebSocket): void {
     this.currentUrl = url;
@@ -1334,6 +1338,7 @@ export class NanobotClient {
     if (chatId) {
       if (
         parsed.event === "turn_model_updated"
+        && !parsed.source
         && typeof parsed.model_preset === "string"
         && parsed.model_preset.trim()
       ) {

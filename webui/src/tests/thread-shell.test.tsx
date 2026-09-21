@@ -160,6 +160,12 @@ function makeClient() {
       });
       return () => handlers.delete(handler);
     },
+    confirmChatModelPreset: vi.fn((chatId: string, preset: string) => {
+      hydratedModelPresets.add(chatId);
+      modelPresets.set(chatId, preset);
+      const snapshot = { hydrated: true, preset };
+      for (const handler of modelPresetHandlers.get(chatId) ?? []) handler(snapshot);
+    }),
     onChat: (chatId: string, handler: (ev: import("@/lib/types").InboundEvent) => void) => {
       let handlers = chatHandlers.get(chatId);
       if (!handlers) {
@@ -216,7 +222,7 @@ function makeClient() {
       if (ev.event === "goal_state") {
         goalStateByChatId.set(chatId, ev.goal_state);
       }
-      if (ev.event === "attached" || ev.event === "turn_model_updated") {
+      if (ev.event === "attached" || (ev.event === "turn_model_updated" && !ev.source)) {
         const preset = typeof ev.model_preset === "string" ? ev.model_preset.trim() : "";
         hydratedModelPresets.add(chatId);
         if (preset) modelPresets.set(chatId, preset);
@@ -1221,7 +1227,7 @@ describe("ThreadShell", () => {
     expect(await screen.findByText("extra")).toBeInTheDocument();
 
     rerender(view("fast"));
-    expect(await screen.findByText("fast")).toBeInTheDocument();
+    expect(await screen.findByText("extra")).toBeInTheDocument();
   });
 
   it("uses the backend-resolved provider for an auto session preset", async () => {
@@ -1293,6 +1299,19 @@ describe("ThreadShell", () => {
 
     expect(configuredBadge).not.toHaveAttribute("data-fallback");
     expect(screen.getByText("Default")).toBeInTheDocument();
+
+    act(() => {
+      client._emitChat("fallback-model", {
+        event: "turn_model_updated",
+        chat_id: "fallback-model",
+        model_name: "deepseek/deepseek-chat",
+        model_preset: "Background Fast",
+        turn_id: "heartbeat:run-1",
+        source: { kind: "heartbeat" },
+      });
+    });
+    expect(screen.getByText("Default")).toBeInTheDocument();
+    expect(configuredBadge).not.toHaveAttribute("data-fallback");
 
     act(() => {
       client._emitChat("fallback-model", {

@@ -2268,6 +2268,10 @@ async def test_send_scopes_turn_model_updates_to_the_subscribed_chat() -> None:
             channel="websocket",
             chat_id="chat-1",
             content="",
+            metadata={
+                WEBUI_TURN_METADATA_KEY: "heartbeat:run-1",
+                WEBUI_MESSAGE_SOURCE_METADATA_KEY: {"kind": "heartbeat"},
+            },
             event=TurnModelUpdatedEvent(
                 model="deepseek/deepseek-chat",
                 model_preset="Deep Research",
@@ -2283,6 +2287,8 @@ async def test_send_scopes_turn_model_updates_to_the_subscribed_chat() -> None:
         "model_name": "deepseek/deepseek-chat",
         "model_preset": "Deep Research",
         "context_window_tokens": 128_000,
+        "turn_id": "heartbeat:run-1",
+        "source": {"kind": "heartbeat"},
     }
 
     await channel.send(

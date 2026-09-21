@@ -34,6 +34,7 @@ from nanobot.webui.outbound_wire import (
 )
 from nanobot.webui.session_identity import webui_session_key
 from nanobot.webui.session_projection import WebUISessionProjection
+from nanobot.webui.transcript import webui_message_source
 
 if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
@@ -59,6 +60,8 @@ class WebUIOutboundTransport(Protocol):
         model_preset: str | None = None,
         context_window_tokens: int | None = None,
         fallback: bool = False,
+        turn_id: str | None = None,
+        source: dict[str, str] | None = None,
     ) -> None: ...
 
     async def send_user_input(
@@ -169,12 +172,15 @@ class WebUIOutboundProjector:
 
         if isinstance(event, TurnModelUpdatedEvent):
             if conns:
+                turn_id = msg.metadata.get(WEBUI_TURN_METADATA_KEY)
                 await self._transport.send_turn_model_updated(
                     msg.chat_id,
                     model_name=event.model,
                     model_preset=event.model_preset,
                     context_window_tokens=event.context_window_tokens,
                     fallback=event.fallback,
+                    turn_id=turn_id if isinstance(turn_id, str) else None,
+                    source=webui_message_source(msg.metadata),
                 )
             return
         if isinstance(event, UserInputEvent):

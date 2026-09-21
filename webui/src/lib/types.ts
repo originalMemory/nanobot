@@ -1436,13 +1436,14 @@ export type InboundEvent =
       model_name: string;
       model_preset?: string | null;
     }
-  | {
+  | ({
       event: "turn_model_updated";
       chat_id: string;
       model_name: string;
       model_preset?: string | null;
       fallback?: boolean;
-    }
+      source?: UIMessageSource;
+    } & InboundTurnMetadata)
   | ({
       event: "turn_end";
       chat_id: string;
