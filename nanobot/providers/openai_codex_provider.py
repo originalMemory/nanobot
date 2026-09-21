@@ -190,6 +190,7 @@ class OpenAICodexProvider(LLMProvider):
             compact_threshold = resolve_compact_threshold(
                 (provider_context.context_window_tokens if provider_context is not None else None),
                 max_tokens,
+                prefer_local_compaction=True,
             )
             if (
                 self.supports_native_compaction(model)

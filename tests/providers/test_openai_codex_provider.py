@@ -756,7 +756,66 @@ async def test_codex_replayed_tool_turn_omits_server_item_ids(monkeypatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_codex_compacts_state_at_ninety_percent_before_next_request(
+async def test_codex_defers_native_compaction_below_local_input_boundary(
+    monkeypatch,
+) -> None:
+    _mock_codex_token(monkeypatch)
+    provider = OpenAICodexProvider(default_model="openai-codex/gpt-5.6-sol")
+    state_provider = provider._responses_state_provider()
+    state = build_responses_state(
+        provider=state_provider,
+        model="gpt-5.6-sol",
+        input_items=[{"type": "message", "role": "user", "content": "old question"}],
+        output_items=[{"type": "reasoning", "encrypted_content": "old reasoning"}],
+        usage=provider_base.LLMUsage.reported(input_tokens=919_724, output_tokens=0),
+    )
+    bodies: list[dict[str, Any]] = []
+
+    async def fake_request(
+        url,
+        headers,
+        body,
+        verify,
+        proxy=None,
+        on_content_delta=None,
+        on_thinking_delta=None,
+        on_tool_call_delta=None,
+    ):
+        _ = (
+            url,
+            headers,
+            verify,
+            proxy,
+            on_content_delta,
+            on_thinking_delta,
+            on_tool_call_delta,
+        )
+        bodies.append(body)
+        return provider_base.LLMResponse(content="done")
+
+    monkeypatch.setattr(
+        "nanobot.providers.openai_codex_provider._request_codex",
+        fake_request,
+    )
+
+    response = await provider.chat_with_retry(
+        [{"role": "user", "content": "new question"}],
+        max_tokens=50_000,
+        provider_context=provider_base.ProviderCallContext(
+            conversation_state=state.with_pending_messages([
+                {"role": "user", "content": "new question"},
+            ]),
+            context_window_tokens=1_000_000,
+        ),
+    )
+
+    assert response.content == "done"
+    assert len(bodies) == 1
+    assert bodies[0]["input"][-1] != {"type": "compaction_trigger"}
+
+
+@pytest.mark.asyncio
+async def test_codex_compacts_state_at_local_input_boundary_before_next_request(
     monkeypatch,
 ) -> None:
     _mock_codex_token(monkeypatch)
@@ -774,7 +833,7 @@ async def test_codex_compacts_state_at_ninety_percent_before_next_request(
                 "content": [{"type": "output_text", "text": "old answer"}],
             },
         ],
-        usage=provider_base.LLMUsage.reported(input_tokens=90, output_tokens=5),
+        usage=provider_base.LLMUsage.reported(input_tokens=948_976, output_tokens=0),
     )
     bodies: list[dict[str, Any]] = []
 
@@ -828,12 +887,12 @@ async def test_codex_compacts_state_at_ninety_percent_before_next_request(
             {"role": "system", "content": "system"},
             {"role": "user", "content": "new question"},
         ],
-        max_tokens=5,
+        max_tokens=50_000,
         provider_context=provider_base.ProviderCallContext(
             conversation_state=state.with_pending_messages([
                 {"role": "user", "content": "new question"},
             ]),
-            context_window_tokens=100,
+            context_window_tokens=1_000_000,
         ),
     )
 

@@ -14,6 +14,7 @@ RESPONSES_STATE_KIND = "openai_responses"
 RESPONSES_STATE_VERSION = 1
 _ITEMS_KEY = "items"
 _CONTEXT_TOKENS_KEY = "context_tokens"
+_LOCAL_COMPACTION_SAFETY_BUFFER = 1024
 _COMPACTION_ITEM_TYPES = frozenset({
     "compaction",
     "compaction_summary",
@@ -150,12 +151,21 @@ def responses_state_context_tokens(state: ProviderConversationState) -> int:
 def resolve_compact_threshold(
     context_window_tokens: int | None,
     max_output_tokens: int,
+    *,
+    prefer_local_compaction: bool = False,
 ) -> int | None:
-    """Derive Codex-compatible 90% compaction headroom for a model window."""
+    """Derive native compaction headroom for a model window.
+
+    Agent sessions can defer provider-native compaction until the local input
+    budget boundary.  Local governance runs first and retains its configured
+    recent-history suffix; the native trigger remains a final safety net.
+    """
     if context_window_tokens is None or context_window_tokens <= 0:
         return None
     ninety_percent = max(1, context_window_tokens * 9 // 10)
     output_headroom = max(1, context_window_tokens - max(1, max_output_tokens))
+    if prefer_local_compaction:
+        return max(1, output_headroom - _LOCAL_COMPACTION_SAFETY_BUFFER)
     return min(ninety_percent, output_headroom)
 
 

@@ -814,6 +814,13 @@ class TestResponsesConversationState:
     ):
         assert resolve_compact_threshold(context_window, max_output) == expected
 
+    def test_codex_threshold_defers_to_local_compaction_boundary(self):
+        assert resolve_compact_threshold(
+            1_000_000,
+            50_000,
+            prefer_local_compaction=True,
+        ) == 948_976
+
     def test_compaction_compatibility_recognizes_old_sdk_signature_error(self):
         error = TypeError("create() got an unexpected keyword argument 'context_management'")
         assert is_compaction_compatibility_error(error) is True
