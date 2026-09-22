@@ -11,7 +11,7 @@ it.each([false, true])('cancels obsolete work video when returning idle (loaded=
   const prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
   window.nanobotHost = { companion: { read: async () => prefs, save: async () => prefs, choose: async () => null,
     packs: async () => [],
-    videos: async () => ({ idle: ['idle.mp4'], working: ['work.mp4'], fallback: { idle: ['idle.mp4'], working: ['work.mp4'] }, segment: 'day', error: false }) } };
+    videos: async () => ({ idle: ['idle.mp4'], working: ['work.mp4'], fallback: { idle: ['idle.mp4'], working: ['work.mp4'] }, labels: { 'idle.mp4': '自然呼吸', 'work.mp4': '敲键盘' }, segment: 'day', error: false }) } };
   const client = new NanobotClient({ url: 'ws://unused', reconnect: false });
   let state!: (working: boolean) => void;
   vi.spyOn(client, 'onCompanionState').mockImplementation(handler => { state = handler; return () => {}; });
@@ -20,6 +20,7 @@ it.each([false, true])('cancels obsolete work video when returning idle (loaded=
   await waitFor(() => expect(view.container.querySelector('video[src="idle.mp4"]')).not.toBeNull());
   const originalIdle = view.container.querySelector('video[src="idle.mp4"]')!;
   fireEvent.loadedData(originalIdle);
+  expect(screen.getByText('Idle · 自然呼吸')).toBeInTheDocument();
   act(() => state(true));
   await waitFor(() => expect(view.container.querySelector('video[src="work.mp4"]')).not.toBeNull());
   const obsoleteWork = view.container.querySelector('video[src="work.mp4"]')!;
@@ -48,7 +49,7 @@ it('loads local videos, switches only idle/working, and persists collapse/disabl
   let prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
   const api = { read: vi.fn(async () => prefs), save: vi.fn(async (patch: Partial<CompanionPrefs>) => (prefs = { ...prefs, ...patch })), choose: vi.fn(),
     packs: vi.fn(async () => []),
-    videos: vi.fn(async () => ({ idle: ['idle.mp4'], working: ['work.mp4'], fallback: { idle: ['fallback.mp4', 'other.mp4'], working: ['work.mp4'] }, segment: 'day', error: false })) };
+    videos: vi.fn(async () => ({ idle: ['idle.mp4'], working: ['work.mp4'], fallback: { idle: ['fallback.mp4', 'other.mp4'], working: ['work.mp4'] }, labels: { 'idle.mp4': '自然呼吸', 'work.mp4': '敲键盘', 'fallback.mp4': '整理衣领', 'other.mp4': '轻拂发丝' }, segment: 'day', error: false })) };
   window.nanobotHost = { companion: api };
   const client = new NanobotClient({ url: 'ws://unused', reconnect: false });
   let run!: (id: string, time: number | null) => void;

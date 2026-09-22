@@ -32,23 +32,37 @@ function normalize(raw = {}) {
 function createCompanion({ store, bundledRoot, dialog }) {
   let chosenDirectory; let saving = Promise.resolve();
   const files = new Map();
+  async function manifestMetadata(folder, fallbackDisplayName = '') {
+    let displayName = fallbackDisplayName;
+    const actionLabels = {};
+    try {
+      const manifestPath = path.join(folder, 'manifest.json');
+      const info = await stat(manifestPath);
+      if (!info.isFile() || info.size > 64 * 1024) return { displayName, actionLabels };
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      if (typeof manifest.displayName === 'string' && manifest.displayName.trim()) {
+        displayName = manifest.displayName.trim().slice(0, 100);
+      }
+      if (manifest.actionLabels && typeof manifest.actionLabels === 'object') {
+        for (const [action, label] of Object.entries(manifest.actionLabels)) {
+          if (/^[^/\\]{1,100}$/.test(action) && typeof label === 'string' && label.trim()) {
+            actionLabels[action] = label.trim().slice(0, 100);
+          }
+        }
+      }
+    } catch { /* Metadata is optional. */ }
+    return { displayName, actionLabels };
+  }
   const isPack = async folder => (await stat(path.join(folder, 'idle')).catch(() => null))?.isDirectory()
     && (await stat(path.join(folder, 'working')).catch(() => null))?.isDirectory();
   async function packInfo(folder, id) {
     if (!await isPack(folder)) return null;
     const root = await realpath(folder);
-    let displayName = id === '.' ? path.basename(root) : id;
-    try {
-      const manifestPath = path.join(root, 'manifest.json');
-      const info = await stat(manifestPath);
-      if (info.isFile() && info.size <= 64 * 1024) {
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-        if (typeof manifest.displayName === 'string' && manifest.displayName.trim()) {
-          displayName = manifest.displayName.trim().slice(0, 100);
-        }
-      }
-    } catch { /* Use the directory name when metadata is absent or invalid. */ }
-    return { id, displayName, root };
+    const { displayName, actionLabels } = await manifestMetadata(
+      root,
+      id === '.' ? path.basename(root) : id,
+    );
+    return { id, displayName, root, actionLabels };
   }
   async function discover(root) {
     const canonicalRoot = await realpath(root);
@@ -108,7 +122,7 @@ function createCompanion({ store, bundledRoot, dialog }) {
     if (root !== chosenDirectory && root !== savedRoot) throw new Error('Choose a video folder using the desktop dialog');
     return (await discover(root)).map(({ id, displayName }) => ({ id, displayName }));
   }
-  async function list(folder, root, prefix = '') {
+  async function list(folder, root, prefix = '', labels = {}, actionLabels = {}) {
     try {
       const canonicalRoot = await realpath(root);
       const results = [];
@@ -116,28 +130,34 @@ function createCompanion({ store, bundledRoot, dialog }) {
         if (!item.isFile() || !/\.(mp4|webm|mov)$/i.test(item.name) || !item.name.startsWith(prefix)) continue;
         const file = await realpath(path.join(folder, item.name));
         if (!file.startsWith(canonicalRoot + path.sep)) continue;
+        const action = path.basename(item.name, path.extname(item.name)).slice(prefix.length);
+        const label = actionLabels[action];
+        if (!label) continue;
         const id = createHash('sha256').update(file).digest('hex');
         files.set(id, { file, root: canonicalRoot });
-        results.push(`nanobot://desktop/companion-video/${id}`);
+        const url = `nanobot://desktop/companion-video/${id}`;
+        labels[url] = label;
+        results.push(url);
       }
       return results.sort();
     } catch { return []; }
   }
   async function videos(now = new Date()) {
     const prefs = await read(); const segment = timeSegment(now, prefs.schedule);
-    let root = ''; let error = false;
+    let root = ''; let actionLabels = {}; let error = false;
+    const bundledLabels = (await manifestMetadata(bundledRoot)).actionLabels;
     if (prefs.directory) {
       const available = await discover(prefs.directory).catch(() => []);
       const selected = available.find(pack => pack.id === prefs.scene)
         ?? (!prefs.scene && available.length === 1 ? available[0] : null);
-      if (selected) root = selected.root;
+      if (selected) { root = selected.root; actionLabels = selected.actionLabels; }
       else error = true;
     }
-    const result = { idle: [], working: [], fallback: {}, segment, error };
+    const result = { idle: [], working: [], fallback: {}, labels: {}, segment, error };
     for (const mode of ['idle', 'working']) {
-      if (root) result[mode] = await list(path.join(root, mode, segment), root);
-      if (!result[mode].length && root) result[mode] = await list(path.join(root, mode), root);
-      result.fallback[mode] = await list(bundledRoot, bundledRoot, mode === 'working' ? '工作-' : '待机-');
+      if (root) result[mode] = await list(path.join(root, mode, segment), root, '', result.labels, actionLabels);
+      if (!result[mode].length && root) result[mode] = await list(path.join(root, mode), root, '', result.labels, actionLabels);
+      result.fallback[mode] = await list(bundledRoot, bundledRoot, mode === 'working' ? '工作-' : '待机-', result.labels, bundledLabels);
       if (!result[mode].length) result[mode] = result.fallback[mode];
     }
     return result;

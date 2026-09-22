@@ -13,8 +13,10 @@ test('本地资源只通过清单 URL 读取，支持 Range 和场景时段回�
     const bundledRoot = path.join(root, 'bundled');
     const pack = path.join(root, 'scene');
     for (const folder of [bundledRoot, path.join(pack, 'idle', 'day'), path.join(pack, 'working')]) await fs.mkdir(folder, { recursive: true });
+    await fs.writeFile(path.join(bundledRoot, 'manifest.json'), JSON.stringify({ actionLabels: { 呼吸: '自然呼吸' } }));
     await fs.writeFile(path.join(bundledRoot, '待机-呼吸.mp4'), '0123456789');
     await fs.writeFile(path.join(bundledRoot, '工作-思考中.mp4'), 'work');
+    await fs.writeFile(path.join(pack, 'manifest.json'), JSON.stringify({ actionLabels: { scene: '窗边静坐' } }));
     await fs.writeFile(path.join(pack, 'idle', 'day', 'scene.mp4'), 'scene');
     const api = createCompanion({ store, bundledRoot, dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [pack] }) } });
     assert.equal((await api.read()).enabled, false);
@@ -27,6 +29,8 @@ test('本地资源只通过清单 URL 读取，支持 Range 和场景时段回�
     assert.equal(videos.segment, 'day');
     assert.equal(videos.idle.length, 1);
     assert.notEqual(videos.idle[0], videos.fallback.idle[0]);
+    assert.equal(videos.labels[videos.idle[0]], '窗边静坐');
+    assert.equal(videos.labels[videos.fallback.idle[0]], '自然呼吸');
     assert.deepEqual(videos.working, videos.fallback.working);
     store.set('avatarCompanion.videoDirectory', '');
     assert.equal((await api.read()).directory, '');
@@ -57,8 +61,8 @@ test('父目录场景读取 displayName，支持刷新并保存实际使用组',
     const glasshouse = path.join(collection, 'glasshouse');
     const lakeside = path.join(collection, 'lakeside');
     for (const folder of [bundledRoot, path.join(glasshouse, 'idle', 'day'), path.join(glasshouse, 'working'), path.join(lakeside, 'idle', 'day'), path.join(lakeside, 'working')]) await fs.mkdir(folder, { recursive: true });
-    await fs.writeFile(path.join(glasshouse, 'manifest.json'), JSON.stringify({ id: 'glasshouse', displayName: '白玉玻璃花房' }));
-    await fs.writeFile(path.join(lakeside, 'manifest.json'), JSON.stringify({ id: 'lakeside', displayName: '白玉湖畔露台' }));
+    await fs.writeFile(path.join(glasshouse, 'manifest.json'), JSON.stringify({ id: 'glasshouse', displayName: '白玉玻璃花房', actionLabels: { glass: '玻璃花房待机' } }));
+    await fs.writeFile(path.join(lakeside, 'manifest.json'), JSON.stringify({ id: 'lakeside', displayName: '白玉湖畔露台', actionLabels: { lake: '湖畔待机' } }));
     await fs.writeFile(path.join(glasshouse, 'idle', 'day', 'glass.mp4'), 'glass');
     await fs.writeFile(path.join(lakeside, 'idle', 'day', 'lake.mp4'), 'lake');
     const api = createCompanion({ store, bundledRoot, dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [collection] }) } });
@@ -71,6 +75,7 @@ test('父目录场景读取 displayName，支持刷新并保存实际使用组',
     await api.save({ directory: selected, scene: 'lakeside' });
     assert.equal((await api.read()).scene, 'lakeside');
     const videos = await api.videos(new Date(2026, 8, 19, 12));
+    assert.equal(videos.labels[videos.idle[0]], '湖畔待机');
     const response = await api.serve(new Request(videos.idle[0]));
     assert.equal(await response.text(), 'lake');
 

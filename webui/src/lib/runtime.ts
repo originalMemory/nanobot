@@ -73,6 +73,7 @@ export interface CompanionVideos {
   idle: string[];
   working: string[];
   fallback: Record<"idle" | "working", string[]>;
+  labels: Record<string, string>;
   segment: string;
   error: boolean;
 }

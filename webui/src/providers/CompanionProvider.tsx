@@ -82,10 +82,11 @@ export function CompanionProvider({ children }: { children: ReactNode }) {
   </Context.Provider>;
 }
 
-function CompanionVideo({ videos, mode, onAspectRatio }: {
+function CompanionVideo({ videos, mode, onAspectRatio, onActionChange }: {
   videos: CompanionVideos;
   mode: Mode;
   onAspectRatio: (ratio: number) => void;
+  onActionChange: (action: string) => void;
 }) {
   const { t } = useTranslation();
   const [sources, setSources] = useState<[string, string]>(["", ""]);
@@ -103,19 +104,21 @@ function CompanionVideo({ videos, mode, onAspectRatio }: {
   const previousMode = useRef<Mode | null>(null);
   const pending = useRef<{ layer: number; url: string; fade: boolean } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const signature = JSON.stringify([videos[mode], videos.fallback[mode]]);
+  const signature = JSON.stringify([videos[mode], videos.fallback[mode], videos.labels]);
   useEffect(() => { bad.current.clear(); }, [signature]);
+  useEffect(() => () => onActionChange(""), [onActionChange]);
   useEffect(() => {
     pending.current = null;
     if (timer.current) clearTimeout(timer.current);
-    const [pool, fallback] = JSON.parse(signature) as [string[], string[]];
+    const [pool, fallback, labels] = JSON.parse(signature) as [string[], string[], Record<string, string>];
     let candidates = pool.filter(url => !bad.current.has(url));
     if (!candidates.length) candidates = fallback.filter(url => !bad.current.has(url));
     setLoop(candidates.length === 1);
     const url = pickCompanionVideo(candidates, recent.current, current.current);
-    if (!url) { setFailed(true); return; }
+    if (!url) { setFailed(true); onActionChange(""); return; }
     setFailed(false);
     if (url === current.current && !ended.current) {
+      onActionChange(labels[url] ?? "");
       previousMode.current = mode;
       setFade(false);
       setSources(old => activeLayer.current === 0 ? [old[0], ""] : ["", old[1]]);
@@ -128,7 +131,7 @@ function CompanionVideo({ videos, mode, onAspectRatio }: {
     previousMode.current = mode;
     setLoadVersions(old => old.map((value, index) => index === layer ? value + 1 : value));
     setSources(old => layer === 0 ? [url, old[1]] : [old[0], url]);
-  }, [signature, mode, retry]);
+  }, [signature, mode, onActionChange, retry]);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const ready = (layer: number, url: string, video: HTMLVideoElement) => {
     const next = pending.current;
@@ -139,6 +142,7 @@ function CompanionVideo({ videos, mode, onAspectRatio }: {
     }
     recent.current = [...recent.current, url].slice(-3);
     activeLayer.current = layer; setActive(layer); setFade(next.fade);
+    onActionChange(videos.labels[url] ?? "");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => { setSources(old => layer === 0 ? [old[0], ""] : ["", old[1]]); setFade(false); }, next.fade ? 350 : 0);
   };
@@ -154,6 +158,7 @@ function CompanionVideo({ videos, mode, onAspectRatio }: {
 function CompanionPanel({ prefs, videos, mode, save }: { prefs: CompanionPrefs; videos: CompanionVideos | null; mode: Mode; save: (patch: Partial<CompanionPrefs>) => Promise<boolean> }) {
   const { t } = useTranslation();
   const [aspectRatio, setAspectRatio] = useState(4 / 3);
+  const [action, setAction] = useState("");
   const clamp = useCallback((value: Panel) => clampCompanionPanel(value, innerWidth, innerHeight,
     document.querySelector<HTMLElement>(".desktop-main")?.getBoundingClientRect().left ?? 0, aspectRatio), [aspectRatio]);
   const [panel, setPanel] = useState(() => clamp(prefs.panel));
@@ -176,10 +181,10 @@ function CompanionPanel({ prefs, videos, mode, save }: { prefs: CompanionPrefs; 
     <div className="companion-panel-header flex h-8 touch-none select-none items-center justify-between bg-background/90 px-2 backdrop-blur cursor-move" tabIndex={0} aria-label={t("companion.move")}
       onPointerDown={event => start(event, null)} onKeyDown={event => { if (event.target !== event.currentTarget || !event.key.startsWith("Arrow")) return; event.preventDefault(); persist({ ...panel, x: (panel.x ?? 0) + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0), y: (panel.y ?? 0) + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0) }); }}>
       <button type="button" title={t(panel.collapsed ? "companion.expand" : "companion.collapse")} aria-label={t(panel.collapsed ? "companion.expand" : "companion.collapse")} onClick={() => persist({ ...panel, collapsed: !panel.collapsed })}>{panel.collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
-      <span className="text-xs text-muted-foreground">{t(`companion.${mode}`)}</span>
+      <span className="text-xs text-muted-foreground">{t(`companion.${mode}`)}{action ? ` · ${action}` : ""}</span>
       <button type="button" title={t("companion.hide")} aria-label={t("companion.hide")} onClick={() => void save({ enabled: false })}><X size={16} /></button>
     </div>
-    {!panel.collapsed && <>{videos ? <CompanionVideo videos={videos} mode={mode} onAspectRatio={setAspectRatio} /> : <div className="bg-muted" style={{ aspectRatio }} />}
+    {!panel.collapsed && <>{videos ? <CompanionVideo videos={videos} mode={mode} onAspectRatio={setAspectRatio} onActionChange={setAction} /> : <div className="bg-muted" style={{ aspectRatio }} />}
       {(["left", "right"] as const).map(edge => <button key={edge} type="button" className={`absolute bottom-0 z-10 h-5 w-5 touch-none bg-transparent ${edge === "left" ? "left-0 cursor-nesw-resize" : "right-0 cursor-nwse-resize"}`} aria-label={t("companion.resize")}
         data-resize-edge={edge} onPointerDown={event => start(event, edge)} onKeyDown={event => { if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return; event.preventDefault(); resizeWithKeyboard(edge, event.key === 'ArrowRight' ? 20 : -20); }} />)}
     </>}

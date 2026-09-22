@@ -124,4 +124,4 @@ Electron 连接后自动上报桌面状态，不设功能开关，也不定时�
 
 设置概览的“数字伴侣”可开启本地视频面板，默认关闭。只区分待机和工作，不连接 LiveTalking，也不随语音切换说话视频。包含 lover 的 9 个内置视频，支持拖动、缩放、收起以及重启后恢复面板位置。
 
-可选择单个本机场景包，或选择包含多组场景包的父目录；多组目录会读取各自 `manifest.json` 的 `displayName`，通过下拉列表选择实际播放的场景，并可手动刷新列表。场景包包含 idle/sunrise、idle/day、idle/sunset、idle/night，以及对应 working 目录；开始时间可在设置中修改。缺少或损坏素材时回退到内置视频。素材只读，界面不接收任意文件路径；隐藏/收起面板后卸载视频。
+可选择单个本机场景包，或选择包含多组场景包的父目录；多组目录会读取各自 `manifest.json` 的 `displayName`，通过下拉列表选择实际播放的场景，并可手动刷新列表。场景包包含 idle/sunrise、idle/day、idle/sunset、idle/night，以及对应 working 目录；开始时间可在设置中修改。`manifest.json` 使用 `actionLabels` 将不含扩展名的文件名映射为标题动作，例如 `{"actionLabels":{"breathing":"自然呼吸"}}`。缺少或损坏素材时回退到内置视频。素材只读，界面不接收任意文件路径；隐藏/收起面板后卸载视频。
