@@ -2233,6 +2233,7 @@ def test_heartbeat_message_keeps_full_text_and_attaches_summary_voice(
         encoding="utf-8",
     )
     bus = MagicMock()
+    bus.publish_event = AsyncMock()
     bus.publish_outbound = AsyncMock()
     sessions = SessionManager(config.workspace_path)
     unified = sessions.get_or_create(UNIFIED_SESSION_KEY)
@@ -2365,6 +2366,14 @@ def test_heartbeat_message_keeps_full_text_and_attaches_summary_voice(
     assert saved["latency_ms"] == 250
     assert saved["response_model"] == "test-model"
     assert "_heartbeat_delivery_turn_id" not in saved
+    from nanobot.bus.outbound_events import SessionUpdatedEvent
+    from nanobot.webui.session_identity import DESKTOP_CHAT_ID
+
+    bus.publish_event.assert_awaited_with(
+        SessionUpdatedEvent(scope="thread"),
+        channel="websocket",
+        chat_id=DESKTOP_CHAT_ID,
+    )
     concurrent_messages = sessions.get_or_create("telegram:u1").messages
     assert "voice" not in next(item for item in concurrent_messages if item.get("content") == "并发消息")
 

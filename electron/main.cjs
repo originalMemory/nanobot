@@ -11,6 +11,7 @@ const { readWindowState, trackWindowState } = require('./window-state.cjs');
 const { createDesktopContext } = require('./desktop-context.cjs');
 const { SystemMediaController } = require('./system-media.cjs');
 const { createCompanion } = require('./companion.cjs');
+const { createStreamDiagnostics } = require('./stream-diagnostics.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'nanobot', privileges: {
   standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true,
@@ -19,6 +20,7 @@ app.setName('Nanobot');
 // 升级沿用同一个应用数据目录；测试仍可显式指定临时目录。
 app.setPath('userData', process.env.NANOBOT_DESKTOP_DATA_DIR || path.join(app.getPath('appData'), 'Nanobot'));
 const store = new Store();
+const streamDiagnostic = createStreamDiagnostics(path.join(app.getPath('userData'), 'logs'));
 
 let window;
 let desktop;
@@ -111,6 +113,12 @@ function makeWindow(webSession) {
   next.webContents.on('will-redirect', guard);
   next.webContents.on('will-attach-webview', (event) => event.preventDefault());
   const owner = next.webContents;
+  owner.on('console-message', (details) => {
+    const prefix = '[nanobot-stream] ';
+    if (typeof details?.message !== 'string' || !details.message.startsWith(prefix)) return;
+    try { streamDiagnostic({ ...JSON.parse(details.message.slice(prefix.length)), windowId: next.id }); }
+    catch { /* Ignore malformed diagnostic lines. */ }
+  });
   const sendWindowState = () => owner.send('desktop:window-state', next.isMaximized());
   next.on('maximize', sendWindowState);
   next.on('unmaximize', sendWindowState);
@@ -197,10 +205,10 @@ if (!app.requestSingleInstanceLock()) {
     if (app.dock) app.dock.setIcon(appIcon);
     desktop = installDesktop({ store, getWindow: () => window, showWindow });
     companion = createCompanion({ store, bundledRoot: path.join(__dirname, 'avatar-videos'), dialog });
-    for (const action of ['read', 'save', 'choose', 'videos']) {
+    for (const action of ['read', 'save', 'choose', 'packs', 'videos']) {
       ipcMain.handle(`desktop:companion-${action}`, (event, value) => {
         trustedChat(event);
-        if (action === 'save') return companion.save(value);
+        if (action === 'save' || action === 'packs') return companion[action](value);
         return companion[action]();
       });
     }
@@ -296,11 +304,22 @@ if (!app.requestSingleInstanceLock()) {
         }
       };
       const unsubscribeDesktop = desktopContext.subscribe(sendDesktopState);
-      socket.addEventListener('open', () => { sendDesktopState(desktopContext.status()); emit({ type: 'open' }); });
+      socket.addEventListener('open', () => {
+        streamDiagnostic({ event: 'transport.open', socketId: id });
+        sendDesktopState(desktopContext.status()); emit({ type: 'open' });
+      });
       socket.addEventListener('message', (message) => {
         if (typeof message.data === 'string') {
           let frame;
           try { frame = JSON.parse(message.data); } catch { /* 非 JSON 帧仍交给原客户端。 */ }
+          if (['message_accepted', 'goal_status', 'stream_end', 'turn_end', 'error'].includes(frame?.event)) {
+            streamDiagnostic({
+              event: 'transport.event', socketId: id, wireEvent: frame.event,
+              chatId: frame.chat_id, turnId: frame.turn_id, streamId: frame.stream_id,
+              status: frame.status, resuming: frame.resuming, mergeNext: frame.merge_next,
+              outcome: frame.outcome, detail: frame.detail, reason: frame.reason,
+            });
+          }
           if (frame?.event === 'desktop_context_request') {
             if (window?.webContents !== owner || typeof frame.request_id !== 'string' || !/^[a-f0-9]{32}$/.test(frame.request_id)) return;
             void desktopContext.capture().then((result) => {
@@ -316,6 +335,7 @@ if (!app.requestSingleInstanceLock()) {
       });
       socket.addEventListener('error', () => emit({ type: 'error', message: 'WebSocket 连接失败' }));
       socket.addEventListener('close', (close) => {
+        streamDiagnostic({ event: 'transport.close', socketId: id, code: close.code });
         if (window?.webContents === owner) desktop.disconnected();
         unsubscribeDesktop();
         sockets.delete(id); emit({ type: 'close', code: close.code, reason: close.reason });

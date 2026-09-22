@@ -8,8 +8,9 @@ import type { CompanionPrefs } from "@/lib/runtime";
 afterEach(() => { delete window.nanobotHost; vi.restoreAllMocks(); });
 
 it.each([false, true])('cancels obsolete work video when returning idle (loaded=%s)', async (loaded) => {
-  const prefs: CompanionPrefs = { enabled: true, directory: '', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
+  const prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
   window.nanobotHost = { companion: { read: async () => prefs, save: async () => prefs, choose: async () => null,
+    packs: async () => [],
     videos: async () => ({ idle: ['idle.mp4'], working: ['work.mp4'], fallback: { idle: ['idle.mp4'], working: ['work.mp4'] }, segment: 'day', error: false }) } };
   const client = new NanobotClient({ url: 'ws://unused', reconnect: false });
   let state!: (working: boolean) => void;
@@ -44,8 +45,9 @@ it('keeps the panel visible after resize and avoids immediate video repeats', ()
 });
 
 it('loads local videos, switches only idle/working, and persists collapse/disable', async () => {
-  let prefs: CompanionPrefs = { enabled: true, directory: '', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
+  let prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
   const api = { read: vi.fn(async () => prefs), save: vi.fn(async (patch: Partial<CompanionPrefs>) => (prefs = { ...prefs, ...patch })), choose: vi.fn(),
+    packs: vi.fn(async () => []),
     videos: vi.fn(async () => ({ idle: ['idle.mp4'], working: ['work.mp4'], fallback: { idle: ['fallback.mp4', 'other.mp4'], working: ['work.mp4'] }, segment: 'day', error: false })) };
   window.nanobotHost = { companion: api };
   const client = new NanobotClient({ url: 'ws://unused', reconnect: false });
@@ -81,4 +83,29 @@ it('loads local videos, switches only idle/working, and persists collapse/disabl
   fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull());
   expect(prefs.enabled).toBe(false);
+});
+
+it('loads scene display names, refreshes them, and saves the selected pack', async () => {
+  let prefs: CompanionPrefs = { enabled: false, directory: '/videos', scene: 'glasshouse', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
+  const api = {
+    read: vi.fn(async () => prefs),
+    save: vi.fn(async (patch: Partial<CompanionPrefs>) => (prefs = { ...prefs, ...patch })),
+    choose: vi.fn(async () => '/videos'),
+    packs: vi.fn(async () => [
+      { id: 'glasshouse', displayName: '白玉玻璃花房' },
+      { id: 'lakeside', displayName: '白玉湖畔露台' },
+    ]),
+    videos: vi.fn(),
+  };
+  window.nanobotHost = { companion: api };
+  const client = new NanobotClient({ url: 'ws://unused', reconnect: false });
+  render(<ClientProvider client={client} token="test"><CompanionSettings /></ClientProvider>);
+
+  const scene = await screen.findByRole('combobox', { name: 'Video scene' });
+  fireEvent.click(scene);
+  fireEvent.click(await screen.findByText('白玉湖畔露台'));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh scene list' }));
+  await waitFor(() => expect(api.packs).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ scene: 'lakeside' })));
 });

@@ -47,3 +47,35 @@ test('本地资源只通过清单 URL 读取，支持 Range 和场景时段回�
     assert.equal(timeSegment(new Date(2026, 8, 19, 2)), 'night');
   } finally { assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep + "nanobot-companion-")); await fs.rm(root, { recursive: true, force: true }); }
 });
+
+test('父目录场景读取 displayName，支持刷新并保存实际使用组', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nanobot-companion-'));
+  try {
+    const store = new Store({ cwd: root, projectVersion: '0.3.5' });
+    const bundledRoot = path.join(root, 'bundled');
+    const collection = path.join(root, 'videos');
+    const glasshouse = path.join(collection, 'glasshouse');
+    const lakeside = path.join(collection, 'lakeside');
+    for (const folder of [bundledRoot, path.join(glasshouse, 'idle', 'day'), path.join(glasshouse, 'working'), path.join(lakeside, 'idle', 'day'), path.join(lakeside, 'working')]) await fs.mkdir(folder, { recursive: true });
+    await fs.writeFile(path.join(glasshouse, 'manifest.json'), JSON.stringify({ id: 'glasshouse', displayName: '白玉玻璃花房' }));
+    await fs.writeFile(path.join(lakeside, 'manifest.json'), JSON.stringify({ id: 'lakeside', displayName: '白玉湖畔露台' }));
+    await fs.writeFile(path.join(glasshouse, 'idle', 'day', 'glass.mp4'), 'glass');
+    await fs.writeFile(path.join(lakeside, 'idle', 'day', 'lake.mp4'), 'lake');
+    const api = createCompanion({ store, bundledRoot, dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [collection] }) } });
+
+    const selected = await api.choose();
+    assert.deepEqual(await api.packs(selected), [
+      { id: 'glasshouse', displayName: '白玉玻璃花房' },
+      { id: 'lakeside', displayName: '白玉湖畔露台' },
+    ]);
+    await api.save({ directory: selected, scene: 'lakeside' });
+    assert.equal((await api.read()).scene, 'lakeside');
+    const videos = await api.videos(new Date(2026, 8, 19, 12));
+    const response = await api.serve(new Request(videos.idle[0]));
+    assert.equal(await response.text(), 'lake');
+
+    await fs.writeFile(path.join(lakeside, 'manifest.json'), JSON.stringify({ id: 'lakeside', displayName: '湖畔新名称' }));
+    assert.equal((await api.packs(selected))[1].displayName, '湖畔新名称');
+    await assert.rejects(api.save({ scene: 'missing' }), /available video scene/);
+  } finally { assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep + "nanobot-companion-")); await fs.rm(root, { recursive: true, force: true }); }
+});

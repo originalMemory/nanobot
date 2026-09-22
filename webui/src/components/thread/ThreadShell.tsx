@@ -24,6 +24,7 @@ import { ThreadViewport, type ThreadViewportHandle } from "@/components/thread/T
 import { useChatModelPreset } from "@/hooks/useChatModelPreset";
 import { useNanobotStream, type SendAttachment, type SendOptions } from "@/hooks/useNanobotStream";
 import { useSessionHistory } from "@/hooks/useSessions";
+import { streamDiagnostic } from "@/lib/stream-diagnostics";
 import {
   ApiError,
   fetchFilePreviewAvailability,
@@ -904,6 +905,22 @@ export function ThreadShell({
   const canonicalRunTurnId = chatId && messagesReady && turnActive
     ? client.getRunTurnId(chatId)
     : null;
+  const streamingMessageCount = displayMessages.reduce(
+    (count, message) => count + (message.isStreaming ? 1 : 0),
+    0,
+  );
+  useEffect(() => {
+    streamDiagnostic("ui.stream-state", {
+      chatId, messagesReady, isStreaming, runStartedAt, turnActive,
+      streamingMessageCount, messageCount: displayMessages.length,
+      hasPendingToolCalls, historyActiveTurnId, historyVersion,
+      clientTurnId: chatId ? client.getRunTurnId(chatId) : null,
+      clientStartedAt: chatId ? client.getRunStartedAt(chatId) : null,
+      recoveryStatus: recoveryState?.status,
+    });
+  }, [chatId, client, displayMessages.length, hasPendingToolCalls,
+    historyActiveTurnId, historyVersion, isStreaming, messagesReady,
+    recoveryState?.status, runStartedAt, streamingMessageCount, turnActive]);
   const viewportTurnId = messagesReady && turnActive
     ? canonicalRunTurnId
       ?? rememberedViewportTurnId

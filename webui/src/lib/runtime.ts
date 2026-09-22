@@ -61,8 +61,13 @@ export interface DesktopTrayApi {
 export interface CompanionPrefs {
   enabled: boolean;
   directory: string;
+  scene: string;
   schedule: Record<"sunrise" | "day" | "sunset" | "night", string>;
   panel: { x: number | null; y: number | null; width: number; collapsed: boolean };
+}
+export interface CompanionPack {
+  id: string;
+  displayName: string;
 }
 export interface CompanionVideos {
   idle: string[];
@@ -75,6 +80,7 @@ export interface CompanionApi {
   read(): Promise<CompanionPrefs>;
   save(patch: Partial<CompanionPrefs>): Promise<CompanionPrefs>;
   choose(): Promise<string | null>;
+  packs(directory: string): Promise<CompanionPack[]>;
   videos(): Promise<CompanionVideos>;
 }
 

@@ -834,6 +834,14 @@ def _run_gateway(
                     except ValueError:
                         logger.warning("Heartbeat: voice unavailable; text delivered")
                 session_manager.save(session)
+                from nanobot.bus.outbound_events import SessionUpdatedEvent
+                from nanobot.webui.session_identity import DESKTOP_CHAT_ID
+
+                await bus.publish_event(
+                    SessionUpdatedEvent(scope="thread"),
+                    channel="websocket",
+                    chat_id=DESKTOP_CHAT_ID,
+                )
             return response
 
         if is_bound_cron_job(job):

@@ -671,7 +671,7 @@ class WebuiTurnCoordinator:
         mark_webui_session(session, event.context.metadata)
 
     async def _handle_run_status_changed(self, event: TurnRunStatusChanged) -> None:
-        if not self._is_websocket_event(event.context):
+        if not self._is_websocket_event(event.context) or event.context.session_key == "heartbeat":
             return
         await publish_turn_run_status(
             self.bus,

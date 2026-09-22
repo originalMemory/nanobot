@@ -1,4 +1,5 @@
 import { decodeNotification } from "../../../packages/client-events/notifications";
+import { streamDiagnostic } from "./stream-diagnostics";
 import type {
   ConnectionStatus,
   InboundEvent,
@@ -1172,6 +1173,18 @@ export class NanobotClient {
       return;
     }
 
+    if (["message_accepted", "goal_status", "stream_end", "turn_end", "error"].includes(parsed.event)) {
+      const row = parsed as InboundEvent & Record<string, unknown>;
+      const chatId = typeof row.chat_id === "string" ? row.chat_id : "";
+      streamDiagnostic("client.receive", {
+        wireEvent: parsed.event, chatId, turnId: row.turn_id, streamId: row.stream_id,
+        status: row.status, resuming: row.resuming, mergeNext: row.merge_next,
+        outcome: row.outcome, detail: row.detail, reason: row.reason,
+        activeTurnId: this.getRunTurnId(chatId), activeStartedAt: this.getRunStartedAt(chatId),
+        generation: this.getRunGeneration(chatId),
+      });
+    }
+
     if (wsInboundDebugEnabled()) {
       console.log("[nanobot ws inbound]", summarizeInboundWsPayload(parsed));
     }
@@ -1344,11 +1357,26 @@ export class NanobotClient {
       ) {
         this.updateChatModelPreset(chatId, parsed.model_preset.trim());
       }
-      if (this.isCanonicalCompletedTurnEvent(chatId, parsed)) return;
+      if (this.isCanonicalCompletedTurnEvent(chatId, parsed)) {
+        streamDiagnostic("client.drop", { reason: "completed-turn", wireEvent: parsed.event, chatId, turnId });
+        return;
+      }
       const supersededRunCompletion = this.isSupersededRunCompletion(chatId, parsed);
       this.recordGoalStatusForRunStrip(chatId, parsed);
-      if (supersededRunCompletion) return;
+      if (supersededRunCompletion) {
+        streamDiagnostic("client.drop", {
+          reason: "superseded-run", wireEvent: parsed.event, chatId, turnId,
+          activeTurnId: this.getRunTurnId(chatId),
+        });
+        return;
+      }
       this.recordGoalStateSnapshot(chatId, parsed);
+      if (["goal_status", "stream_end", "turn_end", "error"].includes(parsed.event)) {
+        streamDiagnostic("client.dispatch", {
+          wireEvent: parsed.event, chatId, turnId,
+          activeTurnId: this.getRunTurnId(chatId), activeStartedAt: this.getRunStartedAt(chatId),
+        });
+      }
       this.dispatch(chatId, parsed);
     }
   }

@@ -39,6 +39,7 @@ if (location.protocol === 'file:') {
       read: () => ipcRenderer.invoke('desktop:companion-read'),
       save: (value) => ipcRenderer.invoke('desktop:companion-save', value),
       choose: () => ipcRenderer.invoke('desktop:companion-choose'),
+      packs: (directory) => ipcRenderer.invoke('desktop:companion-packs', directory),
       videos: () => ipcRenderer.invoke('desktop:companion-videos'),
     },
     voice: {

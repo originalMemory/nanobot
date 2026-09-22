@@ -1,10 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode, type PointerEvent } from "react";
-import { ChevronDown, ChevronUp, X } from "lucide-react";
+import { ChevronDown, ChevronUp, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useClient } from "./ClientProvider";
-import { getRuntimeHost, type CompanionPrefs, type CompanionVideos, type CompanionApi } from "@/lib/runtime";
+import { getRuntimeHost, type CompanionPack, type CompanionPrefs, type CompanionVideos, type CompanionApi } from "@/lib/runtime";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleButton } from "@/components/settings/ToggleButton";
 import { SettingsGroup, SettingsRow, SettingsSectionTitle, RestartSettingsFooter } from "@/components/settings/shared/SettingsControls";
 
@@ -57,7 +58,7 @@ export function CompanionProvider({ children }: { children: ReactNode }) {
     const refresh = () => { void api.videos().then(value => { if (!cancelled) setVideos(value); }).catch(() => { if (!cancelled) setError(true); }); };
     refresh(); const timer = window.setInterval(refresh, 60_000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [api, prefs?.enabled, prefs?.directory, prefs?.schedule, revision]);
+  }, [api, prefs?.enabled, prefs?.directory, prefs?.scene, prefs?.schedule, revision]);
   useEffect(() => {
     if (!api) return;
     const runs = new Set<string>();
@@ -189,17 +190,37 @@ export function CompanionSettings() {
   const context = useContext(Context); const { t } = useTranslation();
   const [draft, setDraft] = useState<CompanionPrefs | null>(null);
   const [chooseError, setChooseError] = useState(false);
-  if (!context) return null;
-  const { prefs, api, saving, error, save, reload, videos } = context;
+  const [packs, setPacks] = useState<CompanionPack[]>([]);
+  const [packsLoading, setPacksLoading] = useState(false);
+  const [packsRevision, setPacksRevision] = useState(0);
+  const api = context?.api;
+  const prefs = context?.prefs ?? null;
   const value = draft ?? prefs;
+  const directory = value?.directory ?? "";
+  useEffect(() => {
+    if (!api || !directory) { setPacks([]); setPacksLoading(false); return; }
+    let cancelled = false;
+    setPacks([]); setPacksLoading(true); setChooseError(false);
+    void api.packs(directory).then(next => {
+      if (!cancelled) { setPacks(next); setChooseError(next.length === 0); }
+    }).catch(() => { if (!cancelled) { setPacks([]); setChooseError(true); } })
+      .finally(() => { if (!cancelled) setPacksLoading(false); });
+    return () => { cancelled = true; };
+  }, [api, directory, packsRevision]);
+  if (!context) return null;
+  const { saving, error, save, reload, videos } = context;
   if (!value) return <section><SettingsSectionTitle>{t("companion.title")}</SettingsSectionTitle><p role={error ? "alert" : "status"} className="text-sm text-muted-foreground">{t(error ? "companion.error" : "settings.desktop.loading")}</p>{error && <Button size="sm" variant="outline" className="rounded-full" onClick={reload}>{t("settings.desktop.retry")}</Button>}</section>;
+  const selectedScene = packs.some(pack => pack.id === value.scene)
+    ? value.scene : packs.length === 1 ? packs[0].id : "";
   return <fieldset disabled={saving} className="settings-stack"><section><SettingsSectionTitle>{t("companion.title")}</SettingsSectionTitle>
     <SettingsGroup>
       <SettingsRow title={t("companion.enable")}><ToggleButton checked={prefs?.enabled ?? false} disabled={saving} onChange={enabled => { void save({ enabled }); }} label={t(`settings.values.${prefs?.enabled ? 'on' : 'off'}`)} ariaLabel={t("companion.enable")} /></SettingsRow>
-      <SettingsRow title={t("companion.directory")} description={t("companion.directoryHelp")}><div className="min-w-0 space-y-2 text-sm"><p className="break-all text-muted-foreground">{value.directory || t("companion.bundled")}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" className="rounded-full" onClick={() => { setChooseError(false); void api.choose().then(directory => { if (directory !== null) setDraft({ ...value, directory }); }).catch(() => setChooseError(true)); }}>{t("companion.choose")}</Button><Button size="sm" variant="ghost" className="rounded-full" disabled={!value.directory} onClick={() => setDraft({ ...value, directory: '' })}>{t("companion.bundled")}</Button></div></div></SettingsRow>
+      <SettingsRow title={t("companion.directory")} description={t("companion.directoryHelp")}><div className="min-w-0 space-y-2 text-sm"><p className="break-all text-muted-foreground">{value.directory || t("companion.bundled")}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" className="rounded-full" onClick={() => { setChooseError(false); void context.api.choose().then(nextDirectory => { if (nextDirectory !== null) setDraft({ ...value, directory: nextDirectory, scene: '' }); }).catch(() => setChooseError(true)); }}>{t("companion.choose")}</Button><Button size="sm" variant="ghost" className="rounded-full" disabled={!value.directory} onClick={() => setDraft({ ...value, directory: '', scene: '' })}>{t("companion.bundled")}</Button></div></div></SettingsRow>
+      {value.directory && <SettingsRow title={t("companion.scene")} description={t("companion.sceneHelp")}><div className="flex min-w-0 items-center gap-2"><Select value={selectedScene} disabled={packsLoading || packs.length === 0} onValueChange={scene => setDraft({ ...value, scene })}><SelectTrigger className="w-full rounded-full" aria-label={t("companion.scene")}><SelectValue placeholder={t("companion.selectScene")} /></SelectTrigger><SelectContent>{packs.map(pack => <SelectItem key={pack.id} value={pack.id}>{pack.displayName}</SelectItem>)}</SelectContent></Select><Button type="button" size="icon" variant="outline" className="shrink-0 rounded-full" disabled={packsLoading} aria-label={t("companion.refresh")} title={t("companion.refresh")} onClick={() => setPacksRevision(current => current + 1)}><RefreshCw className={`h-4 w-4 ${packsLoading ? "animate-spin" : ""}`} /></Button></div></SettingsRow>}
       {Object.entries(value.schedule).map(([period, time]) => <SettingsRow key={period} title={t(`companion.${period}`)}><Input aria-label={t(`companion.${period}`)} type="time" className="h-9 rounded-full text-[13px]" value={time} onChange={event => setDraft({ ...value, schedule: { ...value.schedule, [period]: event.target.value } })} /></SettingsRow>)}
     </SettingsGroup></section>
     <RestartSettingsFooter dirty={Boolean(draft)} saving={saving} pendingRestart={false} error={error || chooseError || Boolean(videos?.error)} message={error || chooseError ? t("companion.error") : videos?.error ? t("companion.fallback") : undefined}
-      onSave={() => { void save({ directory: value.directory, schedule: value.schedule }).then(ok => { if (ok) setDraft(null); }); }} onReset={() => setDraft(null)} />
+      disabled={packsLoading || Boolean(value.directory && !selectedScene)}
+      onSave={() => { void save({ directory: value.directory, scene: selectedScene, schedule: value.schedule }).then(ok => { if (ok) setDraft(null); }); }} onReset={() => setDraft(null)} />
   </fieldset>;
 }

@@ -17,6 +17,7 @@ from nanobot.bus.outbound_events import (
 from nanobot.bus.queue import MessageBus
 from nanobot.bus.runtime_events import (
     RuntimeEventContext,
+    TurnRunStatusChanged,
     TurnRuntimeAdmitted,
     UserInputAccepted,
 )
@@ -154,6 +155,32 @@ async def test_publish_turn_run_status_non_websocket_noop_registry() -> None:
 
     assert wth._WEBSOCKET_TURN_WALL_STARTED_AT == {}
     assert wth._WEBSOCKET_TURN_IDS == {}
+
+
+@pytest.mark.asyncio
+async def test_coordinator_hides_heartbeat_run_status_from_webui(tmp_path) -> None:
+    bus = MessageBus()
+    bus.publish_outbound = AsyncMock()
+    coordinator = wth.WebuiTurnCoordinator(
+        bus=bus,
+        sessions=SessionManager(tmp_path),
+        schedule_background=lambda coro: coro.close(),
+    )
+    coordinator.subscribe()
+
+    await bus.publish(TurnRunStatusChanged(
+        context=RuntimeEventContext(
+            channel="websocket",
+            chat_id="desktop",
+            session_key="heartbeat",
+            metadata={"webui_turn_id": "heartbeat:run-1"},
+        ),
+        status="running",
+        started_at=1234.5,
+    ))
+
+    bus.publish_outbound.assert_not_awaited()
+    assert wth._WEBSOCKET_ACTIVE_TURNS == {}
 
 
 @pytest.mark.asyncio
