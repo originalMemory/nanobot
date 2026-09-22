@@ -86,11 +86,16 @@
       "restartAction": "Restart",
       "restart": "Restart nanobot",
       "restarting": "Restarting...",
+      "update": "Update and restart",
+      "updating": "Updating...",
       "restartEngine": "Restart engine",
       "restartingEngine": "Restarting engine..."
     },
     "restart": {
       "completed": "Restart completed in {{seconds}}s."
+    },
+    "update": {
+      "failed": "Update did not restart nanobot. Check the backend logs."
     },
     "documentTitle": {
       "base": "nanobot",

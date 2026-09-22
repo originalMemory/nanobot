@@ -11,6 +11,7 @@ import {
   FolderOpen,
   BookOpen,
   CalendarClock,
+  Download,
   MessageCircle,
   Loader2,
   PanelLeftClose,
@@ -74,6 +75,8 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onRestart?: () => void;
   isRestarting?: boolean;
+  onUpdate?: () => void;
+  isUpdating?: boolean;
   onOpenApps: () => void;
   onOpenSkills: () => void;
   onOpenWorkspace?: () => void;
@@ -384,14 +387,27 @@ export function Sidebar(props: SidebarProps) {
           /> : null}
         </div>
         <ConnectionBadge />
-        {getRuntimeHost().quit ? <SidebarActionButton
-          collapsed={collapsed}
-          iconOnly
-          label={t("sidebar.quit")}
-          className="w-9 hover:text-destructive"
-          icon={<Power className="h-4 w-4" />}
-          onClick={() => { void getRuntimeHost().quit?.(); }}
-        /> : null}
+        <div className={cn("flex items-center gap-1", collapsed && "flex-col")}>
+          {props.onUpdate ? <SidebarActionButton
+            collapsed={collapsed}
+            iconOnly
+            disabled={props.isUpdating || props.isRestarting}
+            label={t(props.isUpdating ? "app.system.updating" : "app.system.update")}
+            className="w-9"
+            icon={props.isUpdating
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Download className="h-4 w-4" />}
+            onClick={props.onUpdate}
+          /> : null}
+          {getRuntimeHost().quit ? <SidebarActionButton
+            collapsed={collapsed}
+            iconOnly
+            label={t("sidebar.quit")}
+            className="w-9 hover:text-destructive"
+            icon={<Power className="h-4 w-4" />}
+            onClick={() => { void getRuntimeHost().quit?.(); }}
+          /> : null}
+        </div>
       </div>
     </nav>
     </TooltipProvider>

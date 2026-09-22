@@ -1189,6 +1189,7 @@ function Shell({
   const restartSawDisconnectRef = useRef(false);
   const [restartToast, setRestartToast] = useState<string | null>(null);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [pairingRequests, setPairingRequests] = useState<PairingRequestInfo[]>([]);
   const [pairingBusyCode, setPairingBusyCode] = useState<string | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
@@ -2181,6 +2182,46 @@ function Shell({
     void client.sendSystemCommand(chatId, "/restart").catch(() => {});
   }, [activeSession?.chatId, client]);
 
+  const onUpdate = useCallback(() => {
+    const chatId = activeSession?.chatId ?? client.defaultChatId;
+    if (!chatId) return;
+    restartSawDisconnectRef.current = false;
+    setIsUpdating(true);
+    setIsRestarting(true);
+    rememberRestartRoute();
+    try {
+      window.localStorage.setItem(RESTART_STARTED_KEY, String(Date.now()));
+    } catch {
+      // ignore storage errors
+    }
+    void client.sendSystemCommand(chatId, "/update", 300_000).then(() => {
+      window.setTimeout(() => {
+        if (restartSawDisconnectRef.current || client.status !== "open") return;
+        try {
+          window.localStorage.removeItem(RESTART_STARTED_KEY);
+          window.localStorage.removeItem(RESTART_ROUTE_KEY);
+        } catch {
+          // ignore storage errors
+        }
+        setIsUpdating(false);
+        setIsRestarting(false);
+        setRestartToast(t("app.update.failed"));
+        window.setTimeout(() => setRestartToast(null), 3_500);
+      }, 3_000);
+    }).catch(() => {
+      try {
+        window.localStorage.removeItem(RESTART_STARTED_KEY);
+        window.localStorage.removeItem(RESTART_ROUTE_KEY);
+      } catch {
+        // ignore storage errors
+      }
+      setIsUpdating(false);
+      setIsRestarting(false);
+      setRestartToast(t("app.update.failed"));
+      window.setTimeout(() => setRestartToast(null), 3_500);
+    });
+  }, [activeSession?.chatId, client, t]);
+
   useEffect(() => {
     return client.onRuntimeModelUpdate((modelName) => {
       onModelNameChange(modelName);
@@ -2266,6 +2307,7 @@ function Shell({
         // ignore storage errors
       }
       setIsRestarting(false);
+      setIsUpdating(false);
       setRestartToast(t("app.restart.completed", { seconds: (elapsedMs / 1000).toFixed(1) }));
       window.setTimeout(() => setRestartToast(null), 3_500);
     });
@@ -2690,6 +2732,8 @@ function Shell({
     onOpenSettings,
     onRestart,
     isRestarting,
+    onUpdate: nativeHost ? onUpdate : undefined,
+    isUpdating,
     onOpenApps,
     onOpenAutomations,
     onOpenChannels,

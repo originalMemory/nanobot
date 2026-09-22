@@ -9,6 +9,7 @@ import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from loguru import logger
@@ -41,6 +42,51 @@ CommandLifecycle = Literal[
 ]
 
 USER_SHELL_COMMAND = "/__shell"
+
+
+def _schedule_restart(ctx: CommandContext) -> None:
+    msg = ctx.msg
+    set_restart_notice_to_env(
+        channel=msg.channel,
+        chat_id=msg.chat_id,
+        metadata=dict(msg.metadata or {}),
+    )
+
+    async def _do_restart() -> None:
+        await asyncio.sleep(1)
+        argv = [sys.executable, "-m", "nanobot"] + sys.argv[1:]
+        mode = ctx.loop.restart_mode or "auto"
+        if mode == "auto":
+            mode = "spawn" if sys.platform == "win32" else "exec"
+        if mode == "exec":
+            os.execv(sys.executable, argv)
+            return
+        if mode == "spawn":
+            kwargs: dict[str, Any] = {}
+            if sys.platform == "win32":
+                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            subprocess.Popen(argv, **kwargs)
+        os._exit(0)
+
+    asyncio.create_task(_do_restart())
+
+
+async def _git(repo: Path, *args: str) -> tuple[int, str]:
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "git", "-C", str(repo), *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    except OSError as exc:
+        return 127, str(exc)
+    try:
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=120)
+    except TimeoutError:
+        process.kill()
+        await process.communicate()
+        return 124, "git command timed out"
+    return process.returncode or 0, stdout.decode("utf-8", errors="replace").strip()
 
 
 @dataclass(frozen=True)
@@ -226,32 +272,41 @@ async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
 async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
     """Restart the process."""
     msg = ctx.msg
-    set_restart_notice_to_env(
-        channel=msg.channel,
-        chat_id=msg.chat_id,
-        metadata=dict(msg.metadata or {}),
-    )
-
-    async def _do_restart():
-        await asyncio.sleep(1)
-        argv = [sys.executable, "-m", "nanobot"] + sys.argv[1:]
-        mode = ctx.loop.restart_mode or "auto"
-        if mode == "auto":
-            mode = "spawn" if sys.platform == "win32" else "exec"
-        if mode == "exec":
-            os.execv(sys.executable, argv)
-            return
-        if mode == "spawn":
-            kwargs: dict[str, Any] = {}
-            if sys.platform == "win32":
-                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-            subprocess.Popen(argv, **kwargs)
-        os._exit(0)
-
-    asyncio.create_task(_do_restart())
+    _schedule_restart(ctx)
     return OutboundMessage(
         channel=msg.channel, chat_id=msg.chat_id, content="Restarting...",
         metadata=dict(msg.metadata or {})
+    )
+
+
+async def cmd_update(ctx: CommandContext) -> OutboundMessage:
+    """Fast-forward the source checkout, then restart the gateway."""
+    msg = ctx.msg
+    metadata = dict(msg.metadata or {})
+    repo = Path(__file__).resolve().parents[2]
+    if not (repo / ".git").exists():
+        return OutboundMessage(
+            channel=msg.channel, chat_id=msg.chat_id,
+            content="Update failed: nanobot is not running from a Git checkout.",
+            metadata={**metadata, "render_as": "text"},
+        )
+    status, output = await _git(repo, "status", "--porcelain", "--untracked-files=no")
+    if status != 0:
+        content = f"Update failed: {output or 'could not inspect the Git checkout'}."
+    elif output:
+        content = "Update stopped: the backend has uncommitted tracked changes."
+    else:
+        status, output = await _git(repo, "pull", "--ff-only")
+        if status == 0:
+            _schedule_restart(ctx)
+            content = "Updated to the latest code. Restarting..."
+        else:
+            content = f"Update failed: {output or 'git pull failed'}."
+    return OutboundMessage(
+        channel=msg.channel,
+        chat_id=msg.chat_id,
+        content=content[-2000:],
+        metadata={**metadata, "render_as": "text"},
     )
 
 
@@ -1016,6 +1071,7 @@ def register_builtin_commands(router: CommandRouter) -> None:
     """Register the default set of slash commands."""
     router.priority("/stop", cmd_stop)
     router.priority("/restart", cmd_restart)
+    router.priority("/update", cmd_update)
     router.priority("/status", cmd_status)
     router.exact("/new", cmd_new)
     router.exact("/compact", cmd_compact)

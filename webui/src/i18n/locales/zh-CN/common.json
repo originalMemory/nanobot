@@ -86,11 +86,16 @@
       "restartAction": "重启",
       "restart": "重启 nanobot",
       "restarting": "正在重启...",
+      "update": "更新并重启",
+      "updating": "正在更新...",
       "restartEngine": "重启引擎",
       "restartingEngine": "正在重启引擎..."
     },
     "restart": {
       "completed": "重启已完成，用时 {{seconds}} 秒。"
+    },
+    "update": {
+      "failed": "更新未触发重启，请检查后端日志。"
     },
     "documentTitle": {
       "base": "nanobot",

@@ -2770,6 +2770,27 @@ describe("App layout", () => {
     expect(within(sidebar).getByRole("button", { name: "Restarting..." })).toBeDisabled();
   });
 
+  it("updates and restarts nanobot from the native sidebar footer", async () => {
+    Reflect.set(window, "nanobotHost", { fixedChatId: "desktop" });
+    mockSessions = [{
+      key: "websocket:desktop",
+      channel: "websocket",
+      chatId: "desktop",
+      createdAt: "2026-04-16T10:00:00Z",
+      updatedAt: "2026-04-16T10:00:00Z",
+      preview: "Inbox",
+    }];
+    sendSystemCommandSpy.mockImplementationOnce(() => new Promise(() => {}));
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Update and restart" }));
+
+    expect(sendSystemCommandSpy).toHaveBeenCalledWith("desktop", "/update", 300_000);
+    expect(within(sidebar).getByRole("button", { name: "Updating..." })).toBeDisabled();
+  });
+
   it("restores the settings section from the URL hash after a page reload", async () => {
     mockFetchRoutes({ "/api/settings": baseSettingsPayload() });
     window.history.replaceState(null, "", "/#/settings?section=voice");

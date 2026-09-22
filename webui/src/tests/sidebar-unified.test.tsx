@@ -40,8 +40,11 @@ it("普通浏览器保留旧话题列表", () => {
 
 it.each([false, true])("桌面底部完全退出调用宿主，折叠=%s", (collapsed) => {
   const quit = vi.fn().mockResolvedValue(undefined);
+  const update = vi.fn();
   window.nanobotHost = { quit };
-  render(<Sidebar {...props()} fixedChatKey="websocket:desktop" collapsed={collapsed} />);
+  render(<Sidebar {...props()} fixedChatKey="websocket:desktop" collapsed={collapsed} onUpdate={update} />);
+  fireEvent.click(screen.getByRole("button", { name: "Update and restart" }));
+  expect(update).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole("button", { name: "Quit app" }));
   expect(quit).toHaveBeenCalledOnce();
 });
