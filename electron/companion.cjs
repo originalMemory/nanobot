@@ -5,7 +5,7 @@ const { createHash } = require('node:crypto');
 const { Readable } = require('node:stream');
 
 const SCHEDULE = { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' };
-const DEFAULTS = { enabled: false, directory: '', scene: '', schedule: SCHEDULE, panel: { x: null, y: null, width: 288, collapsed: false } };
+const DEFAULTS = { enabled: false, directory: '', scene: '', schedule: SCHEDULE, panel: { x: null, y: null, width: 288, collapsed: false }, detached: false, pinned: false, window: null };
 
 // 沿用 lover 的时段选择及场景目录结构。
 function timeSegment(now, schedule = SCHEDULE) {
@@ -23,9 +23,14 @@ function normalize(raw = {}) {
   if (typeof panel.collapsed !== 'boolean' || !Number.isFinite(panel.width)) throw new Error('Invalid panel');
   for (const key of ['x', 'y']) if (panel[key] !== null && !Number.isFinite(panel[key])) throw new Error('Invalid position');
   panel.width = Math.max(200, Math.min(1120, Math.round(panel.width)));
+  if (typeof raw.detached !== 'boolean' || typeof raw.pinned !== 'boolean') throw new Error('Invalid companion window state');
+  const bounds = raw.window;
+  if (bounds !== null && (!bounds || !['x', 'y', 'width', 'height'].every(key => Number.isSafeInteger(bounds[key]))
+    || bounds.width < 200 || bounds.height < 100)) throw new Error('Invalid companion window bounds');
   const schedule = { ...SCHEDULE, ...raw.schedule };
   for (const key of Object.keys(SCHEDULE)) if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule[key])) throw new Error('Invalid time');
   return { enabled: raw.enabled, directory: raw.directory.trim(), scene: raw.scene.trim(), panel,
+    detached: raw.detached, pinned: raw.pinned, window: bounds,
     schedule: Object.fromEntries(Object.keys(SCHEDULE).map(key => [key, schedule[key]])) };
 }
 
@@ -92,15 +97,16 @@ function createCompanion({ store, bundledRoot, dialog }) {
       const previous = await read();
       const next = normalize({ ...previous, ...patch, panel: { ...previous.panel, ...patch.panel } });
       if (next.directory && next.directory !== previous.directory && next.directory !== chosenDirectory) throw new Error('Choose a video folder using the desktop dialog');
-      if (next.directory) {
+      if (next.directory && (next.directory !== previous.directory || next.scene !== previous.scene)) {
         const available = await discover(next.directory);
         const selected = available.find(pack => pack.id === next.scene)
           ?? (!next.scene && available.length === 1 ? available[0] : null);
         if (!selected) throw new Error('Choose an available video scene');
         next.scene = selected.id;
-      } else next.scene = '';
+      } else if (!next.directory) next.scene = '';
       store.set('avatarCompanion', { ...store.get('avatarCompanion', {}), enabled: next.enabled,
-        videoDirectory: next.directory, videoScene: next.scene, timeSchedule: next.schedule, panel: next.panel });
+        videoDirectory: next.directory, videoScene: next.scene, timeSchedule: next.schedule,
+        panel: next.panel, detached: next.detached, pinned: next.pinned, window: next.window });
       if (previous.directory !== next.directory || previous.scene !== next.scene) files.clear();
       return structuredClone(next);
     });
@@ -144,16 +150,16 @@ function createCompanion({ store, bundledRoot, dialog }) {
   }
   async function videos(now = new Date()) {
     const prefs = await read(); const segment = timeSegment(now, prefs.schedule);
-    let root = ''; let actionLabels = {}; let error = false;
+    let root = ''; let actionLabels = {}; let sceneName = ''; let error = false;
     const bundledLabels = (await manifestMetadata(bundledRoot)).actionLabels;
     if (prefs.directory) {
       const available = await discover(prefs.directory).catch(() => []);
       const selected = available.find(pack => pack.id === prefs.scene)
         ?? (!prefs.scene && available.length === 1 ? available[0] : null);
-      if (selected) { root = selected.root; actionLabels = selected.actionLabels; }
+      if (selected) { root = selected.root; actionLabels = selected.actionLabels; sceneName = selected.displayName; }
       else error = true;
     }
-    const result = { idle: [], working: [], fallback: {}, labels: {}, segment, error };
+    const result = { idle: [], working: [], fallback: {}, labels: {}, segment, error, sceneName };
     for (const mode of ['idle', 'working']) {
       if (root) result[mode] = await list(path.join(root, mode, segment), root, '', result.labels, actionLabels);
       if (!result[mode].length && root) result[mode] = await list(path.join(root, mode), root, '', result.labels, actionLabels);

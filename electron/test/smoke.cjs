@@ -53,6 +53,7 @@ async function main() {
   const quitOnly = process.argv.includes('--quit');
   const desktopContextOnly = process.argv.includes('--desktop-context');
   const authOnly = process.argv.includes("--auth");
+  const companionOnly = process.argv.includes("--companion");
   const surfacesOnly = process.argv.includes("--wallpaper-surfaces");
   const data = await mkdtemp(path.join(os.tmpdir(), 'nanobot-electron-smoke-'));
   const calls = [];
@@ -171,6 +172,8 @@ async function main() {
       appearance: { theme: 'ink', language: 'en', wallpaper: { source: 'none', localOrder: 'random', intervalMinutes: 3 } },
       tts: { pauseSystemMedia: false }, avatarCompanion: { enabled: false, videoDirectory: '', timeSchedule: { day: '11:00' } } } : {}),
     ...(windowOnly ? { window: savedBounds } : {}),
+    ...(companionOnly ? { avatarCompanion: { enabled: true, videoDirectory: '', detached: true,
+      pinned: true, window: { x: 120, y: 80, width: 400, height: 320 } } } : {}),
     ...(authOnly || surfacesOnly ? { appearance: { wallpaper: { source: 'url', url: `${gateway}/wallpaper-fixture` }, opacity: 0.65 } } : {}),
   }));
   let stderr = '';
@@ -190,10 +193,10 @@ async function main() {
   const timer = setTimeout(() => child.kill(), 90000);
   try {
     const address = await until(() => /DevTools listening on ws:\/\/(127\.0\.0\.1:\d+)\//.exec(stderr)?.[1], 'Electron 启动');
-    const page = async (prefix) => {
+    const page = async (prefix, exact = false) => {
       const target = await until(async () => {
         const targets = await (await fetch(`http://${address}/json/list`)).json();
-        return targets.find((item) => item.type === 'page' && item.url.startsWith(prefix));
+        return targets.find((item) => item.type === 'page' && (exact ? new URL(item.url).pathname === new URL(prefix).pathname : item.url.startsWith(prefix)));
       }, prefix);
       const cdp = await connectCDP(target.webSocketDebuggerUrl); connections.push(cdp.socket); return cdp;
     };
@@ -227,8 +230,22 @@ async function main() {
     assert.equal(rejected.ok, false);
     assert.equal(await setup.evaluate('typeof require'), 'undefined');
     await setup.evaluate(`document.querySelector('#gateway').value=${JSON.stringify(gateway)};document.querySelector('form').requestSubmit()`);
-    const chat = await page('nanobot://desktop/');
+    const chat = await page('nanobot://desktop/', companionOnly);
     activePage = chat;
+    if (companionOnly) {
+      const detached = await page('nanobot://desktop/companion.html');
+      await until(() => detached.evaluate('Boolean(document.querySelector(".companion-window-header"))'), '独立伴侣窗口恢复');
+      assert.equal(await detached.evaluate('window.innerWidth'), 400);
+      await until(() => detached.evaluate('Boolean(document.querySelector("video")?.videoWidth)'), '伴侣视频宽高');
+      await until(() => detached.evaluate('Math.abs(window.innerWidth / (window.innerHeight - 32) - document.querySelector("video").videoWidth / document.querySelector("video").videoHeight) < 0.01'), '独立窗口视频比例');
+      assert.equal((await detached.evaluate('window.companionWindow.read()')).pinned, true);
+      await detached.evaluate(`document.querySelector('[aria-label="Stop keeping on top"]').click()`);
+      await until(async () => JSON.parse(await readFile(path.join(data, 'config.json'), 'utf8')).avatarCompanion.pinned === false, '置顶状态保存');
+      await detached.evaluate(`document.querySelector('[aria-label="Return to chat"]').click()`);
+      await until(async () => JSON.parse(await readFile(path.join(data, 'config.json'), 'utf8')).avatarCompanion.detached === false, '切回聊天保存');
+      console.log('PASS: 从连接页恢复独立伴侣窗口，独立尺寸、置顶和切回状态生效');
+      return;
+    }
     if (desktopContextOnly) {
       await until(() => frames.some(frame => frame.type === 'desktop_context_state' && frame.focused === false && frame.locked === false), '自动上报桌面状态');
       await sleep(250);
@@ -511,7 +528,7 @@ async function main() {
     clearTimeout(timer);
     connections.forEach((socket) => socket.close());
     const stopped = child.exitCode !== null || child.signalCode !== null;
-    if (!stopped) { child.kill(); await new Promise((resolve) => child.once('exit', resolve)); }
+    if (!stopped) { child.kill('SIGKILL'); await new Promise((resolve) => child.once('exit', resolve)); }
     wss.clients.forEach((client) => client.terminate());
     await new Promise((resolve) => wss.close(resolve));
     await new Promise((resolve) => server.close(resolve));

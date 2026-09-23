@@ -64,6 +64,9 @@ export interface CompanionPrefs {
   scene: string;
   schedule: Record<"sunrise" | "day" | "sunset" | "night", string>;
   panel: { x: number | null; y: number | null; width: number; collapsed: boolean };
+  detached?: boolean;
+  pinned?: boolean;
+  window?: { x: number; y: number; width: number; height: number } | null;
 }
 export interface CompanionPack {
   id: string;
@@ -76,6 +79,7 @@ export interface CompanionVideos {
   labels: Record<string, string>;
   segment: string;
   error: boolean;
+  sceneName?: string;
 }
 export interface CompanionApi {
   read(): Promise<CompanionPrefs>;
@@ -83,6 +87,8 @@ export interface CompanionApi {
   choose(): Promise<string | null>;
   packs(directory: string): Promise<CompanionPack[]>;
   videos(): Promise<CompanionVideos>;
+  setWorking?(working: boolean): Promise<void>;
+  onChanged?(listener: (prefs: CompanionPrefs) => void): () => void;
 }
 
 interface HostRuntimeInfo {

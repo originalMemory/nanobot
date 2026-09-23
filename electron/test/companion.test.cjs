@@ -42,13 +42,27 @@ test('本地资源只通过清单 URL 读取，支持 Range 和场景时段回�
     assert.equal((await api.serve(new Request(videos.idle[0], { headers: { range: 'bytes=99-' } }))).status, 416);
     assert.equal((await api.serve(new Request('nanobot://desktop/companion-video/unlisted'))).status, 404);
     await assert.rejects(api.save({ schedule: { day: '99:00' } }), /Invalid time/);
-    await api.save({ panel: { width: 5000, collapsed: true } });
+    await api.save({ panel: { width: 5000, collapsed: true }, detached: true, pinned: true,
+      window: { x: 120, y: 80, width: 400, height: 320 } });
     const restored = createCompanion({ store, bundledRoot, dialog: {} });
     assert.equal((await restored.read()).panel.width, 1120);
     assert.equal((await restored.read()).panel.collapsed, true);
+    assert.equal((await restored.read()).detached, true);
+    assert.equal((await restored.read()).pinned, true);
+    assert.deepEqual((await restored.read()).window, { x: 120, y: 80, width: 400, height: 320 });
+    await assert.rejects(api.save({ window: { x: 0, y: 0, width: 10, height: 10 } }), /window bounds/);
     assert.equal(store.get('avatarCompanion.videoDirectory'), selected);
     assert.equal(store.get('avatarCompanion.serverUrl'), 'http://old-unused-setting');
     assert.equal(timeSegment(new Date(2026, 8, 19, 2)), 'night');
+    await fs.rm(pack, { recursive: true });
+    await api.save({ pinned: false });
+    await api.save({ detached: false });
+    await api.save({ enabled: false });
+    assert.equal((await api.read()).pinned, false);
+    assert.equal((await api.read()).detached, false);
+    assert.equal((await api.read()).enabled, false);
+    assert.equal((await api.read()).scene, '.');
+    await assert.rejects(api.save({ scene: 'missing' }));
   } finally { assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep + "nanobot-companion-")); await fs.rm(root, { recursive: true, force: true }); }
 });
 
@@ -75,6 +89,7 @@ test('父目录场景读取 displayName，支持刷新并保存实际使用组',
     await api.save({ directory: selected, scene: 'lakeside' });
     assert.equal((await api.read()).scene, 'lakeside');
     const videos = await api.videos(new Date(2026, 8, 19, 12));
+    assert.equal(videos.sceneName, '白玉湖畔露台');
     assert.equal(videos.labels[videos.idle[0]], '湖畔待机');
     const response = await api.serve(new Request(videos.idle[0]));
     assert.equal(await response.text(), 'lake');

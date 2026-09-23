@@ -1596,6 +1596,9 @@ html:not([data-shell-view="chat"]) .companion-panel {
 html.native-host[data-wallpaper="on"] .companion-panel-header {
   background-color: hsl(var(--card) / var(--desktop-panel-opacity));
 }
+.companion-window-header { -webkit-app-region: drag; }
+.companion-window-control { -webkit-app-region: no-drag; }
+.detached-companion-video > div { height: calc(100vh - 32px); aspect-ratio: auto !important; }
 
 /* 桌面统一收件箱沿用 lover 的消息列与输入框宽度。 */
 .desktop-unified .thread-workspace {

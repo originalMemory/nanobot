@@ -25,13 +25,20 @@ const streamDiagnostic = createStreamDiagnostics(path.join(app.getPath('userData
 let window;
 let desktop;
 let companion;
+let companionWindow;
+let companionWorking = false;
+let companionRatio = 4 / 3;
+let quitting = false;
 let gateway = 'http://127.0.0.1:8765';
 let loadError = '';
 const setupFile = path.join(__dirname, 'setup.html');
+const companionPreload = path.join(__dirname, 'companion-preload.cjs');
 let saveWindowState;
 const preload = path.join(__dirname, 'preload.cjs');
 const rendererDir = path.join(__dirname, 'renderer');
 const appIcon = path.join(__dirname, 'assets', 'icon.png');
+const COMPANION_RATIO = 4 / 3;
+const COMPANION_HEADER = 32;
 const sockets = new Map();
 
 function trustedChat(event) {
@@ -39,6 +46,82 @@ function trustedChat(event) {
       || !event.senderFrame.url.startsWith(`${APP_ORIGIN}/`)) {
     throw new Error('拒绝非聊天页面的请求');
   }
+}
+
+function trustedCompanion(event) {
+  if (event.sender !== companionWindow?.webContents || event.senderFrame !== event.sender.mainFrame
+      || event.senderFrame.url !== `${APP_ORIGIN}/companion.html`) {
+    throw new Error('拒绝非伴侣窗口的请求');
+  }
+}
+
+function companionBounds(saved, ratio = COMPANION_RATIO) {
+  const area = (saved && screen.getAllDisplays().find(({ workArea: a }) =>
+    saved.x >= a.x && saved.y >= a.y && saved.x < a.x + a.width - 60 && saved.y < a.y + a.height - 30
+  ) || screen.getPrimaryDisplay()).workArea;
+  const width = Math.min(saved?.width ?? 320, area.width, Math.floor((area.height - COMPANION_HEADER) * ratio));
+  const height = Math.round(width / ratio) + COMPANION_HEADER;
+  return { x: saved ? Math.max(area.x, Math.min(saved.x, area.x + area.width - width)) : area.x + area.width - width - 24,
+    y: saved ? Math.max(area.y, Math.min(saved.y, area.y + area.height - height)) : area.y + 48,
+    width, height };
+}
+
+function setCompanionAspectRatio(ratio) {
+  if (!companionWindow || companionWindow.isDestroyed() || !Number.isFinite(ratio) || ratio < 0.5 || ratio > 4
+      || Math.abs(ratio - companionRatio) < 0.001) return;
+  companionRatio = ratio;
+  companionWindow.setMinimumSize(200, Math.ceil(200 / ratio) + COMPANION_HEADER);
+  if (process.platform !== 'win32') companionWindow.setAspectRatio(ratio, { width: 0, height: COMPANION_HEADER });
+  companionWindow.setBounds(companionBounds(companionWindow.getBounds(), ratio));
+}
+
+function syncCompanionWindow(prefs) {
+  if (prefs.enabled && prefs.detached && !companionWindow) {
+    const next = new BrowserWindow({ title: '数字伴侣', ...companionBounds(prefs.window), minWidth: 200,
+      minHeight: 182, frame: false, backgroundColor: '#303030', icon: appIcon,
+      webPreferences: { preload: companionPreload, session: window.webContents.session,
+        nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
+        autoplayPolicy: 'no-user-gesture-required' } });
+    companionWindow = next;
+    companionRatio = COMPANION_RATIO;
+    if (process.platform === 'win32') {
+      next.on('will-resize', (event, bounds, { edge }) => {
+        event.preventDefault();
+        const current = next.getBounds();
+        const width = Math.max(200, edge === 'top' || edge === 'bottom'
+          ? Math.round((bounds.height - COMPANION_HEADER) * companionRatio) : bounds.width);
+        const height = Math.round(width / companionRatio) + COMPANION_HEADER;
+        next.setBounds({ x: edge.includes('left') ? current.x + current.width - width : bounds.x,
+          y: edge.includes('top') ? current.y + current.height - height : bounds.y, width, height });
+      });
+    } else next.setAspectRatio(COMPANION_RATIO, { width: 0, height: COMPANION_HEADER });
+    let timer;
+    const saveBounds = () => {
+      clearTimeout(timer);
+      if (!next.isDestroyed() && !next.isMinimized()) store.set('avatarCompanion.window', next.getBounds());
+    };
+    for (const event of ['move', 'resize']) next.on(event, () => { clearTimeout(timer); timer = setTimeout(saveBounds, 300); });
+    next.on('close', saveBounds);
+    next.on('closed', () => {
+      clearTimeout(timer);
+      if (companionWindow === next) companionWindow = null;
+      if (quitting) return;
+      void companion.read().then(prefs => {
+        if (prefs.enabled && prefs.detached) return companion.save({ enabled: false }).then(syncCompanionWindow);
+      }).catch(error => console.warn('无法保存伴侣窗口关闭状态。', error.message));
+    });
+    next.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    next.webContents.on('will-navigate', event => event.preventDefault());
+    next.webContents.on('will-attach-webview', event => event.preventDefault());
+    next.webContents.on('did-finish-load', () => next.webContents.send('desktop:companion-working', companionWorking));
+    void next.loadURL(`${APP_ORIGIN}/companion.html`).catch(() => next.destroy());
+  }
+  if (companionWindow && !companionWindow.isDestroyed()) {
+    if (!prefs.enabled || !prefs.detached) companionWindow.close();
+    else companionWindow.setAlwaysOnTop(prefs.pinned);
+  }
+  if (window && !window.isDestroyed()) window.webContents.send('desktop:companion-changed', prefs);
+  if (companionWindow && !companionWindow.isDestroyed()) companionWindow.webContents.send('desktop:companion-changed', prefs);
 }
 
 function ownedSocket(event, id) {
@@ -172,8 +255,9 @@ async function showChat() {
   const previous = window;
   window = makeWindow(webSession);
   try { await window.loadURL(`${APP_ORIGIN}/`); }
-  catch { await showSetup('界面加载失败，请重新连接。'); }
+  catch { await showSetup('界面加载失败，请重新连接。'); return; }
   if (previous && !previous.isDestroyed()) previous.destroy();
+  void companion.read().then(syncCompanionWindow).catch(error => console.warn('无法恢复伴侣窗口。', error.message));
 }
 
 function installMenu() {
@@ -206,12 +290,27 @@ if (!app.requestSingleInstanceLock()) {
     desktop = installDesktop({ store, getWindow: () => window, showWindow });
     companion = createCompanion({ store, bundledRoot: path.join(__dirname, 'avatar-videos'), dialog });
     for (const action of ['read', 'save', 'choose', 'packs', 'videos']) {
-      ipcMain.handle(`desktop:companion-${action}`, (event, value) => {
-        trustedChat(event);
-        if (action === 'save' || action === 'packs') return companion[action](value);
-        return companion[action]();
+      ipcMain.handle(`desktop:companion-${action}`, async (event, value) => {
+        if (event.sender === companionWindow?.webContents) {
+          trustedCompanion(event);
+          if (!['read', 'save', 'videos'].includes(action)) throw new Error('无效伴侣操作');
+          if (action === 'save' && (!value || Object.keys(value).some(key => !['enabled', 'detached', 'pinned'].includes(key)))) throw new Error('无效伴侣设置');
+        } else trustedChat(event);
+        const result = await (action === 'save' || action === 'packs' ? companion[action](value) : companion[action]());
+        if (action === 'save') syncCompanionWindow(result);
+        return result;
       });
     }
+    ipcMain.handle('desktop:companion-working', (event, value) => {
+      trustedChat(event);
+      if (typeof value !== 'boolean') throw new Error('Invalid companion state');
+      companionWorking = value;
+      if (companionWindow && !companionWindow.isDestroyed()) companionWindow.webContents.send('desktop:companion-working', value);
+    });
+    ipcMain.handle('desktop:companion-aspect-ratio', (event, ratio) => {
+      trustedCompanion(event);
+      setCompanionAspectRatio(ratio);
+    });
     const desktopContext = createDesktopContext();
     const systemMedia = new SystemMediaController(store);
     ipcMain.handle('desktop:voice-settings', async (event, value) => {
@@ -235,6 +334,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     let mediaReleased = false;
     app.on('before-quit', (event) => {
+      quitting = true;
       if (mediaReleased) return;
       event.preventDefault();
       mediaReleased = true;

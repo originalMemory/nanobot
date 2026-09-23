@@ -67,6 +67,7 @@ it('loads local videos, switches only idle/working, and persists collapse/disabl
       .style.getPropertyValue('--companion-aspect-ratio'),
   )).toBeCloseTo(1120 / 832));
   expect(view.container.querySelector('.companion-panel-header')).toHaveClass('bg-background/90', 'backdrop-blur');
+  expect(view.container.querySelector('.companion-panel-header')?.firstElementChild).toHaveTextContent('Built-in videos');
   const resizeHandles = view.container.querySelectorAll('button[data-resize-edge]');
   expect(Array.from(resizeHandles).map(button => button.getAttribute('data-resize-edge')))
     .toEqual(['left', 'right']);
@@ -84,6 +85,18 @@ it('loads local videos, switches only idle/working, and persists collapse/disabl
   fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull());
   expect(prefs.enabled).toBe(false);
+});
+
+it('opens a separate window and removes the embedded panel', async () => {
+  let prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
+  const save = vi.fn(async (patch: Partial<CompanionPrefs>) => (prefs = { ...prefs, ...patch }));
+  window.nanobotHost = { companion: { read: async () => prefs, save, choose: async () => null,
+    packs: async () => [], videos: async () => ({ idle: [], working: [], fallback: { idle: [], working: [] }, labels: {}, segment: 'day', error: false }) } };
+  const client = new NanobotClient({ url: 'ws://unused', reconnect: false });
+  const view = render(<ClientProvider client={client} token="test">chat</ClientProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open separate window' }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith({ detached: true }));
+  await waitFor(() => expect(view.container.querySelector('.companion-panel')).toBeNull());
 });
 
 it('loads scene display names, refreshes them, and saves the selected pack', async () => {

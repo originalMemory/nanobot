@@ -140,6 +140,7 @@ export default defineConfig(({ mode }) => {
       manifest: "asset-manifest.json",
       sourcemap: false,
       rollupOptions: {
+        input: { main: path.resolve(__dirname, "index.html"), companion: path.resolve(__dirname, "companion.html") },
         output: {
           manualChunks: webuiManualChunk,
         },

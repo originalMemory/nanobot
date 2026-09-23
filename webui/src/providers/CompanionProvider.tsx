@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode, type PointerEvent } from "react";
-import { ChevronDown, ChevronUp, RefreshCw, X } from "lucide-react";
+import { ChevronDown, ChevronUp, RefreshCw, X, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useClient } from "./ClientProvider";
 import { getRuntimeHost, type CompanionPack, type CompanionPrefs, type CompanionVideos, type CompanionApi } from "@/lib/runtime";
@@ -52,6 +52,8 @@ export function CompanionProvider({ children }: { children: ReactNode }) {
     void api.read().then(value => { if (!cancelled) { setPrefs(value); setError(false); } }).catch(() => { if (!cancelled) setError(true); });
     return () => { cancelled = true; };
   }, [api, revision]);
+  useEffect(() => api?.onChanged?.(setPrefs), [api]);
+  useEffect(() => { void api?.setWorking?.(working); }, [api, working]);
   useEffect(() => {
     if (!api || !prefs?.enabled) return;
     let cancelled = false;
@@ -78,11 +80,11 @@ export function CompanionProvider({ children }: { children: ReactNode }) {
   if (!api) return <>{children}</>;
   return <Context.Provider value={{ api, prefs, videos, saving, error, save, reload: () => setRevision(v => v + 1) }}>
     {children}
-    {prefs?.enabled && <CompanionPanel prefs={prefs} videos={videos} mode={working ? "working" : "idle"} save={save} />}
+    {prefs?.enabled && !prefs.detached && <CompanionPanel prefs={prefs} videos={videos} mode={working ? "working" : "idle"} save={save} />}
   </Context.Provider>;
 }
 
-function CompanionVideo({ videos, mode, onAspectRatio, onActionChange }: {
+export function CompanionVideo({ videos, mode, onAspectRatio, onActionChange }: {
   videos: CompanionVideos;
   mode: Mode;
   onAspectRatio: (ratio: number) => void;
@@ -178,10 +180,12 @@ function CompanionPanel({ prefs, videos, mode, save }: { prefs: CompanionPrefs; 
   return <div className="companion-panel fixed z-30 overflow-hidden rounded-lg border border-border/70 bg-transparent shadow-xl" style={{ left: panel.x ?? 0, top: panel.y ?? 38, width: panel.width, "--companion-aspect-ratio": aspectRatio } as CSSProperties}
     onPointerMove={event => { const base = drag.current; if (!base) return; const delta = event.clientX - base.x; const width = base.panel.width + (base.resize === "left" ? -delta : delta); setPanel(clamp({ ...base.panel, ...(base.resize ? { width, ...(base.resize === "left" ? { x: (base.panel.x ?? 0) + base.panel.width - width } : {}) } : { x: (base.panel.x ?? 0) + delta, y: (base.panel.y ?? 0) + event.clientY - base.y }) })); }}
     onPointerUp={() => { if (drag.current) { drag.current = null; void save({ panel }); } }} onPointerCancel={() => { drag.current = null; }}>
-    <div className="companion-panel-header flex h-8 touch-none select-none items-center justify-between bg-background/90 px-2 backdrop-blur cursor-move" tabIndex={0} aria-label={t("companion.move")}
+    <div className="companion-panel-header flex h-8 touch-none select-none items-center gap-2 bg-background/90 px-2 backdrop-blur cursor-move" tabIndex={0} aria-label={t("companion.move")}
       onPointerDown={event => start(event, null)} onKeyDown={event => { if (event.target !== event.currentTarget || !event.key.startsWith("Arrow")) return; event.preventDefault(); persist({ ...panel, x: (panel.x ?? 0) + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0), y: (panel.y ?? 0) + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0) }); }}>
+      <span className="min-w-0 flex-1 truncate text-xs" title={prefs.directory ? videos?.sceneName || prefs.scene : t("companion.bundled")}>{prefs.directory ? videos?.sceneName || prefs.scene : t("companion.bundled")}</span>
       <button type="button" title={t(panel.collapsed ? "companion.expand" : "companion.collapse")} aria-label={t(panel.collapsed ? "companion.expand" : "companion.collapse")} onClick={() => persist({ ...panel, collapsed: !panel.collapsed })}>{panel.collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
-      <span className="text-xs text-muted-foreground">{t(`companion.${mode}`)}{action ? ` · ${action}` : ""}</span>
+      <span className="min-w-0 truncate text-xs text-muted-foreground">{t(`companion.${mode}`)}{action ? ` · ${action}` : ""}</span>
+      <button type="button" title={t("companion.detach")} aria-label={t("companion.detach")} onClick={() => void save({ detached: true })}><ExternalLink size={16} /></button>
       <button type="button" title={t("companion.hide")} aria-label={t("companion.hide")} onClick={() => void save({ enabled: false })}><X size={16} /></button>
     </div>
     {!panel.collapsed && <>{videos ? <CompanionVideo videos={videos} mode={mode} onAspectRatio={setAspectRatio} onActionChange={setAction} /> : <div className="bg-muted" style={{ aspectRatio }} />}

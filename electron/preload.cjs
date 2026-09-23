@@ -41,6 +41,12 @@ if (location.protocol === 'file:') {
       choose: () => ipcRenderer.invoke('desktop:companion-choose'),
       packs: (directory) => ipcRenderer.invoke('desktop:companion-packs', directory),
       videos: () => ipcRenderer.invoke('desktop:companion-videos'),
+      setWorking: (working) => ipcRenderer.invoke('desktop:companion-working', working),
+      onChanged: (listener) => {
+        const handler = (_event, prefs) => listener(prefs);
+        ipcRenderer.on('desktop:companion-changed', handler);
+        return () => ipcRenderer.removeListener('desktop:companion-changed', handler);
+      },
     },
     voice: {
       settings: (value) => ipcRenderer.invoke('desktop:voice-settings', value),
