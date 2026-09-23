@@ -118,6 +118,9 @@ _KIMI_SERVER_MANAGED_TEMPERATURE_MODELS: frozenset[str] = frozenset({
 })
 _DEEPSEEK_MULTIMODAL_MODELS: frozenset[str] = frozenset({
     "deepseek-v4-flash-vision-exp",
+    # deepseek-flash accepts image content on Chat Completions and Responses
+    # (verified against the live API on 2026-09-23).
+    "deepseek-flash",
 })
 _TEXT_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
 # Thinking-capable MiMo models per Xiaomi docs (see
