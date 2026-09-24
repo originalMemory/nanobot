@@ -1123,11 +1123,12 @@ export async function updateRuntimeConfigSettings(
 export type LibrarySource = "workspace" | "notes";
 export interface LibraryEntry { name: string; kind: "dir" | "file" }
 export type LibraryPayload = { root: string; path: string; truncated: boolean } & (
+  | { kind: "index"; documents: string[] }
   | { kind: "directory"; entries: LibraryEntry[] }
   | { kind: "text"; content: string; raw_content?: string; image_sources?: Record<string, string>; images_omitted?: number; language: string; frontmatter: string; properties?: Record<string, unknown>; size: number }
   | { kind: "image"; url: string }
 );
-export function fetchLibrary(token: string, source: LibrarySource, action: "list" | "read" | "today", path: string, signal?: AbortSignal): Promise<LibraryPayload> {
+export function fetchLibrary(token: string, source: LibrarySource, action: "index" | "list" | "read" | "today", path: string, signal?: AbortSignal): Promise<LibraryPayload> {
   const query = new URLSearchParams({ source, action, path });
   return request<LibraryPayload>(`/api/library?${query}`, token, { signal }, API_READ_TIMEOUT_MS);
 }

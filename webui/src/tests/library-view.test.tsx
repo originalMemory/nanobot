@@ -39,6 +39,21 @@ it("expands directories in place and preserves the preview while collapsing them
   expect(screen.queryByRole("button", { name: "Today’s diary" })).toBeNull();
 });
 
+it("opens the quick note switcher with Cmd/Ctrl+O and selects a document", async () => {
+  const target = "网页剪藏/ACG/target.md";
+  fetchLibrary.mockImplementation(async (_token, _source, action, path) => {
+    if (action === "index") return { kind: "index", root: "/workspace", path: "", truncated: false, documents: [target, "生活/other.md"] };
+    return action === "list" ? listing : { ...file, path };
+  });
+  render(<LibraryView source="notes" onBack={vi.fn()} />);
+  await screen.findByRole("button", { name: "memory" });
+  fireEvent.keyDown(document, { key: "o", metaKey: true });
+  const input = await screen.findByRole("textbox", { name: "Quick open note" });
+  fireEvent.change(input, { target: { value: "网页 target" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(fetchLibrary).toHaveBeenCalledWith("test-token", "notes", "read", target, expect.anything()));
+});
+
 it("reveals today's diary by expanding its ancestor directories", async () => {
   const target = "日记/2026/09/2026-09-18 周五.md";
   fetchLibrary.mockImplementation(async (_token, _source, action, path) => {
@@ -75,5 +90,5 @@ it("ignores an old directory response after switching independent library pages"
   await screen.findByRole("button", { name: "Diary.md" });
   await act(async () => { finish(listing); });
   expect(screen.queryByRole("button", { name: "README.md" })).toBeNull();
-  await waitFor(() => expect(fetchLibrary).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(fetchLibrary).toHaveBeenCalledWith("test-token", "notes", "index", "", expect.anything()));
 });

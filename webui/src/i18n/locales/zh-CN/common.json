@@ -50,6 +50,9 @@
     "properties": "属性",
     "raw": "源码",
     "rendered": "渲染",
+    "quickOpen": "快速打开笔记",
+    "quickOpenPlaceholder": "搜索笔记…",
+    "quickOpenEmpty": "没有匹配的笔记",
     "httpError": "无法读取（HTTP {{status}}），请检查路径和 diaryRoot 配置。",
     "error": "加载失败，请重试。"
   },

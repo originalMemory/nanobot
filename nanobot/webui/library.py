@@ -51,23 +51,31 @@ def resolve_library_path(root: Path, raw: str) -> Path:
     return target
 
 
-def _build_image_index(root: Path) -> dict[str, Path | None]:
-    """Build an index of unique image basenames for one library root."""
+def _build_library_index(root: Path) -> dict[str, Any]:
+    """Build document and unique asset indexes for one library root."""
     candidates: dict[str, list[Path]] = {}
+    documents: list[str] = []
     for directory, directories, files in os.walk(root, followlinks=False):
         directories[:] = [name for name in directories if name not in IGNORE_DIRS and not name.startswith(".")]
         for name in files:
             if Path(name).suffix.lower() not in IMAGE_TYPES:
+                if Path(name).suffix.lower() in {".md", ".markdown"}:
+                    documents.append((Path(directory) / name).relative_to(root).as_posix())
+                else:
+                    candidates.setdefault(name, []).append(Path(directory) / name)
                 continue
             candidates.setdefault(name, []).append(Path(directory) / name)
-    return {name: paths[0] if len(paths) == 1 else None for name, paths in candidates.items()}
+    return {
+        "documents": sorted(documents, key=str.casefold),
+        "assets": {name: paths[0] if len(paths) == 1 else None for name, paths in candidates.items()},
+    }
 
 
 class _ImageIndexState:
     def __init__(self) -> None:
         self.stop = threading.Event()
         self.lock = threading.Lock()
-        self.index: dict[str, Path | None] | None = None
+        self.index: dict[str, Any] | None = None
 
 
 class _ImageIndexCache:
@@ -75,7 +83,7 @@ class _ImageIndexCache:
         self._states: dict[str, _ImageIndexState] = {}
         self._states_lock = threading.Lock()
 
-    def get(self, root: Path) -> dict[str, Path | None]:
+    def get(self, root: Path) -> dict[str, Any]:
         key = str(root)
         with self._states_lock:
             state = self._states.get(key)
@@ -85,7 +93,7 @@ class _ImageIndexCache:
                 threading.Thread(target=self._watch, args=(root, state), daemon=True).start()
         with state.lock:
             if state.index is None:
-                state.index = _build_image_index(root)
+                state.index = _build_library_index(root)
             return state.index
 
     @staticmethod
@@ -111,7 +119,7 @@ def library_payload(
     sign_image: Callable[[Path], dict[str, str] | None],
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    if source not in {"workspace", "notes"} or action not in {"list", "read", "today"}:
+    if source not in {"workspace", "notes"} or action not in {"list", "read", "today", "index"}:
         raise LibraryError(400, "invalid library request")
     diary = Path(config.diary_root).expanduser().resolve() if config.diary_root else None
     if source == "notes" and diary is None:
@@ -127,6 +135,9 @@ def library_payload(
     target = resolve_library_path(root, path)
     relative = target.relative_to(root).as_posix()
     base = {"root": str(root), "path": "" if relative == "." else relative}
+    if action == "index":
+        index = _IMAGE_INDEX_CACHE.get(root)
+        return {**base, "kind": "index", "documents": index["documents"]}
     if action == "list":
         if not target.is_dir():
             raise LibraryError(400, "not a directory")
@@ -186,7 +197,7 @@ def library_payload(
             except (yaml.YAMLError, ValueError, TypeError, RecursionError):
                 pass
         # Parse image nodes instead of rewriting source text, including references/titles.
-        image_index = _IMAGE_INDEX_CACHE.get(root)
+        image_index = _IMAGE_INDEX_CACHE.get(root)["assets"]
         seen: set[str] = set()
 
         def embed(raw_name: str) -> None:

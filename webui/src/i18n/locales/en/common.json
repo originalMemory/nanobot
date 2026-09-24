@@ -50,6 +50,9 @@
     "properties": "Properties",
     "raw": "Source",
     "rendered": "Rendered",
+    "quickOpen": "Quick open note",
+    "quickOpenPlaceholder": "Search notes…",
+    "quickOpenEmpty": "No matching notes",
     "httpError": "Unable to read (HTTP {{status}}). Check the path and diaryRoot configuration.",
     "error": "Unable to load. Please retry."
   },

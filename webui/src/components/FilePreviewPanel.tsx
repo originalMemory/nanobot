@@ -133,9 +133,9 @@ export function FilePreviewPanel({
         "--file-preview-slot-width": !entered || isClosing ? "0px" : `${desktopWidth}px`,
       } as CSSProperties}
       className={cn(
-        "absolute inset-y-0 right-0 z-30 w-[min(100vw,var(--file-preview-slot-width))] overflow-hidden",
+        "absolute inset-y-0 right-0 z-40 w-[min(100vw,var(--file-preview-slot-width))] overflow-hidden",
         "transition-[width] duration-300 ease-out will-change-[width]",
-        "md:relative md:z-auto md:w-[var(--file-preview-slot-width)] md:min-w-0 md:shrink-0",
+        "md:relative md:z-40 md:w-[var(--file-preview-slot-width)] md:min-w-0 md:shrink-0",
         isClosing && "pointer-events-none",
       )}
       data-testid="file-preview-panel"

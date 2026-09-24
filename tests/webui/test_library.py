@@ -34,6 +34,19 @@ def test_workspace_list_text_and_literal_filename(tmp_path):
     assert read(config, path="a#b.md")["content"] == "# hello"
 
 
+def test_library_index_returns_documents_and_ignores_hidden_directories(tmp_path):
+    config, root, _ = fixture(tmp_path)
+    (root / "visible.md").write_text("", encoding="utf-8")
+    (root / "folder").mkdir()
+    (root / "folder" / "nested.markdown").write_text("", encoding="utf-8")
+    (root / "folder" / "clip.mp4").write_bytes(b"video")
+    (root / ".stversions").mkdir()
+    (root / ".stversions" / "old.md").write_text("", encoding="utf-8")
+    result = read(config, action="index")
+    assert result["kind"] == "index"
+    assert result["documents"] == ["folder/nested.markdown", "visible.md"]
+
+
 @pytest.mark.parametrize("path", ["../private.txt", "/etc/passwd", "C:\\private.txt", "escape.txt"])
 def test_library_rejects_traversal_and_symlinks(tmp_path, path):
     config, root, _ = fixture(tmp_path)

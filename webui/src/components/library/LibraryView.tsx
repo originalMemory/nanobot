@@ -26,6 +26,19 @@ export function LibraryView({ source, onBack }: { source: LibrarySource; onBack:
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [raw, setRaw] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickQuery, setQuickQuery] = useState("");
+  const [quickDocuments, setQuickDocuments] = useState<string[] | null>(null);
+  const [quickSelected, setQuickSelected] = useState(0);
+  const quickInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { setQuickDocuments(null); setQuickOpen(false); }, [source]);
+  useEffect(() => {
+    const abort = new AbortController();
+    void fetchLibrary(token.current(), source, "index", "", abort.signal).then((payload) => {
+      if (!abort.signal.aborted && payload.kind === "index") setQuickDocuments(payload.documents);
+    }).catch(() => {});
+    return () => abort.abort();
+  }, [source]);
   const directoryRequests = useRef(new Map<string, AbortController>());
   const previewAbort = useRef<AbortController | null>(null);
   const storageKey = `nanobot.library.${source}.selection`;
@@ -99,6 +112,34 @@ export function LibraryView({ source, onBack }: { source: LibrarySource; onBack:
     }
     void open(base.join("/"), false, true);
   };
+  const quickResults = (quickDocuments ?? []).filter((path) => {
+    const queries = quickQuery.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    if (!queries.length) return true;
+    const value = path.toLocaleLowerCase();
+    return queries.every((query) => {
+      let cursor = 0;
+      return [...query].every((char) => (cursor = value.indexOf(char, cursor)) >= 0 && cursor++ >= 0);
+    });
+  }).slice(0, 80);
+  const openQuickSwitcher = useCallback(() => {
+    setQuickOpen(true); setQuickQuery(""); setQuickSelected(0);
+    if (!quickDocuments) void fetchLibrary(token.current(), source, "index", "").then((payload) => {
+      if (payload.kind === "index") setQuickDocuments(payload.documents);
+    }).catch(() => setQuickDocuments([]));
+  }, [quickDocuments, source]);
+  useEffect(() => {
+    if (!quickOpen) return;
+    quickInputRef.current?.focus();
+  }, [quickOpen]);
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "o") return;
+      event.preventDefault();
+      openQuickSwitcher();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [openQuickSwitcher]);
   const renderTree = (path: string, depth = 0): ReactNode => {
     const node = nodes[path];
     if (node && !node.expanded) return null;
@@ -125,6 +166,24 @@ export function LibraryView({ source, onBack }: { source: LibrarySource; onBack:
   };
 
   return <section className="flex h-full min-h-0 flex-col text-foreground" aria-label={tx(source)}>
+    {quickOpen ? <div className="fixed inset-0 z-50 bg-black/15" onMouseDown={() => setQuickOpen(false)}>
+      <div className="mx-auto mt-[12vh] w-[min(38rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border/70 bg-popover shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <input ref={quickInputRef} value={quickQuery} onChange={(event) => { setQuickQuery(event.target.value); setQuickSelected(0); }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setQuickOpen(false);
+            else if (event.key === "ArrowDown") { event.preventDefault(); setQuickSelected((value) => Math.min(value + 1, Math.max(0, quickResults.length - 1))); }
+            else if (event.key === "ArrowUp") { event.preventDefault(); setQuickSelected((value) => Math.max(0, value - 1)); }
+            else if (event.key === "Enter" && quickResults[quickSelected]) { void open(quickResults[quickSelected], false, true); setQuickOpen(false); }
+          }} placeholder={tx("quickOpenPlaceholder")} aria-label={tx("quickOpen")} className="w-full border-0 border-b border-border/60 bg-transparent px-4 py-3 text-sm outline-none" />
+        <div className="max-h-[min(28rem,60vh)] overflow-auto p-1">
+          {quickResults.map((path, index) => <button key={path} type="button" onClick={() => { void open(path, false, true); setQuickOpen(false); }}
+            className={`flex w-full flex-col rounded-md px-3 py-2 text-left text-sm ${index === quickSelected ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}>
+            <span className="truncate">{path.split("/").pop()}</span><span className="truncate text-xs text-muted-foreground">{path}</span>
+          </button>)}
+          {!quickResults.length ? <p className="px-3 py-4 text-sm text-muted-foreground">{tx("quickOpenEmpty")}</p> : null}
+        </div>
+      </div>
+    </div> : null}
     <header className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
       <Button className="host-no-drag" variant="ghost" size="sm" onClick={onBack}>{tx("back")}</Button>
       <div className="min-w-0 flex-1"><h1 className="truncate text-sm font-semibold">{tx(source)}</h1><p className="truncate font-mono text-xs text-muted-foreground">{nodes[""]?.payload?.root ?? preview?.root}</p></div>
