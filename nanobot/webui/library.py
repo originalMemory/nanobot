@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -12,8 +14,10 @@ from urllib.parse import unquote
 from zoneinfo import ZoneInfo
 
 import yaml
+from loguru import logger
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
+from watchfiles import watch
 
 from nanobot.config.schema import Config
 from nanobot.webui.file_preview import MAX_FILE_PREVIEW_BYTES, language_for_path
@@ -45,6 +49,57 @@ def resolve_library_path(root: Path, raw: str) -> Path:
     except (ValueError, RuntimeError) as exc:
         raise LibraryError(403, "outside library root") from exc
     return target
+
+
+def _build_image_index(root: Path) -> dict[str, Path | None]:
+    """Build an index of unique image basenames for one library root."""
+    candidates: dict[str, list[Path]] = {}
+    for directory, directories, files in os.walk(root, followlinks=False):
+        directories[:] = [name for name in directories if name not in IGNORE_DIRS and not name.startswith(".")]
+        for name in files:
+            if Path(name).suffix.lower() not in IMAGE_TYPES:
+                continue
+            candidates.setdefault(name, []).append(Path(directory) / name)
+    return {name: paths[0] if len(paths) == 1 else None for name, paths in candidates.items()}
+
+
+class _ImageIndexState:
+    def __init__(self) -> None:
+        self.stop = threading.Event()
+        self.lock = threading.Lock()
+        self.index: dict[str, Path | None] | None = None
+
+
+class _ImageIndexCache:
+    def __init__(self) -> None:
+        self._states: dict[str, _ImageIndexState] = {}
+        self._states_lock = threading.Lock()
+
+    def get(self, root: Path) -> dict[str, Path | None]:
+        key = str(root)
+        with self._states_lock:
+            state = self._states.get(key)
+            if state is None:
+                state = _ImageIndexState()
+                self._states[key] = state
+                threading.Thread(target=self._watch, args=(root, state), daemon=True).start()
+        with state.lock:
+            if state.index is None:
+                state.index = _build_image_index(root)
+            return state.index
+
+    @staticmethod
+    def _watch(root: Path, state: _ImageIndexState) -> None:
+        try:
+            for _changes in watch(root, stop_event=state.stop):
+                with state.lock:
+                    state.index = None
+        except (OSError, RuntimeError) as exc:
+            logger.warning("Note library image watcher stopped for {}: {}", root, exc)
+            return
+
+
+_IMAGE_INDEX_CACHE = _ImageIndexCache()
 
 
 def library_payload(
@@ -131,7 +186,7 @@ def library_payload(
             except (yaml.YAMLError, ValueError, TypeError, RecursionError):
                 pass
         # Parse image nodes instead of rewriting source text, including references/titles.
-        date_dir = re.search(r"(?:^|/)(\d{4})/(\d{2})/", base["path"])
+        image_index = _IMAGE_INDEX_CACHE.get(root)
         seen: set[str] = set()
 
         def embed(raw_name: str) -> None:
@@ -149,12 +204,15 @@ def library_payload(
                 return
             try:
                 candidates = [target.parent / name, root / name]
-                if date_dir and Path(name).name == name:
-                    candidates.append(root / "assets" / "images" / date_dir[1] / date_dir[2] / name)
+                indexed = image_index.get(Path(name).name)
+                if indexed is not None:
+                    candidates.append(indexed)
                 url = next((url for candidate in candidates if (url := image_url(candidate))), None)
                 # 旧 JPEG 引用可读取转换后的同名 WebP；原文件存在时优先原文件。
                 if url is None and Path(name).suffix.lower() in {".jpg", ".jpeg"}:
-                    url = next((url for candidate in candidates if (url := image_url(candidate.with_suffix(".webp")))), None)
+                    webp = image_index.get(f"{Path(name).stem}.webp")
+                    if webp is not None:
+                        url = image_url(webp)
             except (OSError, RuntimeError, ValueError):
                 url = None
             if url:
