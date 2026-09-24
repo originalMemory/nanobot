@@ -9,6 +9,7 @@ ipcRenderer.on('desktop:companion-working', (_event, working) => {
 contextBridge.exposeInMainWorld('companionWindow', {
   read: () => ipcRenderer.invoke('desktop:companion-read'),
   videos: () => ipcRenderer.invoke('desktop:companion-videos'),
+  packs: (directory) => ipcRenderer.invoke('desktop:companion-packs', directory),
   save: (patch) => ipcRenderer.invoke('desktop:companion-save', patch),
   setAspectRatio: (ratio) => ipcRenderer.invoke('desktop:companion-aspect-ratio', ratio),
   onWorking: (listener) => {

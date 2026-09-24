@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -74,6 +74,9 @@ describe("FilePreviewPanel", () => {
 
     await user.click(closeButton);
     expect(onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it("updates translated chrome without refetching the open file", async () => {
@@ -83,6 +86,7 @@ describe("FilePreviewPanel", () => {
       language: "markdown",
       content: "# Notes",
       truncated: false,
+      library_source: "notes",
     });
 
     render(
@@ -94,13 +98,41 @@ describe("FilePreviewPanel", () => {
       />,
     );
 
-    await screen.findByTestId("mock-code-block");
+    expect(await screen.findByRole("button", { name: "Source" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Notes" })).toBeVisible();
     expect(fetchFilePreview).toHaveBeenCalledTimes(1);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Source" }));
+    expect(await screen.findByTestId("mock-code-block")).toHaveTextContent("# Notes");
 
     await act(async () => {
       await setAppLanguage("zh-CN");
     });
 
     expect(fetchFilePreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders note metadata and opens relative note links within the notes library", async () => {
+    const onOpenFilePreview = vi.fn();
+    vi.mocked(fetchFilePreview).mockResolvedValue({
+      path: "/nas/ssd/note/网页剪藏/ACG/current.md",
+      display_path: "/nas/ssd/note/网页剪藏/ACG/current.md",
+      language: "markdown",
+      content: "[Related](../科技/related.md)",
+      raw_content: "---\ncategory: ACG\n---\n[Related](../科技/related.md)",
+      properties: { category: "ACG" },
+      library_source: "notes",
+      library_root: "/nas/ssd/note",
+      library_path: "网页剪藏/ACG/current.md",
+      truncated: false,
+    });
+
+    render(<FilePreviewPanel sessionKey="websocket:chat-1" path="current.md" token="tok"
+      onClose={() => {}} onOpenFilePreview={onOpenFilePreview} />);
+
+    expect(await screen.findByRole("heading", { name: "current" })).toBeVisible();
+    expect(screen.getByText("category")).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: "../科技/related.md" }));
+    expect(onOpenFilePreview).toHaveBeenCalledWith("/nas/ssd/note/网页剪藏/科技/related.md");
   });
 });

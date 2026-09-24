@@ -1882,6 +1882,7 @@ export function ThreadShell({
           isClosing={filePreviewClosing}
           onResizeStart={handleFilePreviewResizeStart}
           onClose={handleCloseFilePreview}
+          onOpenFilePreview={handleOpenFilePreview}
         />
       ) : null}
     </section>

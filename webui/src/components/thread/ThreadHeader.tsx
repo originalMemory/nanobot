@@ -64,7 +64,7 @@ export function ThreadHeader({
     <div
       data-testid="thread-header"
       className={cn(
-        "pointer-events-none inset-x-0 top-0 z-30 flex shrink-0 items-center justify-between gap-3 px-3 py-1",
+        "pointer-events-none inset-x-0 top-0 z-30 flex shrink-0 items-center justify-start gap-2 px-3 py-1",
         "[position:var(--thread-header-position,absolute)]",
         minimal && "h-11",
       )}
@@ -108,7 +108,7 @@ export function ThreadHeader({
 
       <div className={cn(
         controlsClassName,
-        "ml-auto shrink-0 [&_button]:active:translate-y-px [&_button]:active:bg-accent/60 [&_button]:active:text-foreground",
+        "shrink-0 [&_button]:active:translate-y-px [&_button]:active:bg-accent/60 [&_button]:active:text-foreground",
       )}>
         {onRefreshHistory ? (
           <Button

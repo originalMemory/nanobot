@@ -1178,7 +1178,8 @@ describe("ThreadViewport", () => {
       });
 
       await waitFor(() => expect(viewportFrame).toHaveStyle({ bottom: "320px" }));
-      expect(screen.queryByRole("button", { name: "Scroll to bottom" })).not.toBeInTheDocument();
+      expect(scroller.scrollTop).toBe(0);
+      expect(screen.getByRole("button", { name: "Scroll to bottom" })).toBeInTheDocument();
 
       act(() => {
         visualViewport.viewport.dispatchEvent(new Event("resize"));
@@ -1307,7 +1308,7 @@ describe("ThreadViewport", () => {
     );
   });
 
-  it("scrolls recent messages into view when the composer receives focus", async () => {
+  it("keeps the reading position when the composer receives focus", async () => {
     const scrollTo = vi.fn();
     const { container } = render(
       <ThreadViewport
@@ -1335,10 +1336,11 @@ describe("ThreadViewport", () => {
       fireEvent.focusIn(input);
     });
 
-    await waitFor(() => expect(scroller.scrollTop).toBe(1800));
+    expect(scroller.scrollTop).toBe(0);
+    expect(scrollTo).not.toHaveBeenCalled();
   });
 
-  it("scrolls recent messages into view when the focused composer resizes the visual viewport without an inset", async () => {
+  it("keeps the reading position when the focused composer resizes the visual viewport without an inset", async () => {
     const visualViewport = stubVisualViewport({ innerHeight: 500, height: 500 });
     const scrollTo = vi.fn();
 
@@ -1368,7 +1370,8 @@ describe("ThreadViewport", () => {
         visualViewport.viewport.dispatchEvent(new Event("resize"));
       });
 
-      await waitFor(() => expect(scroller.scrollTop).toBe(1800));
+      expect(scroller.scrollTop).toBe(0);
+      expect(scrollTo).not.toHaveBeenCalled();
       expect(scroller).not.toHaveStyle({ bottom: "320px" });
     } finally {
       Reflect.deleteProperty(document, "activeElement");

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ClientProvider } from "@/providers/ClientProvider";
 import { CompanionSettings, clampCompanionPanel, pickCompanionVideo } from "@/providers/CompanionProvider";
@@ -8,7 +8,7 @@ import type { CompanionPrefs } from "@/lib/runtime";
 afterEach(() => { delete window.nanobotHost; vi.restoreAllMocks(); });
 
 it.each([false, true])('cancels obsolete work video when returning idle (loaded=%s)', async (loaded) => {
-  const prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
+  const prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', rotationMode: 'manual', rotationHours: 1, schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
   window.nanobotHost = { companion: { read: async () => prefs, save: async () => prefs, choose: async () => null,
     packs: async () => [],
     videos: async () => ({ idle: ['idle.mp4'], working: ['work.mp4'], fallback: { idle: ['idle.mp4'], working: ['work.mp4'] }, labels: { 'idle.mp4': '自然呼吸', 'work.mp4': '敲键盘' }, segment: 'day', error: false }) } };
@@ -40,13 +40,36 @@ it('keeps the panel visible after resize and avoids immediate video repeats', ()
   expect(panel.y! + panel.width * 3 / 4 + 32).toBeLessThanOrEqual(540);
   expect(clampCompanionPanel({ ...panel, x: -100 }, 760, 540).x).toBe(0);
   expect(clampCompanionPanel({ ...panel, x: 0 }, 760, 540, 240).x).toBe(240);
+  expect(clampCompanionPanel({ ...panel, y: 0 }, 760, 540).y).toBe(30);
   const wide = clampCompanionPanel({ x: 0, y: 38, width: 320, collapsed: false }, 760, 540, 0, 16 / 9);
   expect(wide.y! + wide.width / (16 / 9) + 32).toBeLessThanOrEqual(540);
   expect(pickCompanionVideo(['a', 'b', 'c'], ['a', 'b'], 'b')).toBe('c');
 });
 
+it('switches the scene and rotation mode from the embedded panel', async () => {
+  let prefs: CompanionPrefs = { enabled: true, directory: '/videos', scene: 'glasshouse', rotationMode: 'manual', rotationHours: 1,
+    schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
+  const save = vi.fn(async (patch: Partial<CompanionPrefs>) => (prefs = { ...prefs, ...patch }));
+  const packs = vi.fn(async () => [{ id: 'glasshouse', displayName: 'Glasshouse' }, { id: 'lakeside', displayName: 'Lakeside' }]);
+  window.nanobotHost = { companion: {
+    read: async () => prefs, save, choose: async () => null,
+    packs,
+    videos: async () => ({ idle: [], working: [], fallback: { idle: [], working: [] }, labels: {}, segment: 'day', error: false, sceneName: prefs.scene }),
+  } };
+  render(<ClientProvider client={new NanobotClient({ url: 'ws://unused', reconnect: false })} token="test">chat</ClientProvider>);
+
+  fireEvent.click(await screen.findByRole('combobox', { name: 'Video scene' }));
+  await waitFor(() => expect(packs).toHaveBeenCalledTimes(2));
+  fireEvent.click(await screen.findByRole('option', { name: 'Lakeside' }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith({ scene: 'lakeside' }));
+
+  fireEvent.click(screen.getByRole('combobox', { name: 'Scene rotation' }));
+  fireEvent.click(await screen.findByRole('option', { name: 'Random' }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith({ rotationMode: 'random' }));
+});
+
 it('loads local videos, switches only idle/working, and persists collapse/disable', async () => {
-  let prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
+  let prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', rotationMode: 'manual', rotationHours: 1, schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
   const api = { read: vi.fn(async () => prefs), save: vi.fn(async (patch: Partial<CompanionPrefs>) => (prefs = { ...prefs, ...patch })), choose: vi.fn(),
     packs: vi.fn(async () => []),
     videos: vi.fn(async () => ({ idle: ['idle.mp4'], working: ['work.mp4'], fallback: { idle: ['fallback.mp4', 'other.mp4'], working: ['work.mp4'] }, labels: { 'idle.mp4': '自然呼吸', 'work.mp4': '敲键盘', 'fallback.mp4': '整理衣领', 'other.mp4': '轻拂发丝' }, segment: 'day', error: false })) };
@@ -67,7 +90,9 @@ it('loads local videos, switches only idle/working, and persists collapse/disabl
       .style.getPropertyValue('--companion-aspect-ratio'),
   )).toBeCloseTo(1120 / 832));
   expect(view.container.querySelector('.companion-panel-header')).toHaveClass('bg-background/90', 'backdrop-blur');
+  expect(view.container.querySelector('.companion-panel-header button')).toHaveAttribute('aria-label', 'Collapse');
   expect(view.container.querySelector('.companion-panel-header')?.firstElementChild).toHaveTextContent('Built-in videos');
+  expect(view.container.querySelector('.companion-panel-header')?.lastElementChild).toHaveClass('ml-auto');
   const resizeHandles = view.container.querySelectorAll('button[data-resize-edge]');
   expect(Array.from(resizeHandles).map(button => button.getAttribute('data-resize-edge')))
     .toEqual(['left', 'right']);
@@ -88,7 +113,7 @@ it('loads local videos, switches only idle/working, and persists collapse/disabl
 });
 
 it('opens a separate window and removes the embedded panel', async () => {
-  let prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
+  let prefs: CompanionPrefs = { enabled: true, directory: '', scene: '', rotationMode: 'manual', rotationHours: 1, schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
   const save = vi.fn(async (patch: Partial<CompanionPrefs>) => (prefs = { ...prefs, ...patch }));
   window.nanobotHost = { companion: { read: async () => prefs, save, choose: async () => null,
     packs: async () => [], videos: async () => ({ idle: [], working: [], fallback: { idle: [], working: [] }, labels: {}, segment: 'day', error: false }) } };
@@ -100,7 +125,7 @@ it('opens a separate window and removes the embedded panel', async () => {
 });
 
 it('loads scene display names, refreshes them, and saves the selected pack', async () => {
-  let prefs: CompanionPrefs = { enabled: false, directory: '/videos', scene: 'glasshouse', schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
+  let prefs: CompanionPrefs = { enabled: false, directory: '/videos', scene: 'glasshouse', rotationMode: 'manual', rotationHours: 1, schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
   const api = {
     read: vi.fn(async () => prefs),
     save: vi.fn(async (patch: Partial<CompanionPrefs>) => (prefs = { ...prefs, ...patch })),
@@ -120,6 +145,34 @@ it('loads scene display names, refreshes them, and saves the selected pack', asy
   fireEvent.click(await screen.findByText('白玉湖畔露台'));
   fireEvent.click(screen.getByRole('button', { name: 'Refresh scene list' }));
   await waitFor(() => expect(api.packs).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByRole('combobox', { name: 'Scene rotation' }));
+  fireEvent.click(await screen.findByRole('option', { name: 'Sequential' }));
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Rotation interval (hours)' }), { target: { value: '2' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ scene: 'lakeside' })));
+  await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ scene: 'lakeside', rotationMode: 'sequential', rotationHours: 2 })));
+});
+
+it('does not overwrite a background scene rotation when saving an interval draft', async () => {
+  let prefs: CompanionPrefs = { enabled: false, directory: '/videos', scene: 'glasshouse', rotationMode: 'sequential', rotationHours: 1,
+    schedule: { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' }, panel: { x: null, y: null, width: 288, collapsed: false } };
+  let onChanged: (next: CompanionPrefs) => void = () => {};
+  const save = vi.fn(async (patch: Partial<CompanionPrefs>) => (prefs = { ...prefs, ...patch }));
+  const available = [{ id: 'glasshouse', displayName: 'Glasshouse' }, { id: 'lakeside', displayName: 'Lakeside' }];
+  const packs = vi.fn(async () => [...available]);
+  window.nanobotHost = { companion: {
+    read: async () => prefs, save, choose: async () => null,
+    packs,
+    videos: async () => ({ idle: [], working: [], fallback: { idle: [], working: [] }, labels: {}, segment: 'day', error: false }),
+    onChanged: listener => { onChanged = listener; return () => {}; },
+  } };
+  render(<ClientProvider client={new NanobotClient({ url: 'ws://unused', reconnect: false })} token="test"><CompanionSettings /></ClientProvider>);
+  fireEvent.change(await screen.findByRole('spinbutton', { name: 'Rotation interval (hours)' }), { target: { value: '2' } });
+  available.push({ id: 'new-scene', displayName: 'New scene' });
+  prefs = { ...prefs, scene: 'new-scene' };
+  act(() => onChanged(prefs));
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Video scene' })).toHaveTextContent('New scene'));
+  expect(packs).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith({ rotationHours: 2 }));
+  expect(prefs.scene).toBe('new-scene');
 });

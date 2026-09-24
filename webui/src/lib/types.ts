@@ -1586,6 +1586,14 @@ export interface FilePreviewPayload {
   content: string;
   size: number;
   truncated: boolean;
+  raw_content?: string;
+  frontmatter?: string;
+  properties?: Record<string, unknown>;
+  image_sources?: Record<string, string>;
+  images_omitted?: number;
+  library_source?: "notes";
+  library_root?: string;
+  library_path?: string;
 }
 
 export type Outbound =

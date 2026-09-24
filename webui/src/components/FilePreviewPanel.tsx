@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 
 import { CodeBlock } from "@/components/CodeBlock";
 import { splitFilePath } from "@/components/FileReferenceChip";
+import { LibraryDocument } from "@/components/library/LibraryDocument";
+import { Button } from "@/components/ui/button";
 import { ApiError, fetchFilePreview } from "@/lib/api";
 import type { FilePreviewPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -17,6 +19,7 @@ interface FilePreviewPanelProps {
   isClosing?: boolean;
   onResizeStart?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onClose: () => void;
+  onOpenFilePreview?: (path: string) => void;
 }
 
 type PreviewState =
@@ -32,9 +35,11 @@ export function FilePreviewPanel({
   isClosing = false,
   onResizeStart,
   onClose,
+  onOpenFilePreview,
 }: FilePreviewPanelProps) {
   const { t } = useTranslation();
   const [state, setState] = useState<PreviewState>({ status: "loading" });
+  const [raw, setRaw] = useState(false);
   const [entered, setEntered] = useState(false);
   const tokenRef = useRef(token);
   tokenRef.current = token;
@@ -45,8 +50,19 @@ export function FilePreviewPanel({
   }, []);
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  useEffect(() => {
     let cancelled = false;
     setState({ status: "loading" });
+    setRaw(false);
     fetchFilePreview(tokenRef.current, sessionKey, path)
       .then((payload) => {
         if (!cancelled) setState({ status: "ready", payload });
@@ -95,6 +111,19 @@ export function FilePreviewPanel({
         : state.error.message)
       : t("filePreview.failed", { defaultValue: "Could not preview this file." }))
     : null;
+  const openNoteReference = (reference: string) => {
+    if (!onOpenFilePreview || state.status !== "ready" || state.payload.library_source !== "notes"
+        || !state.payload.library_root || !state.payload.library_path
+        || /^[a-z]+:/i.test(reference) || reference.startsWith("/")) return;
+    const base = state.payload.library_path.split("/").slice(0, -1);
+    for (const part of reference.split("/")) {
+      if (part === "..") {
+        if (!base.length) return;
+        base.pop();
+      } else if (part && part !== ".") base.push(part);
+    }
+    onOpenFilePreview(`${state.payload.library_root.replace(/\/$/, "")}/${base.join("/")}`);
+  };
 
   return (
     <aside
@@ -210,6 +239,16 @@ export function FilePreviewPanel({
             >
               <X className="h-4 w-4" aria-hidden />
             </button>
+            {state.status === "ready" && state.payload.library_source === "notes" ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setRaw((value) => !value)}
+              >
+                {raw ? t("library.rendered") : t("library.raw")}
+              </Button>
+            ) : null}
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">
@@ -237,15 +276,26 @@ export function FilePreviewPanel({
                     })}
                   </div>
                 ) : null}
-                <CodeBlock
-                  language={state.payload.language}
-                  code={state.payload.content}
-                  chrome="none"
-                  highlight
-                  showLineNumbers
-                  wrapLongLines={false}
-                  className="min-h-full"
-                />
+                {state.payload.library_source === "notes" && !raw ? (
+                  <LibraryDocument
+                    path={state.payload.path}
+                    properties={state.payload.properties}
+                    localImages={state.payload.image_sources}
+                    onOpenFilePreview={openNoteReference}
+                  >
+                    {state.payload.content}
+                  </LibraryDocument>
+                ) : (
+                  <CodeBlock
+                    language={state.payload.language}
+                    code={raw ? state.payload.raw_content ?? state.payload.content : state.payload.content}
+                    chrome="none"
+                    highlight
+                    showLineNumbers
+                    wrapLongLines={false}
+                    className="min-h-full"
+                  />
+                )}
               </div>
             )}
           </div>

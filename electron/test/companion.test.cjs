@@ -99,3 +99,33 @@ test('父目录场景读取 displayName，支持刷新并保存实际使用组',
     await assert.rejects(api.save({ scene: 'missing' }), /available video scene/);
   } finally { assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep + "nanobot-companion-")); await fs.rm(root, { recursive: true, force: true }); }
 });
+
+test('按小时顺序或随机轮切场景，手动选择会重置计时', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nanobot-companion-'));
+  try {
+    const store = new Store({ cwd: root, projectVersion: '0.3.5' });
+    const bundledRoot = path.join(root, 'bundled');
+    const collection = path.join(root, 'videos');
+    for (const scene of ['a', 'b', 'c']) {
+      await fs.mkdir(path.join(collection, scene, 'idle'), { recursive: true });
+      await fs.mkdir(path.join(collection, scene, 'working'), { recursive: true });
+    }
+    await fs.mkdir(bundledRoot);
+    const api = createCompanion({ store, bundledRoot, dialog: {
+      showOpenDialog: async () => ({ canceled: false, filePaths: [collection] }),
+    } });
+    const selected = await api.choose();
+    await api.save({ enabled: true, directory: selected, scene: 'a', rotationMode: 'sequential', rotationHours: 2 });
+    const started = store.get('avatarCompanion.videoSceneChangedAt');
+    assert.equal(await api.rotateIfDue(started + 2 * 60 * 60 * 1000 - 1), null);
+    assert.equal((await api.rotateIfDue(started + 2 * 60 * 60 * 1000)).scene, 'b');
+    assert.equal((await api.read()).scene, 'b');
+    await api.save({ scene: 'c', rotationMode: 'random' });
+    const manualSwitch = store.get('avatarCompanion.videoSceneChangedAt');
+    assert.equal(await api.rotateIfDue(manualSwitch + 2 * 60 * 60 * 1000 - 1), null);
+    const rotated = await api.rotateIfDue(manualSwitch + 2 * 60 * 60 * 1000);
+    assert.ok(['a', 'b'].includes(rotated.scene));
+    await api.save({ rotationMode: 'manual' });
+    assert.equal(await api.rotateIfDue(manualSwitch + 10 * 60 * 60 * 1000), null);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});

@@ -5,7 +5,8 @@ const { createHash } = require('node:crypto');
 const { Readable } = require('node:stream');
 
 const SCHEDULE = { sunrise: '05:00', day: '10:00', sunset: '18:00', night: '22:00' };
-const DEFAULTS = { enabled: false, directory: '', scene: '', schedule: SCHEDULE, panel: { x: null, y: null, width: 288, collapsed: false }, detached: false, pinned: false, window: null };
+const DEFAULTS = { enabled: false, directory: '', scene: '', rotationMode: 'manual', rotationHours: 1,
+  schedule: SCHEDULE, panel: { x: null, y: null, width: 288, collapsed: false }, detached: false, pinned: false, window: null };
 
 // 沿用 lover 的时段选择及场景目录结构。
 function timeSegment(now, schedule = SCHEDULE) {
@@ -20,6 +21,8 @@ function normalize(raw = {}) {
   const panel = { ...DEFAULTS.panel, ...raw.panel };
   if (typeof raw.enabled !== 'boolean' || typeof raw.directory !== 'string' || raw.directory.length > 4096) throw new Error('Invalid companion preferences');
   if (typeof raw.scene !== 'string' || raw.scene.length > 255 || /[\\/]/.test(raw.scene) || raw.scene === '..') throw new Error('Invalid video scene');
+  if (!['manual', 'sequential', 'random'].includes(raw.rotationMode)
+      || !Number.isFinite(raw.rotationHours) || raw.rotationHours < 0.5 || raw.rotationHours > 168) throw new Error('Invalid video rotation');
   if (typeof panel.collapsed !== 'boolean' || !Number.isFinite(panel.width)) throw new Error('Invalid panel');
   for (const key of ['x', 'y']) if (panel[key] !== null && !Number.isFinite(panel[key])) throw new Error('Invalid position');
   panel.width = Math.max(200, Math.min(1120, Math.round(panel.width)));
@@ -29,7 +32,8 @@ function normalize(raw = {}) {
     || bounds.width < 200 || bounds.height < 100)) throw new Error('Invalid companion window bounds');
   const schedule = { ...SCHEDULE, ...raw.schedule };
   for (const key of Object.keys(SCHEDULE)) if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule[key])) throw new Error('Invalid time');
-  return { enabled: raw.enabled, directory: raw.directory.trim(), scene: raw.scene.trim(), panel,
+  return { enabled: raw.enabled, directory: raw.directory.trim(), scene: raw.scene.trim(),
+    rotationMode: raw.rotationMode, rotationHours: raw.rotationHours, panel,
     detached: raw.detached, pinned: raw.pinned, window: bounds,
     schedule: Object.fromEntries(Object.keys(SCHEDULE).map(key => [key, schedule[key]])) };
 }
@@ -85,6 +89,7 @@ function createCompanion({ store, bundledRoot, dialog }) {
   async function read() {
     const saved = store.get('avatarCompanion', {});
     const prefs = normalize({ ...DEFAULTS, ...saved, directory: saved.videoDirectory ?? '', scene: saved.videoScene ?? '',
+      rotationMode: saved.videoRotationMode ?? 'manual', rotationHours: saved.videoRotationHours ?? 1,
       schedule: saved.timeSchedule ?? SCHEDULE });
     if (prefs.directory && !prefs.scene) {
       const available = await discover(prefs.directory).catch(() => []);
@@ -105,10 +110,36 @@ function createCompanion({ store, bundledRoot, dialog }) {
         next.scene = selected.id;
       } else if (!next.directory) next.scene = '';
       store.set('avatarCompanion', { ...store.get('avatarCompanion', {}), enabled: next.enabled,
-        videoDirectory: next.directory, videoScene: next.scene, timeSchedule: next.schedule,
+        videoDirectory: next.directory, videoScene: next.scene,
+        videoRotationMode: next.rotationMode, videoRotationHours: next.rotationHours,
+        videoSceneChangedAt: previous.directory !== next.directory || previous.scene !== next.scene
+          || previous.rotationMode !== next.rotationMode || previous.rotationHours !== next.rotationHours
+          || (!previous.enabled && next.enabled) ? Date.now() : store.get('avatarCompanion.videoSceneChangedAt', Date.now()),
+        timeSchedule: next.schedule,
         panel: next.panel, detached: next.detached, pinned: next.pinned, window: next.window });
       if (previous.directory !== next.directory || previous.scene !== next.scene) files.clear();
       return structuredClone(next);
+    });
+    saving = operation.catch(() => {});
+    return operation;
+  }
+  function rotateIfDue(now = Date.now()) {
+    const operation = saving.then(async () => {
+      const prefs = await read();
+      if (!prefs.enabled || !prefs.directory || prefs.rotationMode === 'manual') return null;
+      const changedAt = store.get('avatarCompanion.videoSceneChangedAt', now);
+      if (now - changedAt < prefs.rotationHours * 60 * 60 * 1000) return null;
+      const available = await discover(prefs.directory).catch(() => []);
+      if (available.length < 2) return null;
+      const current = available.findIndex(pack => pack.id === prefs.scene);
+      const choices = available.filter(pack => pack.id !== prefs.scene);
+      const next = prefs.rotationMode === 'sequential'
+        ? available[(current + 1) % available.length]
+        : choices[Math.floor(Math.random() * choices.length)];
+      store.set('avatarCompanion', { ...store.get('avatarCompanion', {}), videoScene: next.id,
+        videoSceneChangedAt: now });
+      files.clear();
+      return { ...prefs, scene: next.id };
     });
     saving = operation.catch(() => {});
     return operation;
@@ -193,6 +224,6 @@ function createCompanion({ store, bundledRoot, dialog }) {
       return new Response(Readable.toWeb(createReadStream(file, { start, end })), { status: range ? 206 : 200, headers });
     } catch { return new Response(null, { status: 404 }); }
   }
-  return { read, save, choose, packs, videos, serve };
+  return { read, save, choose, packs, videos, serve, rotateIfDue };
 }
 module.exports = { createCompanion, timeSegment, normalize };

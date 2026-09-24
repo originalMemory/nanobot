@@ -293,8 +293,8 @@ if (!app.requestSingleInstanceLock()) {
       ipcMain.handle(`desktop:companion-${action}`, async (event, value) => {
         if (event.sender === companionWindow?.webContents) {
           trustedCompanion(event);
-          if (!['read', 'save', 'videos'].includes(action)) throw new Error('无效伴侣操作');
-          if (action === 'save' && (!value || Object.keys(value).some(key => !['enabled', 'detached', 'pinned'].includes(key)))) throw new Error('无效伴侣设置');
+          if (!['read', 'save', 'packs', 'videos'].includes(action)) throw new Error('无效伴侣操作');
+          if (action === 'save' && (!value || Object.keys(value).some(key => !['enabled', 'detached', 'pinned', 'scene', 'rotationMode', 'rotationHours'].includes(key)))) throw new Error('无效伴侣设置');
         } else trustedChat(event);
         const result = await (action === 'save' || action === 'packs' ? companion[action](value) : companion[action]());
         if (action === 'save') syncCompanionWindow(result);
@@ -470,6 +470,13 @@ if (!app.requestSingleInstanceLock()) {
     } catch (error) {
       await showSetup(error.code === 'ENOENT' ? '' : '后端地址配置无效，请重新填写。');
     }
+    const rotateScene = () => {
+      if (!companionWindow && !window?.webContents.getURL().startsWith(`${APP_ORIGIN}/`)) return;
+      void companion.rotateIfDue().then(prefs => { if (prefs) syncCompanionWindow(prefs); })
+        .catch(error => console.warn('无法轮切伴侣视频场景。', error.message));
+    };
+    const rotationTimer = setInterval(rotateScene, 60_000);
+    app.on('will-quit', () => clearInterval(rotationTimer));
     app.on('activate', showWindow);
   }).catch((error) => { dialog.showErrorBox('Nanobot 启动失败', error.message); app.quit(); });
 }

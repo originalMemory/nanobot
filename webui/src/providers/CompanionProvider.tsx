@@ -22,12 +22,12 @@ export function clampCompanionPanel(
 ): Panel {
   const availableWidth = Math.max(1, width - minX);
   const ratio = Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 4 / 3;
-  const limit = Math.max(1, Math.min(1120, availableWidth, panel.collapsed ? 1120 : (height - 78) * ratio));
+  const limit = Math.max(1, Math.min(1120, availableWidth, panel.collapsed ? 1120 : (height - 70) * ratio));
   const size = Math.min(limit, Math.max(200, Math.round(panel.width)));
   const panelHeight = panel.collapsed ? 32 : size / ratio + 32;
   return { ...panel, width: size,
     x: Math.max(minX, Math.min(width - size, panel.x ?? width - size - 24)),
-    y: Math.max(38, Math.min(height - panelHeight - 8, panel.y ?? height - panelHeight - 24)) };
+    y: Math.max(30, Math.min(height - panelHeight - 8, panel.y ?? height - panelHeight - 24)) };
 }
 
 export function pickCompanionVideo(pool: string[], recent: string[], current: string): string {
@@ -80,7 +80,7 @@ export function CompanionProvider({ children }: { children: ReactNode }) {
   if (!api) return <>{children}</>;
   return <Context.Provider value={{ api, prefs, videos, saving, error, save, reload: () => setRevision(v => v + 1) }}>
     {children}
-    {prefs?.enabled && !prefs.detached && <CompanionPanel prefs={prefs} videos={videos} mode={working ? "working" : "idle"} save={save} />}
+    {prefs?.enabled && !prefs.detached && <CompanionPanel api={api} prefs={prefs} videos={videos} mode={working ? "working" : "idle"} save={save} />}
   </Context.Provider>;
 }
 
@@ -157,10 +157,39 @@ export function CompanionVideo({ videos, mode, onAspectRatio, onActionChange }: 
   </div>;
 }
 
-function CompanionPanel({ prefs, videos, mode, save }: { prefs: CompanionPrefs; videos: CompanionVideos | null; mode: Mode; save: (patch: Partial<CompanionPrefs>) => Promise<boolean> }) {
+export function CompanionSceneControls({ prefs, packs, onChange, onSceneOpen }: {
+  prefs: CompanionPrefs | null;
+  packs: CompanionPack[];
+  onChange: (patch: Partial<CompanionPrefs>) => void;
+  onSceneOpen: () => void;
+}) {
+  const { t } = useTranslation();
+  const scene = prefs?.directory ? packs.find(pack => pack.id === prefs.scene)?.displayName ?? prefs.scene : t("companion.bundled");
+  return <>
+    {prefs?.directory ? <Select value={prefs.scene} onValueChange={value => onChange({ scene: value })} onOpenChange={open => { if (open) onSceneOpen(); }}>
+      <SelectTrigger className="companion-window-control h-7 min-w-0 max-w-48 border-0 bg-transparent px-1 text-xs" aria-label={t("companion.scene")} title={scene}><SelectValue>{scene}</SelectValue></SelectTrigger>
+      <SelectContent className="w-max min-w-0 max-w-[calc(100vw-1rem)]">{packs.map(pack => <SelectItem key={pack.id} value={pack.id}>{pack.displayName}</SelectItem>)}</SelectContent>
+    </Select> : <span className="min-w-0 flex-1 truncate text-xs" title={scene}>{scene}</span>}
+    <Select value={prefs?.rotationMode ?? "manual"} onValueChange={value => onChange({ rotationMode: value as CompanionPrefs["rotationMode"] })}>
+      <SelectTrigger className="companion-window-control h-7 shrink-0 border-0 bg-transparent px-1 text-xs" aria-label={t("companion.rotationMode")}><SelectValue /></SelectTrigger>
+      <SelectContent className="w-max min-w-0">{(["manual", "sequential", "random"] as const).map(mode => <SelectItem key={mode} value={mode}>{t(`companion.rotation.${mode}`)}</SelectItem>)}</SelectContent>
+    </Select>
+  </>;
+}
+
+function CompanionPanel({ api, prefs, videos, mode, save }: { api: CompanionApi; prefs: CompanionPrefs; videos: CompanionVideos | null; mode: Mode; save: (patch: Partial<CompanionPrefs>) => Promise<boolean> }) {
   const { t } = useTranslation();
   const [aspectRatio, setAspectRatio] = useState(4 / 3);
   const [action, setAction] = useState("");
+  const [packs, setPacks] = useState<CompanionPack[]>([]);
+  const refreshPacks = () => { void api.packs(prefs.directory).then(setPacks).catch(() => setPacks([])); };
+  useEffect(() => {
+    if (!prefs.directory) { setPacks([]); return; }
+    let active = true;
+    void api.packs(prefs.directory).then(value => { if (active) setPacks(value); })
+      .catch(() => { if (active) setPacks([]); });
+    return () => { active = false; };
+  }, [api, prefs.directory]);
   const clamp = useCallback((value: Panel) => clampCompanionPanel(value, innerWidth, innerHeight,
     document.querySelector<HTMLElement>(".desktop-main")?.getBoundingClientRect().left ?? 0, aspectRatio), [aspectRatio]);
   const [panel, setPanel] = useState(() => clamp(prefs.panel));
@@ -177,16 +206,20 @@ function CompanionPanel({ prefs, videos, mode, save }: { prefs: CompanionPrefs; 
     const width = panel.width + (edge === "left" ? -delta : delta);
     persist({ ...panel, width, ...(edge === "left" ? { x: (panel.x ?? 0) + panel.width - width } : {}) });
   };
-  return <div className="companion-panel fixed z-30 overflow-hidden rounded-lg border border-border/70 bg-transparent shadow-xl" style={{ left: panel.x ?? 0, top: panel.y ?? 38, width: panel.width, "--companion-aspect-ratio": aspectRatio } as CSSProperties}
+  return <div className="companion-panel fixed z-30 overflow-hidden rounded-lg border border-border/70 bg-transparent shadow-xl" style={{ left: panel.x ?? 0, top: panel.y ?? 30, width: panel.width, "--companion-aspect-ratio": aspectRatio } as CSSProperties}
     onPointerMove={event => { const base = drag.current; if (!base) return; const delta = event.clientX - base.x; const width = base.panel.width + (base.resize === "left" ? -delta : delta); setPanel(clamp({ ...base.panel, ...(base.resize ? { width, ...(base.resize === "left" ? { x: (base.panel.x ?? 0) + base.panel.width - width } : {}) } : { x: (base.panel.x ?? 0) + delta, y: (base.panel.y ?? 0) + event.clientY - base.y }) })); }}
     onPointerUp={() => { if (drag.current) { drag.current = null; void save({ panel }); } }} onPointerCancel={() => { drag.current = null; }}>
     <div className="companion-panel-header flex h-8 touch-none select-none items-center gap-2 bg-background/90 px-2 backdrop-blur cursor-move" tabIndex={0} aria-label={t("companion.move")}
       onPointerDown={event => start(event, null)} onKeyDown={event => { if (event.target !== event.currentTarget || !event.key.startsWith("Arrow")) return; event.preventDefault(); persist({ ...panel, x: (panel.x ?? 0) + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0), y: (panel.y ?? 0) + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0) }); }}>
-      <span className="min-w-0 flex-1 truncate text-xs" title={prefs.directory ? videos?.sceneName || prefs.scene : t("companion.bundled")}>{prefs.directory ? videos?.sceneName || prefs.scene : t("companion.bundled")}</span>
-      <button type="button" title={t(panel.collapsed ? "companion.expand" : "companion.collapse")} aria-label={t(panel.collapsed ? "companion.expand" : "companion.collapse")} onClick={() => persist({ ...panel, collapsed: !panel.collapsed })}>{panel.collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
-      <span className="min-w-0 truncate text-xs text-muted-foreground">{t(`companion.${mode}`)}{action ? ` · ${action}` : ""}</span>
-      <button type="button" title={t("companion.detach")} aria-label={t("companion.detach")} onClick={() => void save({ detached: true })}><ExternalLink size={16} /></button>
-      <button type="button" title={t("companion.hide")} aria-label={t("companion.hide")} onClick={() => void save({ enabled: false })}><X size={16} /></button>
+      <div className="flex min-w-0 items-center gap-2">
+        <button type="button" title={t(panel.collapsed ? "companion.expand" : "companion.collapse")} aria-label={t(panel.collapsed ? "companion.expand" : "companion.collapse")} onClick={() => persist({ ...panel, collapsed: !panel.collapsed })}>{panel.collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
+        <CompanionSceneControls prefs={prefs} packs={packs} onChange={patch => { void save(patch); }} onSceneOpen={refreshPacks} />
+      </div>
+      <div className="ml-auto flex min-w-0 items-center gap-2">
+        <span className="min-w-0 truncate text-xs text-muted-foreground">{t(`companion.${mode}`)}{action ? ` · ${action}` : ""}</span>
+        <button type="button" title={t("companion.detach")} aria-label={t("companion.detach")} onClick={() => void save({ detached: true })}><ExternalLink size={16} /></button>
+        <button type="button" title={t("companion.hide")} aria-label={t("companion.hide")} onClick={() => void save({ enabled: false })}><X size={16} /></button>
+      </div>
     </div>
     {!panel.collapsed && <>{videos ? <CompanionVideo videos={videos} mode={mode} onAspectRatio={setAspectRatio} onActionChange={setAction} /> : <div className="bg-muted" style={{ aspectRatio }} />}
       {(["left", "right"] as const).map(edge => <button key={edge} type="button" className={`absolute bottom-0 z-10 h-5 w-5 touch-none bg-transparent ${edge === "left" ? "left-0 cursor-nesw-resize" : "right-0 cursor-nwse-resize"}`} aria-label={t("companion.resize")}
@@ -197,14 +230,14 @@ function CompanionPanel({ prefs, videos, mode, save }: { prefs: CompanionPrefs; 
 
 export function CompanionSettings() {
   const context = useContext(Context); const { t } = useTranslation();
-  const [draft, setDraft] = useState<CompanionPrefs | null>(null);
+  const [draft, setDraft] = useState<Partial<CompanionPrefs> | null>(null);
   const [chooseError, setChooseError] = useState(false);
   const [packs, setPacks] = useState<CompanionPack[]>([]);
   const [packsLoading, setPacksLoading] = useState(false);
   const [packsRevision, setPacksRevision] = useState(0);
   const api = context?.api;
   const prefs = context?.prefs ?? null;
-  const value = draft ?? prefs;
+  const value = prefs && { ...prefs, ...draft };
   const directory = value?.directory ?? "";
   useEffect(() => {
     if (!api || !directory) { setPacks([]); setPacksLoading(false); return; }
@@ -215,7 +248,7 @@ export function CompanionSettings() {
     }).catch(() => { if (!cancelled) { setPacks([]); setChooseError(true); } })
       .finally(() => { if (!cancelled) setPacksLoading(false); });
     return () => { cancelled = true; };
-  }, [api, directory, packsRevision]);
+  }, [api, directory, packsRevision, prefs?.scene]);
   if (!context) return null;
   const { saving, error, save, reload, videos } = context;
   if (!value) return <section><SettingsSectionTitle>{t("companion.title")}</SettingsSectionTitle><p role={error ? "alert" : "status"} className="text-sm text-muted-foreground">{t(error ? "companion.error" : "settings.desktop.loading")}</p>{error && <Button size="sm" variant="outline" className="rounded-full" onClick={reload}>{t("settings.desktop.retry")}</Button>}</section>;
@@ -224,12 +257,14 @@ export function CompanionSettings() {
   return <fieldset disabled={saving} className="settings-stack"><section><SettingsSectionTitle>{t("companion.title")}</SettingsSectionTitle>
     <SettingsGroup>
       <SettingsRow title={t("companion.enable")}><ToggleButton checked={prefs?.enabled ?? false} disabled={saving} onChange={enabled => { void save({ enabled }); }} label={t(`settings.values.${prefs?.enabled ? 'on' : 'off'}`)} ariaLabel={t("companion.enable")} /></SettingsRow>
-      <SettingsRow title={t("companion.directory")} description={t("companion.directoryHelp")}><div className="min-w-0 space-y-2 text-sm"><p className="break-all text-muted-foreground">{value.directory || t("companion.bundled")}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" className="rounded-full" onClick={() => { setChooseError(false); void context.api.choose().then(nextDirectory => { if (nextDirectory !== null) setDraft({ ...value, directory: nextDirectory, scene: '' }); }).catch(() => setChooseError(true)); }}>{t("companion.choose")}</Button><Button size="sm" variant="ghost" className="rounded-full" disabled={!value.directory} onClick={() => setDraft({ ...value, directory: '', scene: '' })}>{t("companion.bundled")}</Button></div></div></SettingsRow>
-      {value.directory && <SettingsRow title={t("companion.scene")} description={t("companion.sceneHelp")}><div className="flex min-w-0 items-center gap-2"><Select value={selectedScene} disabled={packsLoading || packs.length === 0} onValueChange={scene => setDraft({ ...value, scene })}><SelectTrigger className="w-full rounded-full" aria-label={t("companion.scene")}><SelectValue placeholder={t("companion.selectScene")} /></SelectTrigger><SelectContent>{packs.map(pack => <SelectItem key={pack.id} value={pack.id}>{pack.displayName}</SelectItem>)}</SelectContent></Select><Button type="button" size="icon" variant="outline" className="shrink-0 rounded-full" disabled={packsLoading} aria-label={t("companion.refresh")} title={t("companion.refresh")} onClick={() => setPacksRevision(current => current + 1)}><RefreshCw className={`h-4 w-4 ${packsLoading ? "animate-spin" : ""}`} /></Button></div></SettingsRow>}
-      {Object.entries(value.schedule).map(([period, time]) => <SettingsRow key={period} title={t(`companion.${period}`)}><Input aria-label={t(`companion.${period}`)} type="time" className="h-9 rounded-full text-[13px]" value={time} onChange={event => setDraft({ ...value, schedule: { ...value.schedule, [period]: event.target.value } })} /></SettingsRow>)}
+      <SettingsRow title={t("companion.directory")} description={t("companion.directoryHelp")}><div className="min-w-0 space-y-2 text-sm"><p className="break-all text-muted-foreground">{value.directory || t("companion.bundled")}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" className="rounded-full" onClick={() => { setChooseError(false); void context.api.choose().then(nextDirectory => { if (nextDirectory !== null) setDraft({ ...draft, directory: nextDirectory, scene: '' }); }).catch(() => setChooseError(true)); }}>{t("companion.choose")}</Button><Button size="sm" variant="ghost" className="rounded-full" disabled={!value.directory} onClick={() => setDraft({ ...draft, directory: '', scene: '' })}>{t("companion.bundled")}</Button></div></div></SettingsRow>
+      {value.directory && <SettingsRow title={t("companion.scene")} description={t("companion.sceneHelp")}><div className="flex min-w-0 items-center gap-2"><Select value={selectedScene} disabled={packsLoading || packs.length === 0} onValueChange={scene => setDraft({ ...draft, scene })}><SelectTrigger className="w-full rounded-full" aria-label={t("companion.scene")}><SelectValue placeholder={t("companion.selectScene")} /></SelectTrigger><SelectContent>{packs.map(pack => <SelectItem key={pack.id} value={pack.id}>{pack.displayName}</SelectItem>)}</SelectContent></Select><Button type="button" size="icon" variant="outline" className="shrink-0 rounded-full" disabled={packsLoading} aria-label={t("companion.refresh")} title={t("companion.refresh")} onClick={() => setPacksRevision(current => current + 1)}><RefreshCw className={`h-4 w-4 ${packsLoading ? "animate-spin" : ""}`} /></Button></div></SettingsRow>}
+      {value.directory && <SettingsRow title={t("companion.rotationMode")}><Select value={value.rotationMode} onValueChange={rotationMode => setDraft({ ...draft, rotationMode: rotationMode as CompanionPrefs["rotationMode"] })}><SelectTrigger className="w-44 rounded-full" aria-label={t("companion.rotationMode")}><SelectValue /></SelectTrigger><SelectContent>{(["manual", "sequential", "random"] as const).map(mode => <SelectItem key={mode} value={mode}>{t(`companion.rotation.${mode}`)}</SelectItem>)}</SelectContent></Select></SettingsRow>}
+      {value.directory && value.rotationMode !== "manual" && <SettingsRow title={t("companion.rotationHours")}><Input aria-label={t("companion.rotationHours")} type="number" min={0.5} max={168} step={0.5} className="h-9 w-24 rounded-full text-[13px]" value={value.rotationHours} onChange={event => setDraft({ ...draft, rotationHours: Number(event.target.value) })} /></SettingsRow>}
+      {Object.entries(value.schedule).map(([period, time]) => <SettingsRow key={period} title={t(`companion.${period}`)}><Input aria-label={t(`companion.${period}`)} type="time" className="h-9 rounded-full text-[13px]" value={time} onChange={event => setDraft({ ...draft, schedule: { ...value.schedule, [period]: event.target.value } })} /></SettingsRow>)}
     </SettingsGroup></section>
     <RestartSettingsFooter dirty={Boolean(draft)} saving={saving} pendingRestart={false} error={error || chooseError || Boolean(videos?.error)} message={error || chooseError ? t("companion.error") : videos?.error ? t("companion.fallback") : undefined}
-      disabled={packsLoading || Boolean(value.directory && !selectedScene)}
-      onSave={() => { void save({ directory: value.directory, scene: selectedScene, schedule: value.schedule }).then(ok => { if (ok) setDraft(null); }); }} onReset={() => setDraft(null)} />
+      disabled={packsLoading || Boolean(value.directory && !selectedScene) || value.rotationHours < 0.5 || value.rotationHours > 168}
+      onSave={() => { void save({ ...draft, ...(draft?.directory !== undefined || draft?.scene !== undefined ? { scene: selectedScene } : {}) }).then(ok => { if (ok) setDraft(null); }); }} onReset={() => setDraft(null)} />
   </fieldset>;
 }

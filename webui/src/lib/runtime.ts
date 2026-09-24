@@ -62,6 +62,8 @@ export interface CompanionPrefs {
   enabled: boolean;
   directory: string;
   scene: string;
+  rotationMode: "manual" | "sequential" | "random";
+  rotationHours: number;
   schedule: Record<"sunrise" | "day" | "sunset" | "night", string>;
   panel: { x: number | null; y: number | null; width: number; collapsed: boolean };
   detached?: boolean;

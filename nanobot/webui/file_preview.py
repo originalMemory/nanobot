@@ -28,10 +28,11 @@ def file_preview_payload(
     *,
     scope: WorkspaceScope,
     max_bytes: int = MAX_FILE_PREVIEW_BYTES,
+    resolved_path: Path | None = None,
 ) -> dict[str, Any]:
     """Return a text preview for a file allowed by the session workspace scope."""
 
-    resolved = _resolve_preview_path(raw_path, scope=scope)
+    resolved = resolved_path or _resolve_preview_path(raw_path, scope=scope)
 
     try:
         with open(resolved, "rb") as f:

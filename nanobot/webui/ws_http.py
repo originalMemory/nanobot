@@ -39,8 +39,10 @@ from nanobot.triggers.local_types import LocalTrigger
 from nanobot.webui.automation_results import cron_run_response, trigger_run_response
 from nanobot.webui.file_preview import (
     WebUIFilePreviewError,
+    _resolve_preview_path,
     file_preview_availability_payload,
     file_preview_payload,
+    language_for_path,
 )
 from nanobot.webui.gateway_tokens import GatewayTokenStore, token_response_payload
 from nanobot.webui.http_utils import JSONResponseMetrics
@@ -1171,7 +1173,47 @@ class GatewayHTTPHandler:
             if is_probe:
                 payload = file_preview_availability_payload(path, scope=scope)
             else:
-                payload = file_preview_payload(path, scope=scope)
+                resolved = _resolve_preview_path(path, scope=scope)
+                config = self.settings.config.load()
+                diary_root = Path(config.diary_root).expanduser().resolve() if config.diary_root else None
+                is_note = bool(diary_root and resolved.is_relative_to(diary_root.parent)
+                               and resolved.suffix.lower() in {".md", ".markdown"})
+                if is_note:
+                    assert diary_root is not None
+                    relative = resolved.relative_to(diary_root.parent).as_posix()
+                    try:
+                        note = library_payload(
+                            config,
+                            source="notes",
+                            action="read",
+                            path=relative,
+                            sign_image=self.media.sign_or_stage_media_path,
+                        )
+                    except (LibraryError, OSError):
+                        note = None
+                    if note and note.get("kind") == "text":
+                        payload = {
+                            "path": str(resolved),
+                            "display_path": str(resolved.relative_to(scope.project_path))
+                            if resolved.is_relative_to(scope.project_path) else str(resolved),
+                            "project_path": str(scope.project_path),
+                            "language": language_for_path(resolved),
+                            "content": note["content"],
+                            "raw_content": note.get("raw_content", note["content"]),
+                            "frontmatter": note.get("frontmatter", ""),
+                            "properties": note.get("properties", {}),
+                            "image_sources": note.get("image_sources", {}),
+                            "images_omitted": note.get("images_omitted", 0),
+                            "library_source": "notes",
+                            "library_root": note["root"],
+                            "library_path": note["path"],
+                            "size": resolved.stat().st_size,
+                            "truncated": note.get("truncated", False),
+                        }
+                    else:
+                        payload = file_preview_payload(path, scope=scope, resolved_path=resolved)
+                else:
+                    payload = file_preview_payload(path, scope=scope, resolved_path=resolved)
         except WebUIFilePreviewError as e:
             if is_probe and e.status in {400, 403, 404, 415}:
                 return _http_json_response({"available": False})

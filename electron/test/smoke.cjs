@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
-const { mkdtemp, rm, readFile, writeFile } = require('node:fs/promises');
+const { mkdir, mkdtemp, rm, readFile, writeFile } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { WebSocket, WebSocketServer } = require('ws');
@@ -167,12 +167,20 @@ async function main() {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const gateway = `http://127.0.0.1:${server.address().port}`;
   const savedBounds = { x: 100, y: 80, width: 1000, height: 720 };
+  const companionScenes = path.join(data, 'scenes');
+  if (companionOnly) {
+    for (const scene of ['scene-a', 'scene-b']) {
+      await mkdir(path.join(companionScenes, scene, 'idle'), { recursive: true });
+      await mkdir(path.join(companionScenes, scene, 'working'), { recursive: true });
+      await writeFile(path.join(companionScenes, scene, 'manifest.json'), JSON.stringify({ displayName: scene }));
+    }
+  }
   await writeFile(path.join(data, 'config.json'), JSON.stringify({
     ...(storeOnly ? { gateway: { url: gateway, token: 'preserved' },
       appearance: { theme: 'ink', language: 'en', wallpaper: { source: 'none', localOrder: 'random', intervalMinutes: 3 } },
       tts: { pauseSystemMedia: false }, avatarCompanion: { enabled: false, videoDirectory: '', timeSchedule: { day: '11:00' } } } : {}),
     ...(windowOnly ? { window: savedBounds } : {}),
-    ...(companionOnly ? { avatarCompanion: { enabled: true, videoDirectory: '', detached: true,
+    ...(companionOnly ? { avatarCompanion: { enabled: true, videoDirectory: companionScenes, videoScene: 'scene-a', detached: true,
       pinned: true, window: { x: 120, y: 80, width: 400, height: 320 } } } : {}),
     ...(authOnly || surfacesOnly ? { appearance: { wallpaper: { source: 'url', url: `${gateway}/wallpaper-fixture` }, opacity: 0.65 } } : {}),
   }));
@@ -235,6 +243,8 @@ async function main() {
     if (companionOnly) {
       const detached = await page('nanobot://desktop/companion.html');
       await until(() => detached.evaluate('Boolean(document.querySelector(".companion-window-header"))'), '独立伴侣窗口恢复');
+      assert.equal(await detached.evaluate("Boolean(document.querySelector('[aria-label=\"Scene rotation\"]'))"), true);
+      await until(() => detached.evaluate("Boolean(document.querySelector('[aria-label=\"Video scene\"]'))"), '伴侣视频组下拉菜单');
       assert.equal(await detached.evaluate('window.innerWidth'), 400);
       await until(() => detached.evaluate('Boolean(document.querySelector("video")?.videoWidth)'), '伴侣视频宽高');
       await until(() => detached.evaluate('Math.abs(window.innerWidth / (window.innerHeight - 32) - document.querySelector("video").videoWidth / document.querySelector("video").videoHeight) < 0.01'), '独立窗口视频比例');
