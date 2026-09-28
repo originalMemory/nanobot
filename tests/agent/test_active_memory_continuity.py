@@ -157,6 +157,28 @@ def test_unreadable_sources_keep_old_card(tmp_path, monkeypatch):
     assert result.topic_card["_stale"]
 
 
+def test_topic_card_deduplicates_stored_sources_but_keeps_new_sources(tmp_path):
+    old = note(tmp_path, date="2026-01-01", body="星海的旧记录。")
+    fresh = note(tmp_path, date="2026-02-01", body="星海的新记录。")
+    topics = tmp_path / "topics"
+    card(topics, source_files=[str(Path(old).relative_to(tmp_path))])
+
+    result = memory._search_diary("星海", str(tmp_path), topics)
+
+    assert [hit["path"] for hit in result.hits] == [Path(fresh).name]
+
+
+def test_topic_card_without_sources_keeps_normal_recall(tmp_path):
+    old = note(tmp_path, date="2026-01-01", body="星海的旧记录。")
+    fresh = note(tmp_path, date="2026-02-01", body="星海的新记录。")
+    topics = tmp_path / "topics"
+    card(topics)
+
+    result = memory._search_diary("星海", str(tmp_path), topics)
+
+    assert {hit["path"] for hit in result.hits} == {Path(old).name, Path(fresh).name}
+
+
 async def test_build_card_validates_quote_and_preserves_unknown_fields(tmp_path):
     filename = note(tmp_path, body="星海的角色月白登场。\n\n去商店购物。")
     topics = tmp_path / "topics"

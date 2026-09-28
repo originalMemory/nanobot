@@ -548,6 +548,10 @@ def _search_diary(
             not complete or topic_card.get("fingerprint") != fingerprint
             or topic_card.get("schema_version") != TOPIC_CARD_SCHEMA_VERSION
         )
+    topic_card_source_paths = (
+        _topic_card_source_paths(topic_card, diary_root)
+        if topic_card and complete else None
+    )
 
     # 在同一相关性层内做时间分层，绝不以近期 OR 挤掉完整匹配。
     ranked: list[DiaryCandidate] = []
@@ -557,6 +561,8 @@ def _search_diary(
     ranked = _diversify_candidates(ranked, words)
     results: list[dict[str, Any]] = []
     for item in ranked:
+        if topic_card_source_paths is not None and item.path in topic_card_source_paths:
+            continue
         snippet = _candidate_snippet(item, words)
         if snippet:
             results.append({"date": item.date, "snippet": snippet,
@@ -797,6 +803,26 @@ def _topic_source_files(card: dict[str, Any], diary_root: str) -> set[str]:
     paths = canonical_diary_files(set[str]().union(*(_grep_files(name, diary_root) for name in names)))
     return {path for path in paths
             if _topic_text(Path(path).read_text(encoding="utf-8"), names)}
+
+
+def _topic_card_source_paths(card: dict[str, Any], diary_root: str) -> set[str] | None:
+    """Return stored card sources for deduplication, or None when unsafe."""
+    raw = card.get("source_files")
+    if (not isinstance(raw, list) or not raw
+            or any(not isinstance(item, str) or not item.strip() for item in raw)):
+        return None
+    root = Path(diary_root).expanduser().resolve()
+    paths: set[str] = set()
+    for source in cast(list[str], raw):
+        path = Path(source)
+        if not path.is_absolute():
+            path = root / path
+        resolved = path.resolve()
+        if not resolved.is_relative_to(root):
+            return None
+        paths.add(str(resolved))
+    normalized = canonical_diary_files(paths)
+    return normalized or None
 
 
 def _topic_names(card: dict[str, Any]) -> set[str]:
