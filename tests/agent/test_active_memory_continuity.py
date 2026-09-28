@@ -491,6 +491,10 @@ async def test_new_topic_review_builds_independent_card(tmp_path):
     await hook.on_finally(AgentRunHookContext(messages=[]))
     await scheduled.pop()
     assert model.await_count == 2
+    prompt = model.call_args_list[0].args[0]
+    assert '候选词是否值得进入长期主题卡' in prompt
+    assert '早餐' in prompt and '默认 no_save' in prompt
+    assert 'Directory Opus' in prompt
     assert memory._find_topic_card(hook._topic_dir, ['星海'])['summary'] == '新作品脉络'
 
 
