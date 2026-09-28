@@ -36,6 +36,7 @@ function installDesktop({
   const previews = new Map();
   const iconName = platform === 'darwin' ? 'trayTemplate.png' : 'tray.png';
   const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', iconName));
+  const notificationIcon = platform === 'win32' ? path.join(__dirname, 'assets', 'icon.ico') : undefined;
   if (platform === 'darwin') icon.setTemplateImage(true);
   const loadStatusIcon = (name) => {
     const candidate = nativeImage.createFromPath(path.join(__dirname, 'assets', name));
@@ -195,6 +196,7 @@ function installDesktop({
     const notification = new Notification({
       title: 'Nanobot',
       body: notificationBody(payload, app.getLocale?.() || 'zh-CN'),
+      ...(notificationIcon ? { icon: notificationIcon } : {}),
     });
     notification.on('click', showDesktopWindow);
     notification.show();

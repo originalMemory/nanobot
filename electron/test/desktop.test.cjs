@@ -137,6 +137,13 @@ test('通知去重，聚焦时不打扰；点击通知唤起窗口', () => {
   f.notices[0].emit('click'); assert.equal(f.shown(), 1);
 });
 
+test('Windows 通知使用当前应用图标', () => {
+  const f = fixture({ platform: 'win32' });
+  f.win.focused = false;
+  f.controller.notify({ event: 'turn_end', chat_id: 'desktop', turn_id: 'windows-icon' });
+  assert.match(f.notices.at(-1).options.icon, /assets[\\/]icon\.ico$/);
+});
+
 test('直播状态切换托盘图和任务栏进度', () => {
   const f = fixture();
   f.controller.handleFrame({ event: 'goal_status', chat_id: 'desktop', status: 'running' });
