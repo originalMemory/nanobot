@@ -16,6 +16,7 @@ export interface ActivityStepProps {
   ariaLabel?: string;
   active?: boolean;
   animateLabel?: boolean;
+  multiline?: boolean;
   tone?: ActivityStepTone;
   className?: string;
   contentClassName?: string;
@@ -33,6 +34,7 @@ export function ActivityStep({
   ariaLabel,
   active = false,
   animateLabel = true,
+  multiline = false,
   tone = active ? "active" : "neutral",
   className,
   contentClassName,
@@ -44,18 +46,22 @@ export function ActivityStep({
     <div
       data-testid="activity-line"
       tabIndex={typeof label === "string" ? 0 : undefined}
-      className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
+      className={cn("flex min-w-0 items-center gap-1.5", multiline ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "overflow-hidden whitespace-nowrap")}
     >
-      <StreamingLabelSheen
-        active={active && animateLabel}
-        className={cn(
-          "min-w-0 flex-1 truncate font-medium",
-          tone === "error" ? "text-destructive/78" : "text-muted-foreground/85",
-          labelClassName,
-        )}
-      >
-        {label}
-      </StreamingLabelSheen>
+      {multiline ? (
+        <span className={cn("min-w-0 flex-1 font-medium", labelClassName)}>{label}</span>
+      ) : (
+        <StreamingLabelSheen
+          active={active && animateLabel}
+          className={cn(
+            "min-w-0 flex-1 truncate font-medium",
+            tone === "error" ? "text-destructive/78" : "text-muted-foreground/85",
+            labelClassName,
+          )}
+        >
+          {label}
+        </StreamingLabelSheen>
+      )}
     </div>
   );
 
@@ -94,7 +100,7 @@ export function ActivityStep({
         </span>
       ) : null}
       <div className={cn("min-w-0", contentClassName)}>
-        {typeof label === "string" ? (
+        {typeof label === "string" && !multiline ? (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>{line}</TooltipTrigger>

@@ -1455,7 +1455,7 @@ describe("AgentActivityCluster", () => {
     expect(screen.queryByText("Web research")).not.toBeInTheDocument();
   });
 
-  it("renders reasoning as a single flat activity row", () => {
+  it("renders reasoning in full with its original line breaks", () => {
     render(
       <AgentActivityCluster
         messages={[{
@@ -1472,7 +1472,8 @@ describe("AgentActivityCluster", () => {
       />,
     );
 
-    expect(screen.getByText("Planning a focused search for official sources")).toBeInTheDocument();
+    expect(screen.getByText("**Planning** a focused search for official sources")).toBeInTheDocument();
+    expect(screen.getByTestId("activity-line")).toHaveClass("whitespace-pre-wrap");
     expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
     expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
   });
@@ -2310,8 +2311,12 @@ describe("AgentActivityCluster", () => {
     for (const step of steps) {
       expect(step).toHaveClass("grid-cols-[1.125rem_minmax(0,1fr)]");
       const line = step.children[1]?.firstElementChild;
-      expect(line).toHaveClass("overflow-hidden");
-      expect(line).toHaveClass("whitespace-nowrap");
+      if (step.querySelector('[data-testid="activity-reasoning-marker"]')) {
+        expect(line).toHaveClass("whitespace-pre-wrap");
+      } else {
+        expect(line).toHaveClass("overflow-hidden");
+        expect(line).toHaveClass("whitespace-nowrap");
+      }
       expect(step.querySelector("br")).not.toBeInTheDocument();
       expect(step.querySelector('[data-testid="activity-evidence-preview"]')).not.toBeInTheDocument();
     }

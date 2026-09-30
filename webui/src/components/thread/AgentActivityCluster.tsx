@@ -52,6 +52,7 @@ import {
   isReasoningOnlyAssistant,
 } from "@/lib/activity-timeline";
 import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
+import { useActivityMode } from "@/hooks/useActivityMode";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { usePageVisibility } from "@/hooks/usePageVisibility";
 import { useThreadVisibility } from "@/hooks/useThreadVisibility";
@@ -239,6 +240,7 @@ function FoldedAgentActivity({
   onOpenFilePreview,
 }: AgentActivityClusterProps) {
   const { t } = useTranslation();
+  const activityMode = useActivityMode();
   const fileEditDisplayMode = useFileEditDisplayMode();
   const pageVisible = usePageVisibility();
   const threadVisible = useThreadVisibility();
@@ -283,7 +285,7 @@ function FoldedAgentActivity({
   const wasTurnStreamingRef = useRef(isTurnStreaming);
   const wasTurnStreaming = wasTurnStreamingRef.current;
   /** Live work stays open; completed work briefly shows the done state, then tucks away. */
-  const outerExpanded = userToggledOuter
+  const outerExpanded = activityMode === "expanded" ? true : userToggledOuter
     ? outerOpenLocal
     : isTurnStreaming || completionHoldOpen || (wasTurnStreaming && !isTurnStreaming);
   const deferredTraceRefs = useMemo(

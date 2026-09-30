@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 import { ActivityStep } from "./ActivityStep";
-import { compactReasoningPreview } from "./reasoning-preview";
 
 export function ReasoningRow({
   text,
@@ -20,22 +19,16 @@ export function ReasoningRow({
   const fallback = streaming
     ? t("message.reasoningStreaming", { defaultValue: "Thinking…" })
     : t("message.reasoning", { defaultValue: "Thinking" });
-  const preview = compactReasoningPreview(text) || fallback;
-  // CSS ellipsis still lays out the full string, including the animated copy.
-  const truncated = preview.length > 512;
-  const label = truncated
-    ? preview.slice(0, 512).replace(/[\uD800-\uDBFF]$/, "") + "…"
-    : preview;
+  const displayText = (text || fallback).replace(/\n{2,}/g, "\n");
   return (
     <ActivityStep
       marker={<ReasoningMarker streaming={streaming} />}
       active={streaming}
-      animateLabel={!truncated}
+      animateLabel={false}
+      multiline
       tone={streaming ? "active" : "success"}
-      label={label}
-      tooltipContent={preview}
+      label={displayText}
       labelClassName="italic text-muted-foreground/78"
-      contentClassName="overflow-hidden"
       className={className}
     />
   );
