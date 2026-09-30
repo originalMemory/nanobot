@@ -197,7 +197,7 @@ function CompanionPanel({ api, prefs, videos, mode, save }: { api: CompanionApi;
   useEffect(() => { setPanel(clamp(prefs.panel)); }, [clamp, prefs.panel]);
   useEffect(() => { const resize = () => setPanel(value => clamp(value)); window.addEventListener("resize", resize); return () => window.removeEventListener("resize", resize); }, [clamp]);
   const start = (event: PointerEvent<HTMLElement>, resize: "left" | "right" | null) => {
-    if (event.button !== 0 || (!resize && (event.target as HTMLElement).closest("button"))) return;
+    if (event.button !== 0 || !event.currentTarget.contains(event.target as Node) || (!resize && (event.target as HTMLElement).closest("button"))) return;
     drag.current = { x: event.clientX, y: event.clientY, panel, resize };
     event.currentTarget.setPointerCapture(event.pointerId);
   };

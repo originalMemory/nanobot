@@ -60,7 +60,12 @@ it('switches the scene and rotation mode from the embedded panel', async () => {
 
   fireEvent.click(await screen.findByRole('combobox', { name: 'Video scene' }));
   await waitFor(() => expect(packs).toHaveBeenCalledTimes(2));
-  fireEvent.click(await screen.findByRole('option', { name: 'Lakeside' }));
+  const header = document.querySelector('.companion-panel-header') as HTMLElement;
+  header.setPointerCapture = vi.fn();
+  const lakeside = await screen.findByRole('option', { name: 'Lakeside' });
+  fireEvent.pointerDown(lakeside, { button: 0, pointerId: 1 });
+  expect(header.setPointerCapture).not.toHaveBeenCalled();
+  fireEvent.click(lakeside);
   await waitFor(() => expect(save).toHaveBeenCalledWith({ scene: 'lakeside' }));
 
   fireEvent.click(screen.getByRole('combobox', { name: 'Scene rotation' }));
