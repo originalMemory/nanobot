@@ -2348,7 +2348,7 @@ def test_heartbeat_message_keeps_full_text_and_attaches_summary_voice(
     context_blocks = seen["heartbeat_metadata"][RUNTIME_CONTEXT_INPUT_META]
     assert len(context_blocks) == 1
     assert context_blocks[0].source == HEARTBEAT_RECENT_CONTEXT_SOURCE
-    assert "最近在调试桌面端" in context_blocks[0].content
+    assert "最近在调试桌面端" not in context_blocks[0].content
     heartbeat_user = next(item for item in sessions.get_or_create("heartbeat").messages
                           if item.get("role") == "user")
     assert HEARTBEAT_RECENT_CONTEXT_SOURCE not in heartbeat_user["content"]

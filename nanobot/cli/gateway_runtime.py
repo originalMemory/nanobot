@@ -765,7 +765,7 @@ def _run_gateway(
             recent_context = heartbeat_recent_conversation_block(
                 session_manager,
                 unified_session=config.agents.defaults.unified_session,
-                max_turns=config.gateway.heartbeat.context_turns,
+                timezone=config.agents.defaults.timezone,
             )
 
             deferred_voice: list[str] = []
