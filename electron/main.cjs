@@ -186,6 +186,16 @@ function makeWindow(webSession) {
     else openExternal(url);
     return { action: 'deny' };
   });
+  next.on('app-command', (event, command) => {
+    const direction = command === 'browser-backward' ? 'back'
+      : command === 'browser-forward' ? 'forward' : null;
+    if (!direction) return;
+    const canNavigate = direction === 'back' ? next.webContents.canGoBack() : next.webContents.canGoForward();
+    if (!canNavigate) return;
+    event.preventDefault();
+    if (direction === 'back') next.webContents.goBack();
+    else next.webContents.goForward();
+  });
   const guard = (event) => {
     const url = event.url;
     if (url.startsWith(`${APP_ORIGIN}/`) || url === pathToFileURL(setupFile).href) return;
