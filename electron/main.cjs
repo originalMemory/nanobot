@@ -186,6 +186,18 @@ function makeWindow(webSession) {
     else openExternal(url);
     return { action: 'deny' };
   });
+  next.webContents.on('before-input-event', (event, input) => {
+    const hasCommand = process.platform === 'darwin' ? input.meta : input.control;
+    const direction = hasCommand && (input.type === 'keyDown' || input.type === 'rawKeyDown')
+      ? input.key === 'ArrowLeft' ? 'back' : input.key === 'ArrowRight' ? 'forward' : null
+      : null;
+    if (!direction) return;
+    const canNavigate = direction === 'back' ? next.webContents.canGoBack() : next.webContents.canGoForward();
+    if (!canNavigate) return;
+    event.preventDefault();
+    if (direction === 'back') next.webContents.goBack();
+    else next.webContents.goForward();
+  });
   next.on('app-command', (event, command) => {
     const direction = command === 'browser-backward' ? 'back'
       : command === 'browser-forward' ? 'forward' : null;

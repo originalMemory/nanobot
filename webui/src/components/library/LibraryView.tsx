@@ -16,6 +16,10 @@ interface DirectoryState {
   error?: string;
 }
 
+interface LibraryHistoryState {
+  nanobotLibrary?: { source: LibrarySource; path: string };
+}
+
 export function LibraryView({ source, onBack }: { source: LibrarySource; onBack: () => void }) {
   const { t } = useTranslation();
   const { getToken } = useClient();
@@ -63,7 +67,7 @@ export function LibraryView({ source, onBack }: { source: LibrarySource; onBack:
     }
   }, [source]);
 
-  const open = useCallback(async (path: string, today = false, reveal = false) => {
+  const open = useCallback(async (path: string, today = false, reveal = false, historyMode: "push" | "replace" | "none" = "push") => {
     previewAbort.current?.abort();
     const abort = new AbortController(); previewAbort.current = abort;
     setSelected(path); setPreview(null); setLoading(true); setError(null); setRaw(false);
@@ -72,6 +76,11 @@ export function LibraryView({ source, onBack }: { source: LibrarySource; onBack:
       if (abort.signal.aborted) return;
       setPreview(payload); setSelected(payload.path);
       try { localStorage.setItem(storageKey, payload.path); } catch { /* Optional view preference. */ }
+      if (historyMode !== "none") {
+        const state: LibraryHistoryState = { ...(window.history.state ?? {}), nanobotLibrary: { source, path: payload.path } };
+        if (historyMode === "replace") window.history.replaceState(state, "", window.location.href);
+        else window.history.pushState(state, "", window.location.href);
+      }
       if (today || reveal) {
         const parts = payload.path.split("/").slice(0, -1);
         for (let index = 1; index <= parts.length; index++) {
@@ -91,9 +100,18 @@ export function LibraryView({ source, onBack }: { source: LibrarySource; onBack:
 
   useEffect(() => {
     void loadDirectory("");
-    try { const saved = localStorage.getItem(storageKey); if (saved) void open(saved, false, true); } catch { /* Optional view preference. */ }
+    try { const saved = localStorage.getItem(storageKey); if (saved) void open(saved, false, true, "replace"); } catch { /* Optional view preference. */ }
     const requests = directoryRequests.current;
-    return () => { previewAbort.current?.abort(); requests.forEach((request) => request.abort()); requests.clear(); };
+    const handlePopState = (event: PopStateEvent) => {
+      const state = event.state as LibraryHistoryState | null;
+      if (state?.nanobotLibrary?.source === source) void open(state.nanobotLibrary.path, false, true, "none");
+      else { setSelected(null); setPreview(null); }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      previewAbort.current?.abort(); requests.forEach((request) => request.abort()); requests.clear();
+    };
   }, [loadDirectory, open, storageKey]);
 
   const toggle = (path: string) => {
