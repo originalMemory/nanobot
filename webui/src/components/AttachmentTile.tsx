@@ -1,5 +1,5 @@
-import { useRef, useState, type ReactNode } from "react";
-import { FileIcon, ImageIcon, Maximize2, PlaySquare } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Bookmark, BookmarkCheck, FileIcon, ImageIcon, LoaderCircle, Maximize2, PlaySquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { MediaLightbox } from "@/components/ImageLightbox";
@@ -12,12 +12,17 @@ interface AttachmentTileProps {
   inline?: boolean;
   onPreview?: () => void;
   variant?: "default" | "compact" | "gallery";
+  onFavorite?: (attachment: UIMediaAttachment) => Promise<void>;
 }
 
-export function AttachmentTile({ attachment, className, inline = false, onPreview, variant = "default" }: AttachmentTileProps) {
+export function AttachmentTile({ attachment, className, inline = false, onPreview, variant = "default", onFavorite }: AttachmentTileProps) {
   const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [favoriteState, setFavoriteState] = useState<"idle" | "busy" | "done">(attachment.favorited ? "done" : "idle");
+  useEffect(() => {
+    if (attachment.favorited) setFavoriteState("done");
+  }, [attachment.favorited]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasUrl = typeof attachment.url === "string" && attachment.url.length > 0;
   const label = attachmentLabel(attachment, t);
@@ -31,11 +36,12 @@ export function AttachmentTile({ attachment, className, inline = false, onPrevie
           inline={inline}
           variant={variant}
         >
-          <button
-            type="button"
-            onClick={() => onPreview ? onPreview() : setPreviewOpen(true)}
-            className={cn(
-              "block cursor-zoom-in bg-muted/20 transition-transform duration-150",
+          <span className="group relative block">
+            <button
+              type="button"
+              onClick={() => onPreview ? onPreview() : setPreviewOpen(true)}
+              className={cn(
+                "block cursor-zoom-in bg-muted/20 transition-transform duration-150",
               variant === "gallery" && cn(
                 "flex w-full justify-center overflow-hidden rounded-md bg-transparent",
                 "shadow-[0_5px_16px_-10px_rgba(0,0,0,0.45)]",
@@ -45,24 +51,38 @@ export function AttachmentTile({ attachment, className, inline = false, onPrevie
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
               "motion-reduce:transition-none",
             )}
-            aria-label={attachment.name
-              ? `${t("lightbox.open", { defaultValue: "Open image" })}: ${attachment.name}`
-              : t("lightbox.open", { defaultValue: "Open image" })}
-          >
-            <img
-              src={attachment.url}
-              alt={attachment.name ?? ""}
-              loading="lazy"
-              decoding="async"
-              draggable={false}
-              onError={() => setFailed(true)}
-              className={cn(
-                "block h-auto max-w-full bg-background object-contain",
-                variant === "compact" ? "max-h-40" : "max-h-[34rem]",
-                variant === "gallery" && "w-full max-h-none bg-transparent",
-              )}
-            />
-          </button>
+              aria-label={attachment.name
+                ? `${t("lightbox.open", { defaultValue: "Open image" })}: ${attachment.name}`
+                : t("lightbox.open", { defaultValue: "Open image" })}
+            >
+              <img
+                src={attachment.url}
+                alt={attachment.name ?? ""}
+                loading="lazy"
+                decoding="async"
+                draggable={false}
+                onError={() => setFailed(true)}
+                className={cn(
+                  "block h-auto max-w-full bg-background object-contain",
+                  variant === "compact" ? "max-h-40" : "max-h-[34rem]",
+                  variant === "gallery" && "w-full max-h-none bg-transparent",
+                )}
+              />
+            </button>
+            {onFavorite ? <button
+              type="button"
+              aria-label={favoriteState === "done" ? "Image saved" : "Save image"}
+              disabled={favoriteState !== "idle"}
+              onClick={(event) => {
+                event.stopPropagation();
+                setFavoriteState("busy");
+                void onFavorite(attachment).then(() => setFavoriteState("done"), () => setFavoriteState("idle"));
+              }}
+              className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white/90 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-100"
+            >
+              {favoriteState === "busy" ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden /> : favoriteState === "done" ? <BookmarkCheck className="h-4 w-4" aria-hidden /> : <Bookmark className="h-4 w-4" aria-hidden />}
+            </button> : null}
+          </span>
         </AttachmentFrame>
         {!onPreview ? <MediaLightbox
           items={[{ kind: "image", url: attachment.url, name: attachment.name }]}

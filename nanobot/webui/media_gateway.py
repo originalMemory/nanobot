@@ -18,6 +18,7 @@ from nanobot.webui.attachment_ingress import (
 from nanobot.webui.http_utils import http_error, http_response
 from nanobot.webui.ingress_policy import AttachmentIngressLimits
 from nanobot.webui.media_api import (
+    resolve_signed_media_path,
     serve_signed_media,
     sign_or_stage_media_path,
     signed_media_attachments,
@@ -96,6 +97,14 @@ class WebUIMediaGateway:
             secret=self.secret,
             media_dir=self._media_dir,
             logger=self.logger,
+        )
+
+    def resolve_signed_media_path(self, sig: str, payload: str) -> Path:
+        return resolve_signed_media_path(
+            sig,
+            payload,
+            secret=self.secret,
+            media_dir=self._media_dir,
         )
 
     def rewrite_local_markdown_images(

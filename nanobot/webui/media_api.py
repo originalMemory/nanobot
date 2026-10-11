@@ -6,6 +6,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import json
 import mimetypes
 import os
 import re
@@ -127,6 +128,7 @@ def sign_or_stage_media_path(
     if signed is not None:
         return {"url": signed, "name": path.name}
     staged_tmp: Path | None = None
+    staged_sidecar_tmp: Path | None = None
     try:
         resolved = path.resolve(strict=True)
         if not resolved.is_file():
@@ -146,6 +148,14 @@ def sign_or_stage_media_path(
             staged_tmp = target_dir / f".{source_digest}-{uuid.uuid4().hex}.tmp"
             shutil.copyfile(resolved, staged_tmp)
             staged_tmp.replace(staged)
+        sidecar = resolved.with_suffix(".json")
+        staged_sidecar = staged.with_suffix(".json")
+        if sidecar.is_file():
+            staged_sidecar_tmp = target_dir / f".{source_digest}-{uuid.uuid4().hex}.json.tmp"
+            shutil.copyfile(sidecar, staged_sidecar_tmp)
+            staged_sidecar_tmp.replace(staged_sidecar)
+        else:
+            staged_sidecar.unlink(missing_ok=True)
     except OSError as exc:
         if logger is not None:
             logger.warning("failed to stage outbound media {}: {}", path, exc)
@@ -153,10 +163,39 @@ def sign_or_stage_media_path(
     finally:
         if staged_tmp is not None:
             staged_tmp.unlink(missing_ok=True)
+        if staged_sidecar_tmp is not None:
+            staged_sidecar_tmp.unlink(missing_ok=True)
     signed = sign_media_path(staged, secret=secret, media_dir=media_dir)
     if signed is None:
         return None
     return {"url": signed, "name": path.name}
+
+
+def resolve_signed_media_path(
+    sig: str,
+    payload: str,
+    *,
+    secret: bytes,
+    media_dir: MediaDirProvider = _default_media_dir,
+) -> Path:
+    """Validate a signed media URL and return its contained source path."""
+    try:
+        provided_mac = b64url_decode(sig)
+        rel_str = b64url_decode(payload).decode("utf-8")
+    except (ValueError, binascii.Error, UnicodeDecodeError) as exc:
+        raise ValueError("invalid media signature") from exc
+    expected_mac = hmac.new(secret, payload.encode("ascii"), hashlib.sha256).digest()[:16]
+    if not hmac.compare_digest(expected_mac, provided_mac):
+        raise ValueError("invalid media signature")
+    root = media_dir(None).resolve()
+    try:
+        candidate = (root / rel_str).resolve(strict=True)
+        candidate.relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise ValueError("media not found") from exc
+    if not candidate.is_file():
+        raise ValueError("media not found")
+    return candidate
 
 
 def media_attachment_kind(name: str) -> str:
@@ -185,7 +224,16 @@ def signed_media_attachments(
         if not url:
             continue
         name = att.get("name") or path.name
-        out.append({"kind": media_attachment_kind(name), "url": url, "name": name})
+        favorited = False
+        try:
+            metadata = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+            favorited = bool(metadata.get("favorited")) if isinstance(metadata, dict) else False
+        except (OSError, json.JSONDecodeError):
+            pass
+        attachment: dict[str, Any] = {"kind": media_attachment_kind(name), "url": url, "name": name}
+        if favorited:
+            attachment["favorited"] = True
+        out.append(attachment)
     return out
 
 

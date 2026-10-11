@@ -35,6 +35,7 @@ def test_store_generated_image_artifact_writes_image_and_sidecar(tmp_path: Path)
 
     artifact = store_generated_image_artifact(
         PNG_DATA_URL,
+        title="Tiny pixel",
         prompt="draw a tiny pixel",
         model="openai/gpt-5.4-image-2",
         source_images=["/tmp/ref.png"],
@@ -52,6 +53,7 @@ def test_store_generated_image_artifact_writes_image_and_sidecar(tmp_path: Path)
     metadata = json.loads(sidecar.read_text(encoding="utf-8"))
     assert metadata["path"] == str(image_path)
     assert metadata["source_images"] == ["/tmp/ref.png"]
+    assert metadata["title"] == "Tiny pixel"
 
 
 def test_store_generated_image_artifact_rejects_unsafe_save_dir(tmp_path: Path) -> None:

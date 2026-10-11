@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import { cn } from "@/lib/utils";
+import type { UIMediaAttachment } from "@/lib/types";
 
 interface MarkdownTextProps {
   children: string;
@@ -17,6 +18,7 @@ interface MarkdownTextProps {
   onOpenFilePreview?: (path: string) => void;
   localImages?: Record<string, string>;
   document?: boolean;
+  onFavorite?: (attachment: UIMediaAttachment) => Promise<void>;
 }
 
 const loadMarkdownRenderer = () => import("@/components/MarkdownTextRenderer");
@@ -30,6 +32,7 @@ const MemoizedMarkdownRenderer = memo(function MemoizedMarkdownRenderer({
   onOpenFilePreview,
   localImages,
   document,
+  onFavorite,
 }: {
   source: string;
   className?: string;
@@ -38,6 +41,7 @@ const MemoizedMarkdownRenderer = memo(function MemoizedMarkdownRenderer({
   onOpenFilePreview?: (path: string) => void;
   localImages?: Record<string, string>;
   document?: boolean;
+  onFavorite?: (attachment: UIMediaAttachment) => Promise<void>;
 }) {
   return (
     <LazyMarkdownRenderer
@@ -47,6 +51,7 @@ const MemoizedMarkdownRenderer = memo(function MemoizedMarkdownRenderer({
       localImages={localImages}
       document={document}
       onOpenFilePreview={onOpenFilePreview}
+      onFavorite={onFavorite}
     >
       {source}
     </LazyMarkdownRenderer>
@@ -87,6 +92,7 @@ export function MarkdownText({
   onOpenFilePreview,
   localImages,
   document,
+  onFavorite,
 }: MarkdownTextProps) {
   const renderedSource = children;
   const renderPhase = streaming ? "streaming" : "complete";
@@ -120,6 +126,7 @@ export function MarkdownText({
           localImages={localImages}
           document={document}
           onOpenFilePreview={onOpenFilePreview}
+          onFavorite={onFavorite}
         />
       </Suspense>
     </MarkdownRendererBoundary>

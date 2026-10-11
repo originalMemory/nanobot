@@ -69,6 +69,7 @@ def _artifact_root(save_dir: str) -> Path:
 def store_generated_image_artifact(
     data_url: str,
     *,
+    title: str | None = None,
     prompt: str,
     model: str,
     source_images: list[str] | None = None,
@@ -99,6 +100,8 @@ def store_generated_image_artifact(
         "source_images": list(source_images or []),
         "created_at": now.isoformat(),
     }
+    metadata["title"] = (title or prompt.split("。", 1)[0]).strip()[:80]
+    metadata["favorited"] = False
     metadata_path.write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",

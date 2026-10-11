@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
 import { useState } from "react";
 
 import { AttachmentTile } from "@/components/AttachmentTile";
@@ -18,6 +18,20 @@ it("opens image attachments in the shared lightbox and closes them", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Close media preview" }));
   expect(screen.queryByRole("dialog", { name: "photo.png" })).toBeNull();
+});
+
+it("saves an image from the hover action", async () => {
+  const onFavorite = vi.fn(async () => {});
+  render(<AttachmentTile
+    attachment={{ kind: "image", url: "/api/media/sig/photo", name: "photo.png" }}
+    onFavorite={onFavorite}
+  />);
+
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save image" })); });
+  await vi.waitFor(() => expect(onFavorite).toHaveBeenCalledWith({
+    kind: "image", url: "/api/media/sig/photo", name: "photo.png",
+  }));
+  expect(await screen.findByRole("button", { name: "Image saved" })).toBeInTheDocument();
 });
 
 it("switches between images and videos with buttons and the keyboard", () => {

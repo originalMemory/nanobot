@@ -93,6 +93,7 @@ from nanobot.webui.http_utils import (
 from nanobot.webui.http_utils import (
     safe_host_header as _safe_host_header,
 )
+from nanobot.webui.image_favorites import collect_image
 from nanobot.webui.ingress_policy import WebUIIngressPolicy
 from nanobot.webui.library import LibraryError, library_payload
 from nanobot.webui.media_gateway import WebUIMediaGateway
@@ -183,6 +184,7 @@ _WEBUI_MUTATION_PATHS = {
     "workspace.pick_folder": "/api/workspaces/pick-folder",
     "recovery.continue": "/api/webui/recovery/continue",
     "recovery.dismiss": "/api/webui/recovery/dismiss",
+    "media.favorite": "/api/media/favorite",
     "settings.agent.update": "/api/settings/update",
     "settings.model_configuration.create": "/api/settings/model-configurations/create",
     "settings.model_configuration.update": "/api/settings/model-configurations/update",
@@ -536,6 +538,7 @@ class GatewayHTTPHandler:
             "/api/webui/skills/delete",
             "/api/webui/sidebar-state/update",
             "/api/workspaces/pick-folder",
+            "/api/media/favorite",
         }
 
     @staticmethod
@@ -1514,6 +1517,28 @@ class GatewayHTTPHandler:
     async def _dispatch_misc_routes(
         self, connection: Any, request: WsRequest, got: str
     ) -> Response | None:
+        if got == "/api/media/favorite":
+            if not self.check_api_token(request):
+                return _http_error(401, "Unauthorized")
+            payload = getattr(request, _WEBUI_MUTATION_PAYLOAD_ATTR, {})
+            media_url = payload.get("media_url") if isinstance(payload, dict) else None
+            if not isinstance(media_url, str):
+                return _http_error(400, "missing media_url")
+            match = re.fullmatch(r"/api/media/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)", media_url)
+            if match is None:
+                return _http_error(400, "invalid media_url")
+            try:
+                config = self.settings.config.load()
+                source = self.media.resolve_signed_media_path(match.group(1), match.group(2))
+                result = await asyncio.to_thread(
+                    collect_image,
+                    source,
+                    workspace=Path(config.workspace_path).expanduser(),
+                    timezone=config.agents.defaults.timezone,
+                )
+            except (OSError, ValueError, RuntimeError) as exc:
+                return _http_error(400, str(exc))
+            return _http_json_response(result)
         if got in {"/api/voice/settings", "/api/voice/settings/update", "/api/voice/audio"}:
             if not self.check_api_token(request):
                 return _http_error(401, "Unauthorized")

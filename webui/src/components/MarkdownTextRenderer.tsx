@@ -34,6 +34,7 @@ import { inferMediaKind } from "@/lib/media";
 import { browserSafeFaviconUrls } from "@/lib/provider-brand";
 import { remarkTexMath } from "@/lib/remark-tex-math";
 import { cn } from "@/lib/utils";
+import type { UIMediaAttachment } from "@/lib/types";
 
 import "streamdown/styles.css";
 
@@ -45,6 +46,7 @@ interface MarkdownTextRendererProps {
   onOpenFilePreview?: (path: string) => void;
   localImages?: Record<string, string>;
   document?: boolean;
+  onFavorite?: (attachment: UIMediaAttachment) => Promise<void>;
 }
 
 type MarkdownAstNode = {
@@ -665,6 +667,7 @@ export default function MarkdownTextRenderer({
   onOpenFilePreview,
   localImages,
   document = false,
+  onFavorite,
 }: MarkdownTextRendererProps) {
   const { t } = useTranslation();
   const codeWrap = useCodeWrap();
@@ -978,11 +981,12 @@ export default function MarkdownTextRenderer({
               name: label,
             }}
             inline
+            onFavorite={onFavorite}
           />
         );
       },
     }),
-    [codeWrap, highlightCode, onOpenFilePreview, localImages, document, t],
+    [codeWrap, highlightCode, onOpenFilePreview, localImages, document, onFavorite, t],
   );
 
   return (

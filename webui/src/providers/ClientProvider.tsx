@@ -11,6 +11,8 @@ import type { NanobotClient } from "@/lib/nanobot-client";
 import { VoiceProvider } from "./VoiceProvider";
 import { CompanionProvider } from "./CompanionProvider";
 import type { WebUIIngressLimits } from "@/lib/types";
+import type { UIMediaAttachment } from "@/lib/types";
+import { getRuntimeHost } from "@/lib/runtime";
 
 interface ClientContextValue {
   client: NanobotClient;
@@ -18,6 +20,7 @@ interface ClientContextValue {
   getToken: () => string;
   modelName: string | null;
   ingressLimits: WebUIIngressLimits | null;
+  favoriteMedia: ((attachment: UIMediaAttachment) => Promise<void>) | null;
 }
 
 const ClientContext = createContext<ClientContextValue | null>(null);
@@ -38,9 +41,15 @@ export function ClientProvider({
   const tokenRef = useRef(token);
   tokenRef.current = token;
   const getToken = useCallback(() => tokenRef.current, []);
+  const favoriteMedia = useMemo(() => getRuntimeHost().surface === "native"
+    ? async (attachment: UIMediaAttachment) => {
+      if (!attachment.url) throw new Error("Image URL is unavailable");
+      await client.requestMutation("media.favorite", { media_url: attachment.url });
+    }
+    : null, [client]);
   const value = useMemo(
-    () => ({ client, token, getToken, modelName, ingressLimits }),
-    [client, getToken, ingressLimits, modelName, token],
+    () => ({ client, token, getToken, modelName, ingressLimits, favoriteMedia }),
+    [client, favoriteMedia, getToken, ingressLimits, modelName, token],
   );
 
   return (
@@ -56,4 +65,8 @@ export function useClient(): ClientContextValue {
     throw new Error("useClient must be used within a ClientProvider");
   }
   return ctx;
+}
+
+export function useFavoriteMedia() {
+  return useContext(ClientContext)?.favoriteMedia ?? null;
 }

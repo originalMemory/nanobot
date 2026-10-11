@@ -1,4 +1,5 @@
 import { DesktopIdentity } from "@/providers/DesktopAppearanceProvider";
+import { useFavoriteMedia } from "@/providers/ClientProvider";
 import { VoiceReplayButton, useVoice } from "@/providers/VoiceProvider";
 import {
   useCallback,
@@ -413,6 +414,7 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const { t } = useTranslation();
   const voice = useVoice();
+  const favoriteMedia = useFavoriteMedia();
   const mentionCliApps = useMemo(
     () => mergeCliMentionApps(cliApps, message.cliApps),
     [cliApps, message.cliApps],
@@ -599,11 +601,12 @@ export function MessageBubble({
               streaming={!!message.isStreaming}
               preserveStreamingLayout
               onOpenFilePreview={onOpenFilePreview}
+              onFavorite={favoriteMedia ?? undefined}
             >
               {assistantContent}
             </MarkdownText>
           </div>
-          {media.length > 0 ? <MessageMedia media={media} align="left" /> : null}
+          {media.length > 0 ? <MessageMedia media={media} align="left" onFavorite={favoriteMedia ?? undefined} /> : null}
         </>
       )}
       {showAssistantFooterSlot ? (
@@ -757,9 +760,11 @@ function mergeCliMentionApps(
 function MessageMedia({
   media,
   align,
+  onFavorite,
 }: {
   media: UIMediaAttachment[];
   align: "left" | "right";
+  onFavorite?: (attachment: UIMediaAttachment) => Promise<void>;
 }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   if (media.length === 0) return null;
@@ -799,6 +804,7 @@ function MessageMedia({
                 onPreview={previewIndex === undefined
                   ? undefined
                   : () => setLightboxIndex(previewIndex)}
+                onFavorite={onFavorite}
               />
             </div>
           ))}

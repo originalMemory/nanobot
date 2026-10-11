@@ -43,6 +43,7 @@ export interface UIMediaAttachment {
   kind: UIMediaKind;
   url?: string;
   name?: string;
+  favorited?: boolean;
 }
 
 interface UIMessageSource { kind: "cron" | "local_trigger" | "trigger" | string; label?: string; }

@@ -63,6 +63,9 @@ class ImageGenerationToolConfig(Base):
             "Detailed image generation or edit prompt. Include style, subject, composition, colors, and constraints.",
             min_length=1,
         ),
+        title=StringSchema(
+            "Short human-readable title for this image, used by the image-sharing archive.",
+        ),
         reference_images=ArraySchema(
             StringSchema("Local path of an existing image artifact or user-provided image to use as an edit reference."),
             description="Optional local image paths. Use generated artifact paths for iterative edits.",
@@ -179,6 +182,7 @@ class ImageGenerationTool(Tool):
     async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         prompt: str,
+        title: str | None = None,
         reference_images: list[str] | None = None,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
@@ -210,6 +214,7 @@ class ImageGenerationTool(Tool):
                 for image_data_url in response.images:
                     artifact = store_generated_image_artifact(
                         image_data_url,
+                        title=title,
                         prompt=prompt,
                         model=self.config.model,
                         source_images=refs,
