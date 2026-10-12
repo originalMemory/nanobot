@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from nanobot.webui.media_api import sign_or_stage_media_path
+from nanobot.webui.media_api import sign_or_stage_media_path, signed_media_attachments
 
 
 def test_staging_media_carries_image_sidecar(tmp_path: Path) -> None:
@@ -25,3 +25,24 @@ def test_staging_media_carries_image_sidecar(tmp_path: Path) -> None:
     assert staged is not None
     staged_dir = media / "websocket"
     assert any(path.suffix == ".json" and path.read_text(encoding="utf-8") == '{"title":"title"}' for path in staged_dir.glob("*.json"))
+
+
+def test_signed_media_attachments_reads_dimensions_from_sidecar(tmp_path: Path) -> None:
+    image = tmp_path / "image.png"
+    image.write_bytes(b"png")
+    image.with_suffix(".json").write_text(
+        '{"width": 640, "height": 480}', encoding="utf-8"
+    )
+
+    attachments = signed_media_attachments(
+        [str(image)],
+        sign_path=lambda path: {"url": "/api/media/image", "name": path.name},
+    )
+
+    assert attachments == [{
+        "kind": "image",
+        "url": "/api/media/image",
+        "name": "image.png",
+        "width": 640,
+        "height": 480,
+    }]

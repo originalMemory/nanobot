@@ -58,6 +58,8 @@ export function AttachmentTile({ attachment, className, inline = false, onPrevie
               <img
                 src={attachment.url}
                 alt={attachment.name ?? ""}
+                width={attachment.width}
+                height={attachment.height}
                 loading="lazy"
                 decoding="async"
                 draggable={false}

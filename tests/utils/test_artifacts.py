@@ -48,12 +48,16 @@ def test_store_generated_image_artifact_writes_image_and_sidecar(tmp_path: Path)
     assert image_path.parent == tmp_path / "media" / "generated" / "2026-05-08"
     assert artifact["id"].startswith("img_")
     assert artifact["mime"] == "image/png"
+    assert artifact["width"] == 1
+    assert artifact["height"] == 1
 
     sidecar = image_path.with_suffix(".json")
     metadata = json.loads(sidecar.read_text(encoding="utf-8"))
     assert metadata["path"] == str(image_path)
     assert metadata["source_images"] == ["/tmp/ref.png"]
     assert metadata["title"] == "Tiny pixel"
+    assert metadata["width"] == 1
+    assert metadata["height"] == 1
 
 
 def test_store_generated_image_artifact_rejects_unsafe_save_dir(tmp_path: Path) -> None:

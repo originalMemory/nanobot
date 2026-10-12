@@ -56,11 +56,15 @@ export function toMediaAttachment(media: {
   name?: string;
   kind?: UIMediaKind;
   favorited?: boolean;
+  width?: number;
+  height?: number;
 }): UIMediaAttachment {
   return {
     kind: explicitMediaKind(media) ?? media.kind ?? "file",
     url: media.url,
     name: media.name,
     favorited: media.favorited,
+    width: media.width,
+    height: media.height,
   };
 }

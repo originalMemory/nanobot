@@ -2155,6 +2155,11 @@ def _media_from_signed_urls(value: Any) -> list[dict[str, Any]]:
                     "kind": _media_kind_from_name(name),
                     "url": str(media_item["url"]),
                     "name": name,
+                    **{
+                        key: media_item[key]
+                        for key in ("width", "height")
+                        if isinstance(media_item.get(key), int) and media_item[key] > 0
+                    },
                 },
             )
     return media

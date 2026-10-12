@@ -13,6 +13,7 @@ from typing import Any
 
 from nanobot.config.paths import get_media_dir
 from nanobot.utils.helpers import detect_image_mime, ensure_dir
+from nanobot.utils.image_metadata import image_dimensions, update_media_sidecar
 
 _DATA_IMAGE_RE = re.compile(r"^data:(image/[A-Za-z0-9.+-]+);base64,(.*)$", re.DOTALL)
 _MIME_EXTENSIONS = {
@@ -106,6 +107,10 @@ def store_generated_image_artifact(
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    dimensions = image_dimensions(image_path)
+    if dimensions is not None:
+        update_media_sidecar(image_path, width=dimensions[0], height=dimensions[1])
+        metadata["width"], metadata["height"] = dimensions
     return metadata
 
 

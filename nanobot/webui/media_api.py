@@ -6,7 +6,6 @@ import base64
 import binascii
 import hashlib
 import hmac
-import json
 import mimetypes
 import os
 import re
@@ -21,6 +20,7 @@ from websockets.http11 import Response
 
 from nanobot.config.paths import get_media_dir
 from nanobot.utils.helpers import safe_filename
+from nanobot.utils.image_metadata import read_media_sidecar
 from nanobot.webui.http_utils import (
     case_insensitive_header as _case_insensitive_header,
 )
@@ -32,7 +32,7 @@ from nanobot.webui.http_utils import (
 )
 
 MediaDirProvider = Callable[[str | None], Path]
-SignedMediaPath = Callable[[Path], dict[str, str] | None]
+SignedMediaPath = Callable[[Path], dict[str, Any] | None]
 
 
 def b64url_encode(data: bytes) -> str:
@@ -122,11 +122,11 @@ def sign_or_stage_media_path(
     secret: bytes,
     media_dir: MediaDirProvider = _default_media_dir,
     logger: Any | None = None,
-) -> dict[str, str] | None:
+) -> dict[str, Any] | None:
     """Sign an existing media-root path, or stage an arbitrary file before signing."""
     signed = sign_media_path(path, secret=secret, media_dir=media_dir)
     if signed is not None:
-        return {"url": signed, "name": path.name}
+        return {"url": signed, "name": path.name, **_media_dimension_fields(path)}
     staged_tmp: Path | None = None
     staged_sidecar_tmp: Path | None = None
     try:
@@ -168,7 +168,16 @@ def sign_or_stage_media_path(
     signed = sign_media_path(staged, secret=secret, media_dir=media_dir)
     if signed is None:
         return None
-    return {"url": signed, "name": path.name}
+    return {"url": signed, "name": path.name, **_media_dimension_fields(staged)}
+
+
+def _media_dimension_fields(path: Path) -> dict[str, int]:
+    metadata = read_media_sidecar(path)
+    return {
+        key: metadata[key]
+        for key in ("width", "height")
+        if isinstance(metadata.get(key), int) and metadata[key] > 0
+    }
 
 
 def resolve_signed_media_path(
@@ -224,15 +233,12 @@ def signed_media_attachments(
         if not url:
             continue
         name = att.get("name") or path.name
-        favorited = False
-        try:
-            metadata = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
-            favorited = bool(metadata.get("favorited")) if isinstance(metadata, dict) else False
-        except (OSError, json.JSONDecodeError):
-            pass
+        metadata = read_media_sidecar(path)
+        dimensions = _media_dimension_fields(path)
         attachment: dict[str, Any] = {"kind": media_attachment_kind(name), "url": url, "name": name}
-        if favorited:
+        if metadata.get("favorited"):
             attachment["favorited"] = True
+        attachment.update(dimensions)
         out.append(attachment)
     return out
 
