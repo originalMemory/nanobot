@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -139,6 +140,7 @@ import {
   filterEmojiColonCandidates,
   getEmojiColonCandidates,
   getEmojiPickerData,
+  getRecentEmojiColonCandidates,
   recordEmojiSuggestion,
 } from "@/lib/emoji-picker-data";
 import { cn } from "@/lib/utils";
@@ -1492,6 +1494,13 @@ export function ThreadComposer({
       isZhLocale,
     );
   }, [emojiColonCandidates, emojiColonMention, isZhLocale]);
+  const recentEmojiColonCount = useMemo(() => {
+    if (emojiColonMention?.query) return 0;
+    return Math.min(
+      getRecentEmojiColonCandidates(isZhLocale, filteredEmojiColonCandidates.length).length,
+      filteredEmojiColonCandidates.length,
+    );
+  }, [emojiColonMention?.query, filteredEmojiColonCandidates.length, isZhLocale]);
 
   const showCliAppMenu = filteredMentionCandidates.length > 0;
   const showEmojiColonMenu = filteredEmojiColonCandidates.length > 0;
@@ -2528,6 +2537,7 @@ export function ThreadComposer({
       {showEmojiColonMenu ? (
         <EmojiColonPalette
           candidates={filteredEmojiColonCandidates}
+          recentCount={recentEmojiColonCount}
           selectedIndex={selectedEmojiIndex}
           layout={slashPaletteLayout}
           isHero={isHero}
@@ -3166,6 +3176,7 @@ interface CliAppMentionPaletteProps {
 
 interface EmojiColonPaletteProps {
   candidates: EmojiColonCandidate[];
+  recentCount: number;
   selectedIndex: number;
   layout: SlashPaletteLayout;
   isHero: boolean;
@@ -3192,6 +3203,7 @@ function useSelectedOptionScroll(selectedIndex: number) {
 
 function EmojiColonPalette({
   candidates,
+  recentCount,
   selectedIndex,
   layout,
   isHero,
@@ -3215,45 +3227,53 @@ function EmojiColonPalette({
         isHero ? "max-w-[var(--composer-hero-width,58rem)]" : "max-w-[var(--content-column-width)]",
       )}
     >
-      <div className="px-2 pb-1 pt-1 text-[12px] font-medium text-muted-foreground/72">
-        {t("thread.composer.emoji.colonLabel", { defaultValue: "Emoji" })}
-      </div>
+      {recentCount > 0 ? (
+        <div className="px-2 pb-1 pt-1 text-[12px] font-medium text-muted-foreground/72">
+          {t("thread.composer.emoji.recentLabel", { defaultValue: "Recent" })}
+        </div>
+      ) : null}
       <div ref={listRef} className="overflow-y-auto" style={{ maxHeight: listMaxHeight }}>
         {candidates.map((candidate, index) => {
           const selected = index === selectedIndex;
           return (
-            <button
-              key={candidate.unified}
-              type="button"
-              role="option"
-              data-palette-index={index}
-              aria-selected={selected}
-              aria-label={`${candidate.name} :${candidate.id}`}
-              onMouseEnter={() => onHover(index)}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                onChoose(candidate);
-              }}
-              className={cn(
-                floatingItemClassName,
-                "flex min-h-10 w-full items-center gap-2.5 px-2.5 py-1 text-left transition-colors",
-                selected
-                  ? "bg-foreground/[0.055] text-foreground"
-                  : "text-foreground/90 hover:bg-foreground/[0.04]",
-              )}
-            >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[22px] leading-none">
-                {candidate.native}
-              </span>
-              <span className="flex min-w-0 flex-1 items-baseline gap-2">
-                <span className="truncate text-[15px] font-medium text-foreground">
-                  {candidate.name}
+            <Fragment key={candidate.unified}>
+              {recentCount > 0 && index === recentCount ? (
+                <div className="px-2 pb-1 pt-2 text-[12px] font-medium text-muted-foreground/72">
+                  {t("thread.composer.emoji.allLabel", { defaultValue: "All" })}
+                </div>
+              ) : null}
+              <button
+                type="button"
+                role="option"
+                data-palette-index={index}
+                aria-selected={selected}
+                aria-label={`${candidate.name} :${candidate.id}`}
+                onMouseEnter={() => onHover(index)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  onChoose(candidate);
+                }}
+                className={cn(
+                  floatingItemClassName,
+                  "flex min-h-10 w-full items-center gap-2.5 px-2.5 py-1 text-left transition-colors",
+                  selected
+                    ? "bg-foreground/[0.055] text-foreground"
+                    : "text-foreground/90 hover:bg-foreground/[0.04]",
+                )}
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[22px] leading-none">
+                  {candidate.native}
                 </span>
-                <span className="truncate font-mono text-[13px] text-muted-foreground/72">
-                  :{candidate.id}
+                <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                  <span className="truncate text-[15px] font-medium text-foreground">
+                    {candidate.name}
+                  </span>
+                  <span className="truncate font-mono text-[13px] text-muted-foreground/72">
+                    :{candidate.id}
+                  </span>
                 </span>
-              </span>
-            </button>
+              </button>
+            </Fragment>
           );
         })}
       </div>

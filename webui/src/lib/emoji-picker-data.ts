@@ -153,7 +153,7 @@ function defaultEmojiColonCandidates(
   isZhLocale: boolean,
   limit: number,
 ): EmojiColonCandidate[] {
-  const recent = readRecentEmojiCandidates(isZhLocale, limit);
+  const recent = getRecentEmojiColonCandidates(isZhLocale, limit);
   if (recent.length >= limit) return recent;
   const seen = new Set(recent.map((item) => item.unified));
   const result = [...recent];
@@ -166,7 +166,7 @@ function defaultEmojiColonCandidates(
   return result;
 }
 
-function readRecentEmojiCandidates(
+export function getRecentEmojiColonCandidates(
   isZhLocale: boolean,
   limit: number,
 ): EmojiColonCandidate[] {

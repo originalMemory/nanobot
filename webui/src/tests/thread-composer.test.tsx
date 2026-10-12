@@ -370,6 +370,20 @@ describe("ThreadComposer", () => {
     expect((input as HTMLTextAreaElement).value).toMatch(/\p{Extended_Pictographic}/u);
   });
 
+  it("groups frequent emojis in the blank keyboard palette", async () => {
+    window.localStorage.setItem(
+      "epr_suggested",
+      JSON.stringify([{ unified: "1f600", original: "1f600", count: 3 }]),
+    );
+    render(<ThreadComposer onSend={vi.fn()} />);
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: ":", selectionStart: 1 } });
+
+    expect(await screen.findByText("Frequent")).toBeInTheDocument();
+    expect(screen.getByText("All")).toBeInTheDocument();
+  });
+
   it("locks an async send and keeps the draft when it is rejected", async () => {
     let resolveSend!: (accepted: boolean) => void;
     const onSend = vi.fn(() => new Promise<boolean>((resolve) => {

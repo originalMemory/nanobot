@@ -1834,6 +1834,8 @@
       "emoji": {
         "button": "插入表情",
         "colonLabel": "表情",
+        "recentLabel": "常用",
+        "allLabel": "全部",
         "colonAriaLabel": "表情短码",
         "search": "搜索"
       },

@@ -1835,6 +1835,8 @@
       "emoji": {
         "button": "Insert emoji",
         "colonLabel": "Emoji",
+        "recentLabel": "Frequent",
+        "allLabel": "All",
         "colonAriaLabel": "Emoji shortcodes",
         "search": "Search"
       },
