@@ -1175,6 +1175,8 @@ export class NanobotClient {
           label: raw.label,
           taskDescription: raw.task_description,
           startedAt: raw.started_at,
+          model: typeof raw.model === "string" ? raw.model : "",
+          modelPreset: typeof raw.model_preset === "string" ? raw.model_preset : null,
           phase: raw.phase,
           iteration: raw.iteration ?? 0,
           toolEvents: raw.tool_events ?? [],

@@ -419,6 +419,8 @@ export interface SubagentStatus {
   label: string;
   taskDescription: string;
   startedAt: number;
+  model?: string;
+  modelPreset?: string | null;
   phase: string;
   iteration: number;
   toolEvents: ToolProgressEvent[];

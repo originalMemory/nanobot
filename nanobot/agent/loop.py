@@ -121,7 +121,6 @@ if TYPE_CHECKING:
 
 _T = TypeVar("_T")
 _SUBAGENT_PROVIDER_TASK_META = "subagent_provider_task_id"
-_SUBAGENT_TERMINAL_WAIT_SECONDS = 300.0
 
 
 class TurnKind(Enum):
@@ -1109,41 +1108,16 @@ class AgentLoop:
 
             return items
 
-        terminal_wait_deadline: float | None = None
-
         async def _wait_for_pending(
             *,
             limit: int = _MAX_INJECTIONS_PER_TURN,
         ) -> list[dict[str, Any]]:
-            """Wait for a pending result only when the runner is ready to exit."""
-            nonlocal terminal_wait_deadline
-
+            """Drain already queued messages without waiting for background work."""
             items = await _drain_pending(limit=limit)
-            if (
-                items
-                or pending_queue is None
-                or session is None
-                or self.subagents.get_running_count_by_session(session.key) == 0
-            ):
-                return items
-
-            now = asyncio.get_running_loop().time()
-            if terminal_wait_deadline is None:
-                terminal_wait_deadline = now + _SUBAGENT_TERMINAL_WAIT_SECONDS
-            remaining = terminal_wait_deadline - now
-            if remaining <= 0:
-                return []
-
-            try:
-                msg = await asyncio.wait_for(pending_queue.get(), timeout=remaining)
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "Timeout waiting for sub-agent completion before session {} exits",
-                    session.key,
-                )
-                return []
-
-            return await _drain_pending(limit=limit, first_msg=msg)
+            # Background subagents report through a later system turn. Waiting
+            # here keeps the parent WebUI turn in "replying" state until the
+            # subagent finishes, even when spawn(wait=false) was requested.
+            return items
 
         request_ctx = request_context or RequestContext(
             channel="cli",
@@ -1664,6 +1638,14 @@ class AgentLoop:
             delivery = self.turn_delivery_factory.create(msg, key)
         elif delivery.session_key != key:
             raise ValueError("turn delivery session does not match the processing session")
+        if runtime is None and msg.metadata.get("injected_event") == "subagent_result":
+            preset = msg.metadata.get("subagent_runtime_model_preset")
+            if isinstance(preset, str) and preset.strip():
+                runtime = self.runtime_resolver.resolve_preset(preset.strip())
+            else:
+                model = msg.metadata.get("subagent_runtime_model")
+                if isinstance(model, str) and model.strip():
+                    runtime = self.runtime_resolver.resolve_override(model=model.strip())
         t0 = time.time()
         ctx = TurnContext(
             msg=msg,

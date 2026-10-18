@@ -58,6 +58,8 @@ class SubagentStatus:
     label: str
     task_description: str
     started_at: float          # time.monotonic()
+    model: str = ""
+    model_preset: str | None = None
     # queued | initializing | awaiting_tools | tools_completed | final_response | done | error
     phase: str = "initializing"
     iteration: int = 0
@@ -255,6 +257,12 @@ class SubagentManager:
                     )
                 ),
                 started_at=session.created_at.timestamp(),
+                model=str(session.metadata.get("model") or ""),
+                model_preset=(
+                    str(session.metadata["model_preset"])
+                    if session.metadata.get("model_preset") is not None
+                    else None
+                ),
                 phase=phase,
                 origin_channel=str(session.metadata.get("origin_channel") or "websocket"),
                 origin_chat_id=str(session.metadata.get("origin_chat_id") or ""),
@@ -367,6 +375,8 @@ class SubagentManager:
             label=display_label,
             task_description=task,
             started_at=time.monotonic(),
+            model=runtime.model,
+            model_preset=runtime.model_preset,
             origin_channel=origin_channel,
             origin_chat_id=origin_chat_id,
             session_key=session_key,
@@ -380,6 +390,8 @@ class SubagentManager:
             "origin_chat_id": origin_chat_id,
             "task_id": task_id,
             "label": display_label,
+            "model": runtime.model,
+            "model_preset": runtime.model_preset,
             "started_at": time.time(),
         })
         task_session.add_message("user", task, task_id=task_id)
@@ -447,6 +459,8 @@ class SubagentManager:
             label=display_label,
             task_description=task,
             started_at=time.monotonic(),
+            model=runtime.model,
+            model_preset=runtime.model_preset,
             origin_channel=origin_channel,
             origin_chat_id=origin_chat_id,
             session_key=session_key,
@@ -460,6 +474,8 @@ class SubagentManager:
             "origin_chat_id": origin_chat_id,
             "task_id": task_id,
             "label": display_label,
+            "model": runtime.model,
+            "model_preset": runtime.model_preset,
             "started_at": time.time(),
         })
         task_session.add_message("user", task, task_id=task_id)
@@ -622,6 +638,7 @@ class SubagentManager:
                     origin,
                     final_status,
                     origin_message_id,
+                    runtime,
                 )
             return final_result
 
@@ -642,6 +659,7 @@ class SubagentManager:
                     origin,
                     "error",
                     origin_message_id,
+                    runtime,
                 )
             return final_result
 
@@ -654,6 +672,7 @@ class SubagentManager:
         origin: _SubagentOrigin,
         status: str,
         origin_message_id: str | None = None,
+        runtime: LLMRuntime | None = None,
     ) -> None:
         """Announce the subagent result to the main agent via the message bus."""
         status_text = "completed successfully" if status == "ok" else "failed"
@@ -679,6 +698,10 @@ class SubagentManager:
         }
         if origin_message_id:
             metadata["origin_message_id"] = origin_message_id
+        if runtime is not None and runtime.model_preset:
+            metadata["subagent_runtime_model_preset"] = runtime.model_preset
+        if runtime is not None and runtime.model:
+            metadata["subagent_runtime_model"] = runtime.model
         msg = InboundMessage(
             channel="system",
             sender_id="subagent",

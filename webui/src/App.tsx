@@ -1211,7 +1211,7 @@ function Shell({
         updatedAt: new Date(task.startedAt * 1000).toISOString(),
         title: task.label,
         preview: task.taskDescription,
-        modelPreset: null,
+        modelPreset: task.modelPreset ?? null,
         runStartedAt: ["done", "error", "cancelled"].includes(task.phase)
           ? null
           : task.startedAt,

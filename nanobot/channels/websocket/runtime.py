@@ -78,6 +78,8 @@ def _subagent_status_payload(status: "SubagentStatus") -> dict[str, Any]:
         "label": status.label,
         "task_description": status.task_description,
         "started_at": status.started_at,
+        "model": status.model,
+        "model_preset": status.model_preset,
         "phase": status.phase,
         "iteration": status.iteration,
         "tool_events": [dict(event) for event in status.tool_events],
