@@ -513,6 +513,12 @@ function SubagentReadOnlyBar({
       </button>
       <div className="min-w-0 truncate text-[12px] font-medium">{task.label}</div>
       <span className="text-[11px] text-muted-foreground">只读 · {task.phase}</span>
+      {task.reasoningText || task.streamText ? (
+        <div className="mt-1 max-h-24 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border/60 bg-background/90 px-2 py-1 text-[11px] leading-4 text-muted-foreground">
+          {task.reasoningText ? <div className="whitespace-pre-wrap opacity-75">{task.reasoningText}</div> : null}
+          {task.streamText ? <div className="whitespace-pre-wrap text-foreground">{task.streamText}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -758,7 +764,7 @@ export function ThreadShell({
   useEffect(() => {
     if (!activeSubagent || !historyKey) return;
     void refreshHistory();
-  }, [activeSubagent?.iteration, activeSubagent?.phase, historyKey, refreshHistory]);
+  }, [activeSubagent?.iteration, activeSubagent?.phase, activeSubagent?.streamSeq, historyKey, refreshHistory]);
   const { client, getToken, ingressLimits, modelName, token } = useClient();
   const pickWorkspaceFolder = useCallback(async (): Promise<string | null> => {
     const response = await client.requestMutation<{ path: unknown }>(

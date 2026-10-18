@@ -6,6 +6,7 @@ import time
 import uuid
 import warnings
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, NotRequired, TypedDict
@@ -71,6 +72,11 @@ class SubagentStatus:
     task_session_key: str = ""
     archived: bool = False
     transcript_messages: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    stream_text: str = ""
+    reasoning_text: str = ""
+    stream_delta: str = ""
+    reasoning_delta: str = ""
+    stream_seq: int = 0
 
 
 class _SubagentHook(AgentHook):
@@ -108,6 +114,27 @@ class _SubagentHook(AgentHook):
             self._persist(self._status, self._status.transcript_messages)
         if context.error:
             self._status.error = str(context.error)
+
+    def wants_streaming(self) -> bool:
+        return True
+
+    async def on_stream(self, context: AgentHookContext, delta: str) -> None:
+        if self._status is None or not delta:
+            return
+        self._status.stream_text += delta
+        self._status.stream_delta = delta
+        self._status.stream_seq += 1
+        if self._persist is not None:
+            self._persist(self._status, self._status.transcript_messages)
+
+    async def emit_reasoning(self, reasoning_content: str | None) -> None:
+        if self._status is None or not reasoning_content:
+            return
+        self._status.reasoning_text += reasoning_content
+        self._status.reasoning_delta = reasoning_content
+        self._status.stream_seq += 1
+        if self._persist is not None:
+            self._persist(self._status, self._status.transcript_messages)
 
 
 class SubagentManager:
@@ -187,7 +214,10 @@ class SubagentManager:
 
     def _notify_status(self, status: SubagentStatus) -> None:
         if self._status_listener is not None:
-            asyncio.create_task(self._status_listener(status))
+            snapshot = deepcopy(status)
+            status.stream_delta = ""
+            status.reasoning_delta = ""
+            asyncio.create_task(self._status_listener(snapshot))
 
     def runtime_statuses(self) -> Mapping[str, SubagentStatus]:
         """Return the observable task statuses used by runtime-control snapshots."""
@@ -516,7 +546,6 @@ class SubagentManager:
         async def _on_checkpoint(payload: dict[str, Any]) -> None:
             status.phase = payload.get("phase", status.phase)
             status.iteration = payload.get("iteration", status.iteration)
-            self._notify_status(status)
 
         try:
             root = workspace_scope.project_path if workspace_scope is not None else self.workspace
@@ -734,6 +763,7 @@ class SubagentManager:
         session = session or self.sessions.get_or_create(status.task_session_key)
         user = next((message for message in messages if message.get("role") == "user"), None)
         if user is None:
+            self._notify_status(status)
             return
         persisted = [dict(user)]
         persisted.extend(
@@ -744,8 +774,8 @@ class SubagentManager:
         for message in persisted:
             message.setdefault("timestamp", session.updated_at.isoformat())
         session.messages = persisted
-        session.updated_at = session.updated_at
         self.sessions.save(session)
+        self._notify_status(status)
 
     @staticmethod
     def _save_task_tools(session: Any, events: list[dict[str, str]]) -> None:

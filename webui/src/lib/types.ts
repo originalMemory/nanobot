@@ -431,6 +431,11 @@ export interface SubagentStatus {
   sessionKey?: string | null;
   result?: string | null;
   transcript?: Array<Record<string, unknown>>;
+  streamText?: string;
+  reasoningText?: string;
+  streamDelta?: string;
+  reasoningDelta?: string;
+  streamSeq?: number;
 }
 
 export type WorkspaceAccessMode = "restricted" | "full";
@@ -1474,6 +1479,11 @@ export type InboundEvent =
       session_key?: string | null;
       result?: string | null;
       transcript?: Array<Record<string, unknown>>;
+      stream_text?: string;
+      reasoning_text?: string;
+      stream_delta?: string;
+      reasoning_delta?: string;
+      stream_seq?: number;
     }
   | ({
       event: "turn_model_updated";

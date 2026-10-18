@@ -1187,6 +1187,11 @@ export class NanobotClient {
           sessionKey: raw.session_key ?? null,
           result: raw.result ?? null,
           transcript: Array.isArray(raw.transcript) ? raw.transcript : [],
+          streamText: typeof raw.stream_text === "string" ? raw.stream_text : "",
+          reasoningText: typeof raw.reasoning_text === "string" ? raw.reasoning_text : "",
+          streamDelta: typeof raw.stream_delta === "string" ? raw.stream_delta : "",
+          reasoningDelta: typeof raw.reasoning_delta === "string" ? raw.reasoning_delta : "",
+          streamSeq: typeof raw.stream_seq === "number" ? raw.stream_seq : 0,
         };
         for (const handler of this.subagentStatusHandlers) handler(status);
         return;
