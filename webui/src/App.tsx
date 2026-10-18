@@ -2791,6 +2791,15 @@ function Shell({
     subagentTasks: Object.values(subagentTasks).filter((task) => !task.archived && (task.originChannel === undefined || task.originChannel === "websocket")),
     onCancelSubagent: (taskId: string) => client.cancelSubagent(taskId),
   };
+  const messageSubagentTasks = activeSession?.chatId
+    ? Object.values(subagentTasks).filter((task) => (
+        !task.archived
+        && task.originChannel === "websocket"
+        && task.originChatId === activeSession.chatId
+      ))
+    : [];
+  const selectSubagent = (task: SubagentStatus) => onSelectChat(task.taskSessionKey);
+  const backFromSubagent = (task: SubagentStatus) => onSelectChat(`websocket:${task.originChatId}`);
   const hostSidebarFlowWidth = hostSidebarOpen ? sidebarWidth : SIDEBAR_RAIL_WIDTH;
 
   useEffect(() => {
@@ -3001,6 +3010,11 @@ function Shell({
                             onOpenModelSettings={onOpenModelSettings}
                             skills={skills}
                             readOnly={Boolean(activeSubagent)}
+                            subagentTasks={messageSubagentTasks}
+                            activeSubagent={activeSubagent}
+                            onSelectSubagent={selectSubagent}
+                            onCancelSubagent={(taskId) => client.cancelSubagent(taskId)}
+                            onBackFromSubagent={backFromSubagent}
                           />
                         );
                       }
@@ -3062,6 +3076,11 @@ function Shell({
                           onOpenModelSettings={onOpenModelSettings}
                           skills={skills}
                           readOnly={paneSession.channel === "subagent"}
+                          subagentTasks={paneSession.channel === "subagent" ? [] : messageSubagentTasks}
+                          activeSubagent={paneSession.channel === "subagent" ? activeSubagent : null}
+                          onSelectSubagent={selectSubagent}
+                          onCancelSubagent={(taskId) => client.cancelSubagent(taskId)}
+                          onBackFromSubagent={backFromSubagent}
                         />
                       );
                     }}

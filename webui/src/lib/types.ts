@@ -430,6 +430,7 @@ export interface SubagentStatus {
   archived?: boolean;
   sessionKey?: string | null;
   result?: string | null;
+  transcript?: Array<Record<string, unknown>>;
 }
 
 export type WorkspaceAccessMode = "restricted" | "full";
@@ -1472,6 +1473,7 @@ export type InboundEvent =
       origin_chat_id: string;
       session_key?: string | null;
       result?: string | null;
+      transcript?: Array<Record<string, unknown>>;
     }
   | ({
       event: "turn_model_updated";

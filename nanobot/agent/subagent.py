@@ -70,15 +70,22 @@ class SubagentStatus:
     result: str | None = None
     task_session_key: str = ""
     archived: bool = False
+    transcript_messages: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
 
 class _SubagentHook(AgentHook):
     """Hook for subagent execution — logs tool calls and updates status."""
 
-    def __init__(self, task_id: str, status: SubagentStatus | None = None) -> None:
+    def __init__(
+        self,
+        task_id: str,
+        status: SubagentStatus | None = None,
+        persist: Callable[[SubagentStatus, list[dict[str, Any]]], None] | None = None,
+    ) -> None:
         super().__init__()
         self._task_id = task_id
         self._status = status
+        self._persist = persist
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         for tool_call in context.tool_calls:
@@ -94,6 +101,11 @@ class _SubagentHook(AgentHook):
         self._status.iteration = context.iteration
         self._status.tool_events = list(context.tool_events)
         self._status.usage = context.usage
+        self._status.transcript_messages = [
+            dict(message) for message in context.messages if message.get("role") != "system"
+        ]
+        if self._persist is not None:
+            self._persist(self._status, self._status.transcript_messages)
         if context.error:
             self._status.error = str(context.error)
 
@@ -536,7 +548,7 @@ class SubagentManager:
                     runtime=runtime,
                     max_iterations=self.max_iterations,
                     max_tool_result_chars=self.max_tool_result_chars,
-                    hook=_SubagentHook(task_id, status),
+                    hook=_SubagentHook(task_id, status, self._persist_task_messages),
                     max_iterations_message="Task completed but no final response was generated.",
                     finalize_on_max_iterations=False,
                     error_message=None,
@@ -554,6 +566,12 @@ class SubagentManager:
                 reset_request_context(request_token)
             status.phase = "done"
             status.stop_reason = result.stop_reason
+            status.transcript_messages = [
+                dict(message)
+                for message in result.messages
+                if message.get("role") != "system"
+            ]
+            self._persist_task_messages(status, status.transcript_messages)
 
             if result.stop_reason == "error":
                 final_result = result.error or "Error: subagent execution failed."
@@ -697,14 +715,78 @@ class SubagentManager:
             "stop_reason": status.stop_reason,
             "outcome": outcome,
         })
-        session.add_message(
-            "assistant",
-            result,
-            task_id=status.task_id,
-            outcome=outcome,
-            phase=status.phase,
-        )
+        if status.transcript_messages:
+            self._persist_task_messages(status, status.transcript_messages, session=session)
+        elif not any(
+            message.get("role") == "assistant" and message.get("content") == result
+            for message in session.messages
+        ):
+            session.add_message("assistant", result, task_id=status.task_id, outcome=outcome, phase=status.phase)
         self.sessions.save(session)
+
+    def _persist_task_messages(
+        self,
+        status: SubagentStatus,
+        messages: list[dict[str, Any]],
+        *,
+        session: Any | None = None,
+    ) -> None:
+        session = session or self.sessions.get_or_create(status.task_session_key)
+        user = next((message for message in messages if message.get("role") == "user"), None)
+        if user is None:
+            return
+        persisted = [dict(user)]
+        persisted.extend(
+            dict(message)
+            for message in messages
+            if message.get("role") in {"assistant", "tool"}
+        )
+        for message in persisted:
+            message.setdefault("timestamp", session.updated_at.isoformat())
+        session.messages = persisted
+        session.updated_at = session.updated_at
+        self.sessions.save(session)
+
+    @staticmethod
+    def _save_task_tools(session: Any, events: list[dict[str, str]]) -> None:
+        starts: dict[str, dict[str, Any]] = {}
+        results: dict[str, dict[str, Any]] = {}
+        for event in events:
+            call_id = str(event.get("call_id") or "")
+            name = str(event.get("name") or "")
+            if not call_id or not name:
+                continue
+            phase = str(event.get("phase") or "")
+            if phase == "start":
+                arguments: Any = event.get("arguments") or {}
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError:
+                        pass
+                starts[call_id] = {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": arguments},
+                }
+            elif phase in {"end", "error"}:
+                results[call_id] = {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": name,
+                    "content": event.get("result") or event.get("error") or "",
+                }
+        if not starts:
+            return
+        session.add_message("assistant", "", tool_calls=[
+            {"id": call_id, **call_data} for call_id, call_data in starts.items()
+        ])
+        for call_id in starts:
+            if call_id in results:
+                session.messages.append({
+                    **results[call_id],
+                    "timestamp": session.updated_at.isoformat(),
+                })
 
     def _save_task_outcome(self, status: SubagentStatus, outcome: str) -> None:
         session = self.sessions.get_or_create(status.task_session_key)

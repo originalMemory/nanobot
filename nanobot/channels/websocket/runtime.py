@@ -90,6 +90,7 @@ def _subagent_status_payload(status: "SubagentStatus") -> dict[str, Any]:
         "result": status.result,
         "task_session_key": status.task_session_key,
         "archived": status.archived,
+        "transcript": [dict(message) for message in status.transcript_messages],
     }
 
 # Outbound delivery is isolated per connection.  A bounded queue keeps a slow

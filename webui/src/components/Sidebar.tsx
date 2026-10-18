@@ -312,7 +312,7 @@ export function Sidebar(props: SidebarProps) {
           collapsed && "pointer-events-none opacity-0",
         )}
       >
-        {!collapsed && (!props.fixedChatKey || (props.subagentTasks?.length ?? 0) > 0) && (
+        {!collapsed && !props.fixedChatKey && (
           <ChatList
             sessions={props.fixedChatKey ? [] : props.sessions}
             temporarySessions={props.fixedChatKey ? [] : props.temporarySessions}
@@ -353,8 +353,7 @@ export function Sidebar(props: SidebarProps) {
             sort={props.viewState?.sort}
             showArchived={props.showArchived}
             defaultWorkspacePath={props.defaultWorkspacePath}
-            subagentTasks={props.subagentTasks}
-            onCancelSubagent={props.onCancelSubagent}
+            subagentTasks={[]}
             actionMenuPortalContainer={
               props.containActionMenus ? menuPortalContainer : undefined
             }

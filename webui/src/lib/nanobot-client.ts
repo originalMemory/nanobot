@@ -1186,6 +1186,7 @@ export class NanobotClient {
           archived: raw.archived === true,
           sessionKey: raw.session_key ?? null,
           result: raw.result ?? null,
+          transcript: Array.isArray(raw.transcript) ? raw.transcript : [],
         };
         for (const handler of this.subagentStatusHandlers) handler(status);
         return;

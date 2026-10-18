@@ -54,6 +54,7 @@ import type {
   UIMessage,
   WorkspaceScopePayload,
   WorkspacesPayload,
+  SubagentStatus,
 } from "@/lib/types";
 import { projectWebuiThreadMessages } from "@/lib/thread-display-compat";
 import { ThreadMessageCache } from "@/lib/thread-message-cache";
@@ -447,6 +448,73 @@ interface ThreadShellProps {
   onOpenModelSettings?: () => void;
   skills?: SkillSummary[];
   readOnly?: boolean;
+  subagentTasks?: SubagentStatus[];
+  activeSubagent?: SubagentStatus | null;
+  onSelectSubagent?: (task: SubagentStatus) => void;
+  onCancelSubagent?: (taskId: string) => void;
+  onBackFromSubagent?: (task: SubagentStatus) => void;
+}
+
+function SubagentTaskBar({
+  tasks,
+  onSelect,
+  onCancel,
+}: {
+  tasks: SubagentStatus[];
+  onSelect?: (task: SubagentStatus) => void;
+  onCancel?: (taskId: string) => void;
+}) {
+  const { t } = useTranslation();
+  if (tasks.length === 0) return null;
+  return (
+    <div className="relative z-20 mx-auto mt-1 flex w-full max-w-3xl flex-wrap gap-2 px-4">
+      {tasks.map((task) => (
+        <div key={task.taskId} className="flex min-w-0 max-w-full items-center gap-1 rounded-xl border border-border/70 bg-background/95 px-2 py-1 shadow-sm">
+          <button
+            type="button"
+            className="min-w-0 truncate text-left text-[12px] font-medium hover:text-primary"
+            onClick={() => onSelect?.(task)}
+            title={task.taskDescription}
+          >
+            <span className="block max-w-[22rem] truncate">{task.label}</span>
+            <span className="block text-[10px] font-normal text-muted-foreground">{task.phase}</span>
+          </button>
+          {task.phase !== "done" && task.phase !== "error" && task.phase !== "cancelled" ? (
+            <button
+              type="button"
+              className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => onCancel?.(task.taskId)}
+              aria-label={t("chat.subagents.cancel", { defaultValue: "Cancel subagent task" })}
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SubagentReadOnlyBar({
+  task,
+  onBack,
+}: {
+  task: SubagentStatus;
+  onBack?: (task: SubagentStatus) => void;
+}) {
+  return (
+    <div className="relative z-20 mx-auto mt-1 flex w-full max-w-3xl items-center gap-2 px-4">
+      <button
+        type="button"
+        className="rounded-lg border border-border/70 bg-background/95 px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
+        onClick={() => onBack?.(task)}
+      >
+        ← 主会话
+      </button>
+      <div className="min-w-0 truncate text-[12px] font-medium">{task.label}</div>
+      <span className="text-[11px] text-muted-foreground">只读 · {task.phase}</span>
+    </div>
+  );
 }
 
 const HERO_GREETING_KEYS = [
@@ -657,6 +725,11 @@ export function ThreadShell({
   onOpenModelSettings,
   skills = [],
   readOnly = false,
+  subagentTasks = [],
+  activeSubagent = null,
+  onSelectSubagent,
+  onCancelSubagent,
+  onBackFromSubagent,
 }: ThreadShellProps) {
   const { t } = useTranslation();
   const chatId = session?.chatId ?? null;
@@ -682,6 +755,10 @@ export function ThreadShell({
     version: historyVersion,
     forkBoundaryMessageCount,
   } = useSessionHistory(historyKey);
+  useEffect(() => {
+    if (!activeSubagent || !historyKey) return;
+    void refreshHistory();
+  }, [activeSubagent?.iteration, activeSubagent?.phase, historyKey, refreshHistory]);
   const { client, getToken, ingressLimits, modelName, token } = useClient();
   const pickWorkspaceFolder = useCallback(async (): Promise<string | null> => {
     const response = await client.requestMutation<{ path: unknown }>(
@@ -1829,6 +1906,15 @@ export function ThreadShell({
           </div>
         ) : null}
         {headerPortalTarget === undefined ? threadHeader : null}
+        {activeSubagent ? (
+          <SubagentReadOnlyBar task={activeSubagent} onBack={onBackFromSubagent} />
+        ) : (
+          <SubagentTaskBar
+            tasks={subagentTasks}
+            onSelect={onSelectSubagent}
+            onCancel={onCancelSubagent}
+          />
+        )}
         <FilePreviewAvailabilityProvider
           resolve={historyKey ? resolveFilePreviewAvailability : undefined}
         >
