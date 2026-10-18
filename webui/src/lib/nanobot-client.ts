@@ -11,6 +11,7 @@ import type {
   SidebarStatePayload,
   GoalStateWsPayload,
   WorkspaceScopePayload,
+  SubagentStatus,
 } from "./types";
 import { createHostWebSocket } from "./runtime";
 import { isVoiceEvent, type VoiceEvent } from "./voice";
@@ -84,6 +85,7 @@ type SessionUpdateHandler = (
 ) => void;
 type SidebarStateUpdateHandler = (state: SidebarStatePayload) => void;
 type RunStatusHandler = (chatId: string, startedAt: number | null) => void;
+type SubagentStatusHandler = (status: SubagentStatus) => void;
 
 /** Structured errors surfaced to the UI.
  *
@@ -203,6 +205,7 @@ export class NanobotClient {
   private sessionUpdateHandlers = new Set<SessionUpdateHandler>();
   private sidebarStateUpdateHandlers = new Set<SidebarStateUpdateHandler>();
   private runStatusHandlers = new Set<RunStatusHandler>();
+  private subagentStatusHandlers = new Set<SubagentStatusHandler>();
   private errorHandlers = new Set<ErrorHandler>();
   // chat_id -> handlers listening on it
   private chatHandlers = new Map<string, Set<EventHandler>>();
@@ -359,6 +362,15 @@ export class NanobotClient {
     return () => {
       this.runStatusHandlers.delete(handler);
     };
+  }
+
+  onSubagentStatus(handler: SubagentStatusHandler): Unsubscribe {
+    this.subagentStatusHandlers.add(handler);
+    return () => { this.subagentStatusHandlers.delete(handler); };
+  }
+
+  cancelSubagent(taskId: string): void {
+    this.queueSend({ type: "cancel_subagent", task_id: taskId });
   }
 
   /** Subscribe to transport-level faults (see :type:`StreamError`). */
@@ -1157,6 +1169,27 @@ export class NanobotClient {
         return;
       }
       parsed = raw as InboundEvent;
+      if (raw?.event === "subagent_status") {
+        const status: SubagentStatus = {
+          taskId: raw.task_id,
+          label: raw.label,
+          taskDescription: raw.task_description,
+          startedAt: raw.started_at,
+          phase: raw.phase,
+          iteration: raw.iteration ?? 0,
+          toolEvents: raw.tool_events ?? [],
+          stopReason: raw.stop_reason ?? null,
+          error: raw.error ?? null,
+          originChannel: raw.origin_channel,
+          originChatId: raw.origin_chat_id,
+          taskSessionKey: raw.task_session_key,
+          archived: raw.archived === true,
+          sessionKey: raw.session_key ?? null,
+          result: raw.result ?? null,
+        };
+        for (const handler of this.subagentStatusHandlers) handler(status);
+        return;
+      }
       if (isVoiceEvent(parsed)) {
         for (const handler of this.voiceHandlers) handler(parsed);
         return;

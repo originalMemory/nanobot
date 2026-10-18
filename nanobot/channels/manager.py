@@ -95,6 +95,7 @@ class ChannelManager:
         bus: MessageBus,
         *,
         session_manager: "SessionManager | None" = None,
+        subagent_session_manager: "SessionManager | None" = None,
         cron_service: CronService | None = None,
         local_trigger_store: LocalTriggerStore | None = None,
         webui_runtime_model_name: Callable[[], str | None] | None = None,
@@ -120,6 +121,7 @@ class ChannelManager:
         self._config_path = config_path.expanduser().resolve(strict=False)
         self.bus = bus
         self._session_manager = session_manager
+        self._subagent_session_manager = subagent_session_manager
         self._cron_service = cron_service
         self._local_trigger_store = local_trigger_store
         self._webui_runtime_model_name = webui_runtime_model_name
@@ -191,6 +193,7 @@ class ChannelManager:
                 config=parsed,
                 bus=self.bus,
                 session_manager=self._session_manager,
+                subagent_session_manager=self._subagent_session_manager,
                 static_dist_path=static_path,
                 workspace_path=workspace,
                 default_restrict_to_workspace=self.config.tools.restrict_to_workspace,

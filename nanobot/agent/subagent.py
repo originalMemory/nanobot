@@ -8,7 +8,7 @@ import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Awaitable, Callable, NotRequired, TypedDict
 
 from loguru import logger
 
@@ -28,6 +28,7 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import AgentDefaults, ToolsConfig
+from nanobot.config.paths import get_runtime_subdir
 from nanobot.llm_usage.context import LLMUsageSource, current_llm_usage_source
 from nanobot.providers.base import LLMProvider, LLMUsage
 from nanobot.security.workspace_access import (
@@ -36,6 +37,7 @@ from nanobot.security.workspace_access import (
     reset_workspace_scope,
     workspace_sandbox_status,
 )
+from nanobot.session.manager import SessionManager
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.prompt_templates import render_template
 
@@ -62,6 +64,12 @@ class SubagentStatus:
     usage: LLMUsage | None = None
     stop_reason: str | None = None
     error: str | None = None
+    origin_channel: str = ""
+    origin_chat_id: str = ""
+    session_key: str | None = None
+    result: str | None = None
+    task_session_key: str = ""
+    archived: bool = False
 
 
 class _SubagentHook(AgentHook):
@@ -153,10 +161,71 @@ class SubagentManager:
         self._running_tasks: dict[str, asyncio.Task[str]] = {}
         self._task_statuses: dict[str, SubagentStatus] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+        self.sessions = SessionManager(
+            workspace,
+            sessions_root=get_runtime_subdir("subagents"),
+        )
+        self._status_listener: Callable[[SubagentStatus], Awaitable[None]] | None = None
+
+    def set_status_listener(
+        self,
+        listener: Callable[[SubagentStatus], Awaitable[None]] | None,
+    ) -> None:
+        self._status_listener = listener
+
+    def _notify_status(self, status: SubagentStatus) -> None:
+        if self._status_listener is not None:
+            asyncio.create_task(self._status_listener(status))
 
     def runtime_statuses(self) -> Mapping[str, SubagentStatus]:
         """Return the observable task statuses used by runtime-control snapshots."""
         return self._task_statuses
+
+    def display_statuses(self) -> Mapping[str, SubagentStatus]:
+        """Return active tasks plus persisted read-only task summaries."""
+        statuses = dict(self._task_statuses)
+        for info in self.sessions.list_sessions():
+            key = info.get("key")
+            if not isinstance(key, str) or not key.startswith("subagent:"):
+                continue
+            session = self.sessions.get_or_create(key)
+            if session.metadata.get("archived") is True:
+                continue
+            task_id = str(session.metadata.get("task_id") or key.split(":", 1)[1])
+            if task_id in statuses:
+                continue
+            result = next(
+                (
+                    str(message.get("content"))
+                    for message in reversed(session.messages)
+                    if message.get("role") == "assistant" and message.get("content")
+                ),
+                None,
+            )
+            phase = str(session.metadata.get("phase") or ("done" if result is not None else "error"))
+            statuses[task_id] = SubagentStatus(
+                task_id=task_id,
+                label=str(session.metadata.get("label") or task_id),
+                task_description=str(
+                    next(
+                        (message.get("content") for message in session.messages if message.get("role") == "user"),
+                        "",
+                    )
+                ),
+                started_at=session.created_at.timestamp(),
+                phase=phase,
+                origin_channel=str(session.metadata.get("origin_channel") or "websocket"),
+                origin_chat_id=str(session.metadata.get("origin_chat_id") or ""),
+                session_key=str(session.metadata.get("parent_session_key") or ""),
+                result=result,
+                stop_reason=(
+                    str(session.metadata["stop_reason"])
+                    if session.metadata.get("stop_reason") is not None
+                    else None
+                ),
+                task_session_key=key,
+            )
+        return statuses
 
     def set_provider(self, provider: LLMProvider, model: str) -> None:
         """Update the deprecated runtime source used by legacy ``spawn`` calls."""
@@ -256,8 +325,24 @@ class SubagentManager:
             label=display_label,
             task_description=task,
             started_at=time.monotonic(),
+            origin_channel=origin_channel,
+            origin_chat_id=origin_chat_id,
+            session_key=session_key,
+            task_session_key=f"subagent:{task_id}",
         )
         self._task_statuses[task_id] = status
+        task_session = self.sessions.get_or_create(status.task_session_key)
+        task_session.metadata.update({
+            "parent_session_key": session_key,
+            "origin_channel": origin_channel,
+            "origin_chat_id": origin_chat_id,
+            "task_id": task_id,
+            "label": display_label,
+            "started_at": time.time(),
+        })
+        task_session.add_message("user", task, task_id=task_id)
+        self.sessions.save(task_session)
+        self._notify_status(status)
 
         bg_task = asyncio.create_task(
             self._run_subagent(
@@ -276,6 +361,7 @@ class SubagentManager:
             self._session_tasks.setdefault(session_key, set()).add(task_id)
 
         def _cleanup(_: asyncio.Task[str]) -> None:
+            self._notify_status(status)
             self._running_tasks.pop(task_id, None)
             self._task_statuses.pop(task_id, None)
             if session_key and (ids := self._session_tasks.get(session_key)):
@@ -319,8 +405,24 @@ class SubagentManager:
             label=display_label,
             task_description=task,
             started_at=time.monotonic(),
+            origin_channel=origin_channel,
+            origin_chat_id=origin_chat_id,
+            session_key=session_key,
+            task_session_key=f"subagent:{task_id}",
         )
         self._task_statuses[task_id] = status
+        task_session = self.sessions.get_or_create(status.task_session_key)
+        task_session.metadata.update({
+            "parent_session_key": session_key,
+            "origin_channel": origin_channel,
+            "origin_chat_id": origin_chat_id,
+            "task_id": task_id,
+            "label": display_label,
+            "started_at": time.time(),
+        })
+        task_session.add_message("user", task, task_id=task_id)
+        self.sessions.save(task_session)
+        self._notify_status(status)
         logger.info("Running inline subagent [{}]: {}", task_id, display_label)
         inline_task = asyncio.create_task(
             self._run_subagent(
@@ -344,6 +446,7 @@ class SubagentManager:
                 return ToolResult.error(result)
             return result
         finally:
+            self._notify_status(status)
             self._running_tasks.pop(task_id, None)
             self._task_statuses.pop(task_id, None)
             if session_key and (ids := self._session_tasks.get(session_key)):
@@ -366,8 +469,10 @@ class SubagentManager:
     ) -> str:
         """Wait for capacity, then execute one subagent task."""
         status.phase = "queued"
+        self._notify_status(status)
         async with self._run_slots:
             status.phase = "initializing"
+            self._notify_status(status)
             return await self._run_admitted_subagent(
                 task_id,
                 task,
@@ -399,6 +504,7 @@ class SubagentManager:
         async def _on_checkpoint(payload: dict[str, Any]) -> None:
             status.phase = payload.get("phase", status.phase)
             status.iteration = payload.get("iteration", status.iteration)
+            self._notify_status(status)
 
         try:
             root = workspace_scope.project_path if workspace_scope is not None else self.workspace
@@ -456,6 +562,9 @@ class SubagentManager:
                 final_result = result.final_content or "Task completed but no final response was generated."
                 final_status = "ok"
                 logger.info("Subagent [{}] completed successfully", task_id)
+            status.result = final_result
+            self._save_task_reply(status, final_result, final_status)
+            self._notify_status(status)
             if announce:
                 await self._announce_result(
                     task_id,
@@ -471,6 +580,9 @@ class SubagentManager:
         except Exception as e:
             status.phase = "error"
             status.error = str(e)
+            status.result = f"Error: {e}"
+            self._save_task_reply(status, status.result, "error")
+            self._notify_status(status)
             logger.exception("Subagent [{}] failed", task_id)
             final_result = f"Error: {e}"
             if announce:
@@ -563,6 +675,87 @@ class SubagentManager:
             await asyncio.gather(*tasks, return_exceptions=True)
         await self._exec_session_manager.terminate_by_owner(session_key)
         return len(tasks)
+
+    async def cancel(self, task_id: str) -> bool:
+        task = self._running_tasks.get(task_id)
+        if task is None or task.done():
+            return False
+        status = self._task_statuses.get(task_id)
+        if status is not None:
+            status.phase = "cancelled"
+            status.stop_reason = "cancelled"
+            self._save_task_outcome(status, "cancelled")
+            self._notify_status(status)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        return True
+
+    def _save_task_reply(self, status: SubagentStatus, result: str, outcome: str) -> None:
+        session = self.sessions.get_or_create(status.task_session_key)
+        session.metadata.update({
+            "phase": status.phase,
+            "stop_reason": status.stop_reason,
+            "outcome": outcome,
+        })
+        session.add_message(
+            "assistant",
+            result,
+            task_id=status.task_id,
+            outcome=outcome,
+            phase=status.phase,
+        )
+        self.sessions.save(session)
+
+    def _save_task_outcome(self, status: SubagentStatus, outcome: str) -> None:
+        session = self.sessions.get_or_create(status.task_session_key)
+        session.metadata.update({
+            "phase": status.phase,
+            "stop_reason": status.stop_reason,
+            "outcome": outcome,
+        })
+        self.sessions.save(session)
+
+    def archive_by_session(
+        self,
+        parent_session_key: str,
+        *,
+        before_timestamp: float | None = None,
+    ) -> int:
+        archived = 0
+        for info in self.sessions.list_sessions():
+            key = info.get("key")
+            if not isinstance(key, str):
+                continue
+            session = self.sessions.get_or_create(key)
+            started_at = session.metadata.get("started_at")
+            in_range = before_timestamp is None or (
+                isinstance(started_at, int | float) and started_at <= before_timestamp
+            )
+            if (
+                session.metadata.get("parent_session_key") == parent_session_key
+                and session.metadata.get("archived") is not True
+                and in_range
+            ):
+                session.last_archived = len(session.messages)
+                session.metadata["archived"] = True
+                self.sessions.save(session)
+                archived += 1
+        for status in self._task_statuses.values():
+            task_session = self.sessions.get_or_create(status.task_session_key)
+            task_started = task_session.metadata.get("started_at")
+            if (
+                status.session_key == parent_session_key
+                and (
+                    before_timestamp is None
+                    or (
+                        isinstance(task_started, int | float)
+                        and task_started <= before_timestamp
+                    )
+                )
+            ):
+                status.archived = True
+                self._notify_status(status)
+        return archived
 
     async def close(self) -> None:
         """Cancel running subagents and close their shared exec sessions."""

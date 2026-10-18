@@ -39,6 +39,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import type {
   ChatSummary,
   SidebarViewState,
+  SubagentStatus,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { getRuntimeHost } from "@/lib/runtime";
@@ -108,6 +109,8 @@ interface SidebarProps {
   defaultWorkspacePath?: string | null;
   hostChromeInset?: boolean;
   hostGlass?: boolean;
+  subagentTasks?: SubagentStatus[];
+  onCancelSubagent?: (taskId: string) => void;
 }
 
 type NavigatorWithUserAgentData = Navigator & {
@@ -350,6 +353,8 @@ export function Sidebar(props: SidebarProps) {
             sort={props.viewState?.sort}
             showArchived={props.showArchived}
             defaultWorkspacePath={props.defaultWorkspacePath}
+            subagentTasks={props.subagentTasks}
+            onCancelSubagent={props.onCancelSubagent}
             actionMenuPortalContainer={
               props.containActionMenus ? menuPortalContainer : undefined
             }

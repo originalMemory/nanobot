@@ -355,6 +355,7 @@ class GatewayHTTPHandler:
         settings: WebUISettingsServices,
         skills_workspace_path: Path,
         disabled_skills: set[str] | None = None,
+        subagent_session_manager: SessionManager | None = None,
         cron_service: CronService | None = None,
         local_trigger_store: LocalTriggerStore | None = None,
         cron_pending_job_ids: Callable[[str], set[str]] | None = None,
@@ -371,6 +372,7 @@ class GatewayHTTPHandler:
     ) -> None:
         self.config = config
         self.session_manager = session_manager
+        self.subagent_session_manager = subagent_session_manager
         self.static_dist_path = static_dist_path
         self.runtime_model_name = runtime_model_name
         self.bus = bus
@@ -984,20 +986,24 @@ class GatewayHTTPHandler:
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
-        if not _is_websocket_channel_session_key(decoded_key):
+        is_subagent = bool(re.fullmatch(r"subagent:[0-9a-f]{8}", decoded_key))
+        if not is_subagent and not _is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
+        if (self.subagent_session_manager if is_subagent else self.session_manager) is None:
+            return _http_error(503, "session manager unavailable")
         if diagnostics is not None:
             diagnostics.session_hash = hashlib.sha256(decoded_key.encode("utf-8")).hexdigest()[:12]
-        source_key = model_session_key(
+        source_key = decoded_key if is_subagent else model_session_key(
             decoded_key,
             unified_session=self.settings.config.load().agents.defaults.unified_session,
         )
         scope = self.workspaces.scope_for_session_key(source_key)
 
         def load_session_messages() -> list[dict[str, Any]] | None:
-            if self.session_manager is None:
+            manager = self.subagent_session_manager if is_subagent else self.session_manager
+            if manager is None:
                 return None
-            session_data = self.session_manager.read_session_file(source_key)
+            session_data = manager.read_session_file(source_key)
             raw_messages = session_data.get("messages") if isinstance(session_data, dict) else None
             if not isinstance(raw_messages, list):
                 return None
@@ -1020,6 +1026,28 @@ class GatewayHTTPHandler:
         if direction is not None and direction not in {"latest"}:
             return _http_error(400, "invalid direction")
         before = _query_first(query, "before")
+        if is_subagent:
+            data = build_session_thread_response(
+                decoded_key,
+                load_session_messages() or [],
+                limit=limit,
+                before=before,
+                active_turn_id=None,
+                active_turn_started_at=None,
+                completed_turns=set(),
+                transcript_pending=False,
+                augment_user_media=self.media.augment_transcript_media,
+                augment_assistant_media=self.media.augment_transcript_media,
+                augment_assistant_text=lambda text: self.media.rewrite_local_markdown_images(
+                    text, workspace_path=self.workspaces.default_scope().project_path,
+                ),
+            )
+            data["workspace_scope"] = self.workspaces.default_scope().payload()
+            return _http_json_response(
+                data,
+                accept_encoding=_combined_list_header(request.headers, "Accept-Encoding"),
+                extra_headers=_NO_STORE_HEADERS,
+            )
         from nanobot.session.webui_turns import (
             websocket_turn_id,
             websocket_turn_transcript_persistence_failed,

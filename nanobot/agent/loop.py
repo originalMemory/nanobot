@@ -446,6 +446,7 @@ class AgentLoop:
             consolidator=self.consolidator,
             session_ttl_minutes=session_ttl_minutes,
             bind_events=self._idle_events,
+            on_compacted=self.subagents.archive_by_session,
         )
         self._idle_compact_check_interval_s = idle_compact_check_interval_seconds
         self._next_idle_compact_check_at = time.monotonic()
@@ -2249,10 +2250,18 @@ class AgentLoop:
         last_assistant_idx: int | None = None
         saved_followup_ids: set[str] = set()
         checkpoint_boundary = None
+        archive_before_timestamp: float | None = None
         if summary_checkpoint is not None and summary_checkpoint.session_message_index is not None:
             boundary = summary_checkpoint.session_message_index - session.metadata.get("_archive_offset", 0)
             if not 0 <= boundary <= len(session.messages):
                 raise ValueError("部分压缩的会话边界已失效")
+            if boundary > 0:
+                timestamp = session.messages[boundary - 1].get("timestamp")
+                if isinstance(timestamp, str):
+                    try:
+                        archive_before_timestamp = datetime.fromisoformat(timestamp).timestamp()
+                    except ValueError:
+                        pass
             session.commit_summary_checkpoint(summary_checkpoint.summary, insert_at=boundary)
         else:
             checkpoint_boundary = self._validated_checkpoint_boundary(
@@ -2261,6 +2270,13 @@ class AgentLoop:
                 message_count=len(messages),
                 session_key=session.key,
             )
+            if checkpoint_boundary and checkpoint_boundary <= len(session.messages):
+                timestamp = session.messages[checkpoint_boundary - 1].get("timestamp")
+                if isinstance(timestamp, str):
+                    try:
+                        archive_before_timestamp = datetime.fromisoformat(timestamp).timestamp()
+                    except ValueError:
+                        pass
 
         # The trigger input may already be the session tail while still being
         # the first message after the replacement checkpoint.
@@ -2380,6 +2396,11 @@ class AgentLoop:
             session.messages[last_assistant_idx]["voice"] = dict(voice)
         if saved_followup_ids:
             acknowledge_pending_followups(session, saved_followup_ids)
+        if summary_checkpoint is not None:
+            self.subagents.archive_by_session(
+                session.key,
+                before_timestamp=archive_before_timestamp,
+            )
         session.updated_at = datetime.now()
 
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:

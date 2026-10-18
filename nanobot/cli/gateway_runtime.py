@@ -881,6 +881,7 @@ def _run_gateway(
         config,
         bus,
         session_manager=session_manager,
+        subagent_session_manager=agent.subagents.sessions,
         cron_service=cron,
         local_trigger_store=trigger_store,
         webui_runtime_model_name=_webui_runtime_model_name,
@@ -902,6 +903,7 @@ def _run_gateway(
     if "websocket" in channels.enabled_channels:
         websocket_channel = channels.get_channel("websocket")
         if isinstance(websocket_channel, WebSocketChannel):
+            websocket_channel.bind_subagent_manager(agent.subagents)
             websocket_channel.companion_working = lambda: desktop_inbox.working
             desktop_inbox.on_run_state = websocket_channel.send_companion_state
             tools.register(DesktopContextTool(websocket_channel.desktop_context))  # pyright: ignore[reportAbstractUsage]

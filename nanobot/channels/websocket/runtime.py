@@ -61,6 +61,7 @@ from nanobot.webui.transcript import WEBUI_TRANSCRIPT_INCOMPLETE_KEY
 from nanobot.webui.websocket_logging import websockets_server_logger
 
 if TYPE_CHECKING:
+    from nanobot.agent.subagent import SubagentManager, SubagentStatus
     from nanobot.bus.outbound_events import ProgressEvent
 
 # Plain HTTP WebUI routes also run through websockets.process_request.
@@ -68,6 +69,28 @@ _WEBUI_HTTP_OPEN_TIMEOUT_S = 360.0
 _LISTENER_CHECK_INTERVAL_S = 0.5
 _LISTENER_STABLE_AFTER_S = 30.0
 _LISTENER_RESTART_BACKOFF_S = (1.0, 2.0, 4.0, 8.0, 16.0, 30.0)
+
+
+def _subagent_status_payload(status: "SubagentStatus") -> dict[str, Any]:
+    usage = status.usage.to_dict() if status.usage is not None else None
+    return {
+        "task_id": status.task_id,
+        "label": status.label,
+        "task_description": status.task_description,
+        "started_at": status.started_at,
+        "phase": status.phase,
+        "iteration": status.iteration,
+        "tool_events": [dict(event) for event in status.tool_events],
+        "usage": usage,
+        "stop_reason": status.stop_reason,
+        "error": status.error,
+        "origin_channel": status.origin_channel,
+        "origin_chat_id": status.origin_chat_id,
+        "session_key": status.session_key,
+        "result": status.result,
+        "task_session_key": status.task_session_key,
+        "archived": status.archived,
+    }
 
 # Outbound delivery is isolated per connection.  A bounded queue keeps a slow
 # or suspended terminal from retaining an unbounded stream in server memory.
@@ -410,6 +433,33 @@ class WebSocketChannel(BaseChannel):
 
         self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
         self._reasoning_text_buffers: dict[tuple[str, str], list[str]] = {}
+        self._subagents: SubagentManager | None = None
+
+    def bind_subagent_manager(self, manager: SubagentManager) -> None:
+        self._subagents = manager
+        manager.set_status_listener(self._on_subagent_status)
+
+    async def _on_subagent_status(self, status: SubagentStatus) -> None:
+        payload = _subagent_status_payload(status)
+        visible_chat_ids = {status.origin_chat_id, status.task_id}
+        for connection in tuple(self._webui_connections):
+            if not visible_chat_ids.intersection(self.webui_connection_chats(connection)):
+                continue
+            await self._send_event(connection, "subagent_status", **payload)
+
+    async def webui_cancel_subagent(
+        self,
+        connection: ServerConnection,
+        task_id: str,
+    ) -> bool:
+        if self._subagents is None:
+            return False
+        status = self._subagents.runtime_statuses().get(task_id)
+        if status is None or status.origin_channel != "websocket":
+            return False
+        if status.origin_chat_id not in self.webui_connection_chats(connection):
+            return False
+        return await self._subagents.cancel(task_id)
 
     # -- Subscription bookkeeping -------------------------------------------
 
@@ -532,6 +582,18 @@ class WebSocketChannel(BaseChannel):
     async def _hydrate_after_subscribe(self, chat_id: str) -> None:
         """Replay persisted or actively running per-chat state after subscribe."""
         await self._outbound.hydrate(chat_id)
+        if self._subagents is not None:
+            for status in self._subagents.display_statuses().values():
+                if status.origin_channel == "websocket":
+                    visible_chat_ids = {status.origin_chat_id, status.task_id}
+                    if chat_id not in visible_chat_ids:
+                        continue
+                    for connection in self.webui_subscribers(chat_id):
+                        await self._send_event(
+                            connection,
+                            "subagent_status",
+                            **_subagent_status_payload(status),
+                        )
         if chat_id == DESKTOP_CHAT_ID:
             await self.send_companion_state(self.companion_working())
 

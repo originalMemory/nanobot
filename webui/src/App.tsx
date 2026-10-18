@@ -76,6 +76,7 @@ import type {
   SettingsPayload,
   WorkspaceScopePayload,
   WorkspacesPayload,
+  SubagentStatus,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1198,6 +1199,23 @@ function Shell({
     () => new Map(),
   );
   const [runningChatIds, setRunningChatIds] = useState<Set<string>>(() => new Set());
+  const [subagentTasks, setSubagentTasks] = useState<Record<string, SubagentStatus>>({});
+  const subagentSessionSummaries = useMemo<ChatSummary[]>(
+    () => Object.values(subagentTasks)
+      .filter((task) => !task.archived && task.taskSessionKey)
+      .map((task) => ({
+        key: task.taskSessionKey,
+        channel: "subagent",
+        chatId: task.taskId,
+        createdAt: new Date(task.startedAt * 1000).toISOString(),
+        updatedAt: new Date(task.startedAt * 1000).toISOString(),
+        title: task.label,
+        preview: task.taskDescription,
+        modelPreset: null,
+        runStartedAt: task.phase === "done" || task.phase === "error" ? null : task.startedAt,
+      })),
+    [subagentTasks],
+  );
   const [updatedChatIds, setUpdatedChatIds] = useState<Set<string>>(readSessionUpdateChatIds);
   const [workspaces, setWorkspaces] = useState<WorkspacesPayload | null>(null);
   const skills = useSkills(getToken);
@@ -1400,8 +1418,14 @@ function Shell({
   const activeSession = useMemo<ChatSummary | null>(() => {
     if (!activeKey) return null;
     if (temporarySessions[activeKey]) return temporarySessions[activeKey];
-    return sessions.find((s) => s.key === activeKey) ?? null;
-  }, [sessions, activeKey, temporarySessions]);
+    return sessions.find((s) => s.key === activeKey)
+      ?? subagentSessionSummaries.find((s) => s.key === activeKey)
+      ?? null;
+  }, [sessions, activeKey, temporarySessions, subagentSessionSummaries]);
+  const activeSubagent = useMemo(
+    () => Object.values(subagentTasks).find((task) => task.taskSessionKey === activeKey) ?? null,
+    [activeKey, subagentTasks],
+  );
   const activeModelChatId = activeSession?.chatId ?? client.fixedChatId;
   const activeSessionModel = useChatModelPreset(
     client,
@@ -2228,6 +2252,10 @@ function Shell({
     });
   }, [client, onModelNameChange]);
 
+  useEffect(() => client.onSubagentStatus((status) => {
+    setSubagentTasks((current) => ({ ...current, [status.taskId]: status }));
+  }), [client]);
+
   useEffect(() => {
     return client.onRunStatus((chatId, startedAt) => {
       if (startedAt != null) {
@@ -2609,12 +2637,13 @@ function Shell({
     if (
       temporarySessionsRef.current[key]
       || sessions.some((session) => session.key === key)
+      || subagentSessionSummaries.some((session) => session.key === key)
     ) {
       onSelectChat(key);
       return;
     }
     onSelectSidebarTab(key);
-  }, [onSelectChat, onSelectSidebarTab, sessions]);
+  }, [onSelectChat, onSelectSidebarTab, sessions, subagentSessionSummaries]);
 
   const onSelectSidebarPane = useCallback((_tabKey: string, paneKey: string) => {
     onSelectChat(paneKey);
@@ -2759,6 +2788,8 @@ function Shell({
     showArchived: sidebarState.view.show_archived,
     archivedCount: sidebarArchivedTabKeys.length,
     defaultWorkspacePath: workspaces?.default_scope.project_path ?? null,
+    subagentTasks: Object.values(subagentTasks).filter((task) => !task.archived && (task.originChannel === undefined || task.originChannel === "websocket")),
+    onCancelSubagent: (taskId: string) => client.cancelSubagent(taskId),
   };
   const hostSidebarFlowWidth = hostSidebarOpen ? sidebarWidth : SIDEBAR_RAIL_WIDTH;
 
@@ -2969,6 +3000,7 @@ function Shell({
                             settingsSnapshot={settingsSnapshot}
                             onOpenModelSettings={onOpenModelSettings}
                             skills={skills}
+                            readOnly={Boolean(activeSubagent)}
                           />
                         );
                       }
@@ -3029,6 +3061,7 @@ function Shell({
                           settingsSnapshot={settingsSnapshot}
                           onOpenModelSettings={onOpenModelSettings}
                           skills={skills}
+                          readOnly={paneSession.channel === "subagent"}
                         />
                       );
                     }}

@@ -72,6 +72,7 @@ import {
   readDraggedSession,
   writeDraggedSession,
 } from "@/lib/session-drag";
+import type { SubagentStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import type { ChatSummary, SidebarDensity, SidebarSortMode } from "@/lib/types";
 
@@ -248,6 +249,8 @@ interface ChatListProps {
   actionMenuPortalContainer?: HTMLElement | null;
   loading?: boolean;
   emptyLabel?: string;
+  subagentTasks?: SubagentStatus[];
+  onCancelSubagent?: (taskId: string) => void;
 }
 
 export const ChatList = memo(function ChatList({
@@ -291,6 +294,8 @@ export const ChatList = memo(function ChatList({
   actionMenuPortalContainer,
   loading,
   emptyLabel,
+  subagentTasks = [],
+  onCancelSubagent,
 }: ChatListProps) {
   const { t } = useTranslation();
   const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_SESSIONS);
@@ -548,7 +553,10 @@ export const ChatList = memo(function ChatList({
     for (const animation of layoutAnimationsRef.current.values()) animation.cancel();
   }, []);
 
-  if (loading && sessions.length === 0 && temporarySessions.length === 0) {
+  const [selectedSubagentId, setSelectedSubagentId] = useState<string | null>(null);
+  const selectedSubagent = subagentTasks.find((task) => task.taskId === selectedSubagentId) ?? null;
+
+  if (loading && sessions.length === 0 && temporarySessions.length === 0 && subagentTasks.length === 0) {
     return (
       <div className="px-3 py-6 text-[12px] text-sidebar-muted-foreground">
         {t("chat.loading")}
@@ -556,7 +564,7 @@ export const ChatList = memo(function ChatList({
     );
   }
 
-  if (sessions.length === 0 && temporarySessions.length === 0) {
+  if (sessions.length === 0 && temporarySessions.length === 0 && subagentTasks.length === 0) {
     return (
       <div className="px-3 py-6 text-[12px] leading-5 text-sidebar-muted-foreground">
         {emptyLabel ?? t("chat.noSessions")}
@@ -634,6 +642,49 @@ export const ChatList = memo(function ChatList({
   return (
     <TooltipProvider>
     <div ref={scrollViewportRef} className="sidebar-scroll-fade sidebar-scrollbar h-full min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain pb-2">
+      {subagentTasks.length > 0 ? (
+        <div className="border-b border-sidebar-border/60 px-2 pb-2 pt-2">
+          <div className="px-2 pb-1 text-[11px] font-medium text-sidebar-muted-foreground">
+            {t("chat.subagents.title", { defaultValue: "Subagent tasks" })}
+          </div>
+          {subagentTasks.map((task) => (
+            <div key={task.taskId} className="group flex items-center gap-1 rounded-xl px-2 py-1 text-[12px] hover:bg-sidebar-accent/60">
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left"
+                onClick={() => {
+                  setSelectedSubagentId(task.taskId);
+                  onSelect(task.taskSessionKey);
+                }}
+                title={task.taskDescription}
+              >
+                <span className="block truncate font-medium">{task.label}</span>
+                <span className="block truncate text-[11px] text-sidebar-muted-foreground">{task.phase}</span>
+              </button>
+              {task.phase !== "done" && task.phase !== "error" ? (
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-sidebar-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  aria-label={t("chat.subagents.cancel", { defaultValue: "Cancel subagent task" })}
+                  onClick={() => onCancelSubagent?.(task.taskId)}
+                >
+                  <Square className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+          ))}
+          {selectedSubagent ? (
+            <div className="mt-2 rounded-xl bg-sidebar-accent/45 px-3 py-2 text-[11px] leading-4">
+              <div className="font-medium">{selectedSubagent.taskDescription}</div>
+              <div className="mt-1 text-sidebar-muted-foreground">
+                {selectedSubagent.phase} · iteration {selectedSubagent.iteration}
+              </div>
+              {selectedSubagent.result ? <div className="mt-2 whitespace-pre-wrap">{selectedSubagent.result}</div> : null}
+              {selectedSubagent.error ? <div className="mt-2 text-destructive">{selectedSubagent.error}</div> : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <SidebarSelectionHighlight
         scope="chats"
         activeId={activeKey}

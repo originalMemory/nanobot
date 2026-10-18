@@ -124,6 +124,12 @@ class WebUICommandTransport(Protocol):
         scope: str | None = None,
     ) -> None: ...
 
+    async def webui_cancel_subagent(
+        self,
+        connection: ServerConnection,
+        task_id: str,
+    ) -> bool: ...
+
 
 class WebUICommandRouter:
     """Own WebUI command semantics while a transport host owns raw connections."""
@@ -466,6 +472,19 @@ class WebUICommandRouter:
             return
         if command_type == "message":
             await self._dispatch_message(connection, client_id, envelope)
+            return
+        if command_type == "cancel_subagent":
+            task_id = envelope.get("task_id")
+            if not isinstance(task_id, str) or not re.fullmatch(r"[0-9a-f]{8}", task_id):
+                await self._transport.webui_send_event(connection, "error", detail="invalid task_id")
+                return
+            cancelled = await self._transport.webui_cancel_subagent(connection, task_id)
+            await self._transport.webui_send_event(
+                connection,
+                "subagent_cancelled",
+                task_id=task_id,
+                cancelled=cancelled,
+            )
             return
         await self._transport.webui_send_event(
             connection,

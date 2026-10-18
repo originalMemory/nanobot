@@ -44,6 +44,7 @@ class GatewayServices:
     temporary_chats: WebUITemporaryChats
     session_projection: WebUISessionProjection
     session_manager: SessionManager | None
+    subagent_session_manager: SessionManager | None
     cron_service: CronService | None
     local_trigger_store: LocalTriggerStore | None
     cron_pending_job_ids: Callable[[str], set[str]] | None
@@ -64,6 +65,7 @@ def build_gateway_services(
     runtime_surface: str,
     runtime_capabilities_overrides: dict[str, Any] | None,
     disabled_skills: set[str] | None = None,
+    subagent_session_manager: SessionManager | None = None,
     cron_service: CronService | None = None,
     local_trigger_store: LocalTriggerStore | None = None,
     cron_pending_job_ids: Callable[[str], set[str]] | None = None,
@@ -121,6 +123,7 @@ def build_gateway_services(
     http = GatewayHTTPHandler(
         config=config,
         session_manager=session_manager,
+        subagent_session_manager=subagent_session_manager,
         static_dist_path=static_dist_path,
         runtime_model_name=runtime_model_name,
         runtime_surface=runtime_surface,
@@ -158,6 +161,7 @@ def build_gateway_services(
         temporary_chats=temporary_chats,
         session_projection=session_projection,
         session_manager=session_manager,
+        subagent_session_manager=subagent_session_manager,
         cron_service=cron_service,
         local_trigger_store=local_trigger_store,
         cron_pending_job_ids=cron_pending_job_ids,

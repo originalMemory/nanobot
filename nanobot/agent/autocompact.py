@@ -28,13 +28,15 @@ class AutoCompact:
 
     def __init__(self, sessions: SessionManager, consolidator: Consolidator,
                  session_ttl_minutes: int = 0,
-                 bind_events: SessionEventFactory | None = None):
+                 bind_events: SessionEventFactory | None = None,
+                 on_compacted: Callable[[str], None] | None = None):
         self.sessions = sessions
         self.consolidator = consolidator
         self._ttl = session_ttl_minutes
         self._archiving: set[str] = set()
         self._summaries: dict[str, SessionSummary] = {}
         self._bind_events = bind_events
+        self._on_compacted = on_compacted
 
     def _is_expired(self, ts: datetime | str | None,
                     now: datetime | None = None) -> bool:
@@ -108,6 +110,8 @@ class AutoCompact:
                 )
                 if stored is not None:
                     self._summaries[key] = stored
+                if self._on_compacted is not None:
+                    self._on_compacted(key)
         except Exception:
             logger.exception("Auto-compact: failed for {}", key)
         finally:

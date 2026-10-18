@@ -284,6 +284,12 @@ def _snapshot_subagent_status(status: SubagentStatus) -> dict[str, object]:
         "usage": status.usage.to_dict() if status.usage is not None else None,
         "stop_reason": status.stop_reason,
         "error": status.error,
+        "origin_channel": status.origin_channel,
+        "origin_chat_id": status.origin_chat_id,
+        "session_key": status.session_key,
+        "result": status.result,
+        "task_session_key": status.task_session_key,
+        "archived": status.archived,
     }
 
 

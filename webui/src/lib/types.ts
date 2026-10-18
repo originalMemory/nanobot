@@ -414,6 +414,24 @@ export interface ChatSummary {
   handle?: SessionHandle | null;
 }
 
+export interface SubagentStatus {
+  taskId: string;
+  label: string;
+  taskDescription: string;
+  startedAt: number;
+  phase: string;
+  iteration: number;
+  toolEvents: ToolProgressEvent[];
+  stopReason?: string | null;
+  error?: string | null;
+  originChatId: string;
+  originChannel?: string;
+  taskSessionKey: string;
+  archived?: boolean;
+  sessionKey?: string | null;
+  result?: string | null;
+}
+
 export type WorkspaceAccessMode = "restricted" | "full";
 export type WebuiDefaultAccessMode = "default" | "full";
 
@@ -1439,6 +1457,22 @@ export type InboundEvent =
       model_name: string;
       model_preset?: string | null;
     }
+  | {
+      event: "subagent_status";
+      task_id: string;
+      label: string;
+      task_description: string;
+      started_at: number;
+      phase: string;
+      iteration: number;
+      tool_events?: ToolProgressEvent[];
+      stop_reason?: string | null;
+      error?: string | null;
+      origin_channel?: string;
+      origin_chat_id: string;
+      session_key?: string | null;
+      result?: string | null;
+    }
   | ({
       event: "turn_model_updated";
       chat_id: string;
@@ -1613,6 +1647,7 @@ export type Outbound =
   | { type: "set_sidebar_state"; state: SidebarStatePayload }
   | { type: "discard_temporary_chat"; chat_id: string }
   | { type: "set_workspace_scope"; chat_id: string; workspace_scope: WorkspaceScopePayload }
+  | { type: "cancel_subagent"; task_id: string }
   | { type: "transcribe_audio"; request_id: string; data_url: string; duration_ms?: number }
   | {
       type: "message";

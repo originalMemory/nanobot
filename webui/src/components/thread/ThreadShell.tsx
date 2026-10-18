@@ -446,6 +446,7 @@ interface ThreadShellProps {
   settingsSnapshot?: SettingsPayload | null;
   onOpenModelSettings?: () => void;
   skills?: SkillSummary[];
+  readOnly?: boolean;
 }
 
 const HERO_GREETING_KEYS = [
@@ -655,6 +656,7 @@ export function ThreadShell({
   settingsSnapshot = null,
   onOpenModelSettings,
   skills = [],
+  readOnly = false,
 }: ThreadShellProps) {
   const { t } = useTranslation();
   const chatId = session?.chatId ?? null;
@@ -1663,7 +1665,7 @@ export function ThreadShell({
       {session ? (
         <ThreadComposer
           onSend={handleThreadSend}
-          disabled={!chatId}
+          disabled={readOnly || !chatId}
           inputAriaLabel={composerInputAriaLabel}
           isStreaming={turnActive}
           placeholder={
@@ -1696,7 +1698,7 @@ export function ThreadShell({
           onTranscribeAudio={transcribeAudio}
           goalState={currentGoalState}
           workspaceScope={workspaceScope}
-          workspaceControlsHidden={temporary}
+          workspaceControlsHidden={temporary || readOnly}
           workspaceDefaultScope={workspaceDefaultScope}
           workspaceControls={workspaceControls}
           workspaceScopeDisabled={workspaceScopeDisabled}
