@@ -1139,7 +1139,7 @@ function Shell({
   // 保留现有页面和组件，只将桌面聊天入口约束到固定会话。
   const fixedKey = client.fixedChatId ? `websocket:${client.fixedChatId}` : null;
   const resolveRoute = useCallback((route: ShellRoute): ShellRoute => (
-    fixedKey && route.view === "chat"
+    fixedKey && route.view === "chat" && !route.activeKey?.startsWith("subagent:")
       ? { ...route, activeKey: fixedKey, temporary: false }
       : route
   ), [fixedKey]);
