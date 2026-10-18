@@ -30,6 +30,7 @@ interface ThreadHeaderProps {
   hideThemeButton?: boolean;
   hideTitle?: boolean;
   actions?: ReactNode;
+  trailingActions?: ReactNode;
   minimal?: boolean;
   promptNavigatorAction?: ReactNode;
   sessionInfoAction?: ReactNode;
@@ -50,6 +51,7 @@ export function ThreadHeader({
   hideThemeButton = false,
   hideTitle = false,
   actions,
+  trailingActions,
   minimal = false,
   promptNavigatorAction,
   sessionInfoAction,
@@ -174,14 +176,19 @@ export function ThreadHeader({
             </Tooltip>
           </TooltipProvider>
         ) : null}
-        {!hideThemeButton ? (
-          <ThemeButton
-            theme={theme}
-            onToggleTheme={onToggleTheme}
-            label={t("thread.header.toggleTheme")}
-          />
-        ) : null}
+      {!hideThemeButton ? (
+        <ThemeButton
+          theme={theme}
+          onToggleTheme={onToggleTheme}
+          label={t("thread.header.toggleTheme")}
+        />
+      ) : null}
       </div>
+      {trailingActions ? (
+        <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
+          {trailingActions}
+        </div>
+      ) : null}
     </div>
   );
 }

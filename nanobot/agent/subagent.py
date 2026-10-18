@@ -674,6 +674,7 @@ class SubagentManager:
         metadata: dict[str, Any] = {
             "injected_event": "subagent_result",
             "subagent_task_id": task_id,
+            "subagent_label": label,
         }
         if origin_message_id:
             metadata["origin_message_id"] = origin_message_id

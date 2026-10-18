@@ -1212,7 +1212,9 @@ function Shell({
         title: task.label,
         preview: task.taskDescription,
         modelPreset: null,
-        runStartedAt: task.phase === "done" || task.phase === "error" ? null : task.startedAt,
+        runStartedAt: ["done", "error", "cancelled"].includes(task.phase)
+          ? null
+          : task.startedAt,
       })),
     [subagentTasks],
   );
@@ -1543,7 +1545,10 @@ function Shell({
       navigate(defaultShellRoute(), { replace: true });
       return;
     }
-    if (sessions.some((session) => session.key === activeKey)) return;
+    if (
+      sessions.some((session) => session.key === activeKey)
+      || subagentSessionSummaries.some((session) => session.key === activeKey)
+    ) return;
     // WebKit can commit the route before useSessions' optimistic insert.
     // Keep that just-created destination valid until the session list catches up.
     if (pendingCreatedKey === activeKey) return;
@@ -1556,7 +1561,7 @@ function Shell({
           },
       { replace: true },
     );
-  }, [activeKey, loading, navigate, sessions, temporarySessions]);
+  }, [activeKey, loading, navigate, sessions, subagentSessionSummaries, temporarySessions]);
 
   useEffect(() => {
     return client.onSessionUpdate((chatId, scope, workspaceScope) => {

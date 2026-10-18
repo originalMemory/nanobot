@@ -1600,6 +1600,9 @@ def _session_assistant_event(
 ) -> dict[str, Any] | None:
     if message.get("role") != "assistant" or is_hidden_history_message(message):
         return None
+    is_subagent_result = message.get("injected_event") == "subagent_result"
+    subagent_task_id = message.get("subagent_task_id")
+    subagent_label = message.get("subagent_label")
     message = public_history_message(message)
     content = message.get("content")
     text = content if isinstance(content, str) else ""
@@ -1614,6 +1617,15 @@ def _session_assistant_event(
         "chat_id": chat_id,
         "text": text,
     }
+    if is_subagent_result:
+        source_label = (
+            subagent_label.strip()
+            if isinstance(subagent_label, str) and subagent_label.strip()
+            else None
+        )
+        if source_label is None and isinstance(subagent_task_id, str) and subagent_task_id:
+            source_label = f"Subagent {subagent_task_id[:8]}"
+        event["source"] = {"kind": "subagent", "label": source_label or "Subagent"}
     if media_paths:
         event["media"] = media_paths
     if isinstance(message.get("voice"), dict):
@@ -2328,7 +2340,9 @@ def replay_transcript_to_ui_messages(
             return {}
         source_data = cast(dict[str, Any], source)
         kind = source_data.get("kind")
-        if not isinstance(kind, str) or not (is_automation_kind(kind) or kind == "channel"):
+        if not isinstance(kind, str) or not (
+            is_automation_kind(kind) or kind in {"channel", "subagent"}
+        ):
             return {}
         out: dict[str, Any] = {"source": {"kind": kind}}
         label = source_data.get("label")
@@ -3380,6 +3394,9 @@ def build_session_thread_response(
     current: list[dict[str, Any]] = []
     pending_tools: dict[str, dict[str, Any]] = {}
     turn_source: dict[str, str] | None = None
+    turn_number = 0
+    current_turn_id: str | None = None
+    subagent_boundary_pending = False
     chat_id = session_key.split(":", 1)[-1]
 
     def text_content(value: Any) -> str:
@@ -3404,6 +3421,8 @@ def build_session_thread_response(
             current = []
             pending_tools = {}
             turn_source = None
+            turn_number += 1
+            current_turn_id = f"session:{turn_number}"
         automation = stored.get(AUTOMATION_HISTORY_META)
         if isinstance(automation, Mapping):
             automation_data = cast(Mapping[str, Any], automation)
@@ -3430,20 +3449,51 @@ def build_session_thread_response(
         role = message.get("role")
         if role not in {"user", "assistant", "tool"}:
             continue
+        is_subagent_result = (
+            role == "assistant"
+            and message.get("injected_event") == "subagent_result"
+        )
+        is_delivery = role == "assistant" and stored.get("_channel_delivery") is True
         # 摘要边界是隐藏记录；只按可见 user 消息划分轮次。
         if role == "user" and current:
             turns.append(current)
             current = []
             pending_tools = {}
         if role == "user":
+            turn_number += 1
+            current_turn_id = f"session:{turn_number}"
             turn_source = None
+        elif is_subagent_result and current:
+            turns.append(current)
+            current = []
+            pending_tools = {}
+            task_id = message.get("subagent_task_id")
+            current_turn_id = (
+                f"subagent:{task_id}"
+                if isinstance(task_id, str) and task_id
+                else f"subagent:{turn_number + 1}"
+            )
+        elif role == "assistant" and subagent_boundary_pending and current:
+            turns.append(current)
+            current = []
+            pending_tools = {}
+            turn_number += 1
+            current_turn_id = f"session:{turn_number}"
+            subagent_boundary_pending = False
+        elif is_delivery and current:
+            turns.append(current)
+            current = []
+            pending_tools = {}
+            turn_number += 1
+            current_turn_id = f"session:{turn_number}"
         base: dict[str, Any] = {"chat_id": chat_id, "created_at_ms": 0}
         raw_source = message.get("source")
         if isinstance(raw_source, dict):
             source_data = cast(dict[str, Any], raw_source)
             source_kind = source_data.get("kind")
             if isinstance(source_kind, str) and (
-                is_automation_kind(source_kind) or source_kind == "channel"
+                is_automation_kind(source_kind)
+                or source_kind in {"channel", "subagent"}
             ):
                 source: dict[str, str] = {"kind": source_kind}
                 source_label = source_data.get("label")
@@ -3473,6 +3523,8 @@ def build_session_thread_response(
         if role == "user":
             event = _session_user_event(session_key, visible)
             if event is not None:
+                if current_turn_id is not None:
+                    event["turn_id"] = current_turn_id
                 current.append({**event, **base})
         elif role == "assistant":
             reasoning = message.get("reasoning_content") or message.get("reasoning")
@@ -3480,6 +3532,8 @@ def build_session_thread_response(
                 current.append({**base, "event": "message", "kind": "reasoning", "text": reasoning})
             event = _session_assistant_event(session_key, visible)
             if event is not None:
+                if current_turn_id is not None:
+                    event["turn_id"] = current_turn_id
                 current.append({**event, **base})
             calls = message.get("tool_calls")
             for raw_call in cast(list[object], calls) if isinstance(calls, list) else []:
@@ -3504,6 +3558,8 @@ def build_session_thread_response(
                 projected = project_tool_events([tool])[0]
                 pending_tools[call["id"]] = projected
                 current.append({**base, "event": "message", "kind": "tool_hint", "tool_events": [projected]})
+            if is_subagent_result:
+                subagent_boundary_pending = True
         elif role == "tool":
             call_id = message.get("tool_call_id")
             tool = pending_tools.pop(call_id, None) if isinstance(call_id, str) else None

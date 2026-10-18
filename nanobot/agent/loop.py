@@ -2429,6 +2429,12 @@ class AgentLoop:
             sender_id=msg.sender_id,
             injected_event="subagent_result",
             subagent_task_id=task_id,
+            subagent_label=(
+                msg.metadata.get("subagent_label")
+                if isinstance(metadata_value, dict)
+                and isinstance(msg.metadata.get("subagent_label"), str)
+                else None
+            ),
         )
         return True
 

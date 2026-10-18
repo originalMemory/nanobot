@@ -1505,6 +1505,23 @@
       "updated": "New activity",
       "recovery": "This conversation needs your attention"
     },
+    "subagents": {
+      "summary": "Subagents",
+      "title": "Subagent tasks",
+      "running": "running",
+      "cancel": "Cancel subagent task",
+      "readOnly": "Read-only",
+      "phases": {
+        "queued": "Queued",
+        "initializing": "Initializing",
+        "awaitingTools": "Waiting for tools",
+        "toolsCompleted": "Tools completed",
+        "finalResponse": "Generating response",
+        "done": "Done",
+        "error": "Failed",
+        "cancelled": "Cancelled"
+      }
+    },
     "pin": "Pin",
     "unpin": "Unpin",
     "rename": "Rename",

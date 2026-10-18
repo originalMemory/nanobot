@@ -1,4 +1,4 @@
-import { Bell, HeartPulse, MessageCircle } from "lucide-react";
+import { Bell, Bot, HeartPulse, MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { channelUiPresentation } from "@/channel-plugins/registry";
@@ -21,6 +21,12 @@ export function MessageSourceBadge({ source }: { source?: UIMessage["source"] })
           : Icon ? <Icon className="h-3 w-3" /> : <MessageCircle className="h-3 w-3 opacity-80" />}
       </span>
       <span className="relative -top-px whitespace-nowrap">{presentation?.displayName ?? channel}</span>
+    </span>;
+  }
+  if (source.kind === "subagent") {
+    return <span data-message-source="subagent" className={`${PILL} border-sky-500/40 bg-sky-500/15 text-sky-700 dark:text-sky-300`}>
+      <Bot className="h-3 w-3" aria-hidden />
+      <span className="relative -top-px whitespace-nowrap">{source.label?.trim() || "Subagent"}</span>
     </span>;
   }
   const heartbeat = source.kind === "heartbeat";

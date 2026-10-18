@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { FilePreviewAvailabilityProvider } from "@/components/FilePreviewAvailabilityContext";
@@ -10,6 +11,8 @@ import { PromptNavigator } from "@/components/thread/PromptNavigator";
 import { RecoveryNotice } from "@/components/thread/RecoveryNotice";
 import { SessionInfoPopover } from "@/components/thread/SessionInfoPopover";
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import type {
   ComposerContextUsage,
   ComposerRoundUsage,
@@ -431,6 +434,7 @@ interface ThreadShellProps {
   inlineHandle?: boolean;
   hideHeader?: boolean;
   headerActions?: ReactNode;
+  headerTrailingActions?: ReactNode;
   headerPortalTarget?: HTMLElement | null;
   headerActive?: boolean;
   composerPortalTarget?: HTMLElement | null;
@@ -465,33 +469,59 @@ function SubagentTaskBar({
   onCancel?: (taskId: string) => void;
 }) {
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
   if (tasks.length === 0) return null;
+  const ordered = [...tasks].sort((a, b) => b.startedAt - a.startedAt);
+  const running = ordered.filter((task) => !["done", "error", "cancelled"].includes(task.phase)).length;
   return (
-    <div className="relative z-20 mx-auto mt-1 flex w-full max-w-3xl flex-wrap gap-2 px-4">
-      {tasks.map((task) => (
-        <div key={task.taskId} className="flex min-w-0 max-w-full items-center gap-1 rounded-xl border border-border/70 bg-background/95 px-2 py-1 shadow-sm">
-          <button
-            type="button"
-            className="min-w-0 truncate text-left text-[12px] font-medium hover:text-primary"
-            onClick={() => onSelect?.(task)}
-            title={task.taskDescription}
-          >
-            <span className="block max-w-[22rem] truncate">{task.label}</span>
-            <span className="block text-[10px] font-normal text-muted-foreground">{task.phase}</span>
-          </button>
-          {task.phase !== "done" && task.phase !== "error" && task.phase !== "cancelled" ? (
-            <button
-              type="button"
-              className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              onClick={() => onCancel?.(task.taskId)}
-              aria-label={t("chat.subagents.cancel", { defaultValue: "Cancel subagent task" })}
-            >
-              ×
-            </button>
-          ) : null}
-        </div>
-      ))}
-    </div>
+    <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" size="sm" className="h-8 rounded-xl border-border/60 bg-background/70 text-[12px] shadow-sm backdrop-blur-xl">
+            {t("chat.subagents.summary", { defaultValue: "Subagents" })} {ordered.length}
+            <span className="text-muted-foreground">· {running} {t("chat.subagents.running", { defaultValue: "running" })}</span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" sideOffset={6} className="w-[min(26rem,calc(100vw-2rem))] border-border/60 bg-popover/90 p-2 backdrop-blur-xl">
+          <div className="mb-1 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+            {t("chat.subagents.title", { defaultValue: "Subagent tasks" })}
+          </div>
+          <div className="max-h-80 space-y-1 overflow-y-auto">
+            {ordered.map((task) => (
+              <div key={task.taskId} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent/50">
+                <span
+                  className={cn(
+                    "h-2 w-2 shrink-0 rounded-full",
+                    ["done"].includes(task.phase) && "bg-emerald-500",
+                    ["error"].includes(task.phase) && "bg-destructive",
+                    ["cancelled"].includes(task.phase) && "bg-muted-foreground/60",
+                    !["done", "error", "cancelled"].includes(task.phase)
+                      && "animate-pulse bg-blue-500",
+                  )}
+                  aria-hidden
+                />
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left text-[12px]"
+                  onClick={() => { setOpen(false); onSelect?.(task); }}
+                  title={task.taskDescription}
+                >
+                  <span className="block truncate font-medium">{task.label}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">{task.phase}</span>
+                </button>
+                {!['done', 'error', 'cancelled'].includes(task.phase) ? (
+                  <button
+                    type="button"
+                    className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => onCancel?.(task.taskId)}
+                    aria-label={t("chat.subagents.cancel", { defaultValue: "Cancel subagent task" })}
+                  >×</button>
+                ) : null}
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+              </div>
+            ))}
+          </div>
+        </PopoverContent>
+    </Popover>
   );
 }
 
@@ -502,23 +532,47 @@ function SubagentReadOnlyBar({
   task: SubagentStatus;
   onBack?: (task: SubagentStatus) => void;
 }) {
+  const { t } = useTranslation();
+  const phaseLabel = {
+    queued: t("chat.subagents.phases.queued", { defaultValue: "排队中" }),
+    initializing: t("chat.subagents.phases.initializing", { defaultValue: "准备中" }),
+    awaiting_tools: t("chat.subagents.phases.awaitingTools", { defaultValue: "等待工具" }),
+    tools_completed: t("chat.subagents.phases.toolsCompleted", { defaultValue: "工具完成" }),
+    final_response: t("chat.subagents.phases.finalResponse", { defaultValue: "生成回复" }),
+    done: t("chat.subagents.phases.done", { defaultValue: "已完成" }),
+    error: t("chat.subagents.phases.error", { defaultValue: "失败" }),
+    cancelled: t("chat.subagents.phases.cancelled", { defaultValue: "已取消" }),
+  }[task.phase] ?? task.phase;
   return (
-    <div className="relative z-20 mx-auto mt-1 flex w-full max-w-3xl items-center gap-2 px-4">
+    <div className="relative z-20 mx-auto mt-1 flex h-8 w-full max-w-3xl items-center px-4">
       <button
         type="button"
-        className="rounded-lg border border-border/70 bg-background/95 px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
+        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border/70 bg-background/95 px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
         onClick={() => onBack?.(task)}
       >
-        ← 主会话
+        <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+        <span>主会话</span>
       </button>
-      <div className="min-w-0 truncate text-[12px] font-medium">{task.label}</div>
-      <span className="text-[11px] text-muted-foreground">只读 · {task.phase}</span>
-      {task.reasoningText || task.streamText ? (
-        <div className="mt-1 max-h-24 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border/60 bg-background/90 px-2 py-1 text-[11px] leading-4 text-muted-foreground">
-          {task.reasoningText ? <div className="whitespace-pre-wrap opacity-75">{task.reasoningText}</div> : null}
-          {task.streamText ? <div className="whitespace-pre-wrap text-foreground">{task.streamText}</div> : null}
-        </div>
-      ) : null}
+      <div className="pointer-events-none absolute left-1/2 max-w-[45%] -translate-x-1/2 truncate text-center text-[12px] font-medium">
+        {task.label}
+      </div>
+      <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
+        {t("chat.subagents.readOnly", { defaultValue: "只读" })} · {phaseLabel}
+      </span>
+    </div>
+  );
+}
+
+function SubagentLiveOutput({ task }: { task: SubagentStatus }) {
+  const reasoning = task.reasoningText?.trim() ?? "";
+  const output = task.streamText?.trim() ?? "";
+  if (["done", "error", "cancelled"].includes(task.phase) || (!reasoning && !output)) return null;
+  return (
+    <div className="relative z-10 mx-auto mt-1 w-full max-w-3xl px-4">
+      <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-[12px] leading-5">
+        {reasoning ? <div className="whitespace-pre-wrap text-muted-foreground">{reasoning}</div> : null}
+        {output ? <div className="whitespace-pre-wrap text-foreground">{output}</div> : null}
+      </div>
     </div>
   );
 }
@@ -714,6 +768,7 @@ export function ThreadShell({
   inlineHandle = false,
   hideHeader = false,
   headerActions,
+  headerTrailingActions,
   headerPortalTarget,
   headerActive = true,
   composerPortalTarget,
@@ -974,9 +1029,11 @@ export function ThreadShell({
   const recoveryNeedsDecision = recoveryState?.status === "awaiting_user"
     || recoveryState?.status === "failed";
   const currentRunStartedAt = messagesReady && !recoveryNeedsDecision ? runStartedAt : null;
+  const subagentTurnActive = activeSubagent !== null
+    && !["done", "error", "cancelled"].includes(activeSubagent.phase);
   const turnActive = messagesReady
     && !recoveryNeedsDecision
-    && (isStreaming || currentRunStartedAt !== null);
+    && (isStreaming || currentRunStartedAt !== null || subagentTurnActive);
   useEffect(() => {
     if (!turnActive) setFallbackModelName(null);
   }, [turnActive]);
@@ -1879,6 +1936,13 @@ export function ThreadShell({
       hideThemeButton={hideThemeButton}
       hideTitle={hideHeaderTitle}
       actions={headerActions}
+      trailingActions={headerTrailingActions ?? (!activeSubagent ? (
+        <SubagentTaskBar
+          tasks={subagentTasks}
+          onSelect={onSelectSubagent}
+          onCancel={onCancelSubagent}
+        />
+      ) : undefined)}
       minimal={!session && !loading}
       promptNavigatorAction={promptNavigatorAction}
       sessionInfoAction={sessionInfoAction}
@@ -1912,15 +1976,8 @@ export function ThreadShell({
           </div>
         ) : null}
         {headerPortalTarget === undefined ? threadHeader : null}
-        {activeSubagent ? (
-          <SubagentReadOnlyBar task={activeSubagent} onBack={onBackFromSubagent} />
-        ) : (
-          <SubagentTaskBar
-            tasks={subagentTasks}
-            onSelect={onSelectSubagent}
-            onCancel={onCancelSubagent}
-          />
-        )}
+        {activeSubagent ? <SubagentReadOnlyBar task={activeSubagent} onBack={onBackFromSubagent} /> : null}
+        {activeSubagent ? <SubagentLiveOutput task={activeSubagent} /> : null}
         <FilePreviewAvailabilityProvider
           resolve={historyKey ? resolveFilePreviewAvailability : undefined}
         >

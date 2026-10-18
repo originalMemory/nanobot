@@ -1505,6 +1505,23 @@
       "updated": "有新内容",
       "recovery": "此对话需要你的处理"
     },
+    "subagents": {
+      "summary": "子代理",
+      "title": "子代理任务",
+      "running": "运行中",
+      "cancel": "取消子代理任务",
+      "readOnly": "只读",
+      "phases": {
+        "queued": "排队中",
+        "initializing": "准备中",
+        "awaitingTools": "等待工具",
+        "toolsCompleted": "工具完成",
+        "finalResponse": "生成回复",
+        "done": "已完成",
+        "error": "失败",
+        "cancelled": "已取消"
+      }
+    },
     "pin": "置顶",
     "unpin": "取消置顶",
     "rename": "重命名",
