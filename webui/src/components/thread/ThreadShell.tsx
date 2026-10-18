@@ -568,8 +568,8 @@ function SubagentLiveOutput({ task }: { task: SubagentStatus }) {
   const output = task.streamText?.trim() ?? "";
   if (["done", "error", "cancelled"].includes(task.phase) || (!reasoning && !output)) return null;
   return (
-    <div className="relative z-10 mx-auto mt-1 w-full max-w-3xl px-4">
-      <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-[12px] leading-5">
+    <div className="relative z-10 mx-auto mt-1 w-full max-w-3xl shrink-0 px-4">
+      <div className="max-h-40 overflow-y-auto rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-[12px] leading-5">
         {reasoning ? <div className="whitespace-pre-wrap text-muted-foreground">{reasoning}</div> : null}
         {output ? <div className="whitespace-pre-wrap text-foreground">{output}</div> : null}
       </div>

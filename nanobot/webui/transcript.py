@@ -1153,7 +1153,9 @@ def webui_message_source(metadata: dict[str, Any] | None) -> dict[str, str] | No
         return None
     source_metadata = cast(dict[str, Any], raw)
     kind = source_metadata.get("kind")
-    if not isinstance(kind, str) or not is_automation_kind(kind):
+    if not isinstance(kind, str) or not (
+        is_automation_kind(kind) or kind == "subagent"
+    ):
         return None
     source: dict[str, str] = {"kind": kind}
     label = source_metadata.get("label")

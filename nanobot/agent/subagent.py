@@ -41,6 +41,7 @@ from nanobot.security.workspace_access import (
 from nanobot.session.manager import SessionManager
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.prompt_templates import render_template
+from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY
 
 
 class _SubagentOrigin(TypedDict):
@@ -57,7 +58,7 @@ class SubagentStatus:
     task_id: str
     label: str
     task_description: str
-    started_at: float          # time.monotonic()
+    started_at: float          # Unix epoch seconds, shared with persisted summaries
     model: str = ""
     model_preset: str | None = None
     # queued | initializing | awaiting_tools | tools_completed | final_response | done | error
@@ -374,7 +375,7 @@ class SubagentManager:
             task_id=task_id,
             label=display_label,
             task_description=task,
-            started_at=time.monotonic(),
+            started_at=time.time(),
             model=runtime.model,
             model_preset=runtime.model_preset,
             origin_channel=origin_channel,
@@ -458,7 +459,7 @@ class SubagentManager:
             task_id=task_id,
             label=display_label,
             task_description=task,
-            started_at=time.monotonic(),
+            started_at=time.time(),
             model=runtime.model,
             model_preset=runtime.model_preset,
             origin_channel=origin_channel,
@@ -695,6 +696,7 @@ class SubagentManager:
             "injected_event": "subagent_result",
             "subagent_task_id": task_id,
             "subagent_label": label,
+            WEBUI_MESSAGE_SOURCE_METADATA_KEY: {"kind": "subagent", "label": label},
         }
         if origin_message_id:
             metadata["origin_message_id"] = origin_message_id
