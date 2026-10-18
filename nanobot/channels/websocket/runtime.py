@@ -442,10 +442,20 @@ class WebSocketChannel(BaseChannel):
     async def _on_subagent_status(self, status: SubagentStatus) -> None:
         payload = _subagent_status_payload(status)
         visible_chat_ids = {status.origin_chat_id, status.task_id}
-        for connection in tuple(self._webui_connections):
+        for connection in tuple(self._connection_outbound):
+            if not self._is_status_connection(connection):
+                continue
             if not visible_chat_ids.intersection(self.webui_connection_chats(connection)):
                 continue
             await self._send_event(connection, "subagent_status", **payload)
+
+    def _is_status_connection(self, connection: ServerConnection) -> bool:
+        if connection in self._webui_connections:
+            return True
+        request = connection.request
+        path = request.path if request is not None else "/"
+        _, query = _parse_request_path(path)
+        return _query_first(query, "terminal_protocol") == "1"
 
     async def webui_cancel_subagent(
         self,
