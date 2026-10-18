@@ -312,10 +312,10 @@ export function Sidebar(props: SidebarProps) {
           collapsed && "pointer-events-none opacity-0",
         )}
       >
-        {!collapsed && !props.fixedChatKey && (
+        {!collapsed && (!props.fixedChatKey || (props.subagentTasks?.length ?? 0) > 0) && (
           <ChatList
-            sessions={props.sessions}
-            temporarySessions={props.temporarySessions}
+            sessions={props.fixedChatKey ? [] : props.sessions}
+            temporarySessions={props.fixedChatKey ? [] : props.temporarySessions}
             activeKey={props.activeKey}
             loading={props.loading}
             emptyLabel={t("chat.noSessions")}
