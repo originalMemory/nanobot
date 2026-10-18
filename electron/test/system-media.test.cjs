@@ -13,6 +13,7 @@ test('复用 lover 媒体暂停/恢复，多个播放来源结束前不恢复', 
     assert.equal(file, 'powershell.exe');
     const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
     const pause = script.includes('TryPauseAsync');
+    if (!pause) assert.match(script, /pausedBySource/);
     calls.push(pause ? 'pause' : 'resume');
     return pause ? 'paused-session' : '[]';
   }, null);

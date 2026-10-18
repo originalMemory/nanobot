@@ -84,13 +84,20 @@ $targets = @($targetJson | ConvertFrom-Json)
 $failed = [System.Collections.Generic.List[string]]::new()
 $matched = [System.Collections.Generic.HashSet[string]]::new()
 $presentSources = [System.Collections.Generic.HashSet[string]]::new()
+$pausedBySource = @{}
 $seen = @{}
 foreach ($session in @($manager.GetSessions())) {
-  [void]$presentSources.Add([string]$session.SourceAppUserModelId)
+  $source = [string]$session.SourceAppUserModelId
+  [void]$presentSources.Add($source)
   $key = Get-SessionKey $session $seen
+  $status = [int]$session.GetPlaybackInfo().PlaybackStatus
+  if ($status -eq 5) {
+    if (-not $pausedBySource.ContainsKey($source)) { $pausedBySource[$source] = @() }
+    $pausedBySource[$source] = @($pausedBySource[$source]) + @($session)
+  }
   if ($targets -notcontains $key) { continue }
   [void]$matched.Add($key)
-  if ([int]$session.GetPlaybackInfo().PlaybackStatus -eq 5) {
+  if ($status -eq 5) {
     try {
       if (-not (Await-WinRt ($session.TryPlayAsync()) ([bool]))) { $failed.Add($key) }
     } catch { $failed.Add($key) }
@@ -100,6 +107,17 @@ foreach ($target in $targets) {
   if ($matched.Contains($target)) { continue }
   $rawKey = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($target))
   $source = $rawKey.Split([char]31)[0]
+  $candidates = @($pausedBySource[$source])
+  if ($candidates.Count -eq 1) {
+    try {
+      if (Await-WinRt ($candidates[0].TryPlayAsync()) ([bool])) {
+        [void]$matched.Add($target)
+        continue
+      }
+    } catch { }
+    $failed.Add($target)
+    continue
+  }
   if ($presentSources.Contains($source)) { $failed.Add($target) }
 }
 Write-Output (ConvertTo-Json -Compress -InputObject @($failed))
