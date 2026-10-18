@@ -594,6 +594,7 @@ class SubagentManager:
                     reset_workspace_scope(token)
                 reset_request_context(request_token)
             status.phase = "done"
+            status.usage = result.usage
             status.stop_reason = result.stop_reason
             status.transcript_messages = [
                 dict(message)
@@ -752,6 +753,11 @@ class SubagentManager:
             for message in session.messages
         ):
             session.add_message("assistant", result, task_id=status.task_id, outcome=outcome, phase=status.phase)
+        if status.usage is not None:
+            for message in reversed(session.messages):
+                if message.get("role") == "assistant":
+                    message["usage"] = status.usage.to_turn_dict()
+                    break
         self.sessions.save(session)
 
     def _persist_task_messages(

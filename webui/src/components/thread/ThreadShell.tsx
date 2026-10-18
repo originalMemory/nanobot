@@ -544,7 +544,7 @@ function SubagentReadOnlyBar({
     cancelled: t("chat.subagents.phases.cancelled", { defaultValue: "已取消" }),
   }[task.phase] ?? task.phase;
   return (
-    <div className="relative z-20 mx-auto mt-1 flex h-8 w-full max-w-3xl items-center px-4">
+    <div className="flex min-w-0 items-center gap-1.5">
       <button
         type="button"
         className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border/70 bg-background/95 px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
@@ -553,10 +553,10 @@ function SubagentReadOnlyBar({
         <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
         <span>主会话</span>
       </button>
-      <div className="pointer-events-none absolute left-1/2 max-w-[45%] -translate-x-1/2 truncate text-center text-[12px] font-medium">
+      <div className="min-w-0 max-w-44 truncate text-[12px] font-medium">
         {task.label}
       </div>
-      <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
+      <span className="shrink-0 text-[11px] text-muted-foreground">
         {t("chat.subagents.readOnly", { defaultValue: "只读" })} · {phaseLabel}
       </span>
     </div>
@@ -1936,13 +1936,15 @@ export function ThreadShell({
       hideThemeButton={hideThemeButton}
       hideTitle={hideHeaderTitle}
       actions={headerActions}
-      trailingActions={headerTrailingActions ?? (!activeSubagent ? (
+      trailingActions={headerTrailingActions ?? (activeSubagent ? (
+        <SubagentReadOnlyBar task={activeSubagent} onBack={onBackFromSubagent} />
+      ) : (
         <SubagentTaskBar
           tasks={subagentTasks}
           onSelect={onSelectSubagent}
           onCancel={onCancelSubagent}
         />
-      ) : undefined)}
+      ))}
       minimal={!session && !loading}
       promptNavigatorAction={promptNavigatorAction}
       sessionInfoAction={sessionInfoAction}
@@ -1976,7 +1978,6 @@ export function ThreadShell({
           </div>
         ) : null}
         {headerPortalTarget === undefined ? threadHeader : null}
-        {activeSubagent ? <SubagentReadOnlyBar task={activeSubagent} onBack={onBackFromSubagent} /> : null}
         {activeSubagent ? <SubagentLiveOutput task={activeSubagent} /> : null}
         <FilePreviewAvailabilityProvider
           resolve={historyKey ? resolveFilePreviewAvailability : undefined}
