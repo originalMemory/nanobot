@@ -362,6 +362,39 @@ function remarkWikiImages() {
   };
 }
 
+function remarkWikiLinks() {
+  return (tree: MarkdownAstNode) => {
+    const visit = (node: MarkdownAstNode) => {
+      if (!node.children) return;
+      node.children = node.children.flatMap((child) => {
+        if (child.type === "text" && child.value) {
+          const parts: MarkdownAstNode[] = [];
+          let offset = 0;
+          for (const match of child.value.matchAll(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g)) {
+            const target = match[1].trim();
+            if (!target) continue;
+            const path = /\.[a-z0-9][a-z0-9_-]{0,12}$/i.test(target) ? target : `${target}.md`;
+            if (match.index > offset) parts.push({ type: "text", value: child.value.slice(offset, match.index) });
+            parts.push({
+              type: "link",
+              url: path,
+              data: { hProperties: { "data-wiki-link": "true" } },
+              children: [{ type: "text", value: (match[2] ?? target).trim() }],
+            });
+            offset = match.index + match[0].length;
+          }
+          if (!offset) return [child];
+          if (offset < child.value.length) parts.push({ type: "text", value: child.value.slice(offset) });
+          return parts;
+        }
+        visit(child);
+        return [child];
+      });
+    };
+    visit(tree);
+  };
+}
+
 const remarkPlugins: NonNullable<StreamdownProps["remarkPlugins"]> = [
   remarkBreaks,
   remarkGfm,
@@ -370,7 +403,7 @@ const remarkPlugins: NonNullable<StreamdownProps["remarkPlugins"]> = [
   remarkCjkStrongBoundaries,
   remarkSafeHtmlSubset,
 ];
-const libraryRemarkPlugins: NonNullable<StreamdownProps["remarkPlugins"]> = [...remarkPlugins, remarkWikiImages];
+const libraryRemarkPlugins: NonNullable<StreamdownProps["remarkPlugins"]> = [...remarkPlugins, remarkWikiImages, remarkWikiLinks];
 
 /** 只在文档预览中恢复 lover 的 Obsidian callout，不改聊天渲染。 */
 function remarkDiaryDocument() {
@@ -810,6 +843,25 @@ export default function MarkdownTextRenderer({
         }
         if (href.startsWith("#/chat/") || href.startsWith("#session/")) {
           return <>{markdownChildren}</>;
+        }
+        if ((props as Record<string, unknown>)["data-wiki-link"] === "true") {
+          return (
+            <a
+              href={href}
+              onClick={(event) => {
+                if (!onOpenFilePreview) return;
+                event.preventDefault();
+                try {
+                  onOpenFilePreview(decodeURIComponent(href));
+                } catch {
+                  onOpenFilePreview(href);
+                }
+              }}
+              className="text-blue-500 underline underline-offset-2 hover:text-blue-600 dark:text-blue-300 dark:hover:text-blue-200"
+            >
+              {markdownChildren}
+            </a>
+          );
         }
         const filePath = fileReferenceFromLink(href);
         if (filePath) {

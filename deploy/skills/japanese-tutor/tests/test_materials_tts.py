@@ -79,8 +79,7 @@ class TtsMediaTest(unittest.IsolatedAsyncioTestCase):
     async def test_global_voice_and_language_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            config = Config(tools={"tts": {"preset": "minimax", "voice": "selected"}}, ttsPresets={"minimax": {
-                "label": "MiniMax", "config": {"apiKey": "test", "model": "shared-model"},
+            config = Config(tools={"tts": {"apiKey": "test", "model": "shared-model", "defaultVoice": "selected",
                 "voices": [{"id": "selected", "label": "Selected", "languageVoices": {"default": "cn-voice", "ja": "jp-voice"}}]}})
             async def synthesize(text, voice, on_chunk):
                 self.assertEqual(voice, "cn-voice")
@@ -108,7 +107,7 @@ class TtsMediaTest(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(result["voice"], voice)
                         self.assertEqual(result["mime"], "audio/mpeg")
                         self.assertEqual(Path(result["path"]).read_bytes(), b"audio")
-                config.tts_presets["minimax"].voices[0].language_voices["ja"] = "new-jp-voice"
+                config.tools.tts.voices[0].language_voices["ja"] = "new-jp-voice"
                 result = await tts_media.generate("こんにちは", root, None)
                 self.assertEqual(result["voice"], "new-jp-voice")
                 self.assertEqual(build.call_args.kwargs["japanese_voice"], "new-jp-voice")

@@ -848,3 +848,17 @@ it("renders wiki image nodes only in library prose, not inline or fenced code", 
   expect(view.container.querySelectorAll("code").length).toBeGreaterThan(0);
   expect(view.container.textContent).toContain("![[photo.png]]");
 });
+
+it("renders wiki article links only in library prose", () => {
+  const onOpenFilePreview = vi.fn();
+  const view = render(
+    <MarkdownTextRenderer localImages={{}} onOpenFilePreview={onOpenFilePreview}>
+      {'See [[旅记/京都|京都]] and `[[代码]]`.'}
+    </MarkdownTextRenderer>,
+  );
+  const link = screen.getByRole("link", { name: "京都" });
+  expect(link).toHaveAttribute("href", "%E6%97%85%E8%AE%B0/%E4%BA%AC%E9%83%BD.md");
+  fireEvent.click(link);
+  expect(onOpenFilePreview).toHaveBeenCalledWith("旅记/京都.md");
+  expect(view.container).toHaveTextContent("[[代码]]");
+});

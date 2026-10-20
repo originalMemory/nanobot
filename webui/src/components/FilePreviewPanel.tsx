@@ -7,7 +7,7 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { splitFilePath } from "@/components/FileReferenceChip";
 import { LibraryDocument } from "@/components/library/LibraryDocument";
 import { Button } from "@/components/ui/button";
-import { ApiError, fetchFilePreview } from "@/lib/api";
+import { ApiError, fetchFilePreview, fetchLibrary, resolveLibraryDocument } from "@/lib/api";
 import type { FilePreviewPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -111,7 +111,7 @@ export function FilePreviewPanel({
         : state.error.message)
       : t("filePreview.failed", { defaultValue: "Could not preview this file." }))
     : null;
-  const openNoteReference = (reference: string) => {
+  const openNoteReference = async (reference: string) => {
     if (!onOpenFilePreview || state.status !== "ready" || state.payload.library_source !== "notes"
         || !state.payload.library_root || !state.payload.library_path
         || /^[a-z]+:/i.test(reference) || reference.startsWith("/")) return;
@@ -122,7 +122,13 @@ export function FilePreviewPanel({
         base.pop();
       } else if (part && part !== ".") base.push(part);
     }
-    onOpenFilePreview(`${state.payload.library_root.replace(/\/$/, "")}/${base.join("/")}`);
+    const candidate = base.join("/");
+    let target = candidate;
+    try {
+      const index = await fetchLibrary(tokenRef.current, "notes", "index", "");
+      if (index.kind === "index") target = resolveLibraryDocument(index.documents, candidate) ?? candidate;
+    } catch { /* Fall back to the relative path when the index is unavailable. */ }
+    onOpenFilePreview(`${state.payload.library_root.replace(/\/$/, "")}/${target}`);
   };
 
   return (

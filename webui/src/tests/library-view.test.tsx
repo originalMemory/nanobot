@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { LibraryView } from "@/components/library/LibraryView";
-import type { LibraryPayload } from "@/lib/api";
+import { resolveLibraryDocument, type LibraryPayload } from "@/lib/api";
 
 const fetchLibrary = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", async (original) => ({ ...await original<typeof import("@/lib/api")>(), fetchLibrary }));
@@ -14,6 +14,13 @@ beforeEach(() => {
   fetchLibrary.mockReset();
   localStorage.removeItem("nanobot.library.workspace.selection");
   localStorage.removeItem("nanobot.library.notes.selection");
+});
+
+it("resolves a unique wiki article through the library index", () => {
+  const documents = ["网页剪藏/ACG/current.md", "生活/旅行.md"];
+  expect(resolveLibraryDocument(documents, "旅行.md")).toBe("生活/旅行.md");
+  expect(resolveLibraryDocument(documents, "网页剪藏/ACG/current.md")).toBe("网页剪藏/ACG/current.md");
+  expect(resolveLibraryDocument(["a/同名.md", "b/同名.md"], "同名.md")).toBeNull();
 });
 
 it("expands directories in place and preserves the preview while collapsing them", async () => {

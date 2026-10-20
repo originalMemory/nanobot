@@ -4,10 +4,11 @@ import { CirclePlay, CircleStop, Square } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useClient } from "./ClientProvider";
 import { getRuntimeHost } from "@/lib/runtime";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleButton } from "@/components/settings/ToggleButton";
-import { SettingsGroup, SettingsRow, SettingsSectionTitle, DismissibleStatusMessage, RestartSettingsFooter } from "@/components/settings/shared/SettingsControls";
+import { NumberInput, SettingsGroup, SettingsRow, SettingsSectionTitle, DismissibleStatusMessage, RestartSettingsFooter } from "@/components/settings/shared/SettingsControls";
 import { VoicePlayer } from "@/lib/voice";
 
 const VoiceContext = createContext<{ turn: string; available: Set<string>; replay: (turn: string, url?: string) => void; stop: () => void } | null>(null);
@@ -76,9 +77,24 @@ export function VoiceReplayButton({ turnId, audioUrl }: { turnId?: string; audio
 }
 
 interface VoiceSettingsValue {
-  preset: string | null;
-  voice: string | null;
-  presets: { id: string; label: string; voices: { id: string; label: string }[] }[];
+  provider: string;
+  enabled: boolean;
+  defaultVoice: string;
+  voices: { id: string; label: string; languageVoices: Record<string, string> }[];
+  japaneseVoice: string;
+  thresholdChars: number;
+  hasApiKey?: boolean;
+}
+
+/** 后端 settings() 隐藏 apiKey；apiKey 留空表示沿用已保存密钥。 */
+function voiceSettingsPayload(value: VoiceSettingsValue, apiKey: string) {
+  return {
+    ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+    enabled: value.enabled,
+    defaultVoice: value.defaultVoice,
+    voices: value.voices,
+    thresholdChars: value.thresholdChars,
+  };
 }
 
 export function VoiceSettings() {
@@ -94,6 +110,7 @@ function VoiceSettingsForm() {
   const { client, getToken } = useClient();
   const host = getRuntimeHost().voice!;
   const [value, setValue] = useState<VoiceSettingsValue | null>(null);
+  const [apiKey, setApiKey] = useState("");
   const [pause, setPause] = useState(true);
   const [support, setSupport] = useState("");
   const [error, setError] = useState("");
@@ -112,31 +129,41 @@ function VoiceSettingsForm() {
     setBusy(true); setError("");
     try {
       let result = value;
-      if (!saved || value.preset !== saved.value.preset || value.voice !== saved.value.voice) {
-        result = await client.requestMutation<VoiceSettingsValue>("voice.settings", { preset: value.preset, voice: value.voice });
-        setValue(result); setSaved({ value: result, pause: saved?.pause ?? pause });
+      if (!saved || value.enabled !== saved.value.enabled || value.defaultVoice !== saved.value.defaultVoice
+          || value.voices !== saved.value.voices || value.thresholdChars !== saved.value.thresholdChars
+          || apiKey.trim()) {
+        result = await client.requestMutation<VoiceSettingsValue>("voice.settings", voiceSettingsPayload(value, apiKey));
+        setValue(result); setApiKey(""); setSaved({ value: result, pause: saved?.pause ?? pause });
       }
       if (!saved || pause !== saved.pause) await host.settings(pause);
       setSaved({ value: result, pause });
     } catch { setError("saveError"); }
     finally { setBusy(false); }
   };
-  const dirty = Boolean(value && saved && (value.preset !== saved.value.preset || value.voice !== saved.value.voice || pause !== saved.pause));
+  const dirty = Boolean(value && saved && (value.enabled !== saved.value.enabled
+    || value.defaultVoice !== saved.value.defaultVoice || value.voices !== saved.value.voices
+    || value.thresholdChars !== saved.value.thresholdChars || apiKey.trim() || pause !== saved.pause));
   return <fieldset className="settings-stack" disabled={busy}>
     <section>
       <SettingsSectionTitle>{label("title")}</SettingsSectionTitle>
       {value ? <SettingsGroup>
-        <SettingsRow title={label("provider")} description={label("description")}>
-          <Select disabled={busy} value={value.preset ?? ""} onValueChange={(preset) => setValue({ ...value, preset, voice: value.presets.find((p) => p.id === preset)?.voices[0]?.id ?? null })}>
-            <SelectTrigger className="w-full rounded-full" aria-label={label("provider")}><SelectValue placeholder={label("selectProvider")} /></SelectTrigger>
-            <SelectContent>{value.presets.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}</SelectContent>
+        <SettingsRow title={label("enabled")} description={label("enabledDescription")}>
+          <ToggleButton checked={value.enabled} disabled={busy} onChange={(enabled) => setValue({ ...value, enabled })} ariaLabel={label("enabled")} label={t(`settings.values.${value.enabled ? "on" : "off"}`)} />
+        </SettingsRow>
+        <SettingsRow title={label("voice")} description={value.voices.length ? undefined : label("voiceEmpty")}>
+          <Select disabled={busy || !value.voices.length} value={value.defaultVoice} onValueChange={(defaultVoice) => setValue({ ...value, defaultVoice })}>
+            <SelectTrigger className="w-full rounded-full" aria-label={label("voice")}><SelectValue placeholder={label("selectVoice")} /></SelectTrigger>
+            <SelectContent>{value.voices.map((v) => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}</SelectContent>
           </Select>
         </SettingsRow>
-        <SettingsRow title={label("voice")}>
-          <Select disabled={busy || !value.preset} value={value.voice ?? ""} onValueChange={(voice) => setValue({ ...value, voice })}>
-            <SelectTrigger className="w-full rounded-full" aria-label={label("voice")}><SelectValue placeholder={label("selectVoice")} /></SelectTrigger>
-            <SelectContent>{value.presets.find((p) => p.id === value.preset)?.voices.map((v) => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}</SelectContent>
-          </Select>
+        <SettingsRow title={label("apiKey")} description={label("apiKeyDescription")}>
+          <Input type="password" autoComplete="off" aria-label={label("apiKey")}
+            placeholder={value.hasApiKey ? label("apiKeyKeep") : label("apiKeyPlaceholder")}
+            value={apiKey} onChange={(event) => setApiKey(event.target.value)} />
+        </SettingsRow>
+        <SettingsRow title={label("threshold")} description={label("thresholdDescription")}>
+          <NumberInput value={value.thresholdChars} min={1} max={1000} ariaLabel={label("threshold")}
+            onChange={(thresholdChars) => setValue({ ...value, thresholdChars })} suffix={label("charsUnit")} />
         </SettingsRow>
         <SettingsRow title={label("pauseMedia")} description={support === "unavailable" ? label("unavailable") : support === "limited" ? label("limited") : label("pauseDescription")}>
           <ToggleButton checked={pause} disabled={busy || support === "unavailable"} onChange={setPause} ariaLabel={label("pauseMedia")} label={t(`settings.values.${pause ? "on" : "off"}`)} />
@@ -148,6 +175,6 @@ function VoiceSettingsForm() {
     </>}
     {!value && <Button size="sm" className="rounded-full" variant="outline" onClick={() => { setError(""); setReload((v) => v + 1); }}>{t("settings.desktop.retry")}</Button>}
     {value && <RestartSettingsFooter dirty={dirty} saving={busy} pendingRestart={false} error={Boolean(error)} message={error ? label(error) : undefined}
-      onSave={() => void save()} onReset={() => { if (saved) { setValue(saved.value); setPause(saved.pause); } setError(""); }} /> }
+      onSave={() => void save()} onReset={() => { if (saved) { setValue(saved.value); setApiKey(""); setPause(saved.pause); } setError(""); }} /> }
   </fieldset>;
 }

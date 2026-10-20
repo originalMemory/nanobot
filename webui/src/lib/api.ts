@@ -1122,6 +1122,18 @@ export async function updateRuntimeConfigSettings(
 
 export type LibrarySource = "workspace" | "notes";
 export interface LibraryEntry { name: string; kind: "dir" | "file" }
+export function resolveLibraryDocument(documents: string[], reference: string): string | null {
+  const target = reference.replace(/\\/g, "/").replace(/^\.\//, "");
+  const exact = documents.find((document) => document === target);
+  if (exact) return exact;
+  const name = target.split("/").pop() ?? target;
+  const stem = name.replace(/\.(?:md|markdown)$/i, "");
+  const matches = documents.filter((document) => {
+    const documentName = document.split("/").pop() ?? document;
+    return documentName === name || documentName.replace(/\.(?:md|markdown)$/i, "") === stem;
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
 export type LibraryPayload = { root: string; path: string; truncated: boolean } & (
   | { kind: "index"; documents: string[] }
   | { kind: "directory"; entries: LibraryEntry[] }

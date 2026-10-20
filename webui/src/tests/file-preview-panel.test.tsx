@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FilePreviewPanel } from "@/components/FilePreviewPanel";
 import { setAppLanguage } from "@/i18n";
 import { fetchFilePreview } from "@/lib/api";
-
 vi.mock("@/components/CodeBlock", () => ({
   CodeBlock: ({
     code,
@@ -31,6 +30,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...actual,
     fetchFilePreview: vi.fn(),
+    // 索引解析走 mock，避免测试环境真实发起 gateway 请求（ECONNREFUSED 噪音）。
+    fetchLibrary: vi.fn(async () => ({
+      kind: "index", root: "/nas/ssd/note", path: "", truncated: false, documents: [],
+    })),
   };
 });
 

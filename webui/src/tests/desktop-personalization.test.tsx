@@ -29,7 +29,9 @@ function renderAppearance(children: React.ReactNode) {
 const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
 
 it("voice settings retry loading and share save/cancel switch behavior", async () => {
-  const settings = { preset: "minimax", voice: "one", presets: [{ id: "minimax", label: "MiniMax", voices: [{ id: "one", label: "Voice one" }] }] };
+  const settings = { provider: "minimax", enabled: true, defaultVoice: "one", japaneseVoice: "",
+    voices: [{ id: "one", label: "Voice one", languageVoices: { default: "one" } }],
+    thresholdChars: 300, hasApiKey: true };
   const local = vi.fn(async () => ({ pauseSystemMedia: true, support: "system" }));
   window.nanobotHost = { voice: { active: vi.fn(async () => {}), settings: local } };
   const fetchSettings = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("offline"))
@@ -43,13 +45,22 @@ it("voice settings retry loading and share save/cancel switch behavior", async (
     const toggle = await screen.findByRole("switch", { name: "Pause system media while speaking" });
     expect(toggle).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    fireEvent.click(toggle);
+    // 新契约：voice mutation 携带扁平字段；apiKey 留空则不随 payload 发送
+    fireEvent.click(screen.getByRole("switch", { name: "Voice announcements" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("voice.settings", {
+      enabled: false, defaultVoice: "one",
+      voices: [{ id: "one", label: "Voice one", languageVoices: { default: "one" } }],
+      thresholdChars: 300,
+    }));
+    // 取消回退：改阈值后 Cancel 恢复原值
+    const threshold = screen.getByRole("spinbutton", { name: "Summary threshold" });
+    fireEvent.change(threshold, { target: { value: "200" } });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(toggle).toHaveAttribute("aria-checked", "true");
+    await waitFor(() => expect(screen.getByRole("spinbutton", { name: "Summary threshold" })).toHaveValue(300));
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(local).toHaveBeenCalledWith(false));
-    expect(save).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
   } finally { view.unmount(); fetchSettings.mockRestore(); save.mockRestore(); }
 });

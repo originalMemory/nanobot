@@ -6,7 +6,7 @@ import { AttachmentTile } from "@/components/AttachmentTile";
 import { MarkdownText } from "@/components/MarkdownText";
 import { LibraryDocument } from "@/components/library/LibraryDocument";
 import { CodeBlock } from "@/components/CodeBlock";
-import { ApiError, fetchLibrary, type LibraryPayload, type LibrarySource } from "@/lib/api";
+import { ApiError, fetchLibrary, resolveLibraryDocument, type LibraryPayload, type LibrarySource } from "@/lib/api";
 import { useClient } from "@/providers/ClientProvider";
 
 interface DirectoryState {
@@ -128,7 +128,8 @@ export function LibraryView({ source, onBack }: { source: LibrarySource; onBack:
     for (const part of path.split("/")) {
       if (part === "..") base.pop(); else if (part && part !== ".") base.push(part);
     }
-    void open(base.join("/"), false, true);
+    const candidate = base.join("/");
+    void open(resolveLibraryDocument(quickDocuments ?? [], candidate) ?? candidate, false, true);
   };
   const quickResults = (quickDocuments ?? []).filter((path) => {
     const queries = quickQuery.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);

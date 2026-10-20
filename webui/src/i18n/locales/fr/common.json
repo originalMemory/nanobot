@@ -140,18 +140,25 @@
   "settings": {
     "aiVoice": {
       "title": "Voix IA",
-      "provider": "Fournisseur",
+      "enabled": "Lecture vocale",
+      "enabledDescription": "Activé : chaque réponse est lue à voix haute ; désactivé : aucune lecture.",
       "voice": "Voix",
-      "description": "L’IA décide quand une réponse vocale est utile.",
-      "selectProvider": "Choisir un fournisseur",
+      "voiceEmpty": "Aucune voix configurée ; ajoutez-en dans tools.tts.voices du fichier de config.",
       "selectVoice": "Choisir une voix",
+      "apiKey": "Clé API MiniMax",
+      "apiKeyDescription": "Fournisseur MiniMax fixe ; la clé n'est stockée que dans la config de la passerelle.",
+      "apiKeyPlaceholder": "Collez la clé API MiniMax",
+      "apiKeyKeep": "Enregistrée — laissez vide pour la conserver",
+      "threshold": "Seuil de résumé",
+      "thresholdDescription": "Les réponses plus longues que ce seuil sont résumées en arrière-plan avant lecture.",
+      "charsUnit": "car.",
       "pauseMedia": "Mettre les médias en pause pendant la lecture",
       "pauseDescription": "Reprendre les lecteurs mis en pause à la fin de la lecture.",
       "limited": "Reprise après la lecture ; seuls certains lecteurs sont pris en charge.",
-      "unavailable": "Le contrôle des médias n’est pas disponible sur cette plateforme.",
+      "unavailable": "Le contrôle des médias n'est pas disponible sur cette plateforme.",
       "loading": "Chargement des paramètres vocaux…",
       "loadError": "Impossible de charger les paramètres vocaux.",
-      "saveError": "Échec de l’enregistrement. Vérifiez le fournisseur MiniMax et la voix."
+      "saveError": "Échec de l'enregistrement. Vérifiez le fournisseur MiniMax et la voix."
     },
     "desktop": {
       "identity": "Identité du bureau",

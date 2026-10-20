@@ -46,19 +46,26 @@ async def generate(
     if not shutil.which("ffmpeg"):
         raise ValueError("MP3 编码需要安装 ffmpeg")
     config = load_config(nanobot_config)
-    preset = config.tts_presets.get(config.tools.tts.preset or "")
-    if preset is None or preset.config.provider != "minimax":
-        raise ValueError("请配置活动 MiniMax TTS preset")
-    selected = next((item for item in preset.voices if item.id == config.tools.tts.voice), None)
-    if selected is None or not selected.language_voices.get("default"):
-        raise ValueError("活动 TTS preset 未配置有效音色")
-    base_voice = selected.language_voices.get("zh") or selected.language_voices["default"]
-    japanese_voice = selected.language_voices.get("ja") or selected.language_voices["default"]
-    voice = japanese_voice if language == "ja" else base_voice
+    options = config.tools.tts
+    if options.provider != "minimax" or not options.api_key:
+        raise ValueError("请配置 MiniMax TTS（tools.tts.apiKey）")
+    if options.voices:
+        selected = next(
+            (item for item in options.voices if item.id == options.default_voice), None
+        )
+        if selected is None:
+            raise ValueError("tools.tts.defaultVoice 未指向 voices 中的音色")
+        base_voice = selected.language_voices.get("zh") or selected.language_voices.get("default")
+        japanese_voice = selected.language_voices.get("ja") or ""
+    else:
+        base_voice = options.default_voice
+        japanese_voice = options.japanese_voice
+    if not base_voice:
+        raise ValueError("tools.tts 未配置有效音色")
+    voice = japanese_voice or base_voice if language == "ja" else base_voice
     synthesis_text = text if re.search(r"\[(?:ja|zh)\]", text, re.IGNORECASE) else f"[{language}]{text}[/{language}]"
-    tts = preset.config
-    provider = MiniMaxTTSProvider(api_key=tts.api_key, api_base=tts.api_base, model=tts.model,
-        japanese_voice=japanese_voice, speed=tts.speed, extra_body=tts.extra_body, rpm=tts.rpm)
+    provider = MiniMaxTTSProvider(api_key=options.api_key, api_base=options.api_base, model=options.model,
+        japanese_voice=japanese_voice, speed=options.speed, extra_body=options.extra_body, rpm=options.rpm)
     workspace = workspace.expanduser().resolve()
     digest = hashlib.sha256(synthesis_text.encode()).hexdigest()
     output = workspace / "tmp" / "japanese-tutor" / f"{digest}.mp3"
@@ -88,7 +95,7 @@ async def generate(
     return {
         "ok": True, "path": str(output), "mime": "audio/mpeg",
         "sha256": hashlib.sha256(output.read_bytes()).hexdigest(), "voice": voice,
-        "generator": {"name": "tts_media", "version": 2, "provider": "minimax", "model": tts.model},
+        "generator": {"name": "tts_media", "version": 3, "provider": "minimax", "model": options.model},
     }
 
 
