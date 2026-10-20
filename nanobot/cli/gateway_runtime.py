@@ -522,15 +522,17 @@ def _run_gateway(
     def _schedule_webui_background(awaitable: Awaitable[None]) -> None:
         agent.schedule_background(cast(Coroutine[Any, Any, None], awaitable))
 
-    from nanobot.agent.tools.tts import TtsTool
-    from nanobot.agent.voice import DEFERRED_VOICE, VoiceService
+    from nanobot.agent.voice import VoiceService
     from nanobot.webui.settings_services import WebUISettingsConfig
 
     voice = VoiceService(WebUISettingsConfig(Path(config_path)))
     voice.sessions = session_manager
     voice.schedule = _schedule_webui_background
     voice.deliver = bus.publish_outbound
-    tools.register(TtsTool(voice))  # pyright: ignore[reportAbstractUsage]
+    from nanobot.agent.voice_hook import create_voice_hook_factory
+
+    if factory := create_voice_hook_factory(agent, config, voice):
+        agent.add_hook_factory(factory)
 
     webui_turn_coordinator = WebuiTurnCoordinator(
         bus=bus,
@@ -768,8 +770,6 @@ def _run_gateway(
                 timezone=config.agents.defaults.timezone,
             )
 
-            deferred_voice: list[str] = []
-            voice_token = DEFERRED_VOICE.set(deferred_voice)
             voice_turn = f"heartbeat:{uuid.uuid4().hex}"
             try:
                 await mcp_provider.connect()
@@ -791,8 +791,6 @@ def _run_gateway(
                 if delivery is not None:
                     session_manager.save(delivery[0])
                 raise
-            finally:
-                DEFERRED_VOICE.reset(voice_token)
             if recent_context is not None:
                 heartbeat_session = agent.sessions.get_or_create("heartbeat")
                 if remove_runtime_context_block(heartbeat_session, recent_context):
@@ -818,21 +816,6 @@ def _run_gateway(
                             message[field] = dict(cast(dict[str, Any], value)) if isinstance(value, dict) else (
                                 list(cast(list[Any], value)) if isinstance(value, list) else value
                             )
-                if deferred_voice:
-                    try:
-                        message["voice"] = dict(voice.submit(
-                            chat_id,
-                            voice_turn,
-                            deferred_voice[0],
-                            channel=channel,
-                            metadata={
-                                WEBUI_TURN_METADATA_KEY: voice_turn,
-                                WEBUI_MESSAGE_SOURCE_METADATA_KEY: {"kind": "heartbeat"},
-                            },
-                            session_key=session.key,
-                        ))
-                    except ValueError:
-                        logger.warning("Heartbeat: voice unavailable; text delivered")
                 session_manager.save(session)
                 from nanobot.bus.outbound_events import SessionUpdatedEvent
                 from nanobot.webui.session_identity import DESKTOP_CHAT_ID

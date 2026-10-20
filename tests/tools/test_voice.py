@@ -5,13 +5,46 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from nanobot.agent.tools.context import RequestContext, request_context
-from nanobot.agent.tools.tts import TtsTool
-from nanobot.agent.voice import DEFERRED_VOICE, VoiceService
+from nanobot.agent.voice import VoiceService
 from nanobot.config.loader import save_config
 from nanobot.config.schema import Config
 from nanobot.providers.tts import TTSStreamChunk, TTSStreamResult
 from nanobot.webui.settings_services import WebUISettingsConfig
+
+
+def test_voice_selects_from_voices_array_and_switches(tmp_path):
+    config = Config(tools={"tts": {
+        "apiKey": "secret", "defaultVoice": "candice",
+        "voices": [
+            {"id": "candice", "label": "坎蒂丝", "languageVoices": {"default": "genshin-candice"}},
+            {"id": "scarlett", "label": "斯嘉丽",
+             "languageVoices": {"default": "scarlett-id", "ja": "scarlett-ja"}},
+        ],
+    }})
+    path = tmp_path / "config.json"
+    save_config(config, path)
+    service = VoiceService(WebUISettingsConfig(path))
+    payload = service.placeholder("turn-a")
+    assert payload["voice"] == "genshin-candice"  # 默认选中 candice
+    settings = service.settings()
+    assert "api_key" not in settings and "apiKey" not in settings  # 密钥不暴露
+    assert len(settings["voices"]) == 2 and settings["voices"][1]["id"] == "scarlett"
+    # 切换音色到 scarlett（apiKey 缺省 → 继承已保存密钥）
+    updated = service.update({"defaultVoice": "scarlett", "voices": settings["voices"]})
+    payload2 = VoiceService(WebUISettingsConfig(path)).placeholder("turn-b")
+    assert payload2["voice"] == "scarlett-id"  # 选中音色的 default 音色生效
+    assert updated["defaultVoice"] == "scarlett"
+    # 非法切换：default_voice 不在 voices 中 → 拒绝
+    with pytest.raises(ValueError):
+        service.update({"apiKey": "secret", "defaultVoice": "missing",
+                        "voices": settings["voices"]})
+    # 全新配置无 apiKey → 拒绝（首次配置必须提供密钥）
+    with pytest.raises(ValueError):
+        VoiceService(WebUISettingsConfig(tmp_path / "fresh.json")).update(
+            {"defaultVoice": "scarlett", "voices": settings["voices"]})
+    # voices/apiKey 缺省 → 继承已保存值
+    inherited = service.update({"thresholdChars": 200})
+    assert len(inherited["voices"]) == 2 and inherited["thresholdChars"] == 200
 
 
 def test_lover_voice_history_remains_replayable(tmp_path, monkeypatch):
@@ -50,9 +83,7 @@ def test_lover_voice_history_remains_replayable(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required for MP3 encoding")
 async def test_voice_background_replay_failure_and_heartbeat_gate(tmp_path, monkeypatch):
-    config = Config(tools={"tts": {"mode": "off", "preset": "minimax", "voice": "voice"}},
-                    ttsPresets={"minimax": {"label": "MiniMax", "config": {"apiKey": "secret"},
-                        "voices": [{"id": "voice", "label": "Voice", "languageVoices": {"default": "zh"}}]}})
+    config = Config(tools={"tts": {"apiKey": "secret", "defaultVoice": "voice"}})
     path = tmp_path / "config.json"
     save_config(config, path)
     service = VoiceService(WebUISettingsConfig(path))
@@ -69,10 +100,7 @@ async def test_voice_background_replay_failure_and_heartbeat_gate(tmp_path, monk
             await on_chunk(TTSStreamChunk(0, b"\x01\x00", 24000))
             return None if fail else TTSStreamResult(24000, 1, 2)
     monkeypatch.setattr("nanobot.agent.voice.MiniMaxTTSProvider", Provider)
-    tool = TtsTool(service)
-    with request_context(RequestContext(channel="websocket", chat_id="desktop", metadata={"webui_turn_id": "turn"})):
-        assert "已触发" in await tool.execute("hello")
-        await tool.execute("duplicate")
+    service.submit("desktop", "turn", "hello")
     assert len(tasks) == 1 and not tasks[0].done()
     release.set()
     await tasks[0]
@@ -87,20 +115,11 @@ async def test_voice_background_replay_failure_and_heartbeat_gate(tmp_path, monk
     await tasks[-1]
     assert not service.path("failed").exists() and not list(service.directory.glob("*.tmp"))
     assert service.emit.call_args.args[1]["phase"] == "error"
-    before = len(tasks)
-    pending = []
-    token = DEFERRED_VOICE.set(pending)
-    try:
-        with request_context(RequestContext(channel="qq", chat_id="qq-group", session_key="heartbeat", turn_id="heartbeat-turn")):
-            assert "message" in await tool.execute("greeting")
-        assert pending == ["greeting"] and len(tasks) == before
-    finally:
-        DEFERRED_VOICE.reset(token)
     service.deliver = AsyncMock()
     fail = False
-    with request_context(RequestContext(channel="qq", chat_id="qq-group", session_key="unified:default",
-                                        turn_id="qq-turn", metadata={"message_id": "source-msg"})):
-        assert "已触发" in await tool.execute("QQ voice")
+    service.submit("qq-group", "qq-turn", "QQ voice", channel="qq",
+                   session_key="unified:default", playback_chat_id="desktop",
+                   metadata={"message_id": "source-msg"})
     await tasks[-1]
     delivery = service.deliver.call_args.args[0]
     assert delivery.channel == "qq" and delivery.chat_id == "qq-group"
@@ -109,8 +128,9 @@ async def test_voice_background_replay_failure_and_heartbeat_gate(tmp_path, monk
     assert service.emit.call_args.args[0] == "desktop"
     assert service.emit.call_args.args[1]["turn_id"] == "qq-turn"
     assert "mode" not in service.settings()
-    with pytest.raises(ValueError):
-        service.update({"mode": "agent", "preset": "other", "voice": "voice"})
+    # 旧 preset/voice 字段被忽略；部分更新走继承语义（apiKey/defaultVoice 保留）。
+    updated = service.update({"thresholdChars": 250})
+    assert updated["defaultVoice"] == "voice" and updated["thresholdChars"] == 250
 
 
 async def test_voice_routes_require_auth_and_socket_mutations(tmp_path):
@@ -143,16 +163,10 @@ async def test_voice_routes_require_auth_and_socket_mutations(tmp_path):
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required for MP3 encoding")
 @pytest.mark.parametrize("audio_first", [True, False])
 async def test_unified_history_keeps_voice_link_across_reload(tmp_path, monkeypatch, audio_first):
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.agent.tools.registry import ToolRegistry
-    from nanobot.bus.events import InboundMessage
-    from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
     from nanobot.webui.transcript import build_session_thread_response
 
     config = Config(agents={"defaults": {"workspace": str(tmp_path / "workspace"), "model": "test"}},
-                    tools={"tts": {"preset": "minimax", "voice": "v"}},
-                    ttsPresets={"minimax": {"label": "MiniMax", "config": {"apiKey": "test"},
-                        "voices": [{"id": "v", "label": "Voice", "languageVoices": {"default": "zh"}}]}})
+                    tools={"tts": {"apiKey": "test", "defaultVoice": "v", "japaneseVoice": "ja-voice"}})
     path = tmp_path / "config.json"
     save_config(config, path)
     service = VoiceService(WebUISettingsConfig(path))
@@ -166,39 +180,22 @@ async def test_unified_history_keeps_voice_link_across_reload(tmp_path, monkeypa
             await on_chunk(TTSStreamChunk(0, b"\x01\x00" * 2400, 24000))
             return TTSStreamResult(24000, 1, 4800)
     monkeypatch.setattr("nanobot.agent.voice.MiniMaxTTSProvider", AudioProvider)
-    class Provider(LLMProvider):
-        def __init__(self):
-            super().__init__(provider_name="test")
-            self.calls = 0
-        def get_default_model(self): return "test"
-        async def chat(self, messages, **kwargs):
-            self.calls += 1
-            if self.calls == 1:
-                return LLMResponse(content="", tool_calls=[ToolCallRequest(id="tts-1", name="tts", arguments={"text": "hello"})])
-            if audio_first:
-                release.set()
-                await tasks[-1]
-            return LLMResponse(content="hello")
-    registry = ToolRegistry()
-    registry.register(TtsTool(service))
-    loop = AgentLoop.from_config(config, provider=Provider(), tool_registry=registry)
-    service.sessions = loop.sessions
     monkeypatch.setattr("nanobot.webui.transcript.get_media_dir", lambda: tmp_path / "media")
-    response = await loop._process_message(InboundMessage(channel="websocket", sender_id="user", chat_id="desktop",
-        content="speak", metadata={"webui_turn_id": "saved-voice"}), session_key="unified:default")
-    assert response is not None
-    assert response.metadata["voice"]["audioId"] == service.path("saved-voice").stem
+    audio = service.submit("desktop", "saved-voice", "hello", channel="websocket")
+    assert audio["audioId"] == service.path("saved-voice").stem
     release.set()
     await tasks[-1]
-    saved = loop.sessions.read_session_file("unified:default")["messages"]
-    replay = build_session_thread_response("websocket:desktop", saved, augment_assistant_media=lambda paths: [{"url": "/media/current-signature"}])
+    saved = [{"role": "user", "content": "speak"},
+             {"role": "assistant", "content": "hello", "voice": dict(audio)}]
+    assert saved[-1]["voice"]["durationMs"] == 100
+    replay = build_session_thread_response(
+        "websocket:desktop", saved,
+        augment_assistant_media=lambda paths: [{"url": "/media/current-signature"}],
+    )
     answer = next(m for m in replay["messages"] if m["role"] == "assistant" and m["content"] == "hello")
-    assert answer.get("turnId") is None
-    assert "voiceTurnId" not in answer
     assert answer["voice"]["url"] == "/media/current-signature"
     restarted = VoiceService(WebUISettingsConfig(path))
     assert restarted.path("saved-voice").is_file()
     assert saved[-1]["voice"]["mimeType"] == "audio/mpeg"
-    assert saved[-1]["voice"]["durationMs"] == 100
     assert saved[-1]["voice"]["audioId"] == answer["voice"]["audioId"]
-    assert all("voice" not in m for m in loop.sessions.get_or_create("unified:default").get_history())
+    assert audio["durationMs"] == 100

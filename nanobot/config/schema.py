@@ -382,31 +382,49 @@ def _lazy_default(module_path: str, class_name: str) -> Any:
 
 
 class TtsOptions(Base):
-    """MiniMax 活动服务与音色；是否生成语音固定由 AI 决定。"""
-    preset: str | None = None
-    voice: str | None = None
-
-
-class TtsConfig(Base):
+    """MiniMax 语音配置（固定 MiniMax，打平结构；语音文本由程序在回复结束后统一生成）。"""
     provider: str = "minimax"
-    api_base: str = "https://api.minimaxi.com"
-    api_key: str = ""
+    api_base: str = Field(
+        default="https://api.minimaxi.com",
+        validation_alias=AliasChoices("apiBase", "api_base"),
+        serialization_alias="apiBase",
+    )
+    api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("apiKey", "api_key"),
+        serialization_alias="apiKey",
+    )
     model: str = "speech-2.8-turbo"
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     rpm: int = Field(default=20, ge=1, le=20)
-    extra_body: dict[str, Any] = Field(default_factory=dict)
+    extra_body: dict[str, Any] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("extraBody", "extra_body"),
+        serialization_alias="extraBody",
+    )
+    default_voice: str = Field(
+        default="",
+        validation_alias=AliasChoices("defaultVoice", "default_voice"),
+        serialization_alias="defaultVoice",
+    )  # 当前选中音色：voices 非空时引用 voices[].id；voices 为空时作为实际音色 id（旧扁平兼容）
+    voices: list[TtsVoicePresetConfig] = Field(default_factory=list)  # 多音色列表（可切换）
+    japanese_voice: str = Field(
+        default="",
+        validation_alias=AliasChoices("japaneseVoice", "japanese_voice"),
+        serialization_alias="japaneseVoice",
+    )  # 旧扁平兼容：voices 为空时的日语音色
+    threshold_chars: int = Field(
+        default=300, ge=1, le=1000,
+        validation_alias=AliasChoices("thresholdChars", "threshold_chars"),
+        serialization_alias="thresholdChars",
+    )  # 原文/摘要分界 + 摘要长度上限
+    enabled: bool = Field(default=True)  # 统一语音播报开关
 
 
 class TtsVoicePresetConfig(Base):
     id: str = Field(min_length=1)
     label: str = Field(min_length=1)
     language_voices: dict[str, str] = Field(default_factory=dict)
-
-
-class TtsPresetConfig(Base):
-    label: str
-    config: TtsConfig
-    voices: list[TtsVoicePresetConfig] = Field(default_factory=list)
 
 
 class ToolsConfig(Base):
@@ -462,7 +480,6 @@ class Config(BaseSettings):
 
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
-    tts_presets: dict[str, TtsPresetConfig] = Field(default_factory=dict, validation_alias=AliasChoices("ttsPresets", "tts_presets"), serialization_alias="ttsPresets")
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)

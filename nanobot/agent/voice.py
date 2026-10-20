@@ -10,7 +10,6 @@ import shutil
 import uuid
 import wave
 from collections.abc import Awaitable, Callable, Coroutine
-from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,8 +20,6 @@ from nanobot.webui.settings_services import WebUISettingsConfig
 
 if TYPE_CHECKING:
     from nanobot.session.manager import SessionManager
-
-DEFERRED_VOICE: ContextVar[list[str] | None] = ContextVar("deferred_heartbeat_voice", default=None)
 
 
 async def encode_mp3(source: Path, target: Path) -> None:
@@ -57,20 +54,33 @@ class VoiceService:
 
     def settings(self) -> dict[str, Any]:
         config = self.config.load()
-        return {**config.tools.tts.model_dump(), "presets": [
-            {"id": key, "label": value.label,
-             "voices": [{"id": voice.id, "label": voice.label} for voice in value.voices]}
-            for key, value in config.tts_presets.items() if value.config.provider == "minimax"
-        ]}
+        data = config.tools.tts.model_dump(by_alias=True)
+        data.pop("apiKey", None)  # 不向客户端暴露密钥
+        data["hasApiKey"] = bool(config.tools.tts.api_key)  # 仅提示是否已配置
+        return data
 
     def update(self, value: dict[str, Any]) -> dict[str, Any]:
         options = TtsOptions.model_validate(value)
-        def apply(config: Config) -> None:
-            preset = config.tts_presets.get(options.preset or "")
-            if not preset or preset.config.provider != "minimax" or not any(
-                v.id == options.voice and v.language_voices.get("default") for v in preset.voices
+        if options.provider != "minimax":
+            raise ValueError("仅支持 MiniMax 服务")
+        # 部分更新合并：apiKey/voices/defaultVoice 缺省时继承已保存配置，避免整体覆盖清空。
+        current = self.config.load().tools.tts
+        if not options.api_key:
+            options.api_key = current.api_key
+        if not options.voices:
+            options.voices = current.voices
+        if not options.default_voice:
+            options.default_voice = current.default_voice
+        if not options.api_key:
+            raise ValueError("请配置 MiniMax API Key")
+        if options.voices:
+            if not options.default_voice or not any(
+                v.id == options.default_voice for v in options.voices
             ):
-                raise ValueError("请选择 MiniMax 服务与音色")
+                raise ValueError("请选择 MiniMax 音色")
+        elif not options.default_voice:
+            raise ValueError("请配置默认音色")
+        def apply(config: Config) -> None:
             config.tools.tts = options
         self.config.update(apply)
         return self.settings()
@@ -79,6 +89,59 @@ class VoiceService:
         if not isinstance(turn_id, str) or not 1 <= len(turn_id) <= 1024:
             raise ValueError("invalid voice turn id")
         return self.directory / (hashlib.sha256(turn_id.encode()).hexdigest() + ".mp3")
+
+    def _selected_voices(self, options: TtsOptions) -> tuple[str, str]:
+        """解析当前选中音色：(default 音色 id, ja 音色 id 或空)。
+
+        voices 数组非空时按 default_voice 引用 voices[].id；
+        voices 为空时兼容旧扁平结构（default_voice/japanese_voice 直接是音色 id）。
+        """
+        if options.voices:
+            selected = next((v for v in options.voices if v.id == options.default_voice), None)
+            if selected is None:
+                raise ValueError("MiniMax 音色未配置")
+            return selected.language_voices.get("default") or selected.id, selected.language_voices.get("ja") or ""
+        return options.default_voice, options.japanese_voice
+
+    def _audio_payload(self, turn_id: str) -> dict[str, Any]:
+        """构造当前音色的音频元数据（durationMs=0），并校验 MiniMax 配置与 ffmpeg。"""
+        path = self.path(turn_id)
+        options = self.config.load().tools.tts
+        if options.provider != "minimax" or not options.api_key:
+            raise ValueError("MiniMax 服务未配置")
+        default_voice, _ = self._selected_voices(options)
+        if not default_voice:
+            raise ValueError("MiniMax 音色未配置")
+        if not shutil.which("ffmpeg"):
+            raise ValueError("MP3 编码需要 gateway 安装 ffmpeg")
+        return {"audioId": path.stem, "path": str(path), "mimeType": "audio/mpeg",
+                "sampleRate": 24000, "durationMs": 0, "provider": "minimax",
+                "model": options.model, "voice": default_voice,
+                "controls": []}
+
+    def placeholder(self, turn_id: str) -> dict[str, Any]:
+        """构造占位 audio（durationMs=0），不启动合成；供后台打标/摘要完成前先挂载。"""
+        return self._audio_payload(turn_id)
+
+    def remove_voice_placeholder(self, session_key: str | None, turn_id: str) -> None:
+        """摘除已落库的占位 voice：后台提交失败时回滚，避免留下无法重播的语音按钮。"""
+        if self.sessions is None or not session_key:
+            return
+        session = self.sessions.get_or_create(session_key)
+        path = self.path(turn_id)
+        audio_id = path.stem
+        for message in reversed(session.messages):
+            voice = message.get("voice")
+            if (
+                message.get("role") == "assistant"
+                and isinstance(voice, dict)
+                and voice.get("audioId") == audio_id
+                and voice.get("durationMs") == 0
+                and not path.is_file()
+            ):
+                message.pop("voice", None)
+                self.sessions.save(session)
+                return
 
     def submit(self, chat_id: str, turn_id: str, text: str, *, channel: str = "websocket",
                metadata: dict[str, Any] | None = None, session_key: str | None = None,
@@ -93,21 +156,15 @@ class VoiceService:
             raise ValueError("语音服务未启动")
         if len(self.active) >= 4:
             raise ValueError("语音服务繁忙")
-        config = self.config.load()
-        preset = config.tts_presets.get(config.tools.tts.preset or "")
-        if not preset or preset.config.provider != "minimax" or not preset.config.api_key:
-            raise ValueError("MiniMax 服务未配置")
-        voice = next((v for v in preset.voices if v.id == config.tools.tts.voice), None)
-        if not voice or not voice.language_voices.get("default"):
-            raise ValueError("MiniMax 音色未配置")
-        audio: dict[str, Any] = {"audioId": path.stem, "path": str(path),
-                 "mimeType": "audio/mpeg",
-                 "sampleRate": 24000, "durationMs": 0, "provider": "minimax", "model": preset.config.model,
-                 "voice": voice.language_voices["default"], "controls": []}
+        audio = self._audio_payload(turn_id)
         if turn_id in self.active or path.is_file():
             return audio
         self.active.add(turn_id)
-        task = self._generate(chat_id, turn_id, text, preset.config.model_dump(), voice.language_voices,
+        options = self.config.load().tools.tts
+        default_voice, ja_voice = self._selected_voices(options)
+        task = self._generate(chat_id, turn_id, text,
+                              settings=options.model_dump(),
+                              voices={"default": default_voice, "ja": ja_voice},
                               channel=channel, metadata=dict(metadata or {}), audio=audio,
                               session_key=session_key, playback_chat_id=playback_chat_id)
         try:

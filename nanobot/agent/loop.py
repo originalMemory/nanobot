@@ -455,6 +455,10 @@ class AgentLoop:
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
 
+    def add_hook_factory(self, factory: AgentTurnHookFactory) -> None:
+        """注册每轮 hook 工厂（如统一语音播报）；在首次处理消息前调用。"""
+        self._hook_factories.append(factory)
+
     @classmethod
     def from_config(
         cls,
