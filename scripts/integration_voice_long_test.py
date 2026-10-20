@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 import sys
-sys.path.insert(0, "/Users/illusion/dev/self/nanobot")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from nanobot.agent.loop import AgentLoop  # noqa: E402
 from nanobot.agent.tools.registry import ToolRegistry  # noqa: E402

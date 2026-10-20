@@ -47,6 +47,24 @@ def test_voice_selects_from_voices_array_and_switches(tmp_path):
     assert len(inherited["voices"]) == 2 and inherited["thresholdChars"] == 200
 
 
+def test_voice_partial_update_preserves_provider_fields(tmp_path):
+    config = Config(tools={"tts": {
+        "apiKey": "secret", "apiBase": "https://tts.example/v1", "model": "custom-model",
+        "speed": 1.3, "rpm": 7, "extraBody": {"emotion": True},
+        "defaultVoice": "voice", "voices": [{"id": "voice", "label": "Voice"}],
+    }})
+    path = tmp_path / "config.json"
+    save_config(config, path)
+    service = VoiceService(WebUISettingsConfig(path))
+
+    service.update({"thresholdChars": 200})
+    saved = service.config.load().tools.tts
+    assert saved.api_base == "https://tts.example/v1"
+    assert saved.model == "custom-model"
+    assert saved.speed == 1.3 and saved.rpm == 7
+    assert saved.extra_body == {"emotion": True}
+
+
 def test_lover_voice_history_remains_replayable(tmp_path, monkeypatch):
     from nanobot.webui.transcript import (
         build_session_thread_response,

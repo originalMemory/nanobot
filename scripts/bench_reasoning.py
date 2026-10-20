@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, "/Users/illusion/dev/self/nanobot")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from nanobot.agent.voice_hook import _SUMMARY_PROMPT  # noqa: E402
 from nanobot.config.loader import load_config  # noqa: E402

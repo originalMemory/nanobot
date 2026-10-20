@@ -60,11 +60,15 @@ class VoiceService:
         return data
 
     def update(self, value: dict[str, Any]) -> dict[str, Any]:
-        options = TtsOptions.model_validate(value)
+        # Settings sends a partial payload; validate it after merging with the
+        # stored config so unrelated provider/runtime fields survive a save.
+        current = self.config.load().tools.tts
+        merged = current.model_dump()
+        merged.update(value)
+        options = TtsOptions.model_validate(merged)
         if options.provider != "minimax":
             raise ValueError("仅支持 MiniMax 服务")
         # 部分更新合并：apiKey/voices/defaultVoice 缺省时继承已保存配置，避免整体覆盖清空。
-        current = self.config.load().tools.tts
         if not options.api_key:
             options.api_key = current.api_key
         if not options.voices:
