@@ -55,7 +55,7 @@ from nanobot.webui.metadata import (
     WEBSOCKET_TURN_OWNER_METADATA_KEY,
     WEBUI_TURN_METADATA_KEY,
 )
-from nanobot.webui.session_identity import is_webui_session_key
+from nanobot.webui.session_identity import DESKTOP_CHAT_ID, is_webui_session_key
 from nanobot.webui.transcript import append_session_message_input
 
 WEBUI_SESSION_METADATA_KEY = "webui"
@@ -698,6 +698,15 @@ class WebuiTurnCoordinator:
 
     async def _handle_turn_completed_event(self, event: TurnCompleted) -> None:
         if not self._is_websocket_event(event.context):
+            if event.context.session_key.startswith("unified:"):
+                await self.bus.publish_outbound(
+                    outbound_message_for_event(
+                        channel="websocket",
+                        chat_id=DESKTOP_CHAT_ID,
+                        event=SessionUpdatedEvent(scope="thread"),
+                        metadata={"webui": True},
+                    )
+                )
             return
         msg = self._ctx_msg(event.context)
         await self.handle_turn_end(
