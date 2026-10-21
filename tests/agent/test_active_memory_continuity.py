@@ -22,6 +22,11 @@ def note(root, date="2026-01-01", body="星海的角色月白登场。", summary
     return str(path)
 
 
+def _discard_schedule(coro):
+    """测试用 schedule：模拟 schedule_background 丢弃任务，close 未执行协程。"""
+    coro.close()
+
+
 def card(root, topic="星海", **extra):
     data = {"schema_version": memory.TOPIC_CARD_SCHEMA_VERSION, "topic": topic, "aliases": [], "summary": "旧摘要",
             "related_entities": [], **extra}
@@ -223,24 +228,21 @@ async def test_source_change_during_generation_does_not_replace(tmp_path):
 async def test_generation_failure_single_flight_and_persistent_cooldown(tmp_path):
     filename = note(tmp_path)
     fp = memory._topic_fingerprint([filename], ("星海",), str(tmp_path))
-    scheduled = []
     model = AsyncMock(side_effect=RuntimeError("offline"))
     hook = memory.ActiveMemoryHook(str(tmp_path), tmp_path)
-    hook.configure_topic_summary(model, scheduled.append)
+    hook.configure_topic_summary(model, _discard_schedule)
     hook._maybe_schedule_topic_card("星海", [filename], fp, request_id="test")
     hook._maybe_schedule_topic_card("星海", [filename], fp)
-    assert not scheduled
-    await hook.on_finally(AgentRunHookContext(messages=[]))
-    assert len(scheduled) == 1
-    await scheduled.pop()
+    dirty = hook._topic_dir / "dirty"
+    assert len(list(dirty.glob("*.json"))) == 1  # 同指纹幂等
+    await hook.process_dirty_topics()  # 生成失败 → retry cooldown 写入
     fresh = memory.ActiveMemoryHook(str(tmp_path), tmp_path)
-    fresh.configure_topic_summary(model, scheduled.append)
+    fresh.configure_topic_summary(model, _discard_schedule)
     fresh._maybe_schedule_topic_card("星海", [filename], fp)
-    await fresh.on_finally(AgentRunHookContext(messages=[]))
-    assert not scheduled
+    await fresh.process_dirty_topics()  # retry_cooldown → 跳过
     assert model.await_count == 1
     assert memory._load_topic_decision(hook._topic_dir, "星海", fp) is None
-    logs = [json.loads(line) for line in hook._log_path.read_text(encoding="utf-8").splitlines()]
+    logs = [json.loads(line) for line in hook._topic_log_path.read_text(encoding="utf-8").splitlines()]
     assert any(x.get("reason") == "retry_cooldown" for x in logs)
     assert all(x.get("timestamp") and x.get("rule_version") for x in logs)
 
@@ -248,20 +250,21 @@ async def test_generation_failure_single_flight_and_persistent_cooldown(tmp_path
 async def test_rejection_rechecks_only_changed_evidence(tmp_path):
     filename = note(tmp_path)
     fp = memory._topic_fingerprint([filename], ("星海",), str(tmp_path))
-    scheduled = []
     model = AsyncMock(return_value='{"action":"no_save","reason":"证据不足"}')
     hook = memory.ActiveMemoryHook(str(tmp_path), tmp_path)
-    hook.configure_topic_summary(model, scheduled.append)
+    hook.configure_topic_summary(model, _discard_schedule)
     hook._maybe_schedule_topic_card("星海", [filename], fp)
-    await hook.on_finally(AgentRunHookContext(messages=[]))
-    await scheduled.pop()
+    await hook.process_dirty_topics()  # 判定 no_save 并落盘缓存
+    assert model.await_count == 1
     hook._maybe_schedule_topic_card("星海", [filename], fp)
-    assert not hook._pending_topic_cards
+    await hook.process_dirty_topics()  # 同指纹：decision 缓存命中，不再调模型
+    assert model.await_count == 1
     Path(filename).write_text(Path(filename).read_text(encoding="utf-8") + "\n星海后续新增阶段。", encoding="utf-8")
     new_fp = memory._topic_fingerprint([filename], ("星海",), str(tmp_path))
     hook._maybe_schedule_topic_card("星海", [filename], new_fp)
-    assert hook._pending_topic_cards
-    assert memory._load_topic_decision(hook._topic_dir, "星海", new_fp) is None
+    await hook.process_dirty_topics()  # 新指纹 → 重新判定
+    assert model.await_count == 2
+    assert memory._load_topic_decision(hook._topic_dir, "星海", new_fp)["action"] == "no_save"
 
 
 async def test_successful_upgrade_does_not_rebuild_unchanged_evidence(tmp_path):
@@ -270,14 +273,13 @@ async def test_successful_upgrade_does_not_rebuild_unchanged_evidence(tmp_path):
     topics = tmp_path / "memory/active_memory_topics"
     card(topics, schema_version=5)
     model = AsyncMock(return_value='{"topic":"星海","summary":"新摘要"}')
-    scheduled = []
     hook = memory.ActiveMemoryHook(str(tmp_path), tmp_path)
-    hook.configure_topic_summary(model, scheduled.append)
+    hook.configure_topic_summary(model, _discard_schedule)
     hook._maybe_schedule_topic_card("星海", [filename], fp)
-    await hook.on_finally(AgentRunHookContext(messages=[]))
-    await scheduled.pop()
+    await hook.process_dirty_topics()  # 升级旧卡
+    assert model.await_count == 1
     hook._maybe_schedule_topic_card("星海", [filename], fp)
-    assert not hook._pending_topic_cards
+    await hook.process_dirty_topics()  # 卡与指纹一致 → unchanged_evidence 跳过
     assert model.await_count == 1
 
 
@@ -313,7 +315,7 @@ async def test_invalid_query_leaves_current_conversation_intact(tmp_path, monkey
     before = [dict(m) for m in messages]
     await hook.before_iteration(AgentHookContext(iteration=0, messages=messages))
     assert messages == before
-    assert not hook._pending_topic_cards
+    assert not (hook._topic_dir / "dirty").exists() or not list((hook._topic_dir / "dirty").glob("*.json"))
 
 
 
@@ -450,21 +452,21 @@ async def test_no_save_cache_invalidates_when_index_changes(tmp_path):
     filename = note(tmp_path)
     fp = memory._topic_fingerprint([filename], ('星海',), str(tmp_path))
     hook = memory.ActiveMemoryHook(str(tmp_path), tmp_path)
-    scheduled = []
     model = AsyncMock(return_value='{"action":"no_save","reason":"证据不足"}')
-    hook.configure_topic_summary(model, scheduled.append)
+    hook.configure_topic_summary(model, _discard_schedule)
     hook._maybe_schedule_topic_card('星海', [filename], fp)
-    await hook.on_finally(AgentRunHookContext(messages=[]))
-    await scheduled.pop()
+    await hook.process_dirty_topics()
     saved = memory._load_topic_decision(hook._topic_dir, '星海', fp)
     assert saved['action'] == 'no_save'
     assert saved['reason'] == '证据不足'
     hook._maybe_schedule_topic_card('星海', [filename], fp)
-    assert not hook._pending_topic_cards
+    await hook.process_dirty_topics()  # 同指纹：decision 缓存命中
+    assert model.await_count == 1
     card(hook._topic_dir, '新主题')
     assert memory._load_topic_decision(hook._topic_dir, '星海', fp) is None
     hook._maybe_schedule_topic_card('星海', [filename], fp)
-    assert hook._pending_topic_cards
+    await hook.process_dirty_topics()  # index 变化 → 重新判定
+    assert model.await_count == 2
 
 
 @pytest.mark.parametrize('action, candidate, body', [
@@ -479,11 +481,9 @@ async def test_review_attaches_verified_name_without_new_card(tmp_path, action, 
     response = {'action':action, 'reason':'证据确认归属', 'target':'星海',
                 'relation':'专属角色', 'evidence':[{'path':Path(filename).name, 'quote':body}]}
     model = AsyncMock(return_value=json.dumps(response, ensure_ascii=False))
-    scheduled = []
-    hook.configure_topic_summary(model, scheduled.append)
+    hook.configure_topic_summary(model, _discard_schedule)
     hook._maybe_schedule_topic_card(candidate, [filename], fp)
-    await hook.on_finally(AgentRunHookContext(messages=[]))
-    await scheduled.pop()
+    await hook.process_dirty_topics()
     assert model.await_count == 1
     prompt = model.call_args.args[0]
     assert '已有卡片索引' in prompt and '旧摘要' in prompt
@@ -507,11 +507,9 @@ async def test_new_topic_review_builds_independent_card(tmp_path):
     fp = memory._topic_fingerprint([filename], ('星海',), str(tmp_path))
     model = AsyncMock(side_effect=['{"action":"new","reason":"独立作品"}',
                                   '{"topic":"星海","summary":"新作品脉络"}'])
-    scheduled=[]
-    hook.configure_topic_summary(model,scheduled.append)
+    hook.configure_topic_summary(model, _discard_schedule)
     hook._maybe_schedule_topic_card('星海',[filename],fp)
-    await hook.on_finally(AgentRunHookContext(messages=[]))
-    await scheduled.pop()
+    await hook.process_dirty_topics()
     assert model.await_count == 2
     prompt = model.call_args_list[0].args[0]
     assert '候选词是否值得进入长期主题卡' in prompt
@@ -553,11 +551,9 @@ async def test_index_change_during_review_does_not_cache_or_attach(tmp_path):
     async def model(prompt):
         card(hook._topic_dir,'新增主题')
         return '{"action":"no_save","reason":"旧索引下的判断"}'
-    scheduled=[]
-    hook.configure_topic_summary(model,scheduled.append)
+    hook.configure_topic_summary(model, _discard_schedule)
     hook._maybe_schedule_topic_card('星海',[filename],fp)
-    await hook.on_finally(AgentRunHookContext(messages=[]))
-    await scheduled.pop()
+    await hook.process_dirty_topics()
     assert not memory._topic_decision_path(hook._topic_dir,'星海').exists()
     assert not memory._topic_path(hook._topic_dir,'星海').exists()
 
@@ -634,11 +630,9 @@ async def test_legacy_parent_upgrades_before_candidate_is_attached(tmp_path,acti
     review=json.dumps({'action':action,'target':'星海','reason':'原文明确','relation':'角色',
                        'evidence':[{'path':Path(files[0]).name,'quote':body}]},ensure_ascii=False)
     model=AsyncMock(side_effect=[review,'{"topic":"星海","summary":"完整父主题历史"}',review])
-    scheduled=[]
-    hook.configure_topic_summary(model,scheduled.append)
+    hook.configure_topic_summary(model, _discard_schedule)
     hook._maybe_schedule_topic_card(candidate,files,fp)
-    await hook.on_finally(AgentRunHookContext(messages=[]))
-    await scheduled.pop()
+    await hook.process_dirty_topics()
     assert model.await_count==3
     assert Path(old).name in model.call_args_list[1].args[0]
     saved=memory._find_topic_card(hook._topic_dir,candidate.split())
@@ -657,11 +651,9 @@ async def test_failed_legacy_upgrade_preserves_old_card_and_does_not_cache_link(
         'action':'entity','target':'星海','reason':'原文明确','relation':'角色',
         'evidence':[{'path':Path(filename).name,'quote':'月白是星海的角色。'}],
     },ensure_ascii=False),RuntimeError('upgrade unavailable')])
-    scheduled=[]
-    hook.configure_topic_summary(model,scheduled.append)
+    hook.configure_topic_summary(model, _discard_schedule)
     hook._maybe_schedule_topic_card('月白',[filename],fp)
-    await hook.on_finally(AgentRunHookContext(messages=[]))
-    await scheduled.pop()
+    await hook.process_dirty_topics()
     assert json.loads(memory._topic_path(hook._topic_dir,'星海').read_text(encoding="utf-8"))==original
     assert not memory._topic_decision_path(hook._topic_dir,'月白').exists()
 
@@ -684,7 +676,8 @@ async def test_corrupt_diary_keeps_healthy_hits_without_scheduling_rebuild(tmp_p
     assert '2026-01-02' in message['content']
     await hook.on_finally(AgentRunHookContext(messages=[]))
     assert message['content'] == '继续说说星海的故事'
-    assert not scheduled
+    # 来源不完整不触发主题卡调度：无 dirty 标记产生
+    assert not (hook._topic_dir / 'dirty').exists() or not list((hook._topic_dir / 'dirty').glob('*.json'))
 
 
 

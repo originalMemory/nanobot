@@ -4,6 +4,9 @@
 grep 搜日记，把结果注入上下文。
 """
 
+# 每日定时批处理在模块级函数中访问 hook 的 _log_path 是既有约定。
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import asyncio
@@ -68,6 +71,9 @@ def _strings(value: Any) -> list[str]:
 OLLAMA_URL = "http://192.168.31.73:11434/api/chat"
 OLLAMA_MODEL = "active-memory:1.7b"
 OLLAMA_TIMEOUT = 6.0
+# 上下文预算：长对话/长转述会超出 1024 导致 Ollama 直接 400 拒绝；
+# 1.7b 模型 context_length 上限 40960，4096 足够覆盖日常长消息且不会拖慢推理。
+OLLAMA_NUM_CTX = 4096
 MAX_RESULTS = 10
 RECENT_RESULTS_WITHOUT_CARD = 6
 HISTORICAL_RESULTS_WITHOUT_CARD = 4
@@ -78,6 +84,17 @@ TOPIC_RETRY_SECONDS = 3600
 RECALL_RULE_VERSION = 2
 TOPIC_DECISION_SAMPLE_SIZE = 16
 ACTIVE_MEMORY_LOG_MAX_BYTES = 5 * 1024 * 1024
+# 泛化词/结构词预筛：这类词即使每天匹配新日记也注定 no_save
+# （主题卡决策日志 source_count TOP 且 100% no_save），送审前直接拦截，
+# 不计算 fingerprint、不送主模型判定。词表可随 no_save 决策统计扩充；
+# 预筛只针对候选主题词，不影响普通片段召回。
+GENERIC_TOPIC_TERMS = frozenset({
+    "本", "中午", "味道", "公司", "运动", "小说", "游戏", "号",
+    "webp", "百度", "pc", "截图", "食堂", "医院", "手术", "流水账",
+})
+# 主题卡批量处理的懒触发间隔：dirty 非空且距上次批量超过该时长才调度一次
+# 单次批处理（不注册常驻定时器，避免阻塞 shutdown 的 gather）。
+_TOPIC_MAINTENANCE_INTERVAL = 24 * 3600
 
 SHANGHAI = timezone(timedelta(hours=8))
 
@@ -93,10 +110,13 @@ class ActiveMemoryHook(AgentHook):
     def __init__(
         self, diary_root: str = "", workspace: str | Path | None = None,
         *, topic_lock: asyncio.Lock | None = None, topic_tasks: set[str] | None = None,
+        batch_running: list[bool] | None = None,
     ) -> None:
         super().__init__()
         self._diary_root = str(Path(diary_root).expanduser().resolve()) if diary_root else ""
         self._log_path = Path(workspace) / "memory" / "active_memory.jsonl" if workspace else None
+        # 主题卡后台事件独立日志，避免与请求级流水混写。
+        self._topic_log_path = Path(workspace) / "memory" / "topic_cards.jsonl" if workspace else None
         self._topic_dir = Path(workspace) / "memory" / "active_memory_topics" if workspace else None
         if workspace and self._topic_dir and not self._topic_dir.resolve().is_relative_to(Path(workspace).resolve()):
             raise ValueError("主题卡目录必须位于工作区内")
@@ -104,7 +124,8 @@ class ActiveMemoryHook(AgentHook):
         self._schedule: Callable[[Coroutine[Any, Any, None]], None] | None = None
         self._topic_tasks = topic_tasks if topic_tasks is not None else set[str]()
         self._topic_lock = topic_lock if topic_lock is not None else asyncio.Lock()
-        self._pending_topic_cards: dict[str, tuple[str, list[str], str, str]] = {}
+        # 共享批量单飞标志：同一工作区的多个 hook 实例只允许一个批处理在跑。
+        self._batch_running = batch_running if batch_running is not None else [False]
         self._injected_message: dict[str, Any] | None = None
         self._original_content: Any = None
 
@@ -146,10 +167,16 @@ class ActiveMemoryHook(AgentHook):
             )
         except asyncio.TimeoutError:
             log_entry["action"] = "skip_timeout"
+            log_entry["error"] = "asyncio.TimeoutError"
+            log_entry["error_detail"] = (
+                f"ollama call exceeded {OLLAMA_TIMEOUT:.0f}s timeout; "
+                f"text chars={len(text)}"
+            )
             _log(self._log_path, log_entry, int((time.monotonic() - t_start) * 1000), 0)
             return
-        except Exception:
+        except Exception as exc:
             log_entry["action"] = "skip_error"
+            log_entry["error"] = f"{type(exc).__name__}: {exc}"
             _log(self._log_path, log_entry, int((time.monotonic() - t_start) * 1000), 0)
             return
 
@@ -182,6 +209,7 @@ class ActiveMemoryHook(AgentHook):
         log_entry["topic"] = search.topic
         log_entry["source_complete"] = search.source_complete
         log_entry["excluded_file_count"] = search.excluded_file_count
+        log_entry["prefiltered_generic"] = search.prefiltered_generic or []
         log_entry["match_kind"] = (search.topic_card or {}).get("_match_kind")
         log_entry["topic_card"] = "hit" if search.topic_card else "miss"
 
@@ -222,7 +250,7 @@ class ActiveMemoryHook(AgentHook):
                 "think": False,
                 "options": {
                     "temperature": 0,
-                    "num_ctx": 1024,
+                    "num_ctx": OLLAMA_NUM_CTX,
                     "num_predict": 30,
                     "seed": 42,
                 },
@@ -238,49 +266,78 @@ class ActiveMemoryHook(AgentHook):
             return value.strip().replace("\n", " ")
 
     async def on_finally(self, context: AgentRunHookContext) -> None:
-        """当前回复结束后再启动摘要，避免与用户请求争用主模型。"""
+        """回合结束后恢复注入前的原始消息内容（注入不写入会话历史）。"""
         if self._injected_message is not None:
             self._injected_message["content"] = self._original_content
             self._injected_message = None
-        pending = list(self._pending_topic_cards.values())
-        self._pending_topic_cards.clear()
-        if context.exception is not None or context.error:
-            return
-        for topic, files, fingerprint, request_id in pending:
-            self._schedule_topic_card(topic, files, fingerprint, request_id)
 
     def _maybe_schedule_topic_card(
         self, topic: str, files: list[str], fingerprint: str, *, request_id: str = "",
     ) -> None:
-        if not self._topic_dir or not self._summarize or not self._schedule or not fingerprint:
+        """命中候选只落 dirty 标记，不即时调度；每日定时批量处理。"""
+        if not self._topic_dir or not fingerprint:
             return
-        card = _find_topic_card(self._topic_dir, [topic])
-        decision = _load_topic_decision(self._topic_dir, topic, fingerprint)
-        reason = ""
-        if not card and decision and decision["action"] == "no_save":
-            reason = "cached_no_save"
-        elif (card and card.get("schema_version") == TOPIC_CARD_SCHEMA_VERSION
-              and card.get("fingerprint") == fingerprint):
-            reason = "unchanged_evidence"
-        retry = _read_json(self._topic_dir / "retries" / f"{_topic_key(topic)}.json") or {}
-        if (retry.get("fingerprint") == fingerprint
-                and retry.get("schema_version") == TOPIC_DECISION_SCHEMA_VERSION
-                and retry.get("index_fingerprint") == _topic_index_fingerprint(_topic_index(self._topic_dir))
-                and isinstance(retry.get("retry_after"), (int, float))
-                and retry["retry_after"] > time.time()):
-            reason = "retry_cooldown"
+        if topic in GENERIC_TOPIC_TERMS:
+            _log(self._topic_log_path, {"action": "topic_card_skipped", "topic": topic,
+                 "reason": "prefiltered_generic", "request_id": request_id}, 0, 0)
+            return
         key = _topic_key(topic)
-        if key in self._topic_tasks or key in self._pending_topic_cards:
-            reason = "single_flight"
-        if reason:
-            _log(self._log_path, {"action": "topic_card_skipped", "topic": topic,
-                 "reason": reason, "request_id": request_id}, 0, 0)
+        dirty_path = self._topic_dir / "dirty" / f"{key}.json"
+        existing = _read_json(dirty_path) or {}
+        if existing.get("fingerprint") == fingerprint:
+            return  # 同指纹已标记，幂等
+        _write_json(dirty_path, {
+            "schema_version": TOPIC_CARD_SCHEMA_VERSION,
+            "topic": topic, "fingerprint": fingerprint, "files": sorted(files),
+            "request_id": request_id, "created_at": datetime.now(SHANGHAI).isoformat(),
+        })
+        _log(self._topic_log_path, {"action": "topic_card_dirty", "topic": topic,
+             "source_count": len(files), "fingerprint": fingerprint,
+             "request_id": request_id}, 0, 0)
+        self._maybe_trigger_batch()
+
+    def _maybe_trigger_batch(self) -> None:
+        """懒触发批量：dirty 非空且距上次批量 ≥ 间隔时，调度一次单次批处理。
+
+        不注册常驻定时器：单次任务跑完即结束，不会阻塞 shutdown 的 gather；
+        无对话的日子不产生 dirty，也就无需批量，天然与写入频率对齐。
+        """
+        if (not self._topic_dir or not self._summarize or not self._schedule
+                or self._batch_running[0]):
             return
-        self._pending_topic_cards[key] = (topic, files, fingerprint, request_id)
+        dirty_dir = self._topic_dir / "dirty"
+        if not dirty_dir.is_dir() or not any(dirty_dir.glob("*.json")):
+            return
+        stamp_path = self._topic_dir / "maintenance.stamp"
+        last: datetime | None = None
+        try:
+            last = datetime.fromisoformat(stamp_path.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            last = None
+        if last is not None and (datetime.now(SHANGHAI) - last).total_seconds() < _TOPIC_MAINTENANCE_INTERVAL:
+            return
+        self._batch_running[0] = True
+
+        async def run() -> None:
+            try:
+                stats = await self.process_dirty_topics()
+                _log(self._topic_log_path, {"action": "topic_card_maintenance", **stats}, 0, 0)
+            except Exception as exc:
+                _log(self._topic_log_path, {"action": "topic_card_maintenance",
+                                            "error": f"{type(exc).__name__}: {exc}"}, 0, 0)
+            finally:
+                try:
+                    stamp_path.write_text(datetime.now(SHANGHAI).isoformat(), encoding="utf-8")
+                except OSError:
+                    pass
+                self._batch_running[0] = False
+
+        self._schedule(run())
 
     def _schedule_topic_card(
         self, topic: str, files: list[str], fingerprint: str, request_id: str = "",
     ) -> None:
+        """即时调度入口（保留接口；常规路径已改为 dirty 标记 + 懒触发批量）。"""
         if not self._topic_dir or not self._summarize or not self._schedule:
             return
         key = _topic_key(topic)
@@ -288,107 +345,169 @@ class ActiveMemoryHook(AgentHook):
             return
         self._topic_tasks.add(key)
 
-        async def build() -> None:
-            assert self._topic_dir is not None and self._summarize is not None
-            started = time.monotonic()
-            entry = {"topic": topic, "request_id": request_id,
-                     "source_count": len(files), "fingerprint": fingerprint}
-            index_fingerprint = _topic_index_fingerprint(_topic_index(self._topic_dir))
-            try:
-                card = _find_topic_card(self._topic_dir, [topic])
-                # 后台排队期间来源可能更新；本次不生成过期证据的卡。
-                names = tuple(sorted(_topic_names(card))) if card else (topic,)
-                current = await asyncio.to_thread(
-                    _topic_fingerprint, files, names, self._diary_root,
-                )
-                if current != fingerprint:
-                    raise ValueError("source_changed_before_generation")
-                index = _topic_index(self._topic_dir)
-                index_fingerprint = _topic_index_fingerprint(index)
-                decision = _load_topic_decision(self._topic_dir, topic, fingerprint)
-                if not card and decision is None:
-                    for attempt in range(2):
-                        decision = await _assess_topic_candidate(
-                            topic=topic, files=files, summarize=self._summarize,
-                            index=index, diary_root=self._diary_root,
-                        )
-                        latest_files = await asyncio.to_thread(
-                            _topic_source_files, {"topic": topic}, self._diary_root,
-                        )
-                        latest_fp = await asyncio.to_thread(
-                            _topic_fingerprint, sorted(latest_files), (topic,), self._diary_root,
-                        )
-                        if set(files) != latest_files or latest_fp != fingerprint:
-                            raise ValueError("source_changed_during_review")
-                        if _topic_index_fingerprint(_topic_index(self._topic_dir)) != index_fingerprint:
-                            raise ValueError("topic_index_changed_during_review")
-                        if decision["action"] not in {"alias", "entity"}:
-                            break
-                        target = _read_json(_topic_path(self._topic_dir, decision["target"]))
-                        if not target:
-                            raise ValueError("topic_target_disappeared")
-                        if target.get("schema_version") == TOPIC_CARD_SCHEMA_VERSION:
-                            _attach_topic_candidate(self._topic_dir, topic, decision)
-                            break
-                        if attempt:
-                            raise ValueError("topic_target_needs_upgrade")
-                        parent_files = sorted(await asyncio.to_thread(
-                            _topic_source_files, target, self._diary_root,
-                        ))
-                        parent_fp = await asyncio.to_thread(
-                            _topic_fingerprint, parent_files,
-                            tuple(sorted(_topic_names(target))), self._diary_root,
-                        )
-                        upgraded = await _build_topic_card(
-                            topic=target["topic"], files=parent_files, fingerprint=parent_fp,
-                            topic_dir=self._topic_dir, summarize=self._summarize,
-                            diary_root=self._diary_root,
-                        )
-                        if not upgraded:
-                            raise ValueError("topic_target_upgrade_failed")
-                        index = _topic_index(self._topic_dir)
-                        index_fingerprint = _topic_index_fingerprint(index)
-                    assert decision is not None
-                    _write_topic_decision(
-                        self._topic_dir, topic, decision, fingerprint, index_fingerprint,
-                    )
-                if not card and decision and decision["action"] == "no_save":
-                    entry.update(action="topic_card_skipped", reason="no_save",
-                                 decision_reason=decision["reason"])
-                elif not card and decision and decision["action"] in {"alias", "entity"}:
-                    entry.update(action="topic_card_linked", reason=decision["action"],
-                                 target=decision["target"])
-                else:
-                    updated = await _build_topic_card(
-                        topic=topic, files=files, fingerprint=fingerprint,
-                        topic_dir=self._topic_dir, summarize=self._summarize,
-                        diary_root=self._diary_root,
-                    )
-                    if not updated:
-                        raise ValueError("invalid_card_or_changed_sources")
-                    entry.update(action="topic_card_updated",
-                                 reason="evidence_changed" if card else "new_topic")
-                (self._topic_dir / "retries" / f"{key}.json").unlink(missing_ok=True)
-            except Exception as exc:
-                entry.update(action="topic_card_error", reason=type(exc).__name__,
-                             error=str(exc)[:300])
-                _write_json(self._topic_dir / "retries" / f"{key}.json", {
-                    "schema_version": TOPIC_DECISION_SCHEMA_VERSION,
-                    "index_fingerprint": index_fingerprint,
-                    "fingerprint": fingerprint, "retry_after": time.time() + TOPIC_RETRY_SECONDS,
-                })
-            finally:
-                _log(self._log_path, entry, int((time.monotonic() - started) * 1000), 0)
-                self._topic_tasks.discard(key)
-
         async def serialized_build() -> None:
             try:
                 async with self._topic_lock:
-                    await build()
+                    await self._build_topic_task(
+                        topic, files, fingerprint, request_id,
+                    )
             finally:
                 self._topic_tasks.discard(key)
 
         self._schedule(serialized_build())
+
+    async def _build_topic_task(
+        self, topic: str, files: list[str], fingerprint: str, request_id: str = "",
+    ) -> None:
+        """单个主题的判定/建卡主体；调用方负责 _topic_tasks 登记与 lock。"""
+        assert self._topic_dir is not None and self._summarize is not None
+        key = _topic_key(topic)
+        started = time.monotonic()
+        entry = {"topic": topic, "request_id": request_id,
+                 "source_count": len(files), "fingerprint": fingerprint}
+        index_fingerprint = _topic_index_fingerprint(_topic_index(self._topic_dir))
+        try:
+            card = _find_topic_card(self._topic_dir, [topic])
+            # 失败冷却期内不重试（_maybe_schedule 不再即时检查，由批量入口承担）。
+            retry = _read_json(self._topic_dir / "retries" / f"{key}.json") or {}
+            if (retry.get("fingerprint") == fingerprint
+                    and retry.get("schema_version") == TOPIC_DECISION_SCHEMA_VERSION
+                    and retry.get("index_fingerprint") == _topic_index_fingerprint(_topic_index(self._topic_dir))
+                    and isinstance(retry.get("retry_after"), (int, float))
+                    and retry["retry_after"] > time.time()):
+                entry.update(action="topic_card_skipped", reason="retry_cooldown")
+                return
+            # 卡片与证据均未变化：无需重建。
+            if (card and card.get("schema_version") == TOPIC_CARD_SCHEMA_VERSION
+                    and card.get("fingerprint") == fingerprint):
+                entry.update(action="topic_card_skipped", reason="unchanged_evidence")
+                return
+            # 后台排队期间来源可能更新；本次不生成过期证据的卡。
+            names = tuple(sorted(_topic_names(card))) if card else (topic,)
+            current = await asyncio.to_thread(
+                _topic_fingerprint, files, names, self._diary_root,
+            )
+            if current != fingerprint:
+                raise ValueError("source_changed_before_generation")
+            index = _topic_index(self._topic_dir)
+            index_fingerprint = _topic_index_fingerprint(index)
+            decision = _load_topic_decision(self._topic_dir, topic, fingerprint)
+            if not card and decision is None:
+                for attempt in range(2):
+                    decision = await _assess_topic_candidate(
+                        topic=topic, files=files, summarize=self._summarize,
+                        index=index, diary_root=self._diary_root,
+                    )
+                    latest_files = await asyncio.to_thread(
+                        _topic_source_files, {"topic": topic}, self._diary_root,
+                    )
+                    latest_fp = await asyncio.to_thread(
+                        _topic_fingerprint, sorted(latest_files), (topic,), self._diary_root,
+                    )
+                    if set(files) != latest_files or latest_fp != fingerprint:
+                        raise ValueError("source_changed_during_review")
+                    if _topic_index_fingerprint(_topic_index(self._topic_dir)) != index_fingerprint:
+                        raise ValueError("topic_index_changed_during_review")
+                    if decision["action"] not in {"alias", "entity"}:
+                        break
+                    target = _read_json(_topic_path(self._topic_dir, decision["target"]))
+                    if not target:
+                        raise ValueError("topic_target_disappeared")
+                    if target.get("schema_version") == TOPIC_CARD_SCHEMA_VERSION:
+                        _attach_topic_candidate(self._topic_dir, topic, decision)
+                        break
+                    if attempt:
+                        raise ValueError("topic_target_needs_upgrade")
+                    parent_files = sorted(await asyncio.to_thread(
+                        _topic_source_files, target, self._diary_root,
+                    ))
+                    parent_fp = await asyncio.to_thread(
+                        _topic_fingerprint, parent_files,
+                        tuple(sorted(_topic_names(target))), self._diary_root,
+                    )
+                    upgraded = await _build_topic_card(
+                        topic=target["topic"], files=parent_files, fingerprint=parent_fp,
+                        topic_dir=self._topic_dir, summarize=self._summarize,
+                        diary_root=self._diary_root,
+                    )
+                    if not upgraded:
+                        raise ValueError("topic_target_upgrade_failed")
+                    index = _topic_index(self._topic_dir)
+                    index_fingerprint = _topic_index_fingerprint(index)
+                assert decision is not None
+                _write_topic_decision(
+                    self._topic_dir, topic, decision, fingerprint, index_fingerprint,
+                )
+            if not card and decision and decision["action"] == "no_save":
+                entry.update(action="topic_card_skipped", reason="no_save",
+                             decision_reason=decision["reason"])
+            elif not card and decision and decision["action"] in {"alias", "entity"}:
+                entry.update(action="topic_card_linked", reason=decision["action"],
+                             target=decision["target"])
+            else:
+                updated = await _build_topic_card(
+                    topic=topic, files=files, fingerprint=fingerprint,
+                    topic_dir=self._topic_dir, summarize=self._summarize,
+                    diary_root=self._diary_root,
+                )
+                if not updated:
+                    raise ValueError("invalid_card_or_changed_sources")
+                entry.update(action="topic_card_updated",
+                             reason="evidence_changed" if card else "new_topic")
+            (self._topic_dir / "retries" / f"{key}.json").unlink(missing_ok=True)
+        except Exception as exc:
+            entry.update(action="topic_card_error", reason=type(exc).__name__,
+                         error=str(exc)[:300])
+            _write_json(self._topic_dir / "retries" / f"{key}.json", {
+                "schema_version": TOPIC_DECISION_SCHEMA_VERSION,
+                "index_fingerprint": index_fingerprint,
+                "fingerprint": fingerprint, "retry_after": time.time() + TOPIC_RETRY_SECONDS,
+            })
+        finally:
+            _log(self._topic_log_path, entry, int((time.monotonic() - started) * 1000), 0)
+
+    async def process_dirty_topics(self) -> dict[str, int]:
+        """遍历 dirty 队列快照，逐个执行判定/建卡；供每日定时任务调用。
+
+        同一 key 由 _topic_tasks 保证不并发；处理完（无论成败）清理 dirty 标记，
+        失败路径由 retry cooldown 保护，不会在下次批量中无限重试。
+        """
+        if not self._topic_dir or not self._summarize:
+            return {"total": 0, "processed": 0, "failed": 0}
+        dirty_dir = self._topic_dir / "dirty"
+        if not dirty_dir.is_dir():
+            return {"total": 0, "processed": 0, "failed": 0}
+        snapshot = sorted(dirty_dir.glob("*.json"))
+        stats = {"total": len(snapshot), "processed": 0, "failed": 0}
+        for path in snapshot:
+            mark = _read_json(path)
+            if not mark or not isinstance(mark.get("topic"), str) or not mark.get("fingerprint"):
+                path.unlink(missing_ok=True)
+                continue
+            topic: str = mark["topic"]
+            fingerprint = str(mark["fingerprint"])
+            raw_files = mark.get("files")
+            files: list[str] = []
+            if isinstance(raw_files, list):
+                files = [f for f in cast(list[object], raw_files) if isinstance(f, str)]
+            key = _topic_key(topic)
+            if key in self._topic_tasks:
+                stats["failed"] += 1  # 并发冲突，保留标记下次再试
+                continue
+            self._topic_tasks.add(key)
+            try:
+                async with self._topic_lock:
+                    await self._build_topic_task(
+                        topic, files, fingerprint,
+                        request_id=str(mark.get("request_id") or ""),
+                    )
+                stats["processed"] += 1
+            except Exception:
+                stats["failed"] += 1
+            finally:
+                self._topic_tasks.discard(key)
+                path.unlink(missing_ok=True)
+        return stats
 
 
 def create_active_memory_hook_factory(agent: AgentLoop, config: Config) -> AgentTurnHookFactory | None:
@@ -399,6 +518,7 @@ def create_active_memory_hook_factory(agent: AgentLoop, config: Config) -> Agent
     # ponytail: 同实例串行写卡；多个 gateway 共用工作区时需跨进程锁。
     topic_lock = asyncio.Lock()
     topic_tasks: set[str] = set()
+    batch_running = [False]  # 共享批量单飞标志（懒触发，不注册常驻定时器）
 
     def factory(turn: AgentTurnHookContext) -> AgentHook | None:
         request = current_request_context()
@@ -411,7 +531,8 @@ def create_active_memory_hook_factory(agent: AgentLoop, config: Config) -> Agent
             return None
         runtime = request.runtime or agent.llm_runtime()
         hook = ActiveMemoryHook(config.diary_root, workspace,
-                                topic_lock=topic_lock, topic_tasks=topic_tasks)
+                                topic_lock=topic_lock, topic_tasks=topic_tasks,
+                                batch_running=batch_running)
 
         async def summarize(prompt: str) -> str:
             # 后台请求不继承用户轮次的路由上下文，也不注册工具。
@@ -455,6 +576,7 @@ class DiarySearchResult:
     topic_card: dict[str, Any] | None = None
     source_complete: bool = True
     excluded_file_count: int = 0
+    prefiltered_generic: list[str] | None = None
 
 
 def _search_diary(
@@ -468,6 +590,7 @@ def _search_diary(
     candidates: list[DiaryCandidate] = []
     complete = True
     excluded = 0
+    prefiltered: list[str] = []
     sets: list[set[str]] = []
     try:
         with ThreadPoolExecutor(max_workers=min(len(words), 5)) as executor:
@@ -532,6 +655,9 @@ def _search_diary(
             else:
                 for index in sorted(range(len(words)), key=lambda i: (len(sets[i]), i)):
                     paths = sets[index]
+                    if words[index] in GENERIC_TOPIC_TERMS:
+                        prefiltered.append(words[index])
+                        continue
                     if not _is_long_term_topic(paths):
                         continue
                     fp = _topic_fingerprint(sorted(paths), (words[index],), diary_root)
@@ -573,7 +699,7 @@ def _search_diary(
     return DiarySearchResult(
         hits=results, candidates=candidates, topic=topic, topic_files=topic_files,
         fingerprint=fingerprint, topic_card=topic_card, source_complete=complete,
-        excluded_file_count=excluded,
+        excluded_file_count=excluded, prefiltered_generic=prefiltered or None,
     )
 
 
@@ -808,12 +934,15 @@ def _topic_source_files(card: dict[str, Any], diary_root: str) -> set[str]:
 def _topic_card_source_paths(card: dict[str, Any], diary_root: str) -> set[str] | None:
     """Return stored card sources for deduplication, or None when unsafe."""
     raw = card.get("source_files")
-    if (not isinstance(raw, list) or not raw
-            or any(not isinstance(item, str) or not item.strip() for item in raw)):
+    if not isinstance(raw, list) or not raw:
+        return None
+    items = cast(list[object], raw)
+    if any(not isinstance(item, str) or not item.strip() for item in items):
         return None
     root = Path(diary_root).expanduser().resolve()
+    sources = [s for s in cast(list[object], raw) if isinstance(s, str) and s.strip()]
     paths: set[str] = set()
-    for source in cast(list[str], raw):
+    for source in sources:
         path = Path(source)
         if not path.is_absolute():
             path = root / path
@@ -1202,7 +1331,13 @@ def _numeric_alias_in_context(word: str, text: str, *, require_service: bool = F
 
 def _validate_keywords(raw: str, text: str, topic_dir: Path | None = None) -> tuple[str, list[str]]:
     """校验微调输出，防止序号、文件名和幻觉词扫描整本日记。"""
-    known = {name.casefold() for card in _load_topic_cards(topic_dir) for name in _topic_names(card)}
+    known = {
+        name.casefold()
+        for card in _load_topic_cards(topic_dir)
+        for name in (*_topic_names(card),
+                     *(str(e.get("name") or "") for e in _objects(card.get("related_entities"))))
+        if name
+    }
     accepted: list[str] = []
     rejected: list[str] = []
     # 已知数值服务名容易被微调模型当数字丢弃，只从明确业务语境补回。
@@ -1216,6 +1351,7 @@ def _validate_keywords(raw: str, text: str, topic_dir: Path | None = None) -> tu
         invalid = (
             len(word) > 80
             or key in {"第", "张", "个", "这个", "那个", "这些", "那些", "美照", "照片", "图片", "买菜"}
+            or (len(word) == 1 and key not in known)
             or any(c in word for c in ("/", "\\"))
             or re.search(r"\.(?:jpg|png|jpeg|webp|gif|mp4|pdf|jsonl?)$", key)
             or (re.fullmatch(r"(?:第)?[0-9一二三四五六七八九十]+(?:张|个|次)?", word)

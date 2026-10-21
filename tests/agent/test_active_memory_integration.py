@@ -60,7 +60,7 @@ async def test_from_config_recall_reaches_provider_but_not_saved_user_text(tmp_p
     assert "diary_search" not in loop.tools.tool_names
 
 
-async def test_turn_local_pending_and_shared_topic_single_flight(tmp_path, monkeypatch):
+async def test_shared_dirty_queue_and_single_flight_semantics(tmp_path, monkeypatch):
     config = configuration(tmp_path)
     loop = AgentLoop.from_config(config, provider=Provider(), tool_registry=ToolRegistry())
     factory = create_active_memory_hook_factory(loop, config)
@@ -69,7 +69,6 @@ async def test_turn_local_pending_and_shared_topic_single_flight(tmp_path, monke
     with request_context(RequestContext(channel="websocket", chat_id="desktop", original_user_text="星海很好玩")):
         first, second = factory(turn), factory(turn)
         assert isinstance(first, ActiveMemoryHook) and isinstance(second, ActiveMemoryHook)
-        assert first._pending_topic_cards is not second._pending_topic_cards
         assert first._topic_lock is second._topic_lock
         assert first._topic_tasks is second._topic_tasks
         assert factory(AgentTurnHookContext(workspace=tmp_path, ephemeral=True)) is None
@@ -77,14 +76,14 @@ async def test_turn_local_pending_and_shared_topic_single_flight(tmp_path, monke
         assert factory(AgentTurnHookContext(workspace=tmp_path, metadata={"_cron_trigger": {"job_id": "x"}})) is None
         for key in ("heartbeat", "dream:run", "cron:job", "system:check", "subagent:task"):
             assert factory(AgentTurnHookContext(workspace=tmp_path, channel="websocket", session_key=key)) is None
-    scheduled = []
-    for hook in (first, second):
-        hook.configure_topic_summary(AsyncMock(), scheduled.append)
-        hook._pending_topic_cards["test"] = ("星海", [], "fingerprint", "request")
-    await first.on_finally(AgentRunHookContext(messages=[]))
-    await second.on_finally(AgentRunHookContext(messages=[]))
-    assert len(scheduled) == 1
-    scheduled[0].close()
+    # dirty 队列按工作区共享：不同实例写同一标记，同指纹幂等
+    first._maybe_schedule_topic_card("星海", ["a.md"], "fingerprint")
+    second._maybe_schedule_topic_card("星海", ["a.md"], "fingerprint")
+    dirty_dir = tmp_path / "memory" / "active_memory_topics" / "dirty"
+    assert len(list(dirty_dir.glob("*.json"))) == 1
+    second._maybe_schedule_topic_card("星海", ["a.md", "b.md"], "fingerprint-2")
+    assert len(list(dirty_dir.glob("*.json"))) == 1  # 新指纹覆盖旧标记
+    assert json.loads(next(dirty_dir.glob("*.json")).read_text(encoding="utf-8"))["fingerprint"] == "fingerprint-2"
 
 
 async def test_keyword_failure_and_cancellation_leave_original_message(tmp_path, monkeypatch):
