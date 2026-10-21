@@ -593,9 +593,13 @@ class JsonlSessionStore:
                 "session storage must be outside the agent workspace; "
                 "move --config outside --workspace or choose a nested workspace directory"
             )
+        created = not root.exists()
         ensure_dir(root)
-        with suppress(OSError):
-            os.chmod(root, 0o700)
+        if created:
+            # Set a private default only for freshly created storage; never
+            # override permissions a user applied to an existing directory.
+            with suppress(OSError):
+                os.chmod(root, 0o700)
         self.workspace = canonical_workspace
         self._migration_lock = FileLock(
             str(root / ".workspace-migration.lock"),
