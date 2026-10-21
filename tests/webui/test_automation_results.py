@@ -202,7 +202,7 @@ async def test_bound_cron_delivers_one_final_message_with_voice_metadata() -> No
     assert records[-1]["status"] == "ok"
 
 
-@pytest.mark.parametrize("response", ["NO_REPLY", " no_reply\n"])
+@pytest.mark.parametrize("response", ["NO_REPLY", " no_reply\n", "All clear."])
 async def test_bound_cron_silent_response_is_recorded_without_delivery(response: str) -> None:
     delivered: list[OutboundMessage] = []
     records: list[dict[str, object]] = []

@@ -10,7 +10,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 from collections.abc import Awaitable, Callable, Coroutine
+from contextlib import suppress
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -26,6 +31,7 @@ from nanobot.agent.voice import VoiceService
 from nanobot.agent.voice_text import clean_for_tts, contains_kana, validate_language_tags
 from nanobot.llm_usage.context import llm_usage_source
 from nanobot.session.keys import UNIFIED_SESSION_KEY
+from nanobot.session.reply_visibility import is_silent_reply
 from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 from nanobot.webui.session_identity import DESKTOP_CHAT_ID
 
@@ -51,6 +57,43 @@ _TAG_PROMPT = (
     "中文片段用 [zh]...[/zh] 包裹，标签必须覆盖全部文本（不得有未标注残留），"
     "保持原文内容与顺序，只输出带标签的文本，不要解释。"
 )
+
+_VOICE_LOG_MAX_BYTES = 5 * 1024 * 1024
+_SHANGHAI = timezone(timedelta(hours=8))
+
+
+def _log_voice(
+    request: RequestContext,
+    turn_id: str,
+    mode: str,
+    *,
+    async_ms: int | None,
+    text_chars: int,
+    status: str,
+) -> None:
+    """Append bounded, content-free TTS evaluation metadata to the workspace log."""
+    if request.workspace is None:
+        return
+    path = Path(request.workspace) / "memory" / "voice_tts.jsonl"
+    entry = {
+        "timestamp": datetime.now(_SHANGHAI).isoformat(),
+        "turn_id": turn_id,
+        "message_id": request.message_id,
+        "mode": mode,
+        "async_ms": async_ms,
+        "text_chars": text_chars,
+        "status": status,
+    }
+    line = json.dumps(entry, ensure_ascii=False) + "\n"
+    with suppress(Exception):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size + len(line.encode("utf-8")) > _VOICE_LOG_MAX_BYTES:
+            archive = path.parent / "archive"
+            archive.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(_SHANGHAI).strftime("%Y%m%d-%H%M%S-%f")
+            path.replace(archive / f"voice_tts-{stamp}.jsonl")
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
 
 
 def _japanese_voice_configured(options: Any) -> bool:
@@ -83,7 +126,7 @@ class VoiceHook(AgentHook):
         if context.exception is not None or context.error:
             return  # 异常轮不播报
         content = (context.final_content or "").strip()
-        if not content:
+        if not content or is_silent_reply(content):
             return  # 空正文不播报
         request = current_request_context()
         if request is None:
@@ -102,7 +145,7 @@ class VoiceHook(AgentHook):
         tag_needed = contains_kana(cleaned) and _japanese_voice_configured(options)
         if len(cleaned) <= threshold_chars and not tag_needed:
             # 无假名短文：同步提交，语音与文字几乎同时送达（0 额外 LLM 请求）。
-            self._submit(request, turn_id, cleaned)
+            self._submit(request, turn_id, cleaned, mode="sync")
             return
         # 长文或含假名：占位挂载 + 后台（打标/摘要 → 提交），不阻塞 _save_turn。
         try:
@@ -111,7 +154,10 @@ class VoiceHook(AgentHook):
             logger.warning("VoiceHook: 语音不可用（turn={}，{}）", turn_id, exc)
             return
         request.attributes["voice"] = placeholder
-        self._schedule(self._build(request, turn_id, cleaned, tag_needed, threshold_chars))
+        mode = "async_summary_tag" if len(cleaned) > threshold_chars and tag_needed else (
+            "async_summary" if len(cleaned) > threshold_chars else "async_tag"
+        )
+        self._schedule(self._build(request, turn_id, cleaned, tag_needed, threshold_chars, mode))
 
     def _playback_chat_id(self, request: RequestContext) -> str | None:
         return (
@@ -120,7 +166,7 @@ class VoiceHook(AgentHook):
             else None
         )
 
-    def _submit(self, request: RequestContext, turn_id: str, text: str) -> None:
+    def _submit(self, request: RequestContext, turn_id: str, text: str, *, mode: str) -> None:
         try:
             audio = self._voice.submit(
                 request.chat_id, turn_id, text,
@@ -131,14 +177,18 @@ class VoiceHook(AgentHook):
             )
         except ValueError as exc:
             logger.warning("VoiceHook: 语音提交被拒（turn={}，{}）", turn_id, exc)
+            _log_voice(request, turn_id, mode, async_ms=None, text_chars=len(text), status="rejected")
             return  # 配置/文本问题：不朗读（对齐现状）
         request.attributes["voice"] = audio
+        _log_voice(request, turn_id, mode, async_ms=None, text_chars=len(text), status="submitted")
 
     def _build(
         self, request: RequestContext, turn_id: str, cleaned: str, tag_needed: bool,
-        threshold_chars: int,
+        threshold_chars: int, mode: str,
     ) -> Coroutine[Any, Any, None]:
         async def run() -> None:
+            started = time.monotonic()
+            text = ""
             try:
                 if len(cleaned) > threshold_chars:
                     instruction = (
@@ -149,23 +199,34 @@ class VoiceHook(AgentHook):
                 # 指令放 system、原文放 user，语义分离。
                 text = (await self._summarize(instruction, cleaned)).strip()
                 if not text:
+                    _log_voice(request, turn_id, mode, async_ms=int((time.monotonic() - started) * 1000), text_chars=0, status="empty")
                     self._voice.remove_voice_placeholder(request.session_key, turn_id)
                     return  # 空输出 → 不朗读
                 if tag_needed and ("[ja]" not in text or not validate_language_tags(text)):
+                    _log_voice(request, turn_id, mode, async_ms=int((time.monotonic() - started) * 1000), text_chars=len(text), status="invalid_tags")
                     self._voice.remove_voice_placeholder(request.session_key, turn_id)
                     return  # 打标失败（漏 ja 段或未标注残留）→ 不朗读
-                self._voice.submit(
-                    request.chat_id, turn_id, text,
-                    channel=request.channel,
-                    metadata=request.metadata,
-                    session_key=request.session_key,
-                    playback_chat_id=self._playback_chat_id(request),
-                )
+                try:
+                    self._voice.submit(
+                        request.chat_id, turn_id, text,
+                        channel=request.channel,
+                        metadata=request.metadata,
+                        session_key=request.session_key,
+                        playback_chat_id=self._playback_chat_id(request),
+                    )
+                except ValueError:
+                    raise
+                _log_voice(request, turn_id, mode, async_ms=int((time.monotonic() - started) * 1000), text_chars=len(text), status="submitted")
             except Exception as exc:
                 # 摘要/打标/提交失败 → 摘除占位、不朗读；不记录语音正文。
                 logger.warning(
                     "VoiceHook: 语音后台任务失败（turn={}，{}: {}）",
                     turn_id, type(exc).__name__, exc,
+                )
+                _log_voice(
+                    request, turn_id, mode,
+                    async_ms=int((time.monotonic() - started) * 1000),
+                    text_chars=len(text), status="failed",
                 )
                 self._voice.remove_voice_placeholder(request.session_key, turn_id)
 

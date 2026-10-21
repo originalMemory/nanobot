@@ -1,7 +1,10 @@
 """统一语音后处理 hook 测试：短文直读、长文后台、打标校验、失败不朗读。"""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from nanobot.agent.hook import AgentRunHookContext
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
@@ -39,11 +42,12 @@ def _voice_flat_legacy(ja: bool = False) -> SimpleNamespace:
     return voice
 
 
-def _request() -> RequestContext:
+def _request(workspace=None) -> RequestContext:
     return RequestContext(
         channel="websocket", chat_id="desktop",
-        metadata={"webui_turn_id": "turn-1"}, turn_id="turn-1",
+        message_id="message-1", metadata={"webui_turn_id": "turn-1"}, turn_id="turn-1",
         session_key="unified:default",
+        workspace=workspace,
     )
 
 
@@ -72,6 +76,25 @@ async def test_short_text_no_kana_submits_immediately():
     assert request.attributes["voice"]["audioId"] == "a1"
 
 
+async def test_voice_log_records_content_free_evaluation_fields(tmp_path):
+    voice = _voice()
+    hook, _, _ = _hook(voice)
+    request = _request(workspace=tmp_path)
+    token = bind_request_context(request)
+    try:
+        await hook.on_finally(_context("好的喵，晚上见"))
+    finally:
+        reset_request_context(token)
+    record = json.loads((tmp_path / "memory" / "voice_tts.jsonl").read_text(encoding="utf-8"))
+    assert record["turn_id"] == "turn-1"
+    assert record["message_id"] == "message-1"
+    assert record["mode"] == "sync"
+    assert record["async_ms"] is None
+    assert record["text_chars"] == len("好的喵，晚上见")
+    assert record["status"] == "submitted"
+    assert "好的喵" not in (tmp_path / "memory" / "voice_tts.jsonl").read_text(encoding="utf-8")
+
+
 async def test_long_text_schedules_summary_then_submits():
     voice = _voice()
     hook, summarize, scheduled = _hook(voice)
@@ -97,6 +120,18 @@ async def test_empty_content_not_voiced():
     token = bind_request_context(_request())
     try:
         await hook.on_finally(_context(""))
+    finally:
+        reset_request_context(token)
+    assert voice.submit.call_count == 0 and not scheduled
+
+
+@pytest.mark.parametrize("marker", ["NO_REPLY", " no_reply\n", "NO_REPLAY", "All clear."])
+async def test_silent_reply_marker_not_voiced(marker):
+    voice = _voice()
+    hook, _, scheduled = _hook(voice)
+    token = bind_request_context(_request())
+    try:
+        await hook.on_finally(_context(marker))
     finally:
         reset_request_context(token)
     assert voice.submit.call_count == 0 and not scheduled

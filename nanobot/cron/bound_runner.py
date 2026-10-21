@@ -19,6 +19,7 @@ from nanobot.cron.session_turns import (
 )
 from nanobot.cron.types import CronJob, CronRunResult
 from nanobot.cron.webui_metadata import cron_proactive_delivery_metadata
+from nanobot.session.reply_visibility import is_silent_reply
 from nanobot.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
@@ -147,7 +148,7 @@ async def run_bound_cron_job(
         response = resp.content if resp else ""
         if (
             resp is not None
-            and response.strip().upper() != "NO_REPLY"
+            and not is_silent_reply(response)
             and (response or resp.media)
         ):
             result_metadata = dict(metadata)
