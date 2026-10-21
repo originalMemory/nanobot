@@ -267,3 +267,63 @@ async def test_threshold_read_per_turn_from_config():
     await scheduled[0]
     assert voice.submit.call_count == 1
     assert summarize.await_args.args[0].startswith("你是语音播报摘要器")
+
+
+def _voice_with_heartbeat_session(delivered: bool = True, delivered_text: str = "问候：晚上好呀") -> SimpleNamespace:
+    voice = _voice()
+    messages: list[dict] = []
+    if delivered:
+        messages.append({
+            "role": "assistant", "_heartbeat_delivery_turn_id": "hb-turn-1",
+            "content": delivered_text,
+        })
+    voice.sessions = SimpleNamespace(get_or_create=lambda key: SimpleNamespace(messages=messages))
+    return voice
+
+
+def _heartbeat_request() -> RequestContext:
+    return RequestContext(
+        channel="websocket", chat_id="desktop",
+        message_id="message-1", metadata={"webui_turn_id": "hb-turn-1"},
+        turn_id="hb-turn-1", session_key="heartbeat",
+    )
+
+
+async def test_heartbeat_uses_delivered_content_not_final_narration():
+    # 心跳 internal run：final_content 是内部叙述，应播 message 工具投递的内容
+    voice = _voice_with_heartbeat_session(delivered_text="问候：晚上好呀")
+    hook, _, scheduled = _hook(voice)
+    token = bind_request_context(_heartbeat_request())
+    try:
+        await hook.on_finally(
+            _context("问候与三张图已通过 message 投递。当前会话无 tts 工具，语音跳过。")
+        )
+    finally:
+        reset_request_context(token)
+    assert voice.submit.call_count == 1
+    assert voice.submit.call_args.args[2] == "问候：晚上好呀"  # 播投递内容，不是内部叙述
+    assert not scheduled  # 短文同步路径
+
+
+async def test_heartbeat_without_delivery_skips():
+    # 心跳无需通知（无 message 投递记录）→ 不播内部叙述
+    voice = _voice_with_heartbeat_session(delivered=False)
+    hook, _, scheduled = _hook(voice)
+    token = bind_request_context(_heartbeat_request())
+    try:
+        await hook.on_finally(_context("当前无需通知用户"))
+    finally:
+        reset_request_context(token)
+    assert voice.submit.call_count == 0 and not scheduled
+
+
+async def test_heartbeat_empty_delivered_content_skips():
+    # 投递内容为空（有标记但无正文）→ 跳过，不播
+    voice = _voice_with_heartbeat_session(delivered=True, delivered_text="")
+    hook, _, scheduled = _hook(voice)
+    token = bind_request_context(_heartbeat_request())
+    try:
+        await hook.on_finally(_context("已投递空内容"))
+    finally:
+        reset_request_context(token)
+    assert voice.submit.call_count == 0 and not scheduled

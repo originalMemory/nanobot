@@ -30,7 +30,7 @@ from nanobot.agent.tools.context import RequestContext, current_request_context,
 from nanobot.agent.voice import VoiceService
 from nanobot.agent.voice_text import clean_for_tts, contains_kana, validate_language_tags
 from nanobot.llm_usage.context import llm_usage_source
-from nanobot.session.keys import UNIFIED_SESSION_KEY
+from nanobot.session.keys import UNIFIED_SESSION_KEY, session_key_for_channel
 from nanobot.session.reply_visibility import is_silent_reply
 from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 from nanobot.webui.session_identity import DESKTOP_CHAT_ID
@@ -60,6 +60,10 @@ _TAG_PROMPT = (
 
 _VOICE_LOG_MAX_BYTES = 5 * 1024 * 1024
 _SHANGHAI = timezone(timedelta(hours=8))
+
+# 心跳 message 工具投递内容写入目标 session 时的轮次标记，
+# 与 gateway_runtime._HEARTBEAT_DELIVERY_TURN_KEY 取值对齐。
+_HEARTBEAT_DELIVERY_TURN_KEY = "_heartbeat_delivery_turn_id"
 
 
 def _log_voice(
@@ -125,9 +129,6 @@ class VoiceHook(AgentHook):
     async def on_finally(self, context: AgentRunHookContext) -> None:
         if context.exception is not None or context.error:
             return  # 异常轮不播报
-        content = (context.final_content or "").strip()
-        if not content or is_silent_reply(content):
-            return  # 空正文不播报
         request = current_request_context()
         if request is None:
             return
@@ -138,6 +139,17 @@ class VoiceHook(AgentHook):
         if not options.enabled:
             return  # 实时读取：settings 面板关闭后本轮即停
         threshold_chars = options.threshold_chars
+        if request.session_key == "heartbeat":
+            # 心跳是 internal run：final_content 是内部叙述（不会投递给用户），
+            # 优先取 message 工具投递的内容播报；本次无需通知则跳过。
+            delivered = self._heartbeat_delivered_content(request, turn_id)
+            if delivered is None:
+                return  # 心跳无投递 → 不播内部叙述
+            content = delivered
+        else:
+            content = (context.final_content or "").strip()
+        if not content or is_silent_reply(content):
+            return  # 空正文/静默回复不播报
         cleaned = clean_for_tts(content)
         if not cleaned:
             return
@@ -165,6 +177,29 @@ class VoiceHook(AgentHook):
             if request.session_key == UNIFIED_SESSION_KEY and request.channel != "websocket"
             else None
         )
+
+    def _heartbeat_delivered_content(self, request: RequestContext, turn_id: str) -> str | None:
+        """心跳轮 message 工具投递的内容：落目标渠道 session 并带轮次标记。
+
+        无投递记录（本次心跳无需通知）返回 None——不播内部叙述。
+        """
+        sessions = self._voice.sessions
+        if sessions is None:
+            return None
+        config = self._voice.config.load()
+        key = session_key_for_channel(
+            request.channel, request.chat_id,
+            unified_session=config.agents.defaults.unified_session,
+        )
+        try:
+            session = sessions.get_or_create(key)
+        except Exception:
+            return None
+        for message in reversed(session.messages):
+            if message.get(_HEARTBEAT_DELIVERY_TURN_KEY) == turn_id:
+                content = message.get("content")
+                return str(content).strip() if isinstance(content, str) and content.strip() else None
+        return None
 
     def _submit(self, request: RequestContext, turn_id: str, text: str, *, mode: str) -> None:
         try:
