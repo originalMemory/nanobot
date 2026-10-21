@@ -5818,6 +5818,90 @@ def test_desktop_history_reads_unified_session_without_merging_old_transcripts(t
     assert gateway.http._handle_webui_thread_get(unauthorized, "websocket%3Adesktop").status_code == 401
 
 
+def test_unified_history_reasoning_shares_turn_id_and_source(tmp_path):
+    """外部渠道轮次的思考与正文必须同 turn，前端才能合并展示并带来源标签。"""
+    from nanobot.webui.transcript import build_session_thread_response
+
+    messages = [
+        {
+            "role": "user",
+            "content": "qq question",
+            "source_channel": "qq",
+            "source_chat_id": "21F8",
+            "timestamp": "2026-10-21T05:00:00+00:00",
+        },
+        {
+            "role": "assistant",
+            "content": "qq answer",
+            "reasoning_content": "qq thinking",
+            "source_channel": "qq",
+            "source_chat_id": "21F8",
+            "timestamp": "2026-10-21T05:00:01+00:00",
+        },
+    ]
+    data = build_session_thread_response("websocket:desktop", messages)
+    user_row = next(m for m in data["messages"] if m.get("role") == "user")
+    answer_row = next(
+        m
+        for m in data["messages"]
+        if m.get("role") == "assistant" and (m.get("content") or "").strip()
+    )
+    # Reasoning either merges into the answer row or lands on its own row;
+    # every assistant row of the turn must carry the same turnId and the
+    # channel source so the UI keeps one turn with a source badge.
+    assistant_turn_ids = {
+        m.get("turnId")
+        for m in data["messages"]
+        if m.get("role") == "assistant"
+    }
+    assert assistant_turn_ids == {user_row["turnId"]}
+    assert answer_row.get("reasoning") == "qq thinking"
+    assert answer_row.get("source") == {"kind": "channel", "label": "qq"}
+
+
+def test_unified_history_tool_rows_share_turn_id(tmp_path):
+    """外部渠道轮次的工具调用行也必须与正文同 turn，避免轮次被拆开。"""
+    from nanobot.webui.transcript import build_session_thread_response
+
+    messages = [
+        {
+            "role": "user",
+            "content": "qq question",
+            "source_channel": "qq",
+            "source_chat_id": "21F8",
+            "timestamp": "2026-10-21T05:00:00+00:00",
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "thinking",
+            "source_channel": "qq",
+            "source_chat_id": "21F8",
+            "timestamp": "2026-10-21T05:00:01+00:00",
+            "tool_calls": [
+                {"id": "c1", "function": {"name": "web_search", "arguments": "{\"q\": \"x\"}"}},
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "content": "result text",
+            "timestamp": "2026-10-21T05:00:02+00:00",
+        },
+        {
+            "role": "assistant",
+            "content": "final answer",
+            "source_channel": "qq",
+            "source_chat_id": "21F8",
+            "timestamp": "2026-10-21T05:00:03+00:00",
+        },
+    ]
+    data = build_session_thread_response("websocket:desktop", messages)
+    turn_ids = {m.get("turnId") for m in data["messages"]}
+    assert turn_ids == {"session:1"}
+    assert len([m for m in data["messages"] if m.get("kind") == "trace"]) == 1
+
+
 async def test_desktop_context_frames_require_registered_allowed_connection():
     channel = _ch(MessageBus(), allowFrom=["allowed"])
     connection = MagicMock()

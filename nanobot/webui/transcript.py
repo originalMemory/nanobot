@@ -3531,7 +3531,15 @@ def build_session_thread_response(
         elif role == "assistant":
             reasoning = message.get("reasoning_content") or message.get("reasoning")
             if isinstance(reasoning, str) and reasoning:
-                current.append({**base, "event": "message", "kind": "reasoning", "text": reasoning})
+                reasoning_row: dict[str, Any] = {
+                    **base,
+                    "event": "message",
+                    "kind": "reasoning",
+                    "text": reasoning,
+                }
+                if current_turn_id is not None:
+                    reasoning_row["turn_id"] = current_turn_id
+                current.append(reasoning_row)
             event = _session_assistant_event(session_key, visible)
             if event is not None:
                 if current_turn_id is not None:
@@ -3559,7 +3567,15 @@ def build_session_thread_response(
                 tool = {"call_id": call["id"], "name": fn["name"], "arguments": arguments, "phase": "start"}
                 projected = project_tool_events([tool])[0]
                 pending_tools[call["id"]] = projected
-                current.append({**base, "event": "message", "kind": "tool_hint", "tool_events": [projected]})
+                tool_row: dict[str, Any] = {
+                    **base,
+                    "event": "message",
+                    "kind": "tool_hint",
+                    "tool_events": [projected],
+                }
+                if current_turn_id is not None:
+                    tool_row["turn_id"] = current_turn_id
+                current.append(tool_row)
             if is_subagent_result:
                 subagent_boundary_pending = True
         elif role == "tool":
