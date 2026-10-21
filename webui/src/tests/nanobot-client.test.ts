@@ -1135,6 +1135,57 @@ describe("NanobotClient", () => {
     expect(client.hasUnsettledRun("chat-never-arrived")).toBe(false);
   });
 
+  it("keeps external canonical adoption working after a side-channel system command", async () => {
+    // Regression: side-channel system commands are registered as the queued
+    // turn by the gateway and acknowledged with an active_turn_id, but no
+    // goal_status/turn_end ever settles them. They must not leave a
+    // permanently unsettled run that blocks canonical history adoption for
+    // external-channel (e.g. QQ) turns arriving via session_updated.
+    const client = new NanobotClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    const socket = lastSocket();
+    socket.fakeOpen();
+    socket.fakeMessage({ event: "ready", chat_id: "desktop" });
+
+    const commandPromise = client.sendSystemCommand("desktop", "/models");
+    const sent = JSON.parse(socket.sent.at(-1) ?? "{}");
+    expect(sent.turn_id).toMatch(/^webui-system:/);
+    socket.fakeMessage({
+      event: "message_accepted",
+      chat_id: "desktop",
+      turn_id: sent.turn_id,
+      active_turn_id: sent.turn_id,
+      starts_turn: true,
+    });
+    // Side-channel reply: a message frame resolves the pending command, but
+    // the turn never receives a lifecycle completion.
+    socket.fakeMessage({
+      event: "message",
+      chat_id: "desktop",
+      turn_id: sent.turn_id,
+      text: "model list",
+    });
+    await commandPromise;
+
+    expect(client.hasUnsettledRun("desktop")).toBe(false);
+    expect(
+      client.canReconcileCanonicalCompletion(
+        "desktop",
+        client.getRunGeneration("desktop"),
+        ["websocket-own-turn-1"],
+        {
+          observedTurnIds: ["external-qq-turn-1"],
+          hasPendingToolCalls: false,
+          activeTurnId: null,
+        },
+      ),
+    ).toBe(true);
+  });
+
   it("keeps an ACK-lost observed turn active, then settles it from an idle snapshot", () => {
     const client = new NanobotClient({
       url: "ws://test",

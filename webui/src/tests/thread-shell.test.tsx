@@ -585,6 +585,50 @@ describe("ThreadShell", () => {
     Reflect.deleteProperty(window, "nanobotHost");
   });
 
+  it("shows external replies in the message list after session_updated refresh", async () => {
+    const client = makeClient();
+    const notifyIncoming = vi.fn().mockResolvedValue(undefined);
+    Reflect.set(window, "nanobotHost", { tray: { notifyIncoming } });
+    let historyCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes("websocket%3Adesktop-notify/webui-thread")) {
+        historyCalls += 1;
+        const messages = [
+          { role: "user" as const, content: "question" },
+          { role: "assistant" as const, content: "old answer" },
+          ...(historyCalls > 1 ? [
+            { role: "user" as const, content: "QQ question", turnId: "32c5ad2f" },
+            { role: "assistant" as const, content: "QQ reply", turnId: "32c5ad2f" },
+          ] : []),
+        ];
+        return Promise.resolve(httpJson(transcriptFromSimpleMessages(messages)));
+      }
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+    }));
+    render(wrap(client, <ThreadShell
+      session={session("desktop-notify")}
+      title="Desktop notify"
+      onToggleSidebar={() => {}}
+    />));
+    expect(await screen.findByText("old answer")).toBeInTheDocument();
+
+    act(() => {
+      client._emitSessionUpdate("desktop-notify", "thread", "external-turn-1");
+    });
+
+    // 推送路径与新历史同源；列表必须同样采纳外部轮次，否则用户只收到
+    // 通知、列表要等重启才可见。
+    await waitFor(() => {
+      expect(notifyIncoming).toHaveBeenCalledWith(
+        "external-turn-1",
+        { text: "QQ reply", hasMedia: false },
+      );
+    });
+    expect(await screen.findByText("QQ question")).toBeInTheDocument();
+    expect(await screen.findByText("QQ reply")).toBeInTheDocument();
+    Reflect.deleteProperty(window, "nanobotHost");
+  });
+
   it("surfaces and retries a deferred trace-detail request failure", async () => {
     const client = makeClient();
     let detailCalls = 0;

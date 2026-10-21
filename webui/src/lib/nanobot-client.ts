@@ -669,6 +669,15 @@ export class NanobotClient {
   ): void {
     const activeTurnId = ev.active_turn_id;
     if (!activeTurnId) return;
+    // Side-channel system commands never own an agent lifecycle: the gateway
+    // may register them as the queued turn while replying with control text,
+    // but no goal_status/turn_end ever settles them. Tracking them here would
+    // leave a permanently unsettled run that blocks canonical history
+    // adoption (e.g. external-channel turns arriving via session_updated).
+    if (isSystemCommandTurnId(activeTurnId)) {
+      if (ev.turn_id === activeTurnId) return;
+      if (isSystemCommandTurnId(ev.turn_id ?? null)) return;
+    }
 
     // Two clients can optimistically submit while the chat still looks idle.
     // The gateway admits exactly one owner and classifies the other message as
